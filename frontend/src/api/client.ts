@@ -5,10 +5,35 @@
  * 所有 API 调用通过此模块进行。
  */
 
+import type { ApiError } from '@/types'
+
 // ============================================================
 // 常量
 // ============================================================
-// const API_BASE = '/api'  // Vite proxy 会转发到后端
+const API_BASE = '/api'  // Vite proxy 会转发到后端
+
+
+// ============================================================
+// 错误解析
+// ============================================================
+
+/**
+ * 解析错误响应体，抛出结构化错误
+ */
+async function parseError(res: Response): Promise<never> {
+  let detail = res.statusText
+  let code = String(res.status)
+  try {
+    const body: ApiError = await res.json()
+    detail = body.detail || detail
+    code = body.code || code
+  } catch {
+    // 响应体不是 JSON，使用默认错误信息
+  }
+  const err = new Error(detail) as Error & { code: string }
+  err.code = code
+  throw err
+}
 
 
 // ============================================================
@@ -22,7 +47,11 @@
  * @returns 解析后的 JSON 响应
  * @throws ApiError 当响应状态码非 2xx
  */
-// async function get<T>(path: string): Promise<T>
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) await parseError(res)
+  return res.json() as Promise<T>
+}
 
 
 /**
@@ -32,7 +61,15 @@
  * @param body 请求体（会被 JSON 序列化）
  * @returns 解析后的 JSON 响应
  */
-// async function post<T>(path: string, body?: unknown): Promise<T>
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) await parseError(res)
+  return res.json() as Promise<T>
+}
 
 
 /**
@@ -42,7 +79,16 @@
  * @param file File 对象
  * @returns 解析后的 JSON 响应
  */
-// async function upload<T>(path: string, file: File): Promise<T>
+async function upload<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) await parseError(res)
+  return res.json() as Promise<T>
+}
 
 
 /**
@@ -51,4 +97,11 @@
  * @param path API 路径
  * @returns 解析后的 JSON 响应
  */
-// async function del<T>(path: string): Promise<T>
+async function del<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' })
+  if (!res.ok) await parseError(res)
+  return res.json() as Promise<T>
+}
+
+
+export { get, post, upload, del }

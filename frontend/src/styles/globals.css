@@ -7,66 +7,66 @@
 /* ============================================================
  * Tailwind 指令
  * ============================================================ */
-// @tailwind base;
-// @tailwind components;
-// @tailwind utilities;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* ============================================================
  * 自定义 CSS 变量
  * ============================================================ */
-// :root {
-//   --color-primary: #3b82f6;    /* blue-500 */
-//   --color-bg-dark: #030712;    /* gray-950 */
-//   --color-bg-card: #111827;    /* gray-900 */
-// }
+:root {
+  --color-primary: #3b82f6;    /* blue-500 */
+  --color-bg-dark: #030712;    /* gray-950 */
+  --color-bg-card: #111827;    /* gray-900 */
+}
 
 /* ============================================================
  * 深色主题基础
  * ============================================================ */
-// body {
-//   @apply bg-gray-950 text-gray-100;
-//   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-// }
+body {
+  @apply bg-gray-950 text-gray-100;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
 
 /* ============================================================
  * 滚动条样式
  * ============================================================ */
-// ::-webkit-scrollbar {
-//   width: 8px;
-//   height: 8px;
-// }
-// ::-webkit-scrollbar-track {
-//   @apply bg-gray-900;
-// }
-// ::-webkit-scrollbar-thumb {
-//   @apply bg-gray-700 rounded;
-// }
-// ::-webkit-scrollbar-thumb:hover {
-//   @apply bg-gray-600;
-// }
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-gray-900;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-700 rounded;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
 
 /* ============================================================
  * 卡片翻转动画（InterviewTab 用）
  * ============================================================ */
-// .flip-card { perspective: 1000px; }
-// .flip-card-inner {
-//   transition: transform 0.6s;
-//   transform-style: preserve-3d;
-// }
-// .flip-card.flipped .flip-card-inner {
-//   transform: rotateY(180deg);
-// }
-// .flip-card-front, .flip-card-back {
-//   backface-visibility: hidden;
-// }
-// .flip-card-back {
-//   transform: rotateY(180deg);
-// }
+.flip-card { perspective: 1000px; }
+.flip-card-inner {
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+}
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+.flip-card-front, .flip-card-back {
+  backface-visibility: hidden;
+}
+.flip-card-back {
+  transform: rotateY(180deg);
+}
 
 /* ============================================================
  * Mermaid 深色主题覆盖
  * ============================================================ */
-// .mermaid svg {
-//   max-width: 100%;
-//   height: auto;
-// }
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

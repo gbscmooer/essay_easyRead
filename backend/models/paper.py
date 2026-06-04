@@ -7,8 +7,7 @@ SQLModel 模型，映射到 SQLite 的 papers 表。
 
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import func
+from sqlmodel import SQLModel, Field
 
 
 class Paper(SQLModel, table=True):
@@ -38,14 +37,6 @@ class Paper(SQLModel, table=True):
     status: str = "pending"  # pending | extracting | analyzing | done | failed
     error_message: Optional[str] = None  # 失败时的错误信息
 
-    # 时间戳
-    # created_at: 仅在 INSERT 时设置
-    # updated_at: INSERT 和 UPDATE 时都自动设置（通过 SQLAlchemy onupdate）
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(server_default=func.now()),
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(server_default=func.now(), onupdate=func.now()),
-    )
+    # 时间戳 — 在 database.py 的 CRUD 中手动设置
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

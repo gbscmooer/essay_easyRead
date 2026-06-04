@@ -99,4 +99,37 @@ def extract_pdf_content(pdf_path: str) -> PDFContent:
         7. 不提取图片（图片由 AI 直接从 PDF 理解）
         8. 如果文本被截断，PDFContent.truncated=True
     """
-    ...
+    import fitz
+    import os
+
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        raise ValueError(f"Invalid PDF file: {e}")
+
+    try:
+        page_texts = []
+        for page in doc:
+            text = page.get_text("text")
+            page_texts.append(text)
+
+        full_text, truncated = _truncate_text(page_texts, MAX_CHARS)
+
+        metadata = {}
+        if doc.metadata:
+            for key, value in doc.metadata.items():
+                if value:
+                    metadata[key] = value
+
+        return PDFContent(
+            full_text=full_text,
+            page_texts=page_texts,
+            total_pages=len(doc),
+            metadata=metadata,
+            truncated=truncated,
+        )
+    finally:
+        doc.close()

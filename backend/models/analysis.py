@@ -8,7 +8,7 @@ Analysis 数据模型
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import JSON, func
+from sqlalchemy import JSON, ForeignKey, Integer
 
 
 # ============================================================
@@ -130,9 +130,11 @@ class AnalysisResult(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     paper_id: int = Field(
-        foreign_key="papers.id",
-        unique=True,
-        sa_column_kwargs={"ondelete": "CASCADE"},  # DB 层面级联删除
+        sa_column=Column(
+            Integer,
+            ForeignKey("papers.id", ondelete="CASCADE"),
+            unique=True,
+        ),
     )
 
     # 基本信息
@@ -172,12 +174,6 @@ class AnalysisResult(SQLModel, table=True):
     # Mermaid 流程图（基于 pipeline 自动生成）
     mermaid_chart: Optional[str] = None  # Mermaid 语法字符串
 
-    # 时间戳
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(server_default=func.now()),
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(server_default=func.now(), onupdate=func.now()),
-    )
+    # 时间戳 — 在 database.py 的 CRUD 中手动设置
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

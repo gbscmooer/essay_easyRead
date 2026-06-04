@@ -5,6 +5,7 @@
  */
 
 import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
+import { get, post, upload, del } from './client'
 
 
 /**
@@ -15,7 +16,9 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * POST /api/papers/upload (multipart/form-data)
  */
-// export async function uploadPaper(file: File): Promise<Paper>
+export async function uploadPaper(file: File): Promise<Paper> {
+  return upload<Paper>('/papers/upload', file)
+}
 
 
 /**
@@ -26,13 +29,24 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * GET /api/papers?search=...&venue=...&year=...&page=...&per_page=...
  */
-// export async function listPapers(params?: {
-//   search?: string
-//   venue?: string
-//   year?: number
-//   page?: number
-//   per_page?: number
-// }): Promise<PaperListResponse>
+export async function listPapers(params?: {
+  search?: string
+  venue?: string
+  year?: number
+  page?: number
+  per_page?: number
+}): Promise<PaperListResponse> {
+  const query = new URLSearchParams()
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value))
+      }
+    })
+  }
+  const qs = query.toString()
+  return get<PaperListResponse>(`/papers${qs ? `?${qs}` : ''}`)
+}
 
 
 /**
@@ -43,7 +57,9 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * GET /api/papers/{paperId}
  */
-// export async function getPaper(paperId: number): Promise<Paper>
+export async function getPaper(paperId: number): Promise<Paper> {
+  return get<Paper>(`/papers/${paperId}`)
+}
 
 
 /**
@@ -53,7 +69,9 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * DELETE /api/papers/{paperId}
  */
-// export async function deletePaper(paperId: number): Promise<void>
+export async function deletePaper(paperId: number): Promise<void> {
+  await del<unknown>(`/papers/${paperId}`)
+}
 
 
 /**
@@ -64,7 +82,9 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * GET /api/analysis/{paperId}
  */
-// export async function getAnalysis(paperId: number): Promise<AnalysisResult>
+export async function getAnalysis(paperId: number): Promise<AnalysisResult> {
+  return get<AnalysisResult>(`/analysis/${paperId}`)
+}
 
 
 /**
@@ -75,7 +95,20 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * GET /api/papers/{paperId}/export
  */
-// export async function exportPaper(paperId: number): Promise<string>
+export async function exportPaper(paperId: number): Promise<string> {
+  const res = await fetch(`/api/papers/${paperId}/export`)
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || detail
+    } catch {
+      // ignore
+    }
+    throw new Error(detail)
+  }
+  return res.text()
+}
 
 
 /**
@@ -86,4 +119,6 @@ import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
  *
  * POST /api/analysis/{paperId}/reparse
  */
-// export async function reparsePaper(paperId: number): Promise<Paper>
+export async function reparsePaper(paperId: number): Promise<Paper> {
+  return post<Paper>(`/analysis/${paperId}/reparse`)
+}

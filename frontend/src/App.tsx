@@ -11,3 +11,22 @@
  *   - 顶部导航栏（Logo + 导航链接）
  *   - 页面内容区
  */
+
+import { Routes, Route } from 'react-router-dom'
+import { Layout } from '@/components/Layout'
+import { HomePage } from '@/pages/HomePage'
+import { ReaderPage } from '@/pages/ReaderPage'
+import { LibraryPage } from '@/pages/LibraryPage'
+
+
+export default function App() {
+  return (
+    <Layout>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/reader/:id" element={<ReaderPage />} />
+        <Route path="/library" element={<LibraryPage />} />
+      </Routes>
+    </Layout>
+  )
+}

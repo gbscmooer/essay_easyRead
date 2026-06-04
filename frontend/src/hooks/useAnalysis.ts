@@ -8,7 +8,10 @@
  * uploadAndAnalyze 上传成功后 setState(activePaperId) 触发 SSE 连接。
  */
 
+import { useState, useEffect, useCallback } from 'react'
 import type { Paper, AnalysisResult, AnalysisStatus } from '@/types'
+import { uploadPaper, getPaper, getAnalysis, reparsePaper } from '@/api/papers'
+import { useStreaming } from './useStreaming'
 
 
 interface UseAnalysisReturn {
@@ -36,28 +39,90 @@ interface UseAnalysisReturn {
  *
  * @param initialPaperId 初始论文 ID（ReaderPage 加载已有论文时传入）
  * @returns 解析状态和操作方法
- *
- * 实现要点：
- * 1. 内部 state: activePaperId: number | null
- * 2. 顶层调用 useStreaming(activePaperId) — 永远在顶层，无条件
- * 3. uploadAndAnalyze(file):
- *    - 调用 uploadPaper(file) 上传
- *    - setState(activePaperId = paper.id) → 触发 useStreaming 连接
- * 4. reparse():
- *    - 调用 reparsePaper(activePaperId)
- *    - useStreaming 自动重连（key 变化或手动 reconnect）
- * 5. 初始加载：
- *    - initialPaperId 传入时直接 setState(activePaperId)
- *    - 如果 paper.status === 'done'，直接 fetch 完整结果
- *    - 否则 useStreaming 自动连接 SSE
- *
- * 使用示例：
- * ```tsx
- * // 新上传
- * const { uploadAndAnalyze, status, analysis } = useAnalysis()
- *
- * // 加载已有论文
- * const { status, analysis } = useAnalysis(paperId)
- * ```
  */
-// export function useAnalysis(initialPaperId?: number): UseAnalysisReturn
+export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
+  const [activePaperId, setActivePaperId] = useState<number | null>(initialPaperId ?? null)
+  const [paper, setPaper] = useState<Paper | null>(null)
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+
+  // 顶层无条件调用 useStreaming
+  const {
+    status: streamStatus,
+    partialResult,
+    error: streamError,
+    progressMessage,
+    reconnect,
+  } = useStreaming(activePaperId)
+
+  // 初始加载：如果传入 initialPaperId，加载论文信息
+  useEffect(() => {
+    if (initialPaperId === undefined) return
+
+    let cancelled = false
+    setActivePaperId(initialPaperId)
+
+    getPaper(initialPaperId).then(p => {
+      if (cancelled) return
+      setPaper(p)
+      // 如果已经完成，直接获取完整结果
+      if (p.status === 'done') {
+        getAnalysis(initialPaperId).then(result => {
+          if (!cancelled) setAnalysis(result)
+        }).catch(() => {
+          // 解析结果获取失败，SSE 会自动尝试
+        })
+      }
+    }).catch(() => {
+      // 论文加载失败
+    })
+
+    return () => { cancelled = true }
+  }, [initialPaperId])
+
+  // 当 SSE 完成时，获取完整结果
+  useEffect(() => {
+    if (streamStatus === 'done' && activePaperId !== null) {
+      getAnalysis(activePaperId).then(result => {
+        setAnalysis(result)
+      }).catch(() => {
+        // 获取失败，partialResult 已有数据
+      })
+    }
+  }, [streamStatus, activePaperId])
+
+  // 上传并开始解析
+  const uploadAndAnalyze = useCallback(async (file: File) => {
+    setAnalysis(null)
+    setPaper(null)
+    const uploaded = await uploadPaper(file)
+    setPaper(uploaded)
+    setActivePaperId(uploaded.id)
+  }, [])
+
+  // 重新解析
+  const reparse = useCallback(async () => {
+    if (activePaperId === null) return
+    setAnalysis(null)
+    const updated = await reparsePaper(activePaperId)
+    setPaper(updated)
+    reconnect()
+  }, [activePaperId, reconnect])
+
+  // 合并状态：优先使用 streamStatus，但如果 paper 已完成则为 done
+  const status: AnalysisStatus = paper?.status === 'done' && streamStatus === 'idle'
+    ? 'done'
+    : streamStatus
+
+  const error = streamError || paper?.error_message || null
+
+  return {
+    paper,
+    analysis,
+    status,
+    progressMessage,
+    partialResult,
+    error,
+    uploadAndAnalyze,
+    reparse,
+  }
+}

@@ -269,4 +269,45 @@ async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str
         3. 提取返回内容中的 Mermaid 代码块
         4. 验证语法基本正确性
     """
-    ...
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+    prompt = (
+        "请将以下论文 pipeline 描述转换为 Mermaid graph TD 流程图语法。\n"
+        "要求：\n"
+        "1. 使用 graph TD 方向\n"
+        "2. 节点用英文简写\n"
+        "3. 只输出 Mermaid 代码，不要包含 ```mermaid 标记或其他文字\n\n"
+        f"Pipeline 描述：\n{pipeline_text}"
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "你是一个专业的流程图生成助手。只输出 Mermaid 语法代码，不要包含任何其他文字或代码块标记。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # 提取可能包含的 mermaid 代码块
+        if "```mermaid" in content:
+            start = content.index("```mermaid") + len("```mermaid")
+            end = content.index("```", start)
+            content = content[start:end].strip()
+        elif "```" in content:
+            start = content.index("```") + 3
+            end = content.index("```", start)
+            content = content[start:end].strip()
+
+        # 验证基本语法正确性
+        if content.startswith("graph "):
+            return content
+        else:
+            return f"graph TD\n    {content}"
+    except Exception as e:
+        return f"graph TD\n    A[Pipeline] --> B[Error: {str(e)[:50]}]"

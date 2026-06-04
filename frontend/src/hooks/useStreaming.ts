@@ -9,7 +9,8 @@
  * 这样可以在 useAnalysis 顶层无条件调用此 hook。
  */
 
-import type { AnalysisResult, StreamEvent, AnalysisStatus } from '@/types'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import type { AnalysisResult, AnalysisStatus } from '@/types'
 
 
 interface UseStreamingReturn {
@@ -31,32 +32,138 @@ interface UseStreamingReturn {
  *
  * @param paperId 论文 ID，为 null 时不连接
  * @returns 解析状态和部分结果
- *
- * 实现要点：
- * 1. paperId 为 null → status='idle'，不建立连接
- * 2. paperId 变化 → useEffect 中：
- *    a. 创建 EventSource(GET /api/analysis/{paperId}/stream)
- *    b. 监听 status/field/done/error 四种事件
- *    c. status → 更新 progressMessage
- *    d. field → 根据 field_name 写入 partialResult
- *       - field_name="method" → data.value 对应 Method 类型
- *       - field_name="experiments" → data.value 对应 Experiments 类型
- *    e. done → status='done'
- *    f. error → status='failed' + error
- * 3. EventSource.onerror → 自动重连（最多 3 次，间隔 1s/2s/4s）
- * 4. 组件卸载或 paperId 变化 → 关闭 EventSource
- *
- * 使用示例：
- * ```tsx
- * // 在组件顶层无条件调用
- * const { status, partialResult, progressMessage } = useStreaming(paperId)
- *
- * if (status === 'analyzing') {
- *   return <ProgressBar message={progressMessage} />
- * }
- * if (partialResult.title) {
- *   // 可以提前展示已解析的字段
- * }
- * ```
  */
-// export function useStreaming(paperId: number | null): UseStreamingReturn
+export function useStreaming(paperId: number | null): UseStreamingReturn {
+  const [status, setStatus] = useState<AnalysisStatus>('idle')
+  const [partialResult, setPartialResult] = useState<Partial<AnalysisResult>>({})
+  const [error, setError] = useState<string | null>(null)
+  const [progressMessage, setProgressMessage] = useState('')
+
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const reconnectCountRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isUnmountedRef = useRef(false)
+
+  const cleanup = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
+  }, [])
+
+  const connect = useCallback(() => {
+    cleanup()
+
+    if (paperId === null) {
+      setStatus('idle')
+      setPartialResult({})
+      setError(null)
+      setProgressMessage('')
+      return
+    }
+
+    const es = new EventSource(`/api/analysis/${paperId}/stream`)
+    eventSourceRef.current = es
+
+    es.addEventListener('status', (e: MessageEvent) => {
+      if (isUnmountedRef.current) return
+      try {
+        const data = JSON.parse(e.data)
+        setStatus(data.status as AnalysisStatus)
+        setProgressMessage(data.message || '')
+      } catch {
+        // ignore parse errors
+      }
+    })
+
+    es.addEventListener('field', (e: MessageEvent) => {
+      if (isUnmountedRef.current) return
+      try {
+        const data = JSON.parse(e.data)
+        const fieldName = data.field_name as keyof AnalysisResult
+        const value = data.value
+        setPartialResult(prev => ({ ...prev, [fieldName]: value }))
+      } catch {
+        // ignore parse errors
+      }
+    })
+
+    es.addEventListener('done', () => {
+      if (isUnmountedRef.current) return
+      setStatus('done')
+      setProgressMessage('')
+      reconnectCountRef.current = 0
+      es.close()
+    })
+
+    es.addEventListener('error', (e: MessageEvent) => {
+      if (isUnmountedRef.current) return
+      try {
+        const data = JSON.parse(e.data)
+        setStatus('failed')
+        setError(data.detail || data.message || '分析失败')
+      } catch {
+        setStatus('failed')
+        setError('连接错误')
+      }
+      es.close()
+    })
+
+    es.onopen = () => {
+      reconnectCountRef.current = 0
+    }
+
+    es.onerror = () => {
+      if (isUnmountedRef.current) return
+      es.close()
+      eventSourceRef.current = null
+
+      // 自动重连（最多 3 次，间隔递增：1s, 2s, 4s）
+      if (reconnectCountRef.current < 3) {
+        const delay = Math.pow(2, reconnectCountRef.current) * 1000
+        reconnectCountRef.current += 1
+        reconnectTimerRef.current = setTimeout(() => {
+          if (!isUnmountedRef.current) {
+            connect()
+          }
+        }, delay)
+      } else {
+        setStatus('failed')
+        setError('连接中断，请刷新重试')
+      }
+    }
+  }, [paperId, cleanup])
+
+  const reconnect = useCallback(() => {
+    reconnectCountRef.current = 0
+    setError(null)
+    setStatus('idle')
+    connect()
+  }, [connect])
+
+  useEffect(() => {
+    isUnmountedRef.current = false
+    reconnectCountRef.current = 0
+    setPartialResult({})
+    setError(null)
+    setProgressMessage('')
+    connect()
+
+    return () => {
+      isUnmountedRef.current = true
+      cleanup()
+    }
+  }, [paperId, connect, cleanup])
+
+  return {
+    status,
+    partialResult,
+    error,
+    progressMessage,
+    reconnect,
+  }
+}

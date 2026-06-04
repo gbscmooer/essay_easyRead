@@ -26,3 +26,92 @@
  *   - 模块表格：table-auto, 条纹背景
  *   - 步骤列表：竖向时间线样式
  */
+
+import type { AnalysisResult } from '@/types'
+import { FlowChart } from '../FlowChart'
+
+
+interface MethodTabProps {
+  result: AnalysisResult
+}
+
+export function MethodTab({ result }: MethodTabProps) {
+  const { method, mermaid_chart } = result
+  const pipelineSteps = method.pipeline
+    ? method.pipeline.split('\n').filter(s => s.trim())
+    : []
+
+  return (
+    <div className="space-y-6">
+      {/* 方法总览 */}
+      {method.overview && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-200 mb-2">方法总览</h2>
+          <p className="text-gray-300 text-sm leading-relaxed">{method.overview}</p>
+        </section>
+      )}
+
+      {/* Mermaid 流程图 */}
+      {mermaid_chart && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">流程图</h2>
+          <FlowChart chart={mermaid_chart} />
+        </section>
+      )}
+
+      {/* Pipeline 详细步骤 */}
+      {pipelineSteps.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">Pipeline 步骤</h2>
+          <div className="relative pl-6">
+            {/* 竖线 */}
+            <div className="absolute left-2 top-2 bottom-2 w-px bg-gray-700" />
+
+            <div className="space-y-4">
+              {pipelineSteps.map((step, idx) => (
+                <div key={idx} className="relative flex items-start gap-3">
+                  {/* 节点 */}
+                  <div className="absolute -left-4 top-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-gray-900 z-10" />
+                  <div className="ml-2">
+                    <span className="text-xs text-gray-500 block mb-0.5">步骤 {idx + 1}</span>
+                    <p className="text-sm text-gray-300">{step}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 关键模块表格 */}
+      {method.key_modules && method.key_modules.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">关键模块</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left py-2 px-3 text-gray-400 font-medium">模块名</th>
+                  <th className="text-left py-2 px-3 text-gray-400 font-medium">作用</th>
+                  <th className="text-left py-2 px-3 text-gray-400 font-medium">创新点</th>
+                </tr>
+              </thead>
+              <tbody>
+                {method.key_modules.map((mod, idx) => (
+                  <tr
+                    key={idx}
+                    className={idx % 2 === 0 ? 'bg-gray-800/50' : ''}
+                  >
+                    <td className="py-2 px-3 text-blue-400 font-medium">{mod.name}</td>
+                    <td className="py-2 px-3 text-gray-300">{mod.role}</td>
+                    <td className="py-2 px-3 text-gray-300">{mod.innovation}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
