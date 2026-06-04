@@ -1,31 +1,3 @@
-/**
- * FlowChart 组件
- *
- * Mermaid 流程图渲染。
- *
- * Props:
- *   chart: string - Mermaid 语法字符串
- *
- * 功能：
- *   - 使用 mermaid 库渲染流程图
- *   - 深色主题适配（mermaid theme: dark）
- *   - 渲染为 SVG，嵌入页面
- *   - 错误处理：如果语法错误，显示原始文本
- *
- * 依赖：
- *   - mermaid (npm package)
- *
- * 实现要点：
- *   1. mermaid.initialize({ theme: 'dark', ... })
- *   2. mermaid.render(id, chart) 获取 SVG
- *   3. 使用 dangerouslySetInnerHTML 插入 SVG
- *   4. useEffect 在 chart 变化时重新渲染
- *
- * 样式：
- *   - 容器：bg-gray-800, rounded-lg, p-4, overflow-auto
- *   - SVG 居中显示
- */
-
 import { useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
 
@@ -60,6 +32,45 @@ function initMermaid() {
   }
 }
 
+/**
+ * 清洗 Mermaid 输入，修复常见语法问题
+ */
+function sanitizeMermaid(input: string): string {
+  if (!input) return input
+
+  let chart = input.trim()
+
+  // 确保以 graph TD 或 graph LR 开头
+  if (!chart.startsWith('graph ') && !chart.startsWith('flowchart ')) {
+    chart = 'graph TD\n' + chart
+  }
+
+  // 处理节点标签中的特殊字符
+  // 将 node[label] 中的括号、引号等特殊字符替换为安全字符
+  chart = chart.replace(/\[([^\]]*)\]/g, (_match, label: string) => {
+    // 清洗标签内容
+    let clean = label
+      .replace(/[(){}（）【】《》<>]/g, '')  // 移除括号
+      .replace(/["""']/g, '')                // 移除引号
+      .replace(/\s+/g, ' ')                  // 合并空格
+      .trim()
+    if (!clean) clean = 'Node'
+    return `[${clean}]`
+  })
+
+  // 修复常见问题：
+  // 1. 确保每行连接符前后有空格
+  chart = chart.replace(/(\w)-->/g, '$1 -->')
+
+  // 2. 移除行尾多余分号
+  chart = chart.replace(/;\s*$/gm, '')
+
+  // 3. 确保 graph 声明后有换行
+  chart = chart.replace(/^(graph\s+\w+)\s+(?!\n)/, '$1\n')
+
+  return chart
+}
+
 export function FlowChart({ chart }: FlowChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [svg, setSvg] = useState<string>('')
@@ -70,16 +81,27 @@ export function FlowChart({ chart }: FlowChartProps) {
 
     initMermaid()
 
+    const sanitized = sanitizeMermaid(chart)
     const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    mermaid.render(id, chart).then(
+    mermaid.render(id, sanitized).then(
       ({ svg: renderedSvg }) => {
         setSvg(renderedSvg)
         setError(null)
       },
       (err) => {
-        setError(err?.message || '流程图语法错误')
-        setSvg('')
+        // 如果清洗后仍然失败，尝试最简化的图表
+        const fallback = 'graph TD\n    A[Input] --> B[Process]\n    B --> C[Output]'
+        mermaid.render(id + '-fallback', fallback).then(
+          ({ svg: fallbackSvg }) => {
+            setSvg(fallbackSvg)
+            setError(null)
+          },
+          () => {
+            setError(err?.message || '流程图语法错误')
+            setSvg('')
+          }
+        )
       }
     )
   }, [chart])

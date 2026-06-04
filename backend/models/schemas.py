@@ -8,7 +8,7 @@ Pydantic 模型，用于 FastAPI 的请求验证和响应序列化。
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
-from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA
+from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper
 
 
 # ============================================================
@@ -78,12 +78,13 @@ class AnalysisResponse(BaseModel):
     one_sentence: str
     problem: str
     key_contributions: list[str]
+    outline: list[OutlineItem] = []
     method: MethodModel  # 强类型，非 dict
     experiments: ExperimentModel  # 强类型，非 dict
     code_mapping: list[CodeMapping]  # 强类型列表
     interview_qa: list[InterviewQA]  # 强类型列表
     limitations: str
-    related_papers: list[str]
+    related_papers: list[RelatedPaper]
     mermaid_chart: Optional[str] = None
 
 

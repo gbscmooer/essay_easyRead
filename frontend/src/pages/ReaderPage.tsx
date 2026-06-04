@@ -1,33 +1,4 @@
-/**
- * ReaderPage 组件
- *
- * 论文精读主页面，左右分栏布局。
- *
- * 路由：/reader/:id
- *
- * 布局：
- *   - 左侧（40%）：PDF 预览
- *     - Sidebar（可折叠的论文列表）
- *     - PdfViewer
- *   - 右侧（60%）：解析结果
- *     - AnalysisPanel（含 Tab 切换）
- *
- * 功能：
- *   - 从 URL 参数获取 paperId
- *   - 加载论文数据和解析结果
- *   - 如果解析中，显示 LoadingState
- *   - 如果解析完成，显示 AnalysisPanel
- *   - 左侧可切换到其他论文
- *   - 支持拖拽调整左右比例（可选）
- *
- * 样式：
- *   - 容器：flex, h-screen (减去导航栏高度)
- *   - 左侧面板：w-2/5, border-r, border-gray-800
- *   - 右侧面板：w-3/5, overflow-auto
- *   - 响应式：移动端上下布局
- */
-
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { listPapers, deletePaper } from '@/api/papers'
@@ -37,6 +8,11 @@ import { PdfViewer } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
 
 
+const MIN_PANEL_PCT = 20
+const MAX_PANEL_PCT = 60
+const DEFAULT_PANEL_PCT = 35
+
+
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -44,6 +20,11 @@ export function ReaderPage() {
 
   const [papers, setPapers] = useState<Paper[]>([])
   const [currentPage, setCurrentPage] = useState(1)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelPct, setPanelPct] = useState(DEFAULT_PANEL_PCT)
+  const draggingRef = useRef(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const {
     analysis,
@@ -51,25 +32,58 @@ export function ReaderPage() {
     progressMessage,
     partialResult,
     error,
+    reparse,
   } = useAnalysis(paperId)
 
-  // 加载论文列表
   useEffect(() => {
     listPapers({ per_page: 100 })
       .then(res => setPapers(res.papers))
       .catch(() => {})
   }, [])
 
+  // 拖拽逻辑
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    draggingRef.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const pct = ((rect.width - x) / rect.width) * 100
+      setPanelPct(Math.min(MAX_PANEL_PCT, Math.max(MIN_PANEL_PCT, pct)))
+    }
+
+    const handleMouseUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = false
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
   const handleSelect = useCallback((id: number) => {
     navigate(`/reader/${id}`)
     setCurrentPage(1)
+    setSidebarOpen(false)
   }, [navigate])
 
   const handleDelete = useCallback(async (id: number) => {
     try {
       await deletePaper(id)
       setPapers(prev => prev.filter(p => p.id !== id))
-      // 如果删除的是当前论文，跳转到首页
       if (id === paperId) {
         const remaining = papers.filter(p => p.id !== id)
         if (remaining.length > 0) {
@@ -79,22 +93,74 @@ export function ReaderPage() {
         }
       }
     } catch {
-      // 删除失败
+      // ignore
     }
   }, [paperId, papers, navigate])
 
   const pdfUrl = paperId ? `/api/papers/${paperId}/pdf` : ''
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
-      {/* 左侧：Sidebar + PDF 预览 */}
-      <div className="flex w-2/5 border-r border-gray-800 shrink-0">
+    <div ref={containerRef} className="flex h-[calc(100vh-3.5rem)] relative">
+      {/* Sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* 左侧 Sidebar */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-40 overflow-hidden
+        transform transition-all duration-200 ease-in-out
+        ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-0'}
+      `}>
         <Sidebar
           papers={papers}
           activeId={paperId ?? null}
           onSelect={handleSelect}
           onDelete={handleDelete}
         />
+      </div>
+
+      {/* 中间 PDF 阅读区 */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        {/* 顶部工具栏 */}
+        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900/80 border-b border-gray-800 shrink-0">
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d={sidebarOpen
+                  ? "M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                  : "M13 5l7 7-7 7M5 5l7 7-7 7"}
+              />
+            </svg>
+          </button>
+
+          <span className="text-xs text-gray-500 truncate mx-2">
+            {analysis?.title || partialResult?.title || ''}
+          </span>
+
+          <button
+            onClick={() => setPanelOpen(v => !v)}
+            className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            title={panelOpen ? '收起分析面板' : '展开分析面板'}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d={panelOpen
+                  ? "M13 5l7 7-7 7M5 5l7 7-7 7"
+                  : "M11 19l-7-7 7-7m8 14l-7-7 7-7"}
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* PDF 渲染区 */}
         <div className="flex-1 overflow-hidden p-2">
           {paperId && (
             <PdfViewer
@@ -106,25 +172,42 @@ export function ReaderPage() {
         </div>
       </div>
 
-      {/* 右侧：解析结果 */}
-      <div className="flex-1 overflow-auto">
-        {error && status === 'failed' ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <p className="text-red-400">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 text-sm bg-gray-800 text-gray-300 rounded hover:bg-gray-700 transition-colors"
-            >
-              重试
-            </button>
+      {/* 可拖拽分割条 */}
+      {panelOpen && (
+        <div
+          onMouseDown={handleMouseDown}
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors relative group z-10"
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1" />
+        </div>
+      )}
+
+      {/* 右侧 AI 分析面板 */}
+      <div
+        className="bg-gray-950 overflow-auto transition-[width] duration-100 ease-out shrink-0"
+        style={{ width: panelOpen ? `${panelPct}%` : 0 }}
+      >
+        {panelOpen && (
+          <div className="h-full overflow-auto">
+            {error && status === 'failed' ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
+                <p className="text-red-400 text-sm text-center">{error}</p>
+                <button
+                  onClick={reparse}
+                  className="px-4 py-2 text-sm bg-gray-800 text-gray-300 rounded hover:bg-gray-700 transition-colors"
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <AnalysisPanel
+                result={analysis}
+                partialResult={partialResult}
+                status={status}
+                progressMessage={progressMessage}
+              />
+            )}
           </div>
-        ) : (
-          <AnalysisPanel
-            result={analysis}
-            partialResult={partialResult}
-            status={status}
-            progressMessage={progressMessage}
-          />
         )}
       </div>
     </div>

@@ -75,6 +75,26 @@ export interface InterviewQA {
 }
 
 
+/** 论文大纲条目 */
+export interface OutlineItem {
+  section: string
+  page: string
+  summary: string
+}
+
+
+/** 相关论文 */
+export interface RelatedPaper {
+  title: string
+  authors: string
+  venue: string
+  year: number
+  doi: string
+  url: string
+  relevance: string
+}
+
+
 /** 完整解析结果 */
 export interface AnalysisResult {
   paper_id: number
@@ -84,12 +104,13 @@ export interface AnalysisResult {
   one_sentence: string
   problem: string
   key_contributions: string[]
+  outline: OutlineItem[]
   method: Method
   experiments: Experiments
   code_mapping: CodeMapping[]
   interview_qa: InterviewQA[]
   limitations: string
-  related_papers: string[]
+  related_papers: RelatedPaper[]
   mermaid_chart: string | null
 }
 

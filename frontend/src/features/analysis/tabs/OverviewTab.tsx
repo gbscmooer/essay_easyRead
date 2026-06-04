@@ -88,14 +88,42 @@ export function OverviewTab({ result }: OverviewTabProps) {
       {result.related_papers && result.related_papers.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold text-gray-200 mb-3">相关论文推荐</h2>
-          <ul className="space-y-1.5">
+          <div className="space-y-3">
             {result.related_papers.map((paper, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-sm text-gray-400">
-                <span className="text-gray-600 mt-0.5">-</span>
-                <span>{paper}</span>
-              </li>
+              <div key={idx} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                <p className="text-sm font-medium text-gray-200 mb-1">
+                  {paper.url ? (
+                    <a href={paper.url} target="_blank" rel="noopener noreferrer"
+                       className="hover:text-blue-400 transition-colors">
+                      {paper.title}
+                    </a>
+                  ) : paper.title}
+                </p>
+                {paper.authors && (
+                  <p className="text-xs text-gray-400 mb-1">{paper.authors}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  {paper.venue && (
+                    <span className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded">
+                      {paper.venue}
+                    </span>
+                  )}
+                  {paper.year > 0 && (
+                    <span className="text-xs text-gray-500">{paper.year}</span>
+                  )}
+                  {paper.doi && (
+                    <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noopener noreferrer"
+                       className="text-xs text-blue-400/70 hover:text-blue-400 transition-colors">
+                      DOI: {paper.doi}
+                    </a>
+                  )}
+                </div>
+                {paper.relevance && (
+                  <p className="text-xs text-gray-500 italic">{paper.relevance}</p>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         </section>
       )}
 

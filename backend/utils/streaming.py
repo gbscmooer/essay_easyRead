@@ -115,6 +115,16 @@ def format_analysis_as_markdown(analysis: dict) -> str:
         lines.append(f"- {contribution}")
     lines.append("")
 
+    # 论文大纲
+    outline = analysis.get('outline', [])
+    if outline:
+        lines.append("## 论文大纲")
+        for item in outline:
+            page = f" (p.{item['page']})" if item.get('page') else ""
+            lines.append(f"### {item.get('section', '')}{page}")
+            lines.append(item.get('summary', ''))
+            lines.append("")
+
     # 方法
     lines.append("## 方法")
     method = analysis.get('method', {})
@@ -204,7 +214,28 @@ def format_analysis_as_markdown(analysis: dict) -> str:
     if related_papers:
         lines.append("## 相关论文")
         for paper in related_papers:
-            lines.append(f"- {paper}")
+            if isinstance(paper, dict):
+                title = paper.get('title', '')
+                authors = paper.get('authors', '')
+                venue = paper.get('venue', '')
+                year = paper.get('year', '')
+                doi = paper.get('doi', '')
+                url = paper.get('url', '')
+                relevance = paper.get('relevance', '')
+                lines.append(f"### {title}")
+                if authors:
+                    lines.append(f"- **作者**: {authors}")
+                if venue or year:
+                    lines.append(f"- **发表**: {venue} {year}")
+                if doi:
+                    lines.append(f"- **DOI**: {doi}")
+                if url:
+                    lines.append(f"- **链接**: {url}")
+                if relevance:
+                    lines.append(f"- **相关性**: {relevance}")
+                lines.append("")
+            else:
+                lines.append(f"- {paper}")
         lines.append("")
 
     return "\n".join(lines)

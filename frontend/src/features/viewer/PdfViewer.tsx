@@ -1,40 +1,12 @@
-/**
- * PdfViewer 组件
- *
- * PDF 文件预览，使用 react-pdf 渲染。
- *
- * Props:
- *   pdfUrl: string - PDF 文件的 URL（如 /api/papers/{id}/pdf 或 blob URL）
- *   currentPage: number - 当前页码（1-based）
- *   onPageChange: (page: number) => void - 翻页回调
- *
- * 功能：
- *   - 渲染当前页的 PDF
- *   - 上一页/下一页按钮
- *   - 页码显示和跳转输入框
- *   - 缩放控制（+/-/重置）
- *   - 自适应容器宽度
- *   - 加载中显示 skeleton
- *
- * 依赖：
- *   - react-pdf (Document, Page, pdfjs)
- *   - 需要配置 pdfjs worker
- *
- * 样式：
- *   - 容器：bg-gray-900, 圆角, 阴影
- *   - 控制栏：底部固定，半透明背景
- *   - 页面：居中显示，阴影
- */
-
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
+import { SelectionPopup } from '@/components/SelectionPopup'
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css'
 import 'react-pdf/dist/esm/Page/TextLayer.css'
 
 
-// 配置 pdfjs worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  'pdfjs-dist/build/pdf.worker.min.js',
   import.meta.url,
 ).toString()
 
@@ -45,11 +17,14 @@ interface PdfViewerProps {
   onPageChange: (page: number) => void
 }
 
-export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps) {
+export function PdfViewer({ pdfUrl, currentPage: _currentPage, onPageChange }: PdfViewerProps) {
   const [numPages, setNumPages] = useState(0)
   const [scale, setScale] = useState(1.0)
   const [pageInput, setPageInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [visiblePage, setVisiblePage] = useState(1)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
   const onDocumentLoadSuccess = useCallback(({ numPages: total }: { numPages: number }) => {
     setNumPages(total)
@@ -60,11 +35,51 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
     setIsLoading(false)
   }, [])
 
+  // IntersectionObserver 跟踪当前可见页
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container || numPages === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // 找到最可见的页面
+        let maxRatio = 0
+        let mostVisible = visiblePage
+        for (const entry of entries) {
+          if (entry.intersectionRatio > maxRatio) {
+            maxRatio = entry.intersectionRatio
+            const pageNum = Number(entry.target.getAttribute('data-page'))
+            if (pageNum) mostVisible = pageNum
+          }
+        }
+        if (maxRatio > 0) {
+          setVisiblePage(mostVisible)
+          onPageChange(mostVisible)
+        }
+      },
+      {
+        root: container,
+        threshold: [0, 0.25, 0.5, 0.75, 1],
+      }
+    )
+
+    pageRefs.current.forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+  }, [numPages, onPageChange])
+
+  // 外部跳页：滚动到目标页
+  const scrollToPage = useCallback((page: number) => {
+    const el = pageRefs.current.get(page)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [])
+
   const goToPage = useCallback((page: number) => {
     if (page >= 1 && page <= numPages) {
-      onPageChange(page)
+      scrollToPage(page)
     }
-  }, [numPages, onPageChange])
+  }, [numPages, scrollToPage])
 
   const handlePageInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -79,9 +94,12 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
   const resetZoom = useCallback(() => setScale(1.0), [])
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden">
-      {/* PDF 内容区 */}
-      <div className="flex-1 overflow-auto flex justify-center p-4">
+    <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden relative">
+      {/* 文本选择弹窗 */}
+      <SelectionPopup containerRef={scrollRef} />
+
+      {/* PDF 内容区 — 连续滚动 */}
+      <div ref={scrollRef} className="flex-1 overflow-auto">
         {isLoading && (
           <div className="w-full h-full flex items-center justify-center">
             <div className="w-8 h-8 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
@@ -93,13 +111,31 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
           onLoadError={onDocumentLoadError}
           loading={null}
         >
-          <Page
-            pageNumber={currentPage}
-            scale={scale}
-            renderTextLayer={true}
-            renderAnnotationLayer={true}
-            className="shadow-xl"
-          />
+          <div className="flex flex-col items-center gap-4 py-4">
+            {Array.from({ length: numPages }, (_, i) => i + 1).map(pageNum => (
+              <div
+                key={pageNum}
+                data-page={pageNum}
+                ref={el => {
+                  if (el) pageRefs.current.set(pageNum, el)
+                  else pageRefs.current.delete(pageNum)
+                }}
+                className="relative"
+              >
+                <Page
+                  pageNumber={pageNum}
+                  scale={scale}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  className="shadow-xl"
+                />
+                {/* 页码标注 */}
+                <div className="absolute -left-12 top-0 text-xs text-gray-600 w-8 text-right select-none">
+                  {pageNum}
+                </div>
+              </div>
+            ))}
+          </div>
         </Document>
       </div>
 
@@ -108,8 +144,8 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
         {/* 翻页控制 */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => goToPage(currentPage - 1)}
-            disabled={currentPage <= 1}
+            onClick={() => goToPage(Math.max(1, visiblePage - 1))}
+            disabled={visiblePage <= 1}
             className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             上一页
@@ -121,15 +157,15 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
               value={pageInput}
               onChange={e => setPageInput(e.target.value)}
               onKeyDown={handlePageInputKeyDown}
-              placeholder={String(currentPage)}
+              placeholder={String(visiblePage)}
               className="w-10 text-center bg-gray-800 border border-gray-700 rounded text-gray-200 text-sm py-0.5 focus:outline-none focus:border-blue-500"
             />
             <span>/ {numPages || '--'}</span>
           </div>
 
           <button
-            onClick={() => goToPage(currentPage + 1)}
-            disabled={currentPage >= numPages}
+            onClick={() => goToPage(Math.min(numPages, visiblePage + 1))}
+            disabled={visiblePage >= numPages}
             className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             下一页

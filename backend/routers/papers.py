@@ -7,9 +7,12 @@ Papers 路由
 import os
 import uuid
 import asyncio
+import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session
+
+logger = logging.getLogger(__name__)
 
 from ..models.schemas import PaperResponse, PaperListResponse, ErrorResponse
 from ..config import settings
@@ -46,21 +49,26 @@ async def _run_analysis(paper_id: int, pdf_path: str):
         # 更新状态为 extracting
         with Session(engine) as session:
             update_paper_status(session, paper_id, "extracting")
+        logger.info(f"[paper {paper_id}] Extracting PDF text from {pdf_path}")
 
         # 提取 PDF 文本
         content = extract_pdf_content(pdf_path)
+        logger.info(f"[paper {paper_id}] PDF extracted: {content.total_pages} pages, {len(content.full_text)} chars")
 
         # 更新状态为 analyzing
         with Session(engine) as session:
             update_paper_status(session, paper_id, "analyzing")
+        logger.info(f"[paper {paper_id}] Starting AI analysis")
 
-        # 调用 AI 分析
+        # 调用 AI 分析（使用解读配置）
+        from ..services.ai_config import get_analysis_config
+        ai_cfg = get_analysis_config()
         result = {}
         async for event in analyze_paper_stream(
             content.full_text,
-            settings.mimo_api_key,
-            settings.mimo_base_url,
-            settings.mimo_model,
+            ai_cfg["api_key"],
+            ai_cfg["base_url"],
+            ai_cfg["model"],
         ):
             if event.event == "field" and event.field_name:
                 if event.field_name == "mermaid_chart":
@@ -85,8 +93,10 @@ async def _run_analysis(paper_id: int, pdf_path: str):
             save_analysis_result(session, paper_id, result)
             # 更新状态为 done
             update_paper_status(session, paper_id, "done")
+        logger.info(f"[paper {paper_id}] Analysis completed successfully")
 
     except Exception as e:
+        logger.error(f"[paper {paper_id}] Analysis failed: {e}", exc_info=True)
         with Session(engine) as session:
             update_paper_status(session, paper_id, "failed", str(e))
 

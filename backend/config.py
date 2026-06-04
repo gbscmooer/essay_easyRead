@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     字段名自动映射大写环境变量，如 MIMO_API_KEY → mimo_api_key。
     """
 
-    # MiMo API 配置
+    # MiMo API 配置（Anthropic 格式端点）
     mimo_api_key: str  # 必需，从环境变量 MIMO_API_KEY 读取
-    mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    mimo_base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"
     mimo_model: str = "mimo-v2.5-pro"
 
     # 数据库

@@ -33,6 +33,7 @@ export function Layout({ children }: LayoutProps) {
   const navItems = [
     { path: '/', label: '首页' },
     { path: '/library', label: '论文库' },
+    { path: '/settings', label: '配置' },
   ]
 
   return (

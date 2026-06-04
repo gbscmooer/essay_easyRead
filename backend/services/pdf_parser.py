@@ -1,17 +1,43 @@
 """
 PDF 解析服务
 
-使用 PyMuPDF (fitz) 提取 PDF 的文本内容和图片。
-为 AI 分析提供原始素材。
+使用 PyMuPDF (fitz) 提取 PDF 文本，pypdf 作为后备方案。
+借鉴 DeepTutor 的双路径提取和错误层次化模式。
+
+提取策略：
+  - 主路径：PyMuPDF（速度快，处理复杂布局更好）
+  - 后备路径：pypdf（当 PyMuPDF 失败时自动切换）
+  - 智能截断：保留前3页+正文前部+最后1页
 """
 
+import os
+import logging
 from dataclasses import dataclass
 
+logger = logging.getLogger(__name__)
+
 # Token 限制策略
-# MiMo API 上下文窗口约 128k tokens，但论文文本占大部分。
-# 预留 system prompt + JSON 输出的空间，限制输入文本。
-MAX_CHARS = 100_000  # 约 25k-30k tokens（英文约 4 chars/token）
-# 超过此长度时，保留摘要页（前几页）+ 正文前部 + 结尾，截断中间部分。
+MAX_CHARS = 100_000  # 约 25k-30k tokens
+
+
+class PDFExtractionError(Exception):
+    """PDF 提取错误基类"""
+    pass
+
+
+class PDFNotFoundError(PDFExtractionError):
+    """文件不存在"""
+    pass
+
+
+class PDFInvalidError(PDFExtractionError):
+    """文件不是有效的 PDF"""
+    pass
+
+
+class PDFEmptyError(PDFExtractionError):
+    """PDF 无法提取任何文本"""
+    pass
 
 
 @dataclass
@@ -75,9 +101,79 @@ def _truncate_text(page_texts: list[str], max_chars: int) -> tuple[str, bool]:
     return "".join(keep_parts), True
 
 
+def _extract_with_pymupdf(pdf_path: str) -> tuple[list[str], dict] | None:
+    """
+    使用 PyMuPDF 提取 PDF 文本（主路径）。
+
+    Returns:
+        (page_texts, metadata) 或 None（如果失败）
+    """
+    try:
+        import fitz
+
+        doc = fitz.open(pdf_path)
+        try:
+            page_texts = []
+            for page in doc:
+                text = page.get_text("text")
+                page_texts.append(text)
+
+            metadata = {}
+            if doc.metadata:
+                for key, value in doc.metadata.items():
+                    if value:
+                        metadata[key] = value
+
+            return page_texts, metadata
+        finally:
+            doc.close()
+
+    except Exception as e:
+        logger.warning(f"PyMuPDF extraction failed: {e}")
+        return None
+
+
+def _extract_with_pypdf(pdf_path: str) -> tuple[list[str], dict] | None:
+    """
+    使用 pypdf 提取 PDF 文本（后备路径）。
+
+    借鉴 DeepTutor 的双路径策略：当 PyMuPDF 失败时自动切换到 pypdf。
+
+    Returns:
+        (page_texts, metadata) 或 None（如果失败）
+    """
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(pdf_path)
+        page_texts = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            page_texts.append(text)
+
+        metadata = {}
+        if reader.metadata:
+            for key, value in reader.metadata.items():
+                if value:
+                    # pypdf 的 metadata key 可能带 / 前缀
+                    clean_key = key.lstrip("/")
+                    metadata[clean_key] = str(value)
+
+        return page_texts, metadata
+
+    except Exception as e:
+        logger.warning(f"pypdf extraction failed: {e}")
+        return None
+
+
 def extract_pdf_content(pdf_path: str) -> PDFContent:
     """
     从 PDF 文件中提取全部文本内容。
+
+    双路径策略（借鉴 DeepTutor）：
+    1. 优先使用 PyMuPDF（速度快，处理复杂布局更好）
+    2. 如果 PyMuPDF 失败，自动切换到 pypdf
+    3. 两者都失败则抛出异常
 
     Args:
         pdf_path: PDF 文件的本地路径
@@ -86,50 +182,45 @@ def extract_pdf_content(pdf_path: str) -> PDFContent:
         PDFContent 包含全文、逐页文本、页数和元信息
 
     Raises:
-        FileNotFoundError: 文件不存在
-        ValueError: 文件不是有效的 PDF
-
-    实现要点：
-        1. 使用 fitz.open(pdf_path) 打开文件
-        2. 遍历每一页，调用 page.get_text() 提取文本
-        3. 处理数学公式：保留 LaTeX 表示（如 $E=mc^2$）
-        4. 处理表格：尽量保留表格结构
-        5. 拼接全文时，使用 _truncate_text 处理超长文本
-        6. 提取 PDF 元信息（doc.metadata）
-        7. 不提取图片（图片由 AI 直接从 PDF 理解）
-        8. 如果文本被截断，PDFContent.truncated=True
+        PDFNotFoundError: 文件不存在
+        PDFInvalidError: 文件不是有效的 PDF
+        PDFEmptyError: PDF 无法提取任何文本
     """
-    import fitz
-    import os
-
     if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        raise PDFNotFoundError(f"PDF file not found: {pdf_path}")
 
+    # 检查文件魔数（借鉴 DeepTutor 的 magic byte validation）
     try:
-        doc = fitz.open(pdf_path)
-    except Exception as e:
-        raise ValueError(f"Invalid PDF file: {e}")
+        with open(pdf_path, "rb") as f:
+            header = f.read(5)
+            if header != b"%PDF-":
+                raise PDFInvalidError("File is not a valid PDF (missing %PDF- header)")
+    except (IOError, OSError) as e:
+        raise PDFInvalidError(f"Cannot read file: {e}")
 
-    try:
-        page_texts = []
-        for page in doc:
-            text = page.get_text("text")
-            page_texts.append(text)
+    # 主路径：PyMuPDF
+    result = _extract_with_pymupdf(pdf_path)
 
-        full_text, truncated = _truncate_text(page_texts, MAX_CHARS)
+    # 后备路径：pypdf
+    if result is None:
+        logger.info("Falling back to pypdf for PDF extraction")
+        result = _extract_with_pypdf(pdf_path)
 
-        metadata = {}
-        if doc.metadata:
-            for key, value in doc.metadata.items():
-                if value:
-                    metadata[key] = value
+    if result is None:
+        raise PDFInvalidError("Both PyMuPDF and pypdf failed to extract PDF content")
 
-        return PDFContent(
-            full_text=full_text,
-            page_texts=page_texts,
-            total_pages=len(doc),
-            metadata=metadata,
-            truncated=truncated,
-        )
-    finally:
-        doc.close()
+    page_texts, metadata = result
+
+    # 检查是否提取到了内容
+    if not page_texts or all(not text.strip() for text in page_texts):
+        raise PDFEmptyError("PDF contains no extractable text (might be scanned/image-based)")
+
+    full_text, truncated = _truncate_text(page_texts, MAX_CHARS)
+
+    return PDFContent(
+        full_text=full_text,
+        page_texts=page_texts,
+        total_pages=len(page_texts),
+        metadata=metadata,
+        truncated=truncated,
+    )

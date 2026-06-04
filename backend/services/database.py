@@ -11,6 +11,33 @@ from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 
 
+def _migrate_schema(engine) -> None:
+    """简易 schema 迁移：为已有表添加缺失的列"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    with engine.connect() as conn:
+        # 检查 analysis_results 表的列
+        try:
+            result = conn.exec_driver_sql("PRAGMA table_info(analysis_results)")
+            existing_cols = {row[1] for row in result.fetchall()}
+        except Exception:
+            return
+
+        # 添加缺失的列
+        migrations = [
+            ("outline", "JSON DEFAULT '[]'"),
+        ]
+        for col_name, col_def in migrations:
+            if col_name not in existing_cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE analysis_results ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to analysis_results")
+                except Exception as e:
+                    logger.warning(f"Migration failed for {col_name}: {e}")
+
+
 def init_db(database_url: str) -> None:
     """
     初始化数据库。
@@ -23,6 +50,9 @@ def init_db(database_url: str) -> None:
     """
     engine = create_engine(database_url, connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
+
+    # 简易迁移：为已有表添加新列
+    _migrate_schema(engine)
 
 
 def create_paper(session: Session, filename: str, pdf_path: str, file_size: int) -> int:
@@ -112,6 +142,7 @@ def save_analysis_result(session: Session, paper_id: int, result: dict) -> None:
         existing.one_sentence = result.get("one_sentence", "")
         existing.problem = result.get("problem", "")
         existing.key_contributions = result.get("key_contributions", [])
+        existing.outline = result.get("outline", [])
         existing.method = method_data
         existing.experiments = result.get("experiments", {})
         existing.code_mapping = result.get("code_mapping", [])
@@ -129,6 +160,7 @@ def save_analysis_result(session: Session, paper_id: int, result: dict) -> None:
             one_sentence=result.get("one_sentence", ""),
             problem=result.get("problem", ""),
             key_contributions=result.get("key_contributions", []),
+            outline=result.get("outline", []),
             method=method_data,
             experiments=result.get("experiments", {}),
             code_mapping=result.get("code_mapping", []),
@@ -198,6 +230,7 @@ def get_analysis(session: Session, paper_id: int) -> dict:
         "one_sentence": analysis.one_sentence,
         "problem": analysis.problem,
         "key_contributions": analysis.key_contributions,
+        "outline": analysis.outline if analysis.outline else [],
         "method": analysis.method,
         "experiments": analysis.experiments,
         "code_mapping": analysis.code_mapping,

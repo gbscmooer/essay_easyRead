@@ -17,6 +17,7 @@ import { Layout } from '@/components/Layout'
 import { HomePage } from '@/pages/HomePage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { LibraryPage } from '@/pages/LibraryPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/reader/:id" element={<ReaderPage />} />
         <Route path="/library" element={<LibraryPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>
   )

@@ -1,18 +1,54 @@
 """
 AI 分析服务
 
-调用 MiMo API 对论文文本进行结构化解析。
-使用 OpenAI 兼容格式，支持 streaming 输出。
+调用 MiMo API（Anthropic 格式端点）对论文文本进行结构化解析。
+支持真流式输出和增量 JSON 解析。
+
+借鉴 DeepTutor 的重试机制和错误处理模式。
 """
 
+import asyncio
 import json
 import re
+import logging
 from typing import AsyncGenerator
 from ..models.schemas import StreamEvent
 
+logger = logging.getLogger(__name__)
+
+# 重试配置（借鉴 DeepTutor）
+MAX_RETRIES = 5
+BASE_DELAY = 3.0  # 秒
+MAX_DELAY = 120.0  # 秒
+TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+TRANSIENT_MARKERS = ["rate limit", "timeout", "overloaded", "capacity"]
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """判断是否为瞬态错误（可重试）"""
+    msg = str(exc).lower()
+    # HTTP 状态码
+    for code in TRANSIENT_STATUS_CODES:
+        if str(code) in msg:
+            return True
+    # 常见瞬态错误关键词
+    for marker in TRANSIENT_MARKERS:
+        if marker in msg:
+            return True
+    return False
+
+
+def _build_retry_delays() -> list[float]:
+    """构建指数退避延迟序列"""
+    delays = []
+    delay = BASE_DELAY
+    for _ in range(MAX_RETRIES):
+        delays.append(min(delay, MAX_DELAY))
+        delay *= 2
+    return delays
+
 
 # AI 系统提示词
-# 同时输出分析结果和 Mermaid 流程图，避免两次 API 调用
 SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 领域的论文精读。
 用户会提供一篇论文的全文内容，你需要进行深度分析并输出结构化的 JSON 结果。
 
@@ -25,13 +61,20 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
   "one_sentence": "一句话核心贡献，适合在面试中清晰表达",
   "problem": "这篇论文要解决什么问题？现有方法有什么局限性？",
   "key_contributions": ["贡献1", "贡献2", "贡献3"],
+  "outline": [
+    {"section": "Introduction", "page": "1-2", "summary": "本节介绍了..."},
+    {"section": "Related Work", "page": "2-3", "summary": "回顾了..."},
+    {"section": "Method", "page": "3-5", "summary": "提出了..."},
+    {"section": "Experiments", "page": "5-7", "summary": "实验结果表明..."},
+    {"section": "Conclusion", "page": "8", "summary": "总结了..."}
+  ],
   "method": {
     "overview": "方法的总体描述",
     "pipeline": "Step 1: ...\nStep 2: ...\nStep 3: ...",
     "key_modules": [
       {"name": "模块名", "role": "作用", "innovation": "创新点"}
     ],
-    "mermaid_chart": "graph TD\\n    A[输入] --> B[处理]\\n    B --> C[输出]"
+    "mermaid_chart": "graph TD\\n    A[Input] --> B[Process]\\n    B --> C[Output]"
   },
   "experiments": {
     "datasets": ["数据集1", "数据集2"],
@@ -50,24 +93,33 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
     {"q": "面试问题", "a": "简洁清晰的回答"}
   ],
   "limitations": "局限性和未来工作方向",
-  "related_papers": ["相关论文1", "相关论文2"]
+  "related_papers": [
+    {"title": "相关论文标题", "authors": "作者列表", "venue": "会议/期刊", "year": 2024, "doi": "10.xxxx/xxxxx", "url": "https://arxiv.org/abs/xxxx.xxxxx", "relevance": "与本文的关系"}
+  ]
 }
 
 要求：
 1. one_sentence 要简洁有力，能让人在30秒内理解论文核心
-2. method.pipeline 要用清晰的步骤描述完整流程
-3. method.mermaid_chart 用 Mermaid graph TD 语法画出 pipeline 流程图，节点用英文简写
-4. key_modules 列出 2-4 个最关键的模块
-5. experiments.result_table 提取论文中 SOTA 对比表格的数值数据，每行一个方法在某数据集上的指标值
-6. code_mapping 给出 3-5 个核心概念的代码映射
-7. interview_qa 生成 5-8 个高频面试问题
-8. 所有内容基于论文实际内容，不要编造"""
+2. outline 按论文实际章节结构列出每节的标题、页码和内容概述，帮助读者快速了解论文结构
+3. method.pipeline 要用清晰的步骤描述完整流程
+4. method.mermaid_chart 用 Mermaid graph TD 语法画出 pipeline 流程图。严格遵守以下规则：
+   - 节点文本只能用英文、数字、空格，不能用括号 () [] {} 等特殊字符
+   - 箭头用 --> 连接
+   - 每行一个连接，不要把多行写在一行里
+   - 节点ID用简短英文如 A, B, C 或 Step1, Step2
+   - 示例：graph TD\\n    A[Input Image] --> B[Feature Extraction]\\n    B --> C[Anomaly Detection]
+5. key_modules 列出 2-4 个最关键的模块
+6. experiments.result_table 提取论文中 SOTA 对比表格的数值数据，每行一个方法在某数据集上的指标值
+7. code_mapping 给出 3-5 个核心概念的代码映射
+8. interview_qa 生成 5-8 个高频面试问题
+9. related_papers 给出 3-5 篇最相关的论文，必须包含 title、authors、venue、year、doi、url、relevance 字段。doi 和 url 如果无法确定则填空字符串
+10. 所有内容基于论文实际内容，不要编造"""
 
 
 # 顶层字段名列表，用于检测 JSON 中哪些字段已完整
 _TOP_LEVEL_FIELDS = [
     "title", "venue", "year", "one_sentence", "problem",
-    "key_contributions", "method", "experiments",
+    "key_contributions", "outline", "method", "experiments",
     "code_mapping", "interview_qa", "limitations",
     "related_papers",
 ]
@@ -162,97 +214,141 @@ def _extract_json_value(text: str) -> str | None:
     return text
 
 
+def _sanitize_content(text: str) -> str:
+    """
+    清理内容，防止空内容导致 API 400 错误。
+    借鉴 DeepTutor 的 _sanitize_empty_content 模式。
+    """
+    if not text or not text.strip():
+        return "（空内容）"
+    return text
+
+
+def _create_client(api_key: str, base_url: str):
+    """
+    创建 Anthropic 客户端。
+
+    MiMo 使用 api-key 头而非标准的 x-api-key，
+    通过 default_headers 传递正确的认证格式。
+    """
+    from anthropic import AsyncAnthropic
+
+    return AsyncAnthropic(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers={"api-key": api_key},
+    )
+
+
 async def analyze_paper_stream(
     pdf_text: str, api_key: str, base_url: str, model: str
 ) -> AsyncGenerator[StreamEvent, None]:
     """
-    真流式调用 AI 分析论文。
+    真流式调用 AI 分析论文（Anthropic SDK）。
 
-    通过 OpenAI 兼容 API 以 streaming 模式接收响应，
+    使用 Anthropic SDK 的 messages.stream() API，
     每收到一个 chunk 就尝试增量解析 JSON，已完成的字段立即 yield。
+
+    借鉴 DeepTutor 的重试机制：对瞬态错误进行指数退避重试。
 
     Args:
         pdf_text: 论文全文文本
         api_key: MiMo API Key
-        base_url: API 基础 URL
+        base_url: API 基础 URL（Anthropic 格式端点）
         model: 模型名称
 
     Yields:
         StreamEvent: 流式事件，包含进度状态和解析字段
-
-    真流式实现：
-        1. 使用 stream=True 调用 API
-        2. 逐 chunk 拼接字符串
-        3. 每次拼接后用 _try_parse_partial_json 增量解析
-        4. 跟踪已 yield 的字段，新字段完成时立即 yield field 事件
-        5. 全部字段完成后 yield done 事件
     """
-    from openai import AsyncOpenAI
-
     yield StreamEvent(event="status", data={"message": "正在分析论文内容..."})
 
-    try:
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": pdf_text},
-            ],
-            stream=True,
-            temperature=0.1,
-        )
+    pdf_text = _sanitize_content(pdf_text)
+    delays = _build_retry_delays()
 
-        accumulated = ""
-        yielded_fields: set[str] = set()
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            client = _create_client(api_key, base_url)
 
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                accumulated += chunk.choices[0].delta.content
+            accumulated = ""
+            yielded_fields: set[str] = set()
 
-                # 尝试增量解析
-                parsed = _try_parse_partial_json(accumulated)
-                if parsed:
-                    for field_name in _TOP_LEVEL_FIELDS:
-                        if field_name in parsed and field_name not in yielded_fields:
-                            yielded_fields.add(field_name)
-                            yield StreamEvent(
-                                event="field",
-                                field_name=field_name,
-                                data={"value": parsed[field_name]},
-                            )
+            async with client.messages.stream(
+                model=model,
+                max_tokens=16384,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": pdf_text}],
+                temperature=0.1,
+            ) as stream:
+                async for text_chunk in stream.text_stream:
+                    accumulated += text_chunk
 
-        # 流结束，确保所有字段都被 yield
-        final = json.loads(accumulated)  # 最终应该是完整 JSON
-        for field_name in _TOP_LEVEL_FIELDS:
-            if field_name in final and field_name not in yielded_fields:
-                yielded_fields.add(field_name)
+                    # 尝试增量解析
+                    parsed = _try_parse_partial_json(accumulated)
+                    if parsed:
+                        for field_name in _TOP_LEVEL_FIELDS:
+                            if field_name in parsed and field_name not in yielded_fields:
+                                yielded_fields.add(field_name)
+                                yield StreamEvent(
+                                    event="field",
+                                    field_name=field_name,
+                                    data={"value": parsed[field_name]},
+                                )
+
+            # 流结束，确保所有字段都被 yield
+            try:
+                final = json.loads(accumulated)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Final JSON parse failed: {e}, accumulated length: {len(accumulated)}")
+                # 尝试从不完整 JSON 中提取已有字段
+                partial = _try_parse_partial_json(accumulated)
+                if partial:
+                    final = partial
+                else:
+                    raise ValueError(f"无法解析 AI 返回的 JSON: {e}")
+
+            for field_name in _TOP_LEVEL_FIELDS:
+                if field_name in final and field_name not in yielded_fields:
+                    yielded_fields.add(field_name)
+                    yield StreamEvent(
+                        event="field",
+                        field_name=field_name,
+                        data={"value": final[field_name]},
+                    )
+
+            # mermaid_chart 嵌套在 method 中，单独提取
+            mermaid = final.get("method", {}).get("mermaid_chart")
+            if mermaid:
                 yield StreamEvent(
                     event="field",
-                    field_name=field_name,
-                    data={"value": final[field_name]},
+                    field_name="mermaid_chart",
+                    data={"value": mermaid},
                 )
 
-        # mermaid_chart 嵌套在 method 中，单独提取
-        mermaid = final.get("method", {}).get("mermaid_chart")
-        if mermaid:
-            yield StreamEvent(
-                event="field",
-                field_name="mermaid_chart",
-                data={"value": mermaid},
-            )
+            yield StreamEvent(event="done", data={"message": "解析完成"})
+            return  # 成功，退出重试循环
 
-        yield StreamEvent(event="done", data={"message": "解析完成"})
+        except Exception as e:
+            if _is_transient_error(e) and attempt < MAX_RETRIES:
+                delay = delays[attempt]
+                logger.warning(f"Transient error (attempt {attempt + 1}/{MAX_RETRIES + 1}): {e}. Retrying in {delay:.1f}s...")
+                yield StreamEvent(
+                    event="status",
+                    data={"message": f"遇到临时错误，正在重试（{attempt + 1}/{MAX_RETRIES + 1}）..."},
+                )
+                await asyncio.sleep(delay)
+                continue
 
-    except Exception as e:
-        yield StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"})
+            logger.error(f"Analysis failed: {e}")
+            yield StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"})
+            return
 
 
 async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str, model: str) -> str:
     """
-    基于 pipeline 描述生成 Mermaid 流程图。
+    基于 pipeline 描述生成 Mermaid 流程图（Anthropic SDK）。
 
     调用 AI 将文字描述的 pipeline 转换为 Mermaid 语法的流程图。
+    包含重试机制。
 
     Args:
         pipeline_text: pipeline 的文字描述
@@ -262,16 +358,8 @@ async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str
 
     Returns:
         str: Mermaid 语法的流程图字符串
-
-    实现要点：
-        1. 构造专门的 prompt，要求输出 Mermaid graph TD 语法
-        2. 调用 API（非 streaming）
-        3. 提取返回内容中的 Mermaid 代码块
-        4. 验证语法基本正确性
     """
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    client = _create_client(api_key, base_url)
 
     prompt = (
         "请将以下论文 pipeline 描述转换为 Mermaid graph TD 流程图语法。\n"
@@ -282,32 +370,40 @@ async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str
         f"Pipeline 描述：\n{pipeline_text}"
     )
 
-    try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "你是一个专业的流程图生成助手。只输出 Mermaid 语法代码，不要包含任何其他文字或代码块标记。"},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-        )
+    delays = _build_retry_delays()
 
-        content = response.choices[0].message.content.strip()
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            message = await client.messages.create(
+                model=model,
+                max_tokens=4096,
+                system="你是一个专业的流程图生成助手。只输出 Mermaid 语法代码，不要包含任何其他文字或代码块标记。",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
 
-        # 提取可能包含的 mermaid 代码块
-        if "```mermaid" in content:
-            start = content.index("```mermaid") + len("```mermaid")
-            end = content.index("```", start)
-            content = content[start:end].strip()
-        elif "```" in content:
-            start = content.index("```") + 3
-            end = content.index("```", start)
-            content = content[start:end].strip()
+            content = message.content[0].text.strip()
 
-        # 验证基本语法正确性
-        if content.startswith("graph "):
-            return content
-        else:
-            return f"graph TD\n    {content}"
-    except Exception as e:
-        return f"graph TD\n    A[Pipeline] --> B[Error: {str(e)[:50]}]"
+            # 提取可能包含的 mermaid 代码块
+            if "```mermaid" in content:
+                start = content.index("```mermaid") + len("```mermaid")
+                end = content.index("```", start)
+                content = content[start:end].strip()
+            elif "```" in content:
+                start = content.index("```") + 3
+                end = content.index("```", start)
+                content = content[start:end].strip()
+
+            # 验证基本语法正确性
+            if content.startswith("graph "):
+                return content
+            else:
+                return f"graph TD\n    {content}"
+
+        except Exception as e:
+            if _is_transient_error(e) and attempt < MAX_RETRIES:
+                delay = delays[attempt]
+                logger.warning(f"Mermaid generation transient error (attempt {attempt + 1}): {e}. Retrying in {delay:.1f}s...")
+                await asyncio.sleep(delay)
+                continue
+            return f"graph TD\n    A[Pipeline] --> B[Error: {str(e)[:50]}]"

@@ -102,6 +102,40 @@ class InterviewQA(SQLModel):
     a: str  # 参考回答
 
 
+class OutlineItem(SQLModel):
+    """
+    论文大纲条目
+
+    对应论文的一个章节/段落，包含标题、页码和内容概述。
+    Example:
+        {"section": "Introduction", "page": "1-2", "summary": "介绍了研究背景和动机..."}
+    """
+
+    section: str  # 章节标题
+    page: str  # 页码范围
+    summary: str  # 内容概述
+
+
+class RelatedPaper(SQLModel):
+    """
+    相关论文推荐
+
+    包含完整的论文引用信息。
+    Example:
+        {"title": "MVTec AD", "authors": "Bergmann et al.", "venue": "ICCV", "year": 2019,
+         "doi": "10.1109/ICCV.2019.00940", "url": "https://arxiv.org/abs/1903.10906",
+         "relevance": "本文的基线数据集"}
+    """
+
+    title: str  # 论文标题
+    authors: str  # 作者列表
+    venue: str  # 会议/期刊
+    year: int  # 发表年份
+    doi: str  # DOI
+    url: str  # 论文链接
+    relevance: str  # 与本文的关系
+
+
 # ============================================================
 # 主模型：AnalysisResult
 # ============================================================
@@ -148,6 +182,10 @@ class AnalysisResult(SQLModel, table=True):
 
     # 核心贡献（JSON 数组）
     key_contributions: list[str] = Field(default=[], sa_column=Column(JSON))
+
+    # 论文大纲（JSON 数组）
+    outline: list[dict] = Field(default=[], sa_column=Column(JSON))
+    # 每个元素对应 OutlineItem
 
     # 方法论（JSON 对象）
     method: dict = Field(default={}, sa_column=Column(JSON))

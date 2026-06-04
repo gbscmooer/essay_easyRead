@@ -32,6 +32,7 @@ import { useState } from 'react'
 import type { AnalysisResult, AnalysisStatus } from '@/types'
 import { LoadingState } from '@/components/LoadingState'
 import { OverviewTab } from './tabs/OverviewTab'
+import { OutlineTab } from './tabs/OutlineTab'
 import { MethodTab } from './tabs/MethodTab'
 import { ExperimentsTab } from './tabs/ExperimentsTab'
 import { CodeTab } from './tabs/CodeTab'
@@ -47,6 +48,7 @@ interface AnalysisPanelProps {
 
 const tabs = [
   { key: 'overview', label: '概览' },
+  { key: 'outline', label: '大纲' },
   { key: 'method', label: '方法' },
   { key: 'experiments', label: '实验' },
   { key: 'code', label: '代码' },
@@ -92,6 +94,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage }
       {/* 内容区 */}
       <div className="flex-1 overflow-auto p-6">
         {activeTab === 'overview' && <OverviewTab result={result} />}
+        {activeTab === 'outline' && <OutlineTab result={result} />}
         {activeTab === 'method' && <MethodTab result={result} />}
         {activeTab === 'experiments' && <ExperimentsTab result={result} />}
         {activeTab === 'code' && <CodeTab result={result} />}
