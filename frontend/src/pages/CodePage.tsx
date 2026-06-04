@@ -167,8 +167,7 @@ export function CodePage() {
           {paper.code_status === 'ready' && (
             <button
               onClick={() => {
-                const path = `/Users/katisarrow/essay_read/code_downloads/${paperId}`
-                openInVSCode(path)
+                if (paper?.code_path) openInVSCode(paper.code_path)
               }}
               className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
               title="在 VSCode 中打开"

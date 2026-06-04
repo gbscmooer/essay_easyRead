@@ -47,6 +47,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const [paper, setPaper] = useState<Paper | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
   const [shouldConnect, setShouldConnect] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
 
   // 顶层无条件调用 useStreaming
   const {
@@ -117,10 +118,16 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const reparse = useCallback(async () => {
     if (activePaperId === null) return
     setAnalysis(null)
+    setLocalError(null)
     setShouldConnect(false)
-    const updated = await reparsePaper(activePaperId)
-    setPaper(updated)
-    setShouldConnect(true)
+    try {
+      const updated = await reparsePaper(activePaperId)
+      setPaper(updated)
+      setShouldConnect(true)
+    } catch {
+      setShouldConnect(false)
+      setLocalError('重新解析失败，请检查网络连接后重试')
+    }
   }, [activePaperId])
 
   // 开始分析（从 idle 状态触发）
@@ -142,7 +149,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     ? 'idle'
     : streamStatus
 
-  const error = streamError || paper?.error_message || null
+  const error = localError || streamError || paper?.error_message || null
 
   return {
     paper,

@@ -15,6 +15,9 @@ export interface Paper {
   year: number | null
   status: 'pending' | 'extracting' | 'analyzing' | 'done' | 'failed'
   error_message: string | null
+  code_url: string | null
+  code_path: string | null
+  code_status: 'none' | 'cloning' | 'ready' | 'failed'
   created_at: string  // ISO 8601
   updated_at: string
 }
@@ -105,6 +108,7 @@ export interface RelatedPaper {
   doi: string
   url: string
   relevance: string
+  citation_count: number
 }
 
 
@@ -112,6 +116,7 @@ export interface RelatedPaper {
 export interface AnalysisResult {
   paper_id: number
   title: string
+  authors: string
   venue: string
   year: number
   one_sentence: string
@@ -133,6 +138,45 @@ export interface StreamEvent {
   event: 'status' | 'field' | 'done' | 'error'
   field_name: string | null
   data: Record<string, unknown>
+}
+
+
+/** 文件树节点 */
+export interface FileNode {
+  name: string
+  type: 'file' | 'dir'
+  path: string
+  children?: FileNode[]
+  size?: number
+}
+
+
+/** 模块依赖边 */
+export interface DependencyEdge {
+  source: string
+  target: string
+  imports: string[]
+}
+
+
+/** 论文-代码映射 */
+export interface PaperCodeMapping {
+  concept: string
+  file: string
+  function: string
+  explanation: string
+}
+
+
+/** 代码分析结果 */
+export interface CodeAnalysisResult {
+  paper_id: number
+  file_tree: FileNode
+  data_flow: string | null
+  dependency_graph: DependencyEdge[]
+  paper_code_mapping: PaperCodeMapping[]
+  status: 'pending' | 'analyzing' | 'done' | 'failed'
+  error_message: string | null
 }
 
 

@@ -31,9 +31,10 @@ interface UseStreamingReturn {
  * 连接 SSE 端点，逐步接收解析结果。
  *
  * @param paperId 论文 ID，为 null 时不连接
+ * @param shouldConnect 是否建立连接（默认 true，传 false 可延迟连接）
  * @returns 解析状态和部分结果
  */
-export function useStreaming(paperId: number | null): UseStreamingReturn {
+export function useStreaming(paperId: number | null, shouldConnect: boolean = true): UseStreamingReturn {
   const [status, setStatus] = useState<AnalysisStatus>('idle')
   const [partialResult, setPartialResult] = useState<Partial<AnalysisResult>>({})
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +59,7 @@ export function useStreaming(paperId: number | null): UseStreamingReturn {
   const connect = useCallback(() => {
     cleanup()
 
-    if (paperId === null) {
+    if (paperId === null || !shouldConnect) {
       setStatus('idle')
       setPartialResult({})
       setError(null)
@@ -157,7 +158,7 @@ export function useStreaming(paperId: number | null): UseStreamingReturn {
       isUnmountedRef.current = true
       cleanup()
     }
-  }, [paperId, connect, cleanup])
+  }, [paperId, shouldConnect, connect, cleanup])
 
   return {
     status,

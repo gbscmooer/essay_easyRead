@@ -270,7 +270,7 @@ async def stream_analysis(paper_id: int):
             # 更新状态为 extracting
             with Session(engine) as session:
                 update_paper_status(session, paper_id, "extracting")
-            yield format_sse(StreamEvent(event="status", data={"message": "正在提取 PDF 文本..."}))
+            yield format_sse(StreamEvent(event="status", data={"status": "extracting", "message": "正在提取 PDF 文本..."}))
 
             # 提取 PDF 文本
             from ..services.pdf_parser import extract_pdf_content
@@ -309,7 +309,7 @@ async def stream_analysis(paper_id: int):
                 if paper_title:
                     yield format_sse(StreamEvent(
                         event="status",
-                        data={"message": "正在搜索相关论文..."},
+                        data={"status": "analyzing", "message": "正在搜索相关论文..."},
                     ))
                     from ..services.semantic_scholar import search_related_papers, generate_relevance_descriptions
                     related = await search_related_papers(paper_title)
@@ -338,7 +338,7 @@ async def stream_analysis(paper_id: int):
             if code_url:
                 yield format_sse(StreamEvent(
                     event="status",
-                    data={"message": f"找到代码仓库: {code_url}"},
+                    data={"status": "analyzing", "message": f"找到代码仓库: {code_url}"},
                 ))
 
             # 保存结果到数据库
