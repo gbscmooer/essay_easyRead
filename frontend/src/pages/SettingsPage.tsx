@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { post, get } from '@/api/client'
+import { refreshConfig } from '@/hooks/useConfig'
 
 
 interface AIModelConfig {
@@ -7,11 +8,21 @@ interface AIModelConfig {
   base_url: string
   model: string
   system_prompt: string
+  temperature: number
+  max_tokens: number
+}
+
+interface UIConfig {
+  highlight_duration: number
+  zoom_step: number
+  zoom_min: number
+  zoom_max: number
 }
 
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
+  ui: UIConfig
 }
 
 
@@ -21,12 +32,22 @@ const DEFAULT_CONFIG: AppConfig = {
     base_url: 'https://api.openai.com/v1',
     model: 'gpt-4o-mini',
     system_prompt: '',
+    temperature: 0.3,
+    max_tokens: 2048,
   },
   analysis: {
     api_key: '',
     base_url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
     model: 'mimo-v2.5-pro',
     system_prompt: '',
+    temperature: 0.1,
+    max_tokens: 16384,
+  },
+  ui: {
+    highlight_duration: 3000,
+    zoom_step: 0.2,
+    zoom_min: 0.4,
+    zoom_max: 3.0,
   },
 }
 
@@ -45,13 +66,16 @@ function ConfigSection({
   description,
   config,
   onChange,
+  defaultMaxTokens,
 }: {
   title: string
   description: string
   config: AIModelConfig
   onChange: (cfg: AIModelConfig) => void
+  defaultMaxTokens: number
 }) {
   const [showKey, setShowKey] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const keyMissing = !config.api_key.trim()
 
   return (
@@ -78,10 +102,11 @@ function ConfigSection({
             <button
               key={preset.label}
               onClick={() => {
-                onChange({ ...config, base_url: preset.base_url })
+                const updates: Partial<AIModelConfig> = { base_url: preset.base_url }
                 if (preset.models.length === 1) {
-                  onChange({ ...config, base_url: preset.base_url, model: preset.models[0] })
+                  updates.model = preset.models[0]
                 }
+                onChange({ ...config, ...updates })
               }}
               className={`px-3 py-1 text-xs rounded-full border transition-colors ${
                 config.base_url === preset.base_url
@@ -142,6 +167,183 @@ function ConfigSection({
           className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
         />
       </div>
+
+      {/* 高级参数（折叠） */}
+      <div>
+        <button
+          onClick={() => setShowAdvanced(v => !v)}
+          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400 transition-colors"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          高级参数
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-3 space-y-3 pl-2 border-l border-gray-800">
+            {/* Temperature */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">Temperature</label>
+                <span className="text-xs text-gray-600">{config.temperature}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.05}
+                value={config.temperature}
+                onChange={e => onChange({ ...config, temperature: parseFloat(e.target.value) })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                <span>精确 (0)</span>
+                <span>平衡 (1)</span>
+                <span>随机 (2)</span>
+              </div>
+            </div>
+
+            {/* Max Tokens */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">最大输出 Token 数</label>
+                <span className="text-xs text-gray-600">{config.max_tokens}</span>
+              </div>
+              <input
+                type="range"
+                min={512}
+                max={32768}
+                step={512}
+                value={config.max_tokens}
+                onChange={e => onChange({ ...config, max_tokens: parseInt(e.target.value) })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                <span>512</span>
+                <span>默认 {defaultMaxTokens}</span>
+                <span>32768</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+function UIConfigSection({
+  config,
+  onChange,
+}: {
+  config: UIConfig
+  onChange: (cfg: UIConfig) => void
+}) {
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  return (
+    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-100">界面设置</h2>
+        <p className="text-xs text-gray-500 mt-0.5">阅读器的交互行为参数</p>
+      </div>
+
+      {/* 大纲跳转高亮时长 */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs text-gray-500">大纲跳转高亮时长</label>
+          <span className="text-xs text-gray-600">{(config.highlight_duration / 1000).toFixed(1)}s</span>
+        </div>
+        <input
+          type="range"
+          min={500}
+          max={10000}
+          step={500}
+          value={config.highlight_duration}
+          onChange={e => onChange({ ...config, highlight_duration: parseInt(e.target.value) })}
+          className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        />
+        <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+          <span>0.5s</span>
+          <span>默认 3s</span>
+          <span>10s</span>
+        </div>
+      </div>
+
+      {/* PDF 缩放参数（折叠） */}
+      <div>
+        <button
+          onClick={() => setShowAdvanced(v => !v)}
+          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400 transition-colors"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          PDF 缩放参数
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-3 space-y-3 pl-2 border-l border-gray-800">
+            {/* Zoom Step */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">每次缩放步进</label>
+                <span className="text-xs text-gray-600">{Math.round(config.zoom_step * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={50}
+                step={5}
+                value={Math.round(config.zoom_step * 100)}
+                onChange={e => onChange({ ...config, zoom_step: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Zoom Min */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">最小缩放倍率</label>
+                <span className="text-xs text-gray-600">{Math.round(config.zoom_min * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={100}
+                step={10}
+                value={Math.round(config.zoom_min * 100)}
+                onChange={e => onChange({ ...config, zoom_min: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Zoom Max */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">最大缩放倍率</label>
+                <span className="text-xs text-gray-600">{Math.round(config.zoom_max * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={100}
+                max={500}
+                step={50}
+                value={Math.round(config.zoom_max * 100)}
+                onChange={e => onChange({ ...config, zoom_max: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -165,6 +367,7 @@ export function SettingsPage() {
     setSaved(false)
     try {
       await post('/analysis/config', config)
+      refreshConfig()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch {
@@ -189,9 +392,9 @@ export function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-100">AI 模型配置</h1>
+        <h1 className="text-xl font-bold text-gray-100">设置</h1>
         <p className="text-sm text-gray-500 mt-1">
-          分别配置翻译和解读使用的 AI 模型。翻译用于画词翻译，解读用于论文分析、总结等。
+          配置 AI 模型参数和界面行为。点击"高级参数"可调整 temperature、token 上限等。
         </p>
       </div>
 
@@ -216,6 +419,7 @@ export function SettingsPage() {
         description="用于选中文本的翻译功能。推荐使用轻量快速的模型。"
         config={config.translate}
         onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
+        defaultMaxTokens={2048}
       />
 
       <ConfigSection
@@ -223,6 +427,12 @@ export function SettingsPage() {
         description="用于论文解析、AI 总结等功能。推荐使用能力较强的模型。"
         config={config.analysis}
         onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
+        defaultMaxTokens={16384}
+      />
+
+      <UIConfigSection
+        config={config.ui}
+        onChange={cfg => setConfig(prev => ({ ...prev, ui: cfg }))}
       />
 
       <div className="flex items-center gap-3 pt-2">
