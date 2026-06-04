@@ -8,7 +8,7 @@ Pydantic 模型，用于 FastAPI 的请求验证和响应序列化。
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
-from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper
+from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper, FigureAnalysis
 
 
 # ============================================================

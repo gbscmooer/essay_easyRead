@@ -17,7 +17,7 @@ interface PdfViewerProps {
   onPageChange: (page: number) => void
 }
 
-export function PdfViewer({ pdfUrl, currentPage: _currentPage, onPageChange }: PdfViewerProps) {
+export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps) {
   const [numPages, setNumPages] = useState(0)
   const [scale, setScale] = useState(1.0)
   const [pageInput, setPageInput] = useState('')
@@ -74,6 +74,13 @@ export function PdfViewer({ pdfUrl, currentPage: _currentPage, onPageChange }: P
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [])
+
+  // 当外部 currentPage 变化时（如大纲点击），滚动到对应页
+  useEffect(() => {
+    if (currentPage > 0 && numPages > 0) {
+      scrollToPage(currentPage)
+    }
+  }, [currentPage, numPages, scrollToPage])
 
   const goToPage = useCallback((page: number) => {
     if (page >= 1 && page <= numPages) {

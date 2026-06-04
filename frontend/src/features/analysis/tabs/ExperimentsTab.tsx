@@ -1,102 +1,207 @@
-/**
- * ExperimentsTab 组件
- *
- * 实验 Tab：展示实验设置和结果对比。
- *
- * Props:
- *   result: AnalysisResult - 解析结果
- *
- * 展示内容：
- *   1. 数据集列表（标签样式）
- *   2. 基线方法列表
- *   3. 主要实验结论（文字描述）
- *   4. 实验结果对比表（基于 result_table 结构化数据）
- *      - result_table: ResultTableRow[] — 每行 {method, dataset, metric, value}
- *      - 使用 Recharts BarChart 可视化
- *      - 支持按 metric 排序
- *      - 高亮本文方法的数据行（method 包含 "Ours" 或 "本文"）
- *      - 如果 result_table 为空，仅展示 main_results 文字
- *   5. 消融实验说明
- *
- * 数据来源：
- *   result.experiments.result_table — AI 从论文中提取的结构化数值数据
- *   每行对应一个方法在某数据集上的某个指标值
- *
- * 依赖：
- *   - recharts (BarChart, Bar, XAxis, YAxis, Tooltip, Legend)
- *
- * 样式：
- *   - 数据集/基线标签：bg-gray-700, rounded-full, px-3, py-1
- *   - 对比表格：带排序功能的表头
- *   - Recharts 图表容器：bg-gray-800, rounded-lg, p-4
- *   - 消融实验：特殊卡片样式
- */
-
 import { useMemo, useState } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, LineChart, Line, ScatterChart, Scatter,
+  XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import type { AnalysisResult, ResultTableRow } from '@/types'
+import type { AnalysisResult, FigureAnalysis } from '@/types'
 
 
 interface ExperimentsTabProps {
   result: AnalysisResult
 }
 
-/**
- * 将 result_table 转换为 Recharts BarChart 数据
- * 按 dataset+metric 分组，每个 method 一个 bar
- */
-function buildChartData(rows: ResultTableRow[]) {
-  if (rows.length === 0) return { data: [], methods: [] }
 
-  const metrics = [...new Set(rows.map(r => r.metric))]
-  const selectedMetric = metrics[0]
+const CHART_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+]
 
-  const metricRows = rows.filter(r => r.metric === selectedMetric)
 
-  // 按 dataset 分组
-  const grouped = new Map<string, Record<string, unknown>>()
-  const methods = new Set<string>()
-
-  metricRows.forEach(row => {
-    if (!grouped.has(row.dataset)) {
-      grouped.set(row.dataset, { dataset: row.dataset })
-    }
-    const entry = grouped.get(row.dataset)!
-    const numValue = parseFloat(row.value)
-    entry[row.method] = isNaN(numValue) ? row.value : numValue
-    methods.add(row.method)
+/** 将 FigureAnalysis 的 rows 转换为 Recharts 数据 */
+function buildRechartsData(fig: FigureAnalysis) {
+  if (!fig.columns || !fig.rows || fig.rows.length === 0) return null
+  const cols = fig.columns
+  // 第一列作为 x 轴分类
+  return fig.rows.map(row => {
+    const entry: Record<string, unknown> = {}
+    cols.forEach((col, i) => {
+      const val = row[i] ?? ''
+      const num = parseFloat(val)
+      entry[col] = isNaN(num) ? val : num
+    })
+    return entry
   })
-
-  return {
-    data: Array.from(grouped.values()),
-    methods: Array.from(methods),
-    metric: selectedMetric,
-    metrics,
-  }
 }
+
+
+function FigureChart({ fig }: { fig: FigureAnalysis }) {
+  const data = useMemo(() => buildRechartsData(fig), [fig])
+  const cols = fig.columns || []
+
+  if (!data || cols.length < 2) {
+    return (
+      <div className="text-gray-500 text-xs py-4 text-center">
+        数据不足以生成图表
+      </div>
+    )
+  }
+
+  const xKey = cols[0]
+  const valueKeys = cols.slice(1)
+
+  const tooltipStyle = {
+    backgroundColor: '#1f2937',
+    border: '1px solid #374151',
+    borderRadius: '0.5rem',
+    color: '#e5e7eb',
+    fontSize: 12,
+  }
+
+  if (fig.chart_type === 'line') {
+    return (
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <XAxis dataKey={xKey} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <Tooltip contentStyle={tooltipStyle} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {valueKeys.map((key, idx) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    )
+  }
+
+  if (fig.chart_type === 'scatter') {
+    // 散点图用前两个数值列
+    const xVal = valueKeys[0]
+    const yVal = valueKeys[1] || valueKeys[0]
+    return (
+      <ResponsiveContainer width="100%" height={280}>
+        <ScatterChart>
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <XAxis dataKey={xVal} name={xVal} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <YAxis dataKey={yVal} name={yVal} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <Tooltip contentStyle={tooltipStyle} />
+          <Scatter name="数据" data={data} fill="#3b82f6" />
+        </ScatterChart>
+      </ResponsiveContainer>
+    )
+  }
+
+  // 默认柱状图
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+        <XAxis dataKey={xKey} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+        <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
+        <Tooltip contentStyle={tooltipStyle} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        {valueKeys.map((key, idx) => (
+          <Bar
+            key={key}
+            dataKey={key}
+            fill={CHART_COLORS[idx % CHART_COLORS.length]}
+            radius={[2, 2, 0, 0]}
+          />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+
+function FigureCard({ fig }: { fig: FigureAnalysis }) {
+  const [showTable, setShowTable] = useState(false)
+  const cols = fig.columns || []
+
+  return (
+    <div className="bg-gray-800/50 rounded-lg border border-gray-700/50 overflow-hidden">
+      {/* 图表标题 */}
+      <div className="px-4 py-3 border-b border-gray-700/50">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-blue-300">{fig.name}</h3>
+          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
+            {fig.chart_type === 'bar' ? '柱状图' : fig.chart_type === 'line' ? '折线图' : fig.chart_type === 'scatter' ? '散点图' : '表格'}
+          </span>
+        </div>
+        {fig.caption && (
+          <p className="text-xs text-gray-400 mt-1">{fig.caption}</p>
+        )}
+      </div>
+
+      {/* 图表 */}
+      {fig.chart_type !== 'table' && cols.length >= 2 && (
+        <div className="px-4 pt-4">
+          <FigureChart fig={fig} />
+        </div>
+      )}
+
+      {/* 数据表格（可折叠） */}
+      {fig.rows && fig.rows.length > 0 && (
+        <div className="px-4 py-2">
+          <button
+            onClick={() => setShowTable(v => !v)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            {showTable ? '收起数据 ▲' : '查看数据 ▼'}
+          </button>
+
+          {showTable && (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    {cols.map((col, i) => (
+                      <th key={i} className="text-left py-1.5 px-2 text-gray-400 font-medium">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {fig.rows.map((row, ri) => (
+                    <tr key={ri} className={ri % 2 === 0 ? 'bg-gray-800/30' : ''}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="py-1.5 px-2 text-gray-300">
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AI 解读 */}
+      {fig.interpretation && (
+        <div className="px-4 py-3 bg-blue-500/5 border-t border-gray-700/50">
+          <p className="text-xs text-gray-400 mb-1 font-medium">AI 解读</p>
+          <p className="text-xs text-gray-300 leading-relaxed">{fig.interpretation}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 export function ExperimentsTab({ result }: ExperimentsTabProps) {
   const { experiments } = result
-  const [selectedMetric, setSelectedMetric] = useState<string | null>(null)
 
-  const chartData = useMemo(() => {
-    const rows = experiments.result_table || []
-    if (selectedMetric) {
-      return buildChartData(rows.filter(r => r.metric === selectedMetric))
-    }
-    return buildChartData(rows)
-  }, [experiments.result_table, selectedMetric])
-
-  // 判断是否为本文方法
-  const isOurMethod = (name: string) =>
-    /ours|本文|proposed/i.test(name)
-
-  const colors = [
-    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-  ]
+  const figures = experiments.figures || []
 
   return (
     <div className="space-y-6">
@@ -128,7 +233,7 @@ export function ExperimentsTab({ result }: ExperimentsTabProps) {
         </section>
       )}
 
-      {/* 主要实验结论 */}
+      {/* 主要结论 */}
       {experiments.main_results && (
         <section>
           <h2 className="text-lg font-semibold text-gray-200 mb-2">主要结论</h2>
@@ -136,97 +241,19 @@ export function ExperimentsTab({ result }: ExperimentsTabProps) {
         </section>
       )}
 
-      {/* 实验结果图表 */}
-      {experiments.result_table && experiments.result_table.length > 0 ? (
+      {/* 逐图表分析 */}
+      {figures.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">实验结果对比</h2>
-
-          {/* Metric 选择 */}
-          {chartData.metrics && chartData.metrics.length > 1 && (
-            <div className="flex gap-2 mb-4">
-              {chartData.metrics.map(m => (
-                <button
-                  key={m}
-                  onClick={() => setSelectedMetric(m)}
-                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    (selectedMetric || chartData.metrics![0]) === m
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* 图表 */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData.data}>
-                <XAxis
-                  dataKey="dataset"
-                  tick={{ fill: '#9ca3af', fontSize: 12 }}
-                  axisLine={{ stroke: '#4b5563' }}
-                />
-                <YAxis
-                  tick={{ fill: '#9ca3af', fontSize: 12 }}
-                  axisLine={{ stroke: '#4b5563' }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1f2937',
-                    border: '1px solid #374151',
-                    borderRadius: '0.5rem',
-                    color: '#e5e7eb',
-                  }}
-                />
-                <Legend
-                  wrapperStyle={{ color: '#9ca3af', fontSize: 12 }}
-                />
-                {chartData.methods.map((method, idx) => (
-                  <Bar
-                    key={method}
-                    dataKey={method}
-                    fill={isOurMethod(method) ? '#3b82f6' : colors[idx % colors.length]}
-                    radius={[2, 2, 0, 0]}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* 数据表格 */}
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">方法</th>
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">数据集</th>
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">指标</th>
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">值</th>
-                </tr>
-              </thead>
-              <tbody>
-                {experiments.result_table.map((row, idx) => (
-                  <tr
-                    key={idx}
-                    className={`${idx % 2 === 0 ? 'bg-gray-800/50' : ''} ${
-                      isOurMethod(row.method) ? 'text-blue-400 font-medium' : 'text-gray-300'
-                    }`}
-                  >
-                    <td className="py-2 px-3">{row.method}</td>
-                    <td className="py-2 px-3">{row.dataset}</td>
-                    <td className="py-2 px-3">{row.metric}</td>
-                    <td className="py-2 px-3">{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">
+            图表分析
+            <span className="text-xs text-gray-500 font-normal ml-2">共 {figures.length} 项</span>
+          </h2>
+          <div className="space-y-4">
+            {figures.map((fig, idx) => (
+              <FigureCard key={idx} fig={fig} />
+            ))}
           </div>
         </section>
-      ) : (
-        experiments.main_results && null // 已在上方显示
       )}
 
       {/* 消融实验 */}

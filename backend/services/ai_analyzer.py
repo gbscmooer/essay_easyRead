@@ -84,13 +84,26 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
     "result_table": [
       {"method": "本文方法", "dataset": "数据集名", "metric": "指标名", "value": "数值"},
       {"method": "Baseline A", "dataset": "数据集名", "metric": "指标名", "value": "数值"}
+    ],
+    "figures": [
+      {
+        "name": "Table 1",
+        "caption": "在 XX 数据集上与 SOTA 方法的对比",
+        "chart_type": "bar",
+        "columns": ["Method", "mAP", "F1"],
+        "rows": [
+          ["Ours", "52.3", "48.1"],
+          ["Baseline A", "49.1", "45.6"]
+        ],
+        "interpretation": "本文方法在 mAP 和 F1 指标上均优于所有基线方法..."
+      }
     ]
   },
   "code_mapping": [
     {"concept": "论文中的概念/公式", "likely_implementation": "PyTorch 风格的代码实现思路"}
   ],
   "interview_qa": [
-    {"q": "面试问题", "a": "简洁清晰的回答"}
+    {"q": "面试问题", "a": "简洁清晰的回答", "source": "Section X.Y, Page Z"}
   ],
   "limitations": "局限性和未来工作方向",
   "related_papers": [
@@ -100,7 +113,7 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
 
 要求：
 1. one_sentence 要简洁有力，能让人在30秒内理解论文核心
-2. outline 按论文实际章节结构列出每节的标题、页码和内容概述，帮助读者快速了解论文结构
+2. outline 按论文实际章节结构列出每节的标题、页码和内容概述，page 字段填写该章节在论文中的起始页码（纯数字），用于跳转
 3. method.pipeline 要用清晰的步骤描述完整流程
 4. method.mermaid_chart 用 Mermaid graph TD 语法画出 pipeline 流程图。严格遵守以下规则：
    - 节点文本只能用英文、数字、空格，不能用括号 () [] {} 等特殊字符
@@ -109,11 +122,19 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
    - 节点ID用简短英文如 A, B, C 或 Step1, Step2
    - 示例：graph TD\\n    A[Input Image] --> B[Feature Extraction]\\n    B --> C[Anomaly Detection]
 5. key_modules 列出 2-4 个最关键的模块
-6. experiments.result_table 提取论文中 SOTA 对比表格的数值数据，每行一个方法在某数据集上的指标值
-7. code_mapping 给出 3-5 个核心概念的代码映射
-8. interview_qa 生成 5-8 个高频面试问题
-9. related_papers 给出 3-5 篇最相关的论文，必须包含 title、authors、venue、year、doi、url、relevance 字段。doi 和 url 如果无法确定则填空字符串
-10. 所有内容基于论文实际内容，不要编造"""
+6. experiments.figures 是重点：逐一列出论文中每一个数据表格(Table)和图表(Figure)，每个都要：
+   - name: 图表编号，如 "Table 1", "Figure 3"
+   - caption: 图表的原始标题或说明文字
+   - chart_type: 推荐可视化类型（bar=柱状图, line=折线图, scatter=散点图, table=纯表格）
+   - columns: 表格的列名数组
+   - rows: 表格数据，每行是字符串数组，数值保持原始精度
+   - interpretation: AI 对该图表的解读（2-3句话），说明图表展示了什么结论
+   注意：不要遗漏任何一个 Table 或 Figure！每个图表都必须有独立的分析。
+7. experiments.result_table 保留作为汇总（可从 figures 中提取主要对比数据）
+8. code_mapping 给出 3-5 个核心概念的代码映射
+9. interview_qa 生成 5-8 个高频面试问题，每个问题的 source 字段标注答案来源于论文的哪个章节和页码（如 "Section 3.2, Page 5"）
+10. related_papers 给出 3-5 篇最相关的论文，必须包含 title、authors、venue、year、doi、url、relevance 字段。doi 和 url 如果无法确定则填空字符串
+11. 所有内容基于论文实际内容，不要编造"""
 
 
 # 顶层字段名列表，用于检测 JSON 中哪些字段已完整

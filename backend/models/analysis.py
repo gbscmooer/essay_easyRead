@@ -58,6 +58,24 @@ class ResultTableRow(SQLModel):
     value: str  # 数值（字符串，方便展示如 "52.3*"）
 
 
+class FigureAnalysis(SQLModel):
+    """
+    单个图表/表格的分析
+
+    对论文中的每一个 Table 和 Figure 进行独立的结构化分析。
+    Example:
+        {"name": "Table 1", "caption": "Comparison with SOTA", "chart_type": "bar",
+         "columns": ["Method", "mAP"], "rows": [["Ours", "52.3"]], "interpretation": "..."}
+    """
+
+    name: str  # 图表编号，如 "Table 1", "Figure 3"
+    caption: str  # 图表标题
+    chart_type: str  # 推荐图表类型: bar, line, scatter, table
+    columns: list[str] = []  # 列名
+    rows: list[list[str]] = []  # 数据行
+    interpretation: str  # AI 解读
+
+
 class ExperimentModel(SQLModel):
     """
     实验设置与结果
@@ -67,6 +85,7 @@ class ExperimentModel(SQLModel):
     main_results: 主要实验结论（文字描述）
     ablation: 消融实验的结论
     result_table: 结构化实验结果，用于 Recharts 可视化
+    figures: 逐图分析列表
     """
 
     datasets: list[str] = []  # 数据集列表
@@ -74,6 +93,7 @@ class ExperimentModel(SQLModel):
     main_results: str  # 主要实验结论
     ablation: str  # 消融实验说明
     result_table: list[ResultTableRow] = []  # 结构化实验数据
+    figures: list[FigureAnalysis] = []  # 逐图分析
 
 
 class CodeMapping(SQLModel):
@@ -95,11 +115,13 @@ class InterviewQA(SQLModel):
 
     一条面试题及其参考回答。
     Example:
-        {"q": "这篇论文的核心创新是什么？", "a": "提出了 Transformer 架构，完全基于注意力机制..."}
+        {"q": "这篇论文的核心创新是什么？", "a": "提出了 Transformer 架构...",
+         "source": "Section 3.2, Page 5"}
     """
 
     q: str  # 面试问题
     a: str  # 参考回答
+    source: str = ""  # 原文出处
 
 
 class OutlineItem(SQLModel):

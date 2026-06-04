@@ -205,6 +205,7 @@ export function ReaderPage() {
                 partialResult={partialResult}
                 status={status}
                 progressMessage={progressMessage}
+                onJumpToPage={setCurrentPage}
               />
             )}
           </div>

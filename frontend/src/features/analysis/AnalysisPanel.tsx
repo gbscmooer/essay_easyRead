@@ -44,6 +44,7 @@ interface AnalysisPanelProps {
   partialResult: Partial<AnalysisResult>
   status: AnalysisStatus
   progressMessage: string
+  onJumpToPage?: (page: number) => void
 }
 
 const tabs = [
@@ -52,12 +53,12 @@ const tabs = [
   { key: 'method', label: '方法' },
   { key: 'experiments', label: '实验' },
   { key: 'code', label: '代码' },
-  { key: 'interview', label: '面试' },
+  { key: 'interview', label: 'Q&A' },
 ] as const
 
 type TabKey = typeof tabs[number]['key']
 
-export function AnalysisPanel({ result, partialResult, status, progressMessage }: AnalysisPanelProps) {
+export function AnalysisPanel({ result, partialResult, status, progressMessage, onJumpToPage }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
 
   // 如果未完成解析，显示 LoadingState
@@ -94,7 +95,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage }
       {/* 内容区 */}
       <div className="flex-1 overflow-auto p-6">
         {activeTab === 'overview' && <OverviewTab result={result} />}
-        {activeTab === 'outline' && <OutlineTab result={result} />}
+        {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'method' && <MethodTab result={result} />}
         {activeTab === 'experiments' && <ExperimentsTab result={result} />}
         {activeTab === 'code' && <CodeTab result={result} />}

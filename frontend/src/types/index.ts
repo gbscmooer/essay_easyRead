@@ -51,6 +51,16 @@ export interface ResultTableRow {
   value: string
 }
 
+/** 单个图表/表格的分析 */
+export interface FigureAnalysis {
+  name: string           // 图表名称，如 "Table 1", "Figure 3"
+  caption: string        // 图表标题/说明
+  chart_type: string     // 推荐图表类型: bar, line, scatter, table
+  columns: string[]      // 表格列名
+  rows: string[][]       // 表格数据，每行是字符串数组
+  interpretation: string // AI 对该图表的解读
+}
+
 /** 实验设置与结果 */
 export interface Experiments {
   datasets: string[]
@@ -58,6 +68,7 @@ export interface Experiments {
   main_results: string
   ablation: string
   result_table: ResultTableRow[]
+  figures: FigureAnalysis[]  // 逐图分析
 }
 
 
@@ -72,6 +83,8 @@ export interface CodeMapping {
 export interface InterviewQA {
   q: string
   a: string
+  source?: string       // 原文出处，如 "Section 3.2, Page 5"
+  explanation?: string  // AI 进一步解释（按需生成）
 }
 
 
