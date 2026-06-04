@@ -4,11 +4,13 @@
 SQLite + SQLModel 的数据库初始化和 CRUD 操作。
 """
 
+from datetime import datetime, timezone
 from sqlmodel import Session, create_engine, SQLModel, select, col
 from sqlalchemy import func
 
 from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
+from ..models.code_analysis import CodeAnalysis
 
 
 def _migrate_schema(engine) -> None:
@@ -22,18 +24,41 @@ def _migrate_schema(engine) -> None:
             result = conn.exec_driver_sql("PRAGMA table_info(analysis_results)")
             existing_cols = {row[1] for row in result.fetchall()}
         except Exception:
-            return
+            existing_cols = set()
 
-        # 添加缺失的列
-        migrations = [
+        # analysis_results 表迁移
+        analysis_migrations = [
             ("outline", "JSON DEFAULT '[]'"),
+            ("authors", "TEXT DEFAULT ''"),
         ]
-        for col_name, col_def in migrations:
+        for col_name, col_def in analysis_migrations:
             if col_name not in existing_cols:
                 try:
                     conn.exec_driver_sql(f"ALTER TABLE analysis_results ADD COLUMN {col_name} {col_def}")
                     conn.commit()
                     logger.info(f"Migration: added column {col_name} to analysis_results")
+                except Exception as e:
+                    logger.warning(f"Migration failed for {col_name}: {e}")
+
+        # papers 表迁移：代码仓库相关字段
+        try:
+            result = conn.exec_driver_sql("PRAGMA table_info(papers)")
+            existing_paper_cols = {row[1] for row in result.fetchall()}
+        except Exception:
+            existing_paper_cols = set()
+
+        paper_migrations = [
+            ("code_url", "TEXT"),
+            ("code_status", "TEXT DEFAULT 'none'"),
+            ("code_path", "TEXT"),
+            ("code_summary", "TEXT"),
+        ]
+        for col_name, col_def in paper_migrations:
+            if col_name not in existing_paper_cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE papers ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to papers")
                 except Exception as e:
                     logger.warning(f"Migration failed for {col_name}: {e}")
 
@@ -46,7 +71,7 @@ def init_db(database_url: str) -> None:
     在应用启动时调用一次。
 
     Args:
-        database_url: 数据库连接字符串，如 "sqlite:///./data/essay_read.db"
+        database_url: 数据库连接字符串（应为绝对路径）
     """
     engine = create_engine(database_url, connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
@@ -131,7 +156,7 @@ def save_analysis_result(session: Session, paper_id: int, result: dict) -> None:
     statement = select(AnalysisResult).where(AnalysisResult.paper_id == paper_id)
     existing = session.exec(statement).first()
 
-    method_data = result.get("method", {})
+    method_data = dict(result.get("method", {}))
     # 从 method 中提取 mermaid_chart，因为它需要单独存储
     mermaid = method_data.pop("mermaid_chart", None)
 
@@ -199,6 +224,10 @@ def get_paper(session: Session, paper_id: int) -> dict:
         "year": paper.year,
         "status": paper.status,
         "error_message": paper.error_message,
+        "code_url": paper.code_url,
+        "code_status": paper.code_status,
+        "code_path": paper.code_path,
+        "code_summary": paper.code_summary,
         "created_at": paper.created_at,
         "updated_at": paper.updated_at,
     }
@@ -225,6 +254,7 @@ def get_analysis(session: Session, paper_id: int) -> dict:
     return {
         "paper_id": analysis.paper_id,
         "title": analysis.title,
+        "authors": getattr(analysis, "authors", "") or "",
         "venue": analysis.venue,
         "year": analysis.year,
         "one_sentence": analysis.one_sentence,
@@ -239,6 +269,30 @@ def get_analysis(session: Session, paper_id: int) -> dict:
         "related_papers": analysis.related_papers,
         "mermaid_chart": analysis.mermaid_chart,
     }
+
+
+def update_paper_code_url(session: Session, paper_id: int, code_url: str) -> None:
+    """更新论文的代码仓库 URL"""
+    paper = session.get(Paper, paper_id)
+    if paper is None:
+        raise ValueError(f"Paper {paper_id} not found")
+    paper.code_url = code_url or None
+    paper.updated_at = datetime.now(timezone.utc)
+    session.add(paper)
+    session.commit()
+
+
+def update_related_papers(session: Session, paper_id: int, related_papers: list[dict]) -> None:
+    """仅更新 related_papers 字段"""
+    from sqlmodel import select
+    statement = select(AnalysisResult).where(AnalysisResult.paper_id == paper_id)
+    analysis = session.exec(statement).first()
+    if analysis is None:
+        raise ValueError(f"Analysis result for paper {paper_id} not found")
+    analysis.related_papers = related_papers
+    analysis.updated_at = datetime.now(timezone.utc)
+    session.add(analysis)
+    session.commit()
 
 
 def list_papers(
@@ -291,6 +345,8 @@ def list_papers(
             "year": p.year,
             "status": p.status,
             "error_message": p.error_message,
+            "code_url": p.code_url,
+            "code_status": p.code_status,
             "created_at": p.created_at,
             "updated_at": p.updated_at,
         }
@@ -309,7 +365,7 @@ def delete_paper(session: Session, paper_id: int) -> str:
         paper_id: 论文 ID
 
     Returns:
-        str: 被删除论文的 PDF 文件路径（供调用方删除文件）
+        tuple[str, str]: (pdf_path, code_path) 被删除论文的文件路径（供调用方删除文件）
 
     Raises:
         ValueError: 论文不存在
@@ -319,6 +375,7 @@ def delete_paper(session: Session, paper_id: int) -> str:
         raise ValueError(f"Paper {paper_id} not found")
 
     pdf_path = paper.pdf_path
+    code_path = paper.code_path
 
     # AnalysisResult 通过 CASCADE 会自动删除，但显式删除更安全
     statement = select(AnalysisResult).where(AnalysisResult.paper_id == paper_id)
@@ -329,4 +386,4 @@ def delete_paper(session: Session, paper_id: int) -> str:
     session.delete(paper)
     session.commit()
 
-    return pdf_path
+    return pdf_path, code_path

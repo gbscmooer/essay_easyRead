@@ -5,7 +5,7 @@ SQLModel 模型，映射到 SQLite 的 papers 表。
 存储论文的元信息和解析状态，解析结果存储在 AnalysisResult 中。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
@@ -37,6 +37,12 @@ class Paper(SQLModel, table=True):
     status: str = "pending"  # pending | extracting | analyzing | done | failed
     error_message: Optional[str] = None  # 失败时的错误信息
 
+    # 代码仓库
+    code_url: Optional[str] = None  # AI 提取的 GitHub/GitLab URL
+    code_status: str = "none"  # none | cloning | ready | failed
+    code_path: Optional[str] = None  # 本地 clone 路径
+    code_summary: Optional[str] = None  # AI 生成的 README 摘要
+
     # 时间戳 — 在 database.py 的 CRUD 中手动设置
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

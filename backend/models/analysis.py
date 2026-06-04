@@ -5,7 +5,7 @@ Analysis 数据模型
 这些模型同时用于：数据库存储、API 响应、前端类型映射。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, Column
 from sqlalchemy import JSON, ForeignKey, Integer
@@ -156,6 +156,7 @@ class RelatedPaper(SQLModel):
     doi: str  # DOI
     url: str  # 论文链接
     relevance: str  # 与本文的关系
+    citation_count: int = 0  # 引用数（Semantic Scholar）
 
 
 # ============================================================
@@ -195,6 +196,7 @@ class AnalysisResult(SQLModel, table=True):
 
     # 基本信息
     title: str  # 论文标题
+    authors: str = ""  # 作者列表
     venue: str  # 会议/期刊
     year: int  # 发表年份
     one_sentence: str  # 一句话核心贡献（面试用）
@@ -229,11 +231,11 @@ class AnalysisResult(SQLModel, table=True):
     limitations: str  # 局限性和未来工作
 
     # 相关论文（JSON 数组）
-    related_papers: list[str] = Field(default=[], sa_column=Column(JSON))
+    related_papers: list = Field(default=[], sa_column=Column(JSON))
 
     # Mermaid 流程图（基于 pipeline 自动生成）
     mermaid_chart: Optional[str] = None  # Mermaid 语法字符串
 
     # 时间戳 — 在 database.py 的 CRUD 中手动设置
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
