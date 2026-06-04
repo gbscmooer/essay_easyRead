@@ -54,6 +54,12 @@ function getStepProgress(status: AnalysisStatus, receivedFields: number): number
   // extracting: 0-10%
   if (status === 'extracting') return 5
 
+  // generating: 5-95% based on fields received
+  if (status === 'generating') {
+    const fieldProgress = receivedFields / TOTAL_FIELDS
+    return Math.round(5 + fieldProgress * 90)
+  }
+
   // analyzing: 10-95% based on fields received
   if (status === 'analyzing') {
     const fieldProgress = receivedFields / TOTAL_FIELDS

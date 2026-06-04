@@ -50,7 +50,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
             <div
               key={paper.id}
               onClick={() => onSelect(paper.id)}
-              className={`flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${
+              className={`group flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${
                 activeId === paper.id
                   ? 'bg-gray-800 border-blue-500'
                   : 'border-transparent hover:bg-gray-800/50'

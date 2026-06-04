@@ -31,6 +31,8 @@ interface UseAnalysisReturn {
   uploadAndAnalyze: (file: File) => Promise<void>
   /** 重新解析 */
   reparse: () => Promise<void>
+  /** 开始分析（从 idle 状态触发） */
+  startAnalysis: () => void
 }
 
 
@@ -44,6 +46,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const [activePaperId, setActivePaperId] = useState<number | null>(initialPaperId ?? null)
   const [paper, setPaper] = useState<Paper | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [shouldConnect, setShouldConnect] = useState(false)
 
   // 顶层无条件调用 useStreaming
   const {
@@ -52,7 +55,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     error: streamError,
     progressMessage,
     reconnect,
-  } = useStreaming(activePaperId)
+  } = useStreaming(activePaperId, shouldConnect)
 
   // 初始加载：如果传入 initialPaperId，加载论文信息
   useEffect(() => {
@@ -66,11 +69,18 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       setPaper(p)
       // 如果已经完成，直接获取完整结果
       if (p.status === 'done') {
+        setShouldConnect(true)
         getAnalysis(initialPaperId).then(result => {
           if (!cancelled) setAnalysis(result)
         }).catch(() => {
           // 解析结果获取失败，SSE 会自动尝试
         })
+      } else if (p.status === 'failed') {
+        // 失败状态也连接，以便显示错误
+        setShouldConnect(true)
+      } else {
+        // pending/extracting/analyzing：不自动连接，等待用户点击"开始分析"
+        setShouldConnect(false)
       }
     }).catch(() => {
       // 论文加载失败
@@ -94,23 +104,43 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const uploadAndAnalyze = useCallback(async (file: File) => {
     setAnalysis(null)
     setPaper(null)
-    const uploaded = await uploadPaper(file)
-    setPaper(uploaded)
-    setActivePaperId(uploaded.id)
+    try {
+      const uploaded = await uploadPaper(file)
+      setPaper(uploaded)
+      setActivePaperId(uploaded.id)
+    } catch (err) {
+      // Re-throw so caller can handle
+      throw err
+    }
   }, [])
 
   // 重新解析
   const reparse = useCallback(async () => {
     if (activePaperId === null) return
     setAnalysis(null)
+    setShouldConnect(false)
     const updated = await reparsePaper(activePaperId)
     setPaper(updated)
-    reconnect()
-  }, [activePaperId, reconnect])
+    setShouldConnect(true)
+  }, [activePaperId])
 
-  // 合并状态：优先使用 streamStatus，但如果 paper 已完成则为 done
-  const status: AnalysisStatus = paper?.status === 'done' && streamStatus === 'idle'
+  // 开始分析（从 idle 状态触发）
+  const startAnalysis = useCallback(() => {
+    if (activePaperId === null) return
+    setShouldConnect(true)
+  }, [activePaperId])
+
+  // 合并状态：
+  // - 如果已有完整分析结果，直接显示 done
+  // - 如果 paper 已完成但结果未加载，也显示 done
+  // - 如果未连接且 paper 待分析，显示 idle（等待用户点击"开始分析"）
+  // - 否则使用 streamStatus（正在分析中）
+  const status: AnalysisStatus = analysis
     ? 'done'
+    : paper?.status === 'done'
+    ? 'done'
+    : !shouldConnect
+    ? 'idle'
     : streamStatus
 
   const error = streamError || paper?.error_message || null
@@ -124,5 +154,6 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     error,
     uploadAndAnalyze,
     reparse,
+    startAnalysis,
   }
 }

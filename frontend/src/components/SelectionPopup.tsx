@@ -18,6 +18,9 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
   const [configError, setConfigError] = useState<string | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const dragging = useRef(false)
+  const dragOffset = useRef({ x: 0, y: 0 })
+  const timeoutRef = useRef<number | null>(null)
 
 
   const hidePopup = useCallback(() => {
@@ -36,7 +39,8 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
 
     const handleMouseUp = () => {
       // 延迟检查，确保 selection 已更新
-      setTimeout(() => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      timeoutRef.current = window.setTimeout(() => {
         const selection = window.getSelection()
         const text = selection?.toString().trim() || ''
 
@@ -77,10 +81,43 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
     document.addEventListener('mousedown', handleMouseDown)
 
     return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
       container.removeEventListener('mouseup', handleMouseUp)
       document.removeEventListener('mousedown', handleMouseDown)
     }
   }, [containerRef, hidePopup])
+
+
+  // 拖拽
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const container = containerRef.current
+      if (!container) return
+      const containerRect = container.getBoundingClientRect()
+      // dragOffset 记录的是鼠标相对于弹窗左上角的偏移
+      // transform: translate(-50%, -100%) 让 left/top 指向弹窗的中心底部
+      // 所以需要补偿这个偏移
+      const popup = popupRef.current
+      const popupW = popup?.offsetWidth || 0
+      const popupH = popup?.offsetHeight || 0
+      setPosition({
+        x: e.clientX - containerRect.left - dragOffset.current.x + popupW / 2,
+        y: e.clientY - containerRect.top - dragOffset.current.y + popupH,
+      })
+    }
+    const handleMouseUp = () => {
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [containerRef])
 
 
   const handleAction = useCallback(async (act: 'translate' | 'summarize') => {
@@ -119,6 +156,23 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
       }}
     >
       <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl overflow-hidden">
+        {/* 拖拽条 */}
+        <div
+          className="h-1.5 bg-gray-700 cursor-move hover:bg-gray-600 transition-colors"
+          onMouseDown={(e) => {
+            e.preventDefault()
+            const popup = popupRef.current
+            if (!popup) return
+            const rect = popup.getBoundingClientRect()
+            dragging.current = true
+            dragOffset.current = {
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+            }
+            document.body.style.cursor = 'move'
+            document.body.style.userSelect = 'none'
+          }}
+        />
         {/* 操作按钮行 */}
         {!result && !loading && (
           <div className="flex items-center gap-1 p-1.5">
