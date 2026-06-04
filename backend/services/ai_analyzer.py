@@ -56,6 +56,7 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
 
 {
   "title": "论文标题",
+  "authors": "作者1, 作者2, 作者3（从论文中提取完整作者列表，去除上标数字和特殊符号）",
   "venue": "发表会议/期刊（CVPR/ICCV/NeurIPS/ECCV/AAAI/ICML/ICLR 等，如无法判断则填 'Unknown'）",
   "year": 2024,
   "one_sentence": "一句话核心贡献，适合在面试中清晰表达",
@@ -105,15 +106,13 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
   "interview_qa": [
     {"q": "面试问题", "a": "简洁清晰的回答", "source": "Section X.Y, Page Z"}
   ],
-  "limitations": "局限性和未来工作方向",
-  "related_papers": [
-    {"title": "相关论文标题", "authors": "作者列表", "venue": "会议/期刊", "year": 2024, "doi": "10.xxxx/xxxxx", "url": "https://arxiv.org/abs/xxxx.xxxxx", "relevance": "与本文的关系"}
-  ]
+  "limitations": "局限性和未来工作方向"
 }
 
 要求：
 1. one_sentence 要简洁有力，能让人在30秒内理解论文核心
-2. outline 按论文实际章节结构列出每节的标题、页码和内容概述，page 字段填写该章节在论文中的起始页码（纯数字），用于跳转
+2. authors 从论文中提取完整的作者列表，去除上标数字（如 ∗1,2）、特殊符号（如 ¨o → o），用逗号分隔
+3. outline 按论文实际章节结构列出每节的标题、页码和内容概述，page 字段填写该章节在论文中的起始页码（纯数字），用于跳转
 3. method.pipeline 要用清晰的步骤描述完整流程
 4. method.mermaid_chart 用 Mermaid graph TD 语法画出 pipeline 流程图。严格遵守以下规则：
    - 节点文本只能用英文、数字、空格，不能用括号 () [] {} 等特殊字符
@@ -133,16 +132,14 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
 7. experiments.result_table 保留作为汇总（可从 figures 中提取主要对比数据）
 8. code_mapping 给出 3-5 个核心概念的代码映射
 9. interview_qa 生成 5-8 个高频面试问题，每个问题的 source 字段标注答案来源于论文的哪个章节和页码（如 "Section 3.2, Page 5"）
-10. related_papers 给出 3-5 篇最相关的论文，必须包含 title、authors、venue、year、doi、url、relevance 字段。doi 和 url 如果无法确定则填空字符串
-11. 所有内容基于论文实际内容，不要编造"""
+10. 所有内容基于论文实际内容，不要编造"""
 
 
 # 顶层字段名列表，用于检测 JSON 中哪些字段已完整
 _TOP_LEVEL_FIELDS = [
-    "title", "venue", "year", "one_sentence", "problem",
+    "title", "authors", "venue", "year", "one_sentence", "problem",
     "key_contributions", "outline", "method", "experiments",
     "code_mapping", "interview_qa", "limitations",
-    "related_papers",
 ]
 
 
@@ -254,6 +251,12 @@ def _create_client(api_key: str, base_url: str):
     """
     from anthropic import AsyncAnthropic
 
+    # 规范化 base_url：去掉末尾的 /v1 或 /（SDK 会自动加 /v1/messages）
+    if base_url:
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+
     return AsyncAnthropic(
         api_key=api_key,
         base_url=base_url,
@@ -262,7 +265,8 @@ def _create_client(api_key: str, base_url: str):
 
 
 async def analyze_paper_stream(
-    pdf_text: str, api_key: str, base_url: str, model: str
+    pdf_text: str, api_key: str, base_url: str, model: str,
+    temperature: float = 0.1, max_tokens: int = 16384,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     真流式调用 AI 分析论文（Anthropic SDK）。
@@ -277,6 +281,8 @@ async def analyze_paper_stream(
         api_key: MiMo API Key
         base_url: API 基础 URL（Anthropic 格式端点）
         model: 模型名称
+        temperature: 生成温度
+        max_tokens: 最大输出 token 数
 
     Yields:
         StreamEvent: 流式事件，包含进度状态和解析字段
@@ -287,18 +293,17 @@ async def analyze_paper_stream(
     delays = _build_retry_delays()
 
     for attempt in range(MAX_RETRIES + 1):
+        client = _create_client(api_key, base_url)
         try:
-            client = _create_client(api_key, base_url)
-
             accumulated = ""
             yielded_fields: set[str] = set()
 
             async with client.messages.stream(
                 model=model,
-                max_tokens=16384,
+                max_tokens=max_tokens,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": pdf_text}],
-                temperature=0.1,
+                temperature=temperature,
             ) as stream:
                 async for text_chunk in stream.text_stream:
                     accumulated += text_chunk
@@ -362,6 +367,8 @@ async def analyze_paper_stream(
             logger.error(f"Analysis failed: {e}")
             yield StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"})
             return
+        finally:
+            await client.close()
 
 
 async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str, model: str) -> str:
@@ -393,38 +400,106 @@ async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str
 
     delays = _build_retry_delays()
 
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            message = await client.messages.create(
-                model=model,
-                max_tokens=4096,
-                system="你是一个专业的流程图生成助手。只输出 Mermaid 语法代码，不要包含任何其他文字或代码块标记。",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
+    try:
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                message = await client.messages.create(
+                    model=model,
+                    max_tokens=4096,
+                    system="你是一个专业的流程图生成助手。只输出 Mermaid 语法代码，不要包含任何其他文字或代码块标记。",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
 
-            content = message.content[0].text.strip()
+                content = message.content[0].text.strip()
 
-            # 提取可能包含的 mermaid 代码块
-            if "```mermaid" in content:
-                start = content.index("```mermaid") + len("```mermaid")
-                end = content.index("```", start)
-                content = content[start:end].strip()
-            elif "```" in content:
-                start = content.index("```") + 3
-                end = content.index("```", start)
-                content = content[start:end].strip()
+                # 提取可能包含的 mermaid 代码块
+                if "```mermaid" in content:
+                    start = content.index("```mermaid") + len("```mermaid")
+                    end = content.index("```", start)
+                    content = content[start:end].strip()
+                elif "```" in content:
+                    start = content.index("```") + 3
+                    end = content.index("```", start)
+                    content = content[start:end].strip()
 
-            # 验证基本语法正确性
-            if content.startswith("graph "):
-                return content
-            else:
-                return f"graph TD\n    {content}"
+                # 验证基本语法正确性
+                if content.startswith("graph "):
+                    return content
+                else:
+                    return f"graph TD\n    {content}"
 
-        except Exception as e:
-            if _is_transient_error(e) and attempt < MAX_RETRIES:
-                delay = delays[attempt]
-                logger.warning(f"Mermaid generation transient error (attempt {attempt + 1}): {e}. Retrying in {delay:.1f}s...")
-                await asyncio.sleep(delay)
-                continue
-            return f"graph TD\n    A[Pipeline] --> B[Error: {str(e)[:50]}]"
+            except Exception as e:
+                if _is_transient_error(e) and attempt < MAX_RETRIES:
+                    delay = delays[attempt]
+                    logger.warning(f"Mermaid generation transient error (attempt {attempt + 1}): {e}. Retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                return f"graph TD\n    A[Pipeline] --> B[Error: {str(e)[:50]}]"
+    finally:
+        await client.close()
+
+
+def extract_code_url(pdf_text: str) -> str:
+    """
+    用正则从论文全文中提取代码仓库 URL。
+
+    搜索 github.com、gitlab.com、bitbucket.org、gitee.com 等代码托管平台的链接。
+    优先返回 github.com 的链接（最常见）。
+
+    Args:
+        pdf_text: 论文全文
+
+    Returns:
+        代码仓库 URL，未找到则返回空字符串
+    """
+    import re
+
+    # 匹配代码仓库 URL（支持有/无 https:// 前缀）
+    # 有前缀: https://github.com/user/repo
+    # 无前缀: github.com/user/repo（常见于论文脚注）
+    pattern = r'(?:https?://)?(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org|gitee\.com)/[\w\-./]+'
+    matches = re.findall(pattern, pdf_text)
+
+    if not matches:
+        return ""
+
+    # 清理 URL
+    cleaned = []
+    for url in matches:
+        # 去掉末尾标点
+        url = url.rstrip(".,;:!?")
+        # 去掉 URL fragment (#...)
+        if "#" in url:
+            url = url[:url.index("#")]
+        # 去掉尾部斜杠
+        url = url.rstrip("/")
+        # 只保留 owner/repo（去掉更深的路径如 /issues/123）
+        parts = url.split("/")
+        for i, part in enumerate(parts):
+            if part in ("github.com", "gitlab.com", "bitbucket.org", "gitee.com"):
+                if i + 2 < len(parts):
+                    clean_url = "/".join(parts[:i + 3])
+                    cleaned.append(clean_url)
+                elif i + 1 < len(parts):
+                    clean_url = "/".join(parts[:i + 2])
+                    cleaned.append(clean_url)
+                break
+        else:
+            cleaned.append(url)
+
+    # 去重，保持顺序
+    seen = set()
+    unique = []
+    for url in cleaned:
+        normalized = url.rstrip("/").lower()
+        if normalized not in seen:
+            seen.add(normalized)
+            unique.append(url)
+
+    # 优先返回 github.com 链接
+    for url in unique:
+        if "github.com" in url:
+            return url
+
+    return unique[0] if unique else ""

@@ -5,12 +5,14 @@ Papers 路由
 """
 
 import os
+import re
+import shutil
 import uuid
 import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session
+from sqlmodel import Session, create_engine
 
 logger = logging.getLogger(__name__)
 
@@ -28,77 +30,15 @@ from ..utils.streaming import format_analysis_as_markdown
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
-
-def _get_session():
-    """创建数据库会话"""
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
-    with Session(engine) as session:
-        yield session
+# 数据库引擎单例
+_engine = None
 
 
-async def _run_analysis(paper_id: int, pdf_path: str):
-    """后台运行分析任务"""
-    from sqlmodel import create_engine
-    from ..services.ai_analyzer import analyze_paper_stream
-    from ..services.database import update_paper_status, update_paper_metadata, save_analysis_result
-
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
-
-    try:
-        # 更新状态为 extracting
-        with Session(engine) as session:
-            update_paper_status(session, paper_id, "extracting")
-        logger.info(f"[paper {paper_id}] Extracting PDF text from {pdf_path}")
-
-        # 提取 PDF 文本
-        content = extract_pdf_content(pdf_path)
-        logger.info(f"[paper {paper_id}] PDF extracted: {content.total_pages} pages, {len(content.full_text)} chars")
-
-        # 更新状态为 analyzing
-        with Session(engine) as session:
-            update_paper_status(session, paper_id, "analyzing")
-        logger.info(f"[paper {paper_id}] Starting AI analysis")
-
-        # 调用 AI 分析（使用解读配置）
-        from ..services.ai_config import get_analysis_config
-        ai_cfg = get_analysis_config()
-        result = {}
-        async for event in analyze_paper_stream(
-            content.full_text,
-            ai_cfg["api_key"],
-            ai_cfg["base_url"],
-            ai_cfg["model"],
-        ):
-            if event.event == "field" and event.field_name:
-                if event.field_name == "mermaid_chart":
-                    result["method"] = result.get("method", {})
-                    result["method"]["mermaid_chart"] = event.data.get("value")
-                else:
-                    result[event.field_name] = event.data.get("value")
-            elif event.event == "error":
-                raise Exception(event.data.get("message", "Analysis failed"))
-
-        # 保存结果
-        with Session(engine) as session:
-            # 更新论文元信息
-            update_paper_metadata(
-                session,
-                paper_id,
-                result.get("title", ""),
-                result.get("venue", "Unknown"),
-                result.get("year", 0),
-            )
-            # 保存分析结果
-            save_analysis_result(session, paper_id, result)
-            # 更新状态为 done
-            update_paper_status(session, paper_id, "done")
-        logger.info(f"[paper {paper_id}] Analysis completed successfully")
-
-    except Exception as e:
-        logger.error(f"[paper {paper_id}] Analysis failed: {e}", exc_info=True)
-        with Session(engine) as session:
-            update_paper_status(session, paper_id, "failed", str(e))
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
+    return _engine
 
 
 # ============================================================
@@ -125,25 +65,24 @@ async def upload_paper(file: UploadFile = File(...)):
         )
 
     # 确保上传目录存在
-    os.makedirs(settings.upload_dir, exist_ok=True)
+    upload_dir = settings.resolved_upload_dir
+    os.makedirs(upload_dir, exist_ok=True)
 
     # 生成唯一文件名并保存
     file_id = str(uuid.uuid4())
     filename = f"{file_id}.pdf"
-    pdf_path = os.path.join(settings.upload_dir, filename)
+    pdf_path = os.path.join(upload_dir, filename)
 
     with open(pdf_path, "wb") as f:
         f.write(content)
 
     # 创建数据库记录
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     with Session(engine) as session:
         paper_id = create_paper(session, file.filename, pdf_path, len(content))
         paper = get_paper(session, paper_id)
 
-    # 后台启动分析任务
-    asyncio.create_task(_run_analysis(paper_id, pdf_path))
+    # 不自动启动分析，用户在阅读页面手动点击"开始分析"
 
     return PaperResponse(
         id=paper["id"],
@@ -153,6 +92,8 @@ async def upload_paper(file: UploadFile = File(...)):
         year=paper["year"],
         status=paper["status"],
         error_message=paper["error_message"],
+        code_url=paper.get("code_url"),
+        code_status=paper.get("code_status", "none"),
         created_at=paper["created_at"],
         updated_at=paper["updated_at"],
     )
@@ -170,8 +111,7 @@ async def get_papers_list(
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
 ):
     """获取论文列表，支持筛选和搜索"""
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     with Session(engine) as session:
         papers, total = list_papers(session, search, venue, year, page, per_page)
 
@@ -184,6 +124,8 @@ async def get_papers_list(
             year=p["year"],
             status=p["status"],
             error_message=p["error_message"],
+            code_url=p.get("code_url"),
+            code_status=p.get("code_status", "none"),
             created_at=p["created_at"],
             updated_at=p["updated_at"],
         )
@@ -199,8 +141,7 @@ async def get_papers_list(
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper_detail(paper_id: int):
     """获取单篇论文详情"""
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -218,6 +159,8 @@ async def get_paper_detail(paper_id: int):
         year=paper["year"],
         status=paper["status"],
         error_message=paper["error_message"],
+        code_url=paper.get("code_url"),
+        code_status=paper.get("code_status", "none"),
         created_at=paper["created_at"],
         updated_at=paper["updated_at"],
     )
@@ -229,11 +172,10 @@ async def get_paper_detail(paper_id: int):
 @router.delete("/{paper_id}")
 async def delete_paper_endpoint(paper_id: int):
     """删除论文及其解析结果"""
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     try:
         with Session(engine) as session:
-            pdf_path = delete_paper(session, paper_id)
+            pdf_path, code_path = delete_paper(session, paper_id)
     except ValueError:
         raise HTTPException(
             status_code=404,
@@ -244,6 +186,10 @@ async def delete_paper_endpoint(paper_id: int):
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
 
+    # 删除代码仓库目录
+    if code_path and os.path.isdir(code_path):
+        shutil.rmtree(code_path, ignore_errors=True)
+
     return {"message": "Paper deleted successfully"}
 
 
@@ -253,10 +199,9 @@ async def delete_paper_endpoint(paper_id: int):
 @router.get("/{paper_id}/export")
 async def export_paper(paper_id: int):
     """导出论文解析结果为 Markdown"""
-    from sqlmodel import create_engine
     from ..services.database import get_analysis
 
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -283,11 +228,12 @@ async def export_paper(paper_id: int):
 
     markdown = format_analysis_as_markdown(analysis)
     title = analysis.get("title", "paper")
+    safe_title = re.sub(r'[^\w\s\-.]', '', title).strip() or 'paper'
 
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{title}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}.md"'},
     )
 
 
@@ -297,8 +243,7 @@ async def export_paper(paper_id: int):
 @router.get("/{paper_id}/pdf")
 async def get_paper_pdf(paper_id: int):
     """获取论文 PDF 文件"""
-    from sqlmodel import create_engine
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)

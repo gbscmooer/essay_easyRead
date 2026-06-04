@@ -21,8 +21,14 @@ from ..utils.streaming import format_sse
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 
+_engine = None
+
+
 def _get_engine():
-    return create_engine(settings.database_url, connect_args={"check_same_thread": False})
+    global _engine
+    if _engine is None:
+        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
+    return _engine
 
 
 # ============================================================
@@ -34,30 +40,41 @@ class AIModelConfig(BaseModel):
     base_url: str = ""
     model: str = ""
     system_prompt: str = ""
+    temperature: float = 0.1
+    max_tokens: int = 4096
+
+class UIConfig(BaseModel):
+    highlight_duration: int = 3000
+    zoom_step: float = 0.2
+    zoom_min: float = 0.4
+    zoom_max: float = 3.0
 
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
+    ui: UIConfig = UIConfig()
 
 
 @router.get("/config", response_model=AppConfig)
 async def get_config():
-    """获取 AI 模型配置"""
+    """获取全部配置"""
     from ..services.ai_config import load_config
     config = load_config()
     return AppConfig(
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
+        ui=UIConfig(**config.get("ui", {})),
     )
 
 
 @router.post("/config")
 async def update_config(req: AppConfig):
-    """保存 AI 模型配置"""
+    """保存全部配置"""
     from ..services.ai_config import save_config
     config = {
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
+        "ui": req.ui.model_dump(),
     }
     save_config(config)
     return {"message": "配置已保存"}
@@ -98,21 +115,26 @@ async def text_action(req: TextActionRequest):
     api_key = cfg.get("api_key", "")
     base_url = cfg.get("base_url", "")
     model = cfg.get("model", "")
+    temperature = cfg.get("temperature", 0.1)
+    max_tokens = cfg.get("max_tokens", 2048)
 
     if not api_key:
         raise HTTPException(status_code=400, detail="请先在配置页面设置 API Key")
 
     try:
         client = _create_client(api_key, base_url)
-        message = await client.messages.create(
-            model=model,
-            max_tokens=2048,
-            system=system,
-            messages=[{"role": "user", "content": req.text}],
-            temperature=0.1,
-        )
-        result = message.content[0].text.strip()
-        return TextActionResponse(result=result)
+        try:
+            message = await client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": req.text}],
+                temperature=temperature,
+            )
+            result = message.content[0].text.strip()
+            return TextActionResponse(result=result)
+        finally:
+            await client.close()
     except Exception as e:
         logger.error(f"Text action failed: {e}")
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
@@ -252,7 +274,7 @@ async def stream_analysis(paper_id: int):
 
             # 提取 PDF 文本
             from ..services.pdf_parser import extract_pdf_content
-            content = extract_pdf_content(pdf_path)
+            content = await asyncio.to_thread(extract_pdf_content, pdf_path)
 
             # 更新状态为 analyzing
             with Session(engine) as session:
@@ -268,6 +290,8 @@ async def stream_analysis(paper_id: int):
                 ai_cfg["api_key"],
                 ai_cfg["base_url"],
                 ai_cfg["model"],
+                temperature=ai_cfg.get("temperature", 0.1),
+                max_tokens=ai_cfg.get("max_tokens", 16384),
             ):
                 yield format_sse(event)
 
@@ -279,9 +303,47 @@ async def stream_analysis(paper_id: int):
                     else:
                         result[event.field_name] = event.data.get("value")
 
+            # 搜索相关论文（Semantic Scholar）
+            try:
+                paper_title = result.get("title", "")
+                if paper_title:
+                    yield format_sse(StreamEvent(
+                        event="status",
+                        data={"message": "正在搜索相关论文..."},
+                    ))
+                    from ..services.semantic_scholar import search_related_papers, generate_relevance_descriptions
+                    related = await search_related_papers(paper_title)
+                    if related:
+                        related = await generate_relevance_descriptions(
+                            paper_title,
+                            result.get("one_sentence", ""),
+                            related,
+                            ai_cfg["api_key"],
+                            ai_cfg["base_url"],
+                            ai_cfg["model"],
+                        )
+                    result["related_papers"] = related
+                    yield format_sse(StreamEvent(
+                        event="field",
+                        field_name="related_papers",
+                        data={"value": related},
+                    ))
+            except Exception as e:
+                logger.warning(f"Semantic Scholar lookup failed: {e}")
+                result["related_papers"] = []
+
+            # 提取代码仓库 URL（正则匹配）
+            from ..services.ai_analyzer import extract_code_url
+            code_url = extract_code_url(content.full_text)
+            if code_url:
+                yield format_sse(StreamEvent(
+                    event="status",
+                    data={"message": f"找到代码仓库: {code_url}"},
+                ))
+
             # 保存结果到数据库
             if result:
-                from ..services.database import update_paper_metadata, save_analysis_result
+                from ..services.database import update_paper_metadata, save_analysis_result, update_paper_code_url
                 with Session(engine) as session:
                     update_paper_metadata(
                         session,
@@ -291,6 +353,8 @@ async def stream_analysis(paper_id: int):
                         result.get("year", 0),
                     )
                     save_analysis_result(session, paper_id, result)
+                    if code_url:
+                        update_paper_code_url(session, paper_id, code_url)
                     update_paper_status(session, paper_id, "done")
 
         except Exception as e:
@@ -345,6 +409,55 @@ async def reparse_paper(paper_id: int):
         year=paper["year"],
         status=paper["status"],
         error_message=paper["error_message"],
+        code_url=paper.get("code_url"),
+        code_status=paper.get("code_status", "none"),
         created_at=paper["created_at"],
         updated_at=paper["updated_at"],
     )
+
+
+# ============================================================
+# POST /api/analysis/{paper_id}/related-papers
+# ============================================================
+@router.post("/{paper_id}/related-papers")
+async def refresh_related_papers(paper_id: int):
+    """刷新相关论文（通过 Semantic Scholar 搜索）"""
+    engine = _get_engine()
+
+    # 获取已有分析结果
+    try:
+        with Session(engine) as session:
+            analysis = get_analysis(session, paper_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="分析结果不存在")
+
+    paper_title = analysis.get("title", "")
+    if not paper_title:
+        raise HTTPException(status_code=400, detail="论文标题为空，无法搜索")
+
+    from ..services.ai_config import get_analysis_config
+    from ..services.semantic_scholar import search_related_papers, generate_relevance_descriptions
+
+    ai_cfg = get_analysis_config()
+
+    try:
+        related = await search_related_papers(paper_title)
+        if related:
+            related = await generate_relevance_descriptions(
+                paper_title,
+                analysis.get("one_sentence", ""),
+                related,
+                ai_cfg["api_key"],
+                ai_cfg["base_url"],
+                ai_cfg["model"],
+            )
+    except Exception as e:
+        logger.warning(f"Related papers refresh failed: {e}")
+        related = []
+
+    # 更新数据库中的 related_papers 字段
+    from ..services.database import update_related_papers
+    with Session(engine) as session:
+        update_related_papers(session, paper_id, related)
+
+    return related
