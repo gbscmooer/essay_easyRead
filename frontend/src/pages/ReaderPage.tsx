@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { listPapers, deletePaper } from '@/api/papers'
 import { useAnalysis } from '@/hooks/useAnalysis'
+import { useUIConfig } from '@/hooks/useConfig'
 import { Sidebar } from '@/components/Sidebar'
 import { PdfViewer } from '@/features/viewer/PdfViewer'
+import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
 
 
@@ -16,15 +18,19 @@ const DEFAULT_PANEL_PCT = 35
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const uiConfig = useUIConfig()
   const paperId = id ? Number(id) : undefined
 
   const [papers, setPapers] = useState<Paper[]>([])
-  const [currentPage, setCurrentPage] = useState(1)
+  const [activePage, setActivePage] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelPct, setPanelPct] = useState(DEFAULT_PANEL_PCT)
   const draggingRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const pdfViewerRef = useRef<PdfViewerHandle>(null)
+  const onPageChangeNoop = useCallback(() => {}, [])
+  const activeTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   const {
     analysis,
@@ -33,6 +39,7 @@ export function ReaderPage() {
     partialResult,
     error,
     reparse,
+    startAnalysis,
   } = useAnalysis(paperId)
 
   useEffect(() => {
@@ -74,33 +81,50 @@ export function ReaderPage() {
     }
   }, [])
 
+  // 清理 activeTimerRef
+  useEffect(() => {
+    return () => {
+      if (activeTimerRef.current) clearTimeout(activeTimerRef.current)
+    }
+  }, [])
+
+  // 大纲跳转：通过 ref 调用 PdfViewer 的 jumpToPage
+  const handleOutlineJump = useCallback((page: number) => {
+    pdfViewerRef.current?.jumpToPage(page)
+    setActivePage(page)
+    if (activeTimerRef.current) clearTimeout(activeTimerRef.current)
+    activeTimerRef.current = setTimeout(() => setActivePage(null), uiConfig.highlight_duration)
+  }, [uiConfig.highlight_duration])
+
   const handleSelect = useCallback((id: number) => {
     navigate(`/reader/${id}`)
-    setCurrentPage(1)
+    setActivePage(null)
     setSidebarOpen(false)
   }, [navigate])
 
   const handleDelete = useCallback(async (id: number) => {
     try {
       await deletePaper(id)
-      setPapers(prev => prev.filter(p => p.id !== id))
-      if (id === paperId) {
-        const remaining = papers.filter(p => p.id !== id)
-        if (remaining.length > 0) {
-          navigate(`/reader/${remaining[0].id}`)
-        } else {
-          navigate('/')
+      setPapers(prev => {
+        const remaining = prev.filter(p => p.id !== id)
+        if (id === paperId) {
+          if (remaining.length > 0) {
+            navigate(`/reader/${remaining[0].id}`)
+          } else {
+            navigate('/')
+          }
         }
-      }
+        return remaining
+      })
     } catch {
       // ignore
     }
-  }, [paperId, papers, navigate])
+  }, [paperId, navigate])
 
   const pdfUrl = paperId ? `/api/papers/${paperId}/pdf` : ''
 
   return (
-    <div ref={containerRef} className="flex h-[calc(100vh-3.5rem)] relative">
+    <div ref={containerRef} className="flex h-full relative">
       {/* Sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -164,9 +188,10 @@ export function ReaderPage() {
         <div className="flex-1 overflow-hidden p-2">
           {paperId && (
             <PdfViewer
+              ref={pdfViewerRef}
               pdfUrl={pdfUrl}
-              currentPage={currentPage}
-              onPageChange={setCurrentPage}
+              activePage={activePage}
+              onPageChange={onPageChangeNoop}
             />
           )}
         </div>
@@ -205,7 +230,10 @@ export function ReaderPage() {
                 partialResult={partialResult}
                 status={status}
                 progressMessage={progressMessage}
-                onJumpToPage={setCurrentPage}
+                onJumpToPage={handleOutlineJump}
+                paperId={paperId}
+                onStartAnalysis={startAnalysis}
+                onReanalyze={reparse}
               />
             )}
           </div>

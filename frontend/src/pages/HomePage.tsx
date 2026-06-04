@@ -30,6 +30,7 @@ export function HomePage() {
   const navigate = useNavigate()
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   useEffect(() => {
     listPapers({ page: 1, per_page: 6 })
@@ -39,11 +40,12 @@ export function HomePage() {
 
   const handleUpload = async (file: File) => {
     setIsUploading(true)
+    setUploadError(null)
     try {
       const paper = await uploadPaper(file)
       navigate(`/reader/${paper.id}`)
     } catch {
-      // 上传失败
+      setUploadError('上传失败，请检查文件格式后重试')
     } finally {
       setIsUploading(false)
     }
@@ -57,6 +59,9 @@ export function HomePage() {
         <p className="text-lg text-gray-400 mb-10">上传论文 PDF，AI 帮你快速理解方法、实验和代码</p>
 
         <UploadZone onUpload={handleUpload} isUploading={isUploading} />
+        {uploadError && (
+          <p className="mt-4 text-sm text-red-400">{uploadError}</p>
+        )}
       </div>
 
       {/* 最近论文 */}
