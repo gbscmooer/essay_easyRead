@@ -1,89 +1,171 @@
-/**
- * CodeTab 组件
- *
- * 代码 Tab：展示论文概念到代码实现的映射。
- *
- * Props:
- *   result: AnalysisResult - 解析结果
- *
- * 展示内容：
- *   1. 代码映射列表
- *      - 每项是一个卡片
- *      - 左侧：论文概念/公式（学术风格）
- *      - 右侧：代码实现思路（代码风格，等宽字体）
- *      - 可以展开/折叠
- *   2. 关键模块的伪代码框架（如果有）
- *      - PyTorch 风格
- *      - 语法高亮（可用简单的 CSS 实现）
- *
- * 样式：
- *   - 卡片：bg-gray-800, border, border-gray-700, 圆角
- *   - 概念区：左侧蓝色竖线
- *   - 代码区：bg-gray-900, font-mono, p-4
- *   - 深色主题的语法高亮
- */
-
-import { useState } from 'react'
-import type { AnalysisResult } from '@/types'
+import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import type { AnalysisResult, Paper } from '@/types'
+import { getPaper } from '@/api/papers'
+import { extractCodeUrl } from '@/api/code'
 
 
 interface CodeTabProps {
   result: AnalysisResult
+  paperId?: number
 }
 
-export function CodeTab({ result }: CodeTabProps) {
+export function CodeTab({ result, paperId }: CodeTabProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0)
+  const [paper, setPaper] = useState<Paper | null>(null)
+  const [searching, setSearching] = useState(false)
 
-  if (!result.code_mapping || result.code_mapping.length === 0) {
-    return (
-      <div className="text-center text-gray-500 py-8">
-        <p>暂无代码映射数据</p>
-      </div>
-    )
-  }
+  useEffect(() => {
+    if (paperId) {
+      getPaper(paperId).then(setPaper).catch(() => {})
+    }
+  }, [paperId])
+
+  const handleResearch = useCallback(async () => {
+    if (!paperId) return
+    setSearching(true)
+    try {
+      await extractCodeUrl(paperId)
+      // 重新获取论文信息
+      const updated = await getPaper(paperId)
+      setPaper(updated)
+    } catch {
+      // ignore
+    } finally {
+      setSearching(false)
+    }
+  }, [paperId])
+
+  const codeUrl = paper?.code_url
+  const codeStatus = paper?.code_status || 'none'
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-200 mb-3">概念 → 代码映射</h2>
+    <div className="space-y-6">
+      {/* 代码仓库状态 */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-200 mb-3">代码仓库</h2>
 
-      {result.code_mapping.map((mapping, idx) => {
-        const isExpanded = expandedIndex === idx
-        return (
-          <div
-            key={idx}
-            className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden"
-          >
-            {/* 标题栏：可点击展开/折叠 */}
-            <button
-              onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-750 transition-colors"
+        {codeUrl ? (
+          <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-sm text-gray-300">已找到代码仓库</span>
+            </div>
+            <a
+              href={codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-400 hover:text-blue-300 break-all transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <span className="w-1 h-6 bg-blue-500 rounded-full" />
-                <span className="text-gray-200 font-medium text-sm">{mapping.concept}</span>
-              </div>
-              <svg
-                className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {/* 代码区 */}
-            {isExpanded && (
-              <div className="border-t border-gray-700">
-                <div className="bg-gray-900 p-4 font-mono text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
-                  {mapping.likely_implementation}
-                </div>
-              </div>
-            )}
+              {codeUrl}
+            </a>
+            <div className="flex items-center gap-2 pt-1">
+              {codeStatus === 'none' && paperId && (
+                <Link
+                  to={`/code/${paperId}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                  启用代码分析
+                </Link>
+              )}
+              {codeStatus === 'ready' && paperId && (
+                <Link
+                  to={`/code/${paperId}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                  查看代码分析
+                </Link>
+              )}
+              {codeStatus === 'cloning' && (
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-gray-700 text-gray-400 rounded-lg">
+                  <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                  正在克隆...
+                </span>
+              )}
+              {codeStatus === 'failed' && (
+                <span className="text-sm text-red-400">克隆失败</span>
+              )}
+            </div>
           </div>
-        )
-      })}
+        ) : (
+          <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 text-center space-y-3">
+            <div>
+              <p className="text-sm text-gray-500">未找到公开的源码地址</p>
+              <p className="text-xs text-gray-600 mt-1">论文中未发现 GitHub/GitLab 等代码仓库链接</p>
+            </div>
+            <button
+              onClick={handleResearch}
+              disabled={searching}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50 transition-colors"
+            >
+              {searching ? (
+                <>
+                  <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                  搜索中...
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  重新查找
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* 概念 → 代码映射 */}
+      {result.code_mapping && result.code_mapping.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">概念 → 代码映射</h2>
+
+          <div className="space-y-3">
+            {result.code_mapping.map((mapping, idx) => {
+              const isExpanded = expandedIndex === idx
+              return (
+                <div
+                  key={idx}
+                  className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden"
+                >
+                  <button
+                    onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-750 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-1 h-6 bg-blue-500 rounded-full" />
+                      <span className="text-gray-200 font-medium text-sm">{mapping.concept}</span>
+                    </div>
+                    <svg
+                      className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-gray-700">
+                      <div className="bg-gray-900 p-4 font-mono text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
+                        {mapping.likely_implementation}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

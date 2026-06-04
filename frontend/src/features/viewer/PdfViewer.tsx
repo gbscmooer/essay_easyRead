@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { SelectionPopup } from '@/components/SelectionPopup'
+import { useUIConfig } from '@/hooks/useConfig'
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css'
 import 'react-pdf/dist/esm/Page/TextLayer.css'
 
@@ -13,11 +14,19 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 interface PdfViewerProps {
   pdfUrl: string
-  currentPage: number
+  activePage?: number | null
   onPageChange: (page: number) => void
 }
 
-export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps) {
+export interface PdfViewerHandle {
+  jumpToPage: (page: number) => void
+}
+
+export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function PdfViewer(
+  { pdfUrl, activePage, onPageChange },
+  ref,
+) {
+  const uiConfig = useUIConfig()
   const [numPages, setNumPages] = useState(0)
   const [scale, setScale] = useState(1.0)
   const [pageInput, setPageInput] = useState('')
@@ -25,6 +34,9 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
   const [visiblePage, setVisiblePage] = useState(1)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  const isScrollingRef = useRef(false)
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const visiblePageRef = useRef(visiblePage)
 
   const onDocumentLoadSuccess = useCallback(({ numPages: total }: { numPages: number }) => {
     setNumPages(total)
@@ -35,16 +47,71 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
     setIsLoading(false)
   }, [])
 
-  // IntersectionObserver 跟踪当前可见页
+  // 滚动到指定页面
+  const scrollToPage = useCallback((page: number) => {
+    const container = scrollRef.current
+    const el = pageRefs.current.get(page)
+    if (!container || !el) return
+
+    isScrollingRef.current = true
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+
+    const containerRect = container.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
+    const offset = elRect.top - containerRect.top + container.scrollTop - 16
+
+    container.scrollTo({ top: offset, behavior: 'smooth' })
+
+    scrollTimerRef.current = setTimeout(() => {
+      isScrollingRef.current = false
+      setVisiblePage(page)
+      onPageChange(page)
+    }, 800)
+  }, [onPageChange])
+
+  // 暴露 jumpToPage 方法给父组件
+  useImperativeHandle(ref, () => ({
+    jumpToPage: (page: number) => {
+      if (page >= 1 && page <= numPages) {
+        scrollToPage(page)
+      }
+    },
+  }), [numPages, scrollToPage])
+
+  // 滚动事件：用户滚动时锁定 Observer
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    let scrollTimer: ReturnType<typeof setTimeout>
+    const handleScroll = () => {
+      isScrollingRef.current = true
+      clearTimeout(scrollTimer)
+      scrollTimer = setTimeout(() => {
+        isScrollingRef.current = false
+      }, 150)
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      clearTimeout(scrollTimer)
+    }
+  }, [])
+
+  useEffect(() => { visiblePageRef.current = visiblePage }, [visiblePage])
+
+  // IntersectionObserver 跟踪当前可见页（仅非滚动时）
   useEffect(() => {
     const container = scrollRef.current
     if (!container || numPages === 0) return
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // 找到最可见的页面
+        if (isScrollingRef.current) return
+
         let maxRatio = 0
-        let mostVisible = visiblePage
+        let mostVisible = 1
         for (const entry of entries) {
           if (entry.intersectionRatio > maxRatio) {
             maxRatio = entry.intersectionRatio
@@ -52,9 +119,8 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
             if (pageNum) mostVisible = pageNum
           }
         }
-        if (maxRatio > 0) {
+        if (maxRatio > 0 && mostVisible !== visiblePageRef.current) {
           setVisiblePage(mostVisible)
-          onPageChange(mostVisible)
         }
       },
       {
@@ -65,40 +131,14 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
 
     pageRefs.current.forEach((el) => observer.observe(el))
     return () => observer.disconnect()
-  }, [numPages, onPageChange])
+  }, [numPages])
 
-  // 外部跳页：滚动到目标页
-  const scrollToPage = useCallback((page: number) => {
-    const container = scrollRef.current
-    const el = pageRefs.current.get(page)
-    if (!container || !el) return
-
-    // 直接计算目标滚动位置
-    const containerRect = container.getBoundingClientRect()
-    const elRect = el.getBoundingClientRect()
-    const offset = elRect.top - containerRect.top + container.scrollTop - 16
-
-    container.scrollTo({ top: offset, behavior: 'smooth' })
-  }, [])
-
-  // 当外部 currentPage 变化时（如大纲点击），滚动到对应页
+  // 清理定时器
   useEffect(() => {
-    if (currentPage <= 0 || numPages <= 0) return
-
-    // 页面可能还没渲染，延迟尝试
-    const tryScroll = (retries: number) => {
-      const el = pageRefs.current.get(currentPage)
-      if (el) {
-        scrollToPage(currentPage)
-      } else if (retries > 0) {
-        setTimeout(() => tryScroll(retries - 1), 200)
-      }
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
     }
-
-    // 短延迟让 react-pdf 渲染
-    const timer = setTimeout(() => tryScroll(5), 100)
-    return () => clearTimeout(timer)
-  }, [currentPage, numPages, scrollToPage])
+  }, [])
 
   const goToPage = useCallback((page: number) => {
     if (page >= 1 && page <= numPages) {
@@ -114,8 +154,8 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
     }
   }, [pageInput, goToPage])
 
-  const zoomIn = useCallback(() => setScale(s => Math.min(s + 0.2, 3.0)), [])
-  const zoomOut = useCallback(() => setScale(s => Math.max(s - 0.2, 0.4)), [])
+  const zoomIn = useCallback(() => setScale(s => Math.min(s + uiConfig.zoom_step, uiConfig.zoom_max)), [uiConfig])
+  const zoomOut = useCallback(() => setScale(s => Math.max(s - uiConfig.zoom_step, uiConfig.zoom_min)), [uiConfig])
   const resetZoom = useCallback(() => setScale(1.0), [])
 
   return (
@@ -145,7 +185,11 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
                   if (el) pageRefs.current.set(pageNum, el)
                   else pageRefs.current.delete(pageNum)
                 }}
-                className="relative"
+                className={`relative transition-all duration-300 ${
+                  activePage === pageNum
+                    ? 'ring-2 ring-blue-500/60 ring-offset-2 ring-offset-gray-900 scale-[1.01]'
+                    : ''
+                }`}
               >
                 <Page
                   pageNumber={pageNum}
@@ -158,6 +202,10 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
                 <div className="absolute -left-12 top-0 text-xs text-gray-600 w-8 text-right select-none">
                   {pageNum}
                 </div>
+                {/* 跳转高亮光晕 */}
+                {activePage === pageNum && (
+                  <div className="absolute inset-0 pointer-events-none bg-blue-500/10 rounded" />
+                )}
               </div>
             ))}
           </div>
@@ -221,4 +269,4 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
       </div>
     </div>
   )
-}
+})

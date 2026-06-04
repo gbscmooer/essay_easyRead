@@ -47,8 +47,8 @@ async function parseError(res: Response): Promise<never> {
  * @returns 解析后的 JSON 响应
  * @throws ApiError 当响应状态码非 2xx
  */
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`)
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { signal })
   if (!res.ok) await parseError(res)
   return res.json() as Promise<T>
 }

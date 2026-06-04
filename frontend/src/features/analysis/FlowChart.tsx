@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
+import DOMPurify from 'dompurify'
 
 
 interface FlowChartProps {
@@ -118,7 +119,7 @@ export function FlowChart({ chart }: FlowChartProps) {
   return (
     <div ref={containerRef} className="mermaid bg-gray-800 rounded-lg p-4 overflow-auto flex justify-center">
       {svg ? (
-        <div dangerouslySetInnerHTML={{ __html: svg }} />
+        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
           <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
