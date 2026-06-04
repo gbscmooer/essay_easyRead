@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
-import DOMPurify from 'dompurify'
+
+
+/** 仅剥离事件处理器，保留 SVG 全部结构（包括 foreignObject 文字） */
+function stripEventHandlers(svg: string): string {
+  return svg
+    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\bon\w+\s*=\s*\{[^}]*\}/gi, '')
+}
 
 
 interface FlowChartProps {
@@ -119,11 +126,7 @@ export function FlowChart({ chart }: FlowChartProps) {
   return (
     <div ref={containerRef} className="mermaid bg-gray-800 rounded-lg p-4 overflow-auto flex justify-center">
       {svg ? (
-        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg, {
-          ADD_TAGS: ['foreignObject', 'div', 'span', 'p', 'br', 'b', 'i', 'strong', 'em'],
-          ADD_ATTR: ['xlink:href', 'font-size', 'font-family', 'text-anchor', 'dominant-baseline', 'transform'],
-          USE_PROFILES: { svg: true, svgFilters: true },
-        }) }} />
+        <div dangerouslySetInnerHTML={{ __html: stripEventHandlers(svg) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
           <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
