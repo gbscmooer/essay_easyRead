@@ -69,17 +69,35 @@ export function PdfViewer({ pdfUrl, currentPage, onPageChange }: PdfViewerProps)
 
   // 外部跳页：滚动到目标页
   const scrollToPage = useCallback((page: number) => {
+    const container = scrollRef.current
     const el = pageRefs.current.get(page)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+    if (!container || !el) return
+
+    // 直接计算目标滚动位置
+    const containerRect = container.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
+    const offset = elRect.top - containerRect.top + container.scrollTop - 16
+
+    container.scrollTo({ top: offset, behavior: 'smooth' })
   }, [])
 
   // 当外部 currentPage 变化时（如大纲点击），滚动到对应页
   useEffect(() => {
-    if (currentPage > 0 && numPages > 0) {
-      scrollToPage(currentPage)
+    if (currentPage <= 0 || numPages <= 0) return
+
+    // 页面可能还没渲染，延迟尝试
+    const tryScroll = (retries: number) => {
+      const el = pageRefs.current.get(currentPage)
+      if (el) {
+        scrollToPage(currentPage)
+      } else if (retries > 0) {
+        setTimeout(() => tryScroll(retries - 1), 200)
+      }
     }
+
+    // 短延迟让 react-pdf 渲染
+    const timer = setTimeout(() => tryScroll(5), 100)
+    return () => clearTimeout(timer)
   }, [currentPage, numPages, scrollToPage])
 
   const goToPage = useCallback((page: number) => {
