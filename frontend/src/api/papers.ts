@@ -4,7 +4,7 @@
  * 封装所有论文相关的 API 请求。
  */
 
-import type { Paper, PaperListResponse, AnalysisResult } from '@/types'
+import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper } from '@/types'
 import { get, post, upload, del } from './client'
 
 
@@ -121,4 +121,17 @@ export async function exportPaper(paperId: number): Promise<string> {
  */
 export async function reparsePaper(paperId: number): Promise<Paper> {
   return post<Paper>(`/analysis/${paperId}/reparse`)
+}
+
+
+/**
+ * 刷新相关论文（通过 Semantic Scholar 搜索）
+ *
+ * @param paperId 论文 ID
+ * @returns 新的相关论文列表
+ *
+ * POST /api/analysis/{paperId}/related-papers
+ */
+export async function refreshRelatedPapers(paperId: number): Promise<RelatedPaper[]> {
+  return post<RelatedPaper[]>(`/analysis/${paperId}/related-papers`)
 }

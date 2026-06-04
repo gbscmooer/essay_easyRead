@@ -18,6 +18,9 @@ dist/
 # Uploads
 uploads/
 
+# Code downloads
+code_downloads/
+
 # Data
 data/
 

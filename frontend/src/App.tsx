@@ -18,6 +18,7 @@ import { HomePage } from '@/pages/HomePage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { CodePage } from '@/pages/CodePage'
 
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/reader/:id" element={<ReaderPage />} />
+        <Route path="/code/:id" element={<CodePage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>

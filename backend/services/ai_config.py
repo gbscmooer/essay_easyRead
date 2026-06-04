@@ -19,12 +19,22 @@ DEFAULT_CONFIG = {
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
         "system_prompt": "你是一个专业的学术翻译助手。将用户提供的英文论文片段翻译为中文。只输出翻译结果，不要添加任何解释。保持学术术语的准确性。",
+        "temperature": 0.3,
+        "max_tokens": 2048,
     },
     "analysis": {
         "api_key": "",
         "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
         "model": "mimo-v2.5-pro",
         "system_prompt": "",
+        "temperature": 0.1,
+        "max_tokens": 16384,
+    },
+    "ui": {
+        "highlight_duration": 3000,
+        "zoom_step": 0.2,
+        "zoom_min": 0.4,
+        "zoom_max": 3.0,
     },
 }
 
@@ -34,9 +44,9 @@ def _ensure_dir():
 
 
 def load_config() -> dict:
-    """加载 AI 配置"""
+    """加载配置"""
     if not os.path.exists(CONFIG_PATH):
-        return DEFAULT_CONFIG.copy()
+        return _deep_copy_default()
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             saved = json.load(f)
@@ -46,8 +56,14 @@ def load_config() -> dict:
             config[key] = {**DEFAULT_CONFIG[key], **saved.get(key, {})}
         return config
     except Exception as e:
-        logger.warning(f"Failed to load AI config: {e}")
-        return DEFAULT_CONFIG.copy()
+        logger.warning(f"Failed to load config: {e}")
+        return _deep_copy_default()
+
+
+def _deep_copy_default() -> dict:
+    """深拷贝默认配置"""
+    import copy
+    return copy.deepcopy(DEFAULT_CONFIG)
 
 
 def save_config(config: dict) -> None:
@@ -75,3 +91,8 @@ def get_analysis_config() -> dict:
         if not cfg.get("model"):
             cfg["model"] = settings.mimo_model
     return cfg
+
+
+def get_ui_config() -> dict:
+    """获取 UI 配置"""
+    return load_config().get("ui", DEFAULT_CONFIG["ui"])

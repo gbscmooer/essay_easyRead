@@ -43,6 +43,8 @@ class PaperResponse(BaseModel):
     year: Optional[int] = None
     status: str  # pending | extracting | analyzing | done | failed
     error_message: Optional[str] = None
+    code_url: Optional[str] = None
+    code_status: str = "none"
     created_at: datetime
     updated_at: datetime
 
@@ -73,6 +75,7 @@ class AnalysisResponse(BaseModel):
 
     paper_id: int
     title: str
+    authors: str = ""
     venue: str
     year: int
     one_sentence: str
@@ -129,3 +132,28 @@ class ErrorResponse(BaseModel):
 
     detail: str  # 错误描述
     code: str  # 错误码，如 "FILE_TOO_LARGE", "PARSING_FAILED"
+
+
+# ============================================================
+# Code Analysis 相关 Schema
+# ============================================================
+
+
+class CodeAnalysisResponse(BaseModel):
+    """代码分析结果响应"""
+
+    paper_id: int
+    file_tree: dict = {}
+    data_flow: Optional[str] = None
+    dependency_graph: list[dict] = []
+    paper_code_mapping: list[dict] = []
+    status: str = "pending"
+    error_message: Optional[str] = None
+
+
+class CodeSummaryResponse(BaseModel):
+    """代码摘要响应（侧边栏用）"""
+
+    code_url: Optional[str] = None
+    code_status: str = "none"
+    code_summary: Optional[str] = None
