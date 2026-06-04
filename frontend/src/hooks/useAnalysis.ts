@@ -54,7 +54,6 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     partialResult,
     error: streamError,
     progressMessage,
-    reconnect,
   } = useStreaming(activePaperId, shouldConnect)
 
   // 初始加载：如果传入 initialPaperId，加载论文信息

@@ -356,7 +356,7 @@ def list_papers(
     return result, total
 
 
-def delete_paper(session: Session, paper_id: int) -> str:
+def delete_paper(session: Session, paper_id: int) -> tuple[str, str | None]:
     """
     删除论文及其解析结果。
 
