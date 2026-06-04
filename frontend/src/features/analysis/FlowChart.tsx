@@ -119,7 +119,11 @@ export function FlowChart({ chart }: FlowChartProps) {
   return (
     <div ref={containerRef} className="mermaid bg-gray-800 rounded-lg p-4 overflow-auto flex justify-center">
       {svg ? (
-        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg) }} />
+        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg, {
+          ADD_TAGS: ['foreignObject', 'div', 'span', 'p', 'br', 'b', 'i', 'strong', 'em'],
+          ADD_ATTR: ['xlink:href', 'font-size', 'font-family', 'text-anchor', 'dominant-baseline', 'transform'],
+          USE_PROFILES: { svg: true, svgFilters: true },
+        }) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
           <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
