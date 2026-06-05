@@ -48,6 +48,7 @@ class UIConfig(BaseModel):
     zoom_step: float = 0.2
     zoom_min: float = 0.4
     zoom_max: float = 3.0
+    pinch_zoom_step: float = 0.02
 
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()

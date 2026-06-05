@@ -7,6 +7,7 @@ interface UIConfig {
   zoom_step: number
   zoom_min: number
   zoom_max: number
+  pinch_zoom_step: number
 }
 
 interface AppConfig {
@@ -21,6 +22,7 @@ const DEFAULT_UI: UIConfig = {
   zoom_step: 0.2,
   zoom_min: 0.4,
   zoom_max: 3.0,
+  pinch_zoom_step: 0.02,
 }
 
 

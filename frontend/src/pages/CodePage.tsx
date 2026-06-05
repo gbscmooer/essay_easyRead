@@ -21,10 +21,13 @@ export function CodePage() {
   const [cloneStatus, setCloneStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [scrollToLine, setScrollToLine] = useState<number | null>(null)
 
   // 可拖拽面板宽度
   const [leftWidth, setLeftWidth] = useState(240)
   const [rightWidth, setRightWidth] = useState(320)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const [rightCollapsed, setRightCollapsed] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragType = useRef<'left' | 'right' | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -103,8 +106,9 @@ export function CodePage() {
   }, [paperId, paper])
 
   // 点击依赖图/映射中的文件
-  const handleFileClick = useCallback((path: string) => {
+  const handleFileClick = useCallback((path: string, line?: number) => {
     setSelectedFile(path)
+    setScrollToLine(line ?? null)
   }, [])
 
   // 拖拽分割条
@@ -199,54 +203,99 @@ export function CodePage() {
       </div>
 
       {/* 三栏布局 */}
-      <div ref={containerRef} className="flex-1 flex overflow-hidden">
+      <div ref={containerRef} className="flex-1 flex overflow-hidden relative">
         {/* 左侧：文件浏览器 */}
-        <div className="shrink-0 overflow-auto border-r border-gray-800" style={{ width: leftWidth }}>
-          <div className="px-3 py-2 border-b border-gray-800">
-            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">文件</h3>
+        {!leftCollapsed && (
+          <div className="shrink-0 overflow-auto border-r border-gray-800" style={{ width: leftWidth }}>
+            <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">文件</h3>
+              <button
+                onClick={() => setLeftCollapsed(true)}
+                className="text-gray-600 hover:text-gray-300 transition-colors"
+                title="收起文件栏"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            </div>
+            <FileBrowser
+              tree={fileTree}
+              selected={selectedFile}
+              onSelect={setSelectedFile}
+            />
           </div>
-          <FileBrowser
-            tree={fileTree}
-            selected={selectedFile}
-            onSelect={setSelectedFile}
-          />
-        </div>
+        )}
+
+        {/* 左侧展开按钮 */}
+        {leftCollapsed && (
+          <button
+            onClick={() => setLeftCollapsed(false)}
+            className="absolute left-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center bg-gray-900/80 border-r border-gray-800 hover:bg-gray-800 transition-colors"
+            title="展开文件栏"
+          >
+            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
 
         {/* 左侧拖拽条 */}
-        <div
-          className="w-1 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors"
-          onMouseDown={(e) => {
-            e.preventDefault()
-            dragType.current = 'left'
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }}
-        />
+        {!leftCollapsed && (
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              dragType.current = 'left'
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
+            }}
+          />
+        )}
 
         {/* 中间：代码查看器 */}
         <div className="flex-1 overflow-hidden">
-          <CodeViewer paperId={paperId} filePath={selectedFile} />
+          <CodeViewer paperId={paperId} filePath={selectedFile} scrollToLine={scrollToLine} />
         </div>
 
         {/* 右侧拖拽条 */}
-        <div
-          className="w-1 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors"
-          onMouseDown={(e) => {
-            e.preventDefault()
-            dragType.current = 'right'
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }}
-        />
+        {!rightCollapsed && (
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              dragType.current = 'right'
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
+            }}
+          />
+        )}
+
+        {/* 右侧展开按钮 */}
+        {rightCollapsed && (
+          <button
+            onClick={() => setRightCollapsed(false)}
+            className="absolute right-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center bg-gray-900/80 border-l border-gray-800 hover:bg-gray-800 transition-colors"
+            title="展开分析栏"
+          >
+            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
 
         {/* 右侧：分析面板 */}
-        <div className="shrink-0 overflow-hidden" style={{ width: rightWidth }}>
-          <CodeAnalysisPanel
-            analysis={analysis}
-            isAnalyzing={isAnalyzing}
-            onFileClick={handleFileClick}
-          />
-        </div>
+        {!rightCollapsed && (
+          <div className="shrink-0 overflow-hidden" style={{ width: rightWidth }}>
+            <CodeAnalysisPanel
+              analysis={analysis}
+              isAnalyzing={isAnalyzing}
+              paperId={paperId}
+              onFileClick={handleFileClick}
+              onCollapse={() => setRightCollapsed(true)}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

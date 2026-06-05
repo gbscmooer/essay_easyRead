@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
         "zoom_step": 0.2,
         "zoom_min": 0.4,
         "zoom_max": 3.0,
+        "pinch_zoom_step": 0.02,
     },
 }
 

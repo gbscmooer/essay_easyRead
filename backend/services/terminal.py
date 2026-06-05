@@ -146,11 +146,12 @@ async def handle_terminal_websocket(websocket, cwd: str = None):
         async for message in websocket:
             if message.type == "websocket.receive":
                 if message.text:
-                    # 检查是否是调整大小的命令
+                    if message.text == "ping":
+                        await websocket.send_text("pong")
+                        continue
                     if message.text.startswith("\x1b[8;"):
-                        # 解析 \x1b[8;rows;cols 格式
                         try:
-                            parts = message.text[4:-1].split(";")
+                            parts = message.text[4:].rstrip("t").split(";")
                             rows, cols = int(parts[0]), int(parts[1])
                             session.resize(cols, rows)
                         except (ValueError, IndexError):

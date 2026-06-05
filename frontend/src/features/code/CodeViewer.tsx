@@ -35,6 +35,7 @@ hljs.registerLanguage('css', css)
 interface CodeViewerProps {
   paperId: number
   filePath: string | null
+  scrollToLine?: number | null
 }
 
 
@@ -220,12 +221,15 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 }
 
 
-export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
+export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps) {
   const [content, setContent] = useState<string | null>(null)
   const [apiCells, setApiCells] = useState<NotebookCellData[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const codeRef = useRef<HTMLElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [highlightLine, setHighlightLine] = useState<number | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Hooks must be called before any early returns
   const notebookCells = useMemo(
@@ -234,6 +238,7 @@ export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
   )
 
   useEffect(() => {
+    setHighlightLine(null)
     if (!filePath) {
       setContent(null)
       return
@@ -258,15 +263,31 @@ export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
 
   useEffect(() => {
     if (codeRef.current && content && filePath && !isMarkdown(filePath) && !isNotebook(filePath)) {
-      // 清除旧的高亮
       codeRef.current.removeAttribute('data-highlighted')
       try {
         hljs.highlightElement(codeRef.current)
       } catch {
-        // 忽略高亮错误
+        // ignore
       }
     }
   }, [content, filePath])
+
+  useEffect(() => {
+    if (scrollToLine == null || !containerRef.current) return
+
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+
+    const lineEl = containerRef.current.querySelector(`#line-${scrollToLine}`)
+    if (lineEl) {
+      lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightLine(scrollToLine)
+      highlightTimerRef.current = setTimeout(() => setHighlightLine(null), 3000)
+    }
+
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    }
+  }, [scrollToLine])
 
   if (!filePath) {
     return (
@@ -296,7 +317,7 @@ export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
   const language = getLanguage(filePath)
 
   return (
-    <div className="h-full overflow-auto bg-[#1e1e2e]">
+    <div ref={containerRef} className="h-full overflow-auto bg-[#1e1e2e]">
       {/* 文件路径 */}
       <div className="sticky top-0 z-10 px-4 py-2 bg-gray-900/90 border-b border-gray-800 backdrop-blur-sm">
         <span className="text-xs text-gray-400 font-mono">{filePath}</span>
@@ -316,7 +337,13 @@ export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
           {/* 行号 */}
           <div className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r border-gray-800/50">
             {lines.map((_, i) => (
-              <div key={i} className="text-xs text-gray-600 leading-5 px-2">
+              <div
+                key={i}
+                id={`line-${i + 1}`}
+                className={`text-xs leading-5 px-2 ${
+                  highlightLine === i + 1 ? 'text-blue-400 bg-blue-500/15' : 'text-gray-600'
+                }`}
+              >
                 {i + 1}
               </div>
             ))}

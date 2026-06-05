@@ -133,6 +133,29 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     return () => observer.disconnect()
   }, [numPages])
 
+  // 两指捏合缩放（触控板 pinch 触发 ctrlKey+wheel）
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const delta = -e.deltaY
+      setScale(s => {
+        const step = uiConfig.pinch_zoom_step || 0.02
+        const max = uiConfig.zoom_max || 3
+        const min = uiConfig.zoom_min || 0.4
+        if (delta > 0) return Math.min(s + step, max)
+        if (delta < 0) return Math.max(s - step, min)
+        return s
+      })
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => container.removeEventListener('wheel', handleWheel)
+  }, [uiConfig])
+
   // 清理定时器
   useEffect(() => {
     return () => {
@@ -154,8 +177,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     }
   }, [pageInput, goToPage])
 
-  const zoomIn = useCallback(() => setScale(s => Math.min(s + uiConfig.zoom_step, uiConfig.zoom_max)), [uiConfig])
-  const zoomOut = useCallback(() => setScale(s => Math.max(s - uiConfig.zoom_step, uiConfig.zoom_min)), [uiConfig])
+  const zoomIn = useCallback(() => setScale(s => Math.min(s + (uiConfig.zoom_step || 0.2), uiConfig.zoom_max || 3)), [uiConfig])
+  const zoomOut = useCallback(() => setScale(s => Math.max(s - (uiConfig.zoom_step || 0.2), uiConfig.zoom_min || 0.4)), [uiConfig])
   const resetZoom = useCallback(() => setScale(1.0), [])
 
   return (

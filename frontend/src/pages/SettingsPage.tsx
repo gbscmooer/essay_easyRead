@@ -17,6 +17,7 @@ interface UIConfig {
   zoom_step: number
   zoom_min: number
   zoom_max: number
+  pinch_zoom_step: number
 }
 
 interface AppConfig {
@@ -48,6 +49,7 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_step: 0.2,
     zoom_min: 0.4,
     zoom_max: 3.0,
+    pinch_zoom_step: 0.02,
   },
 }
 
@@ -340,6 +342,28 @@ function UIConfigSection({
                 onChange={e => onChange({ ...config, zoom_max: parseInt(e.target.value) / 100 })}
                 className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
+            </div>
+
+            {/* Pinch Zoom Step */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">触控板捏合灵敏度</label>
+                <span className="text-xs text-gray-600">{Math.round(config.pinch_zoom_step * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={Math.round(config.pinch_zoom_step * 100)}
+                onChange={e => onChange({ ...config, pinch_zoom_step: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                <span>低 (1%)</span>
+                <span>默认 2%</span>
+                <span>高 (10%)</span>
+              </div>
             </div>
           </div>
         )}
