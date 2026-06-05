@@ -19,8 +19,8 @@
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* 纯黑 (dark) — 默认，ChatGPT 风格 */
-[data-theme="dark"] {
+/* 朋克 (punk) — 深色背景，蓝色点缀 */
+[data-theme="punk"] {
   --bg-base: #030712;
   --bg-surface: #111827;
   --bg-elevated: #1f2937;
@@ -29,50 +29,64 @@
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
   --text-muted: #6b7280;
-  --accent: #3b82f6;
-  --accent-subtle: rgba(59, 130, 246, 0.1);
+  --accent: #60a5fa;
+  --accent-subtle: rgba(96, 165, 250, 0.12);
 }
 
-/* 陶瓷 (ceramic) — 乳白色温暖风格 */
+/* 纯黑 (pure) — 纯黑白，无彩色点缀 */
+[data-theme="pure"] {
+  --bg-base: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-elevated: #171717;
+  --border: #262626;
+  --border-light: #404040;
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  --accent: #ffffff;
+  --accent-subtle: rgba(255, 255, 255, 0.08);
+}
+
+/* 陶瓷 (ceramic) — 乳白色温暖风格，深蓝点缀 */
 [data-theme="ceramic"] {
   --bg-base: #faf8f5;
   --bg-surface: #f5f0e8;
   --bg-elevated: #eee8dc;
   --border: #ddd5c4;
   --border-light: #c9bfab;
-  --text-primary: #2d2a26;
-  --text-secondary: #6b6560;
-  --text-muted: #9a9389;
-  --accent: #c49a3c;
-  --accent-subtle: rgba(196, 154, 60, 0.1);
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #78716c;
+  --accent: #1e40af;
+  --accent-subtle: rgba(30, 64, 175, 0.08);
 }
 
-/* 纯白 (light) — 纯白简洁风格 */
+/* 纯白 (light) — 纯白简洁风格，深蓝点缀 */
 [data-theme="light"] {
   --bg-base: #ffffff;
-  --bg-surface: #f9fafb;
-  --bg-elevated: #f3f4f6;
-  --border: #e5e7eb;
-  --border-light: #d1d5db;
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
-  --text-muted: #9ca3af;
-  --accent: #2563eb;
-  --accent-subtle: rgba(37, 99, 235, 0.08);
+  --bg-surface: #f8fafc;
+  --bg-elevated: #f1f5f9;
+  --border: #e2e8f0;
+  --border-light: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #94a3b8;
+  --accent: #1d4ed8;
+  --accent-subtle: rgba(29, 78, 216, 0.06);
 }
 
-/* 摩卡 (mocha) — Claude 风格温暖中性色调 */
+/* 摩卡 (mocha) — Claude 风格温暖中性色调，浅橙点缀 */
 [data-theme="mocha"] {
   --bg-base: #1a1614;
   --bg-surface: #252019;
   --bg-elevated: #302a22;
   --border: #4a4136;
   --border-light: #5c5246;
-  --text-primary: #e8dfd6;
-  --text-secondary: #a89a8c;
-  --text-muted: #7a6e62;
-  --accent: #d4956a;
-  --accent-subtle: rgba(212, 149, 106, 0.1);
+  --text-primary: #f5e6d3;
+  --text-secondary: #c4a882;
+  --text-muted: #8a7a6a;
+  --accent: #f0a050;
+  --accent-subtle: rgba(240, 160, 80, 0.12);
 }
 
 /* ============================================================
@@ -141,6 +155,20 @@ body {
 [data-theme] .hover\:text-gray-200:hover { color: var(--text-primary) !important; }
 [data-theme] .hover\:text-gray-300:hover { color: var(--text-secondary) !important; }
 [data-theme] .hover\:text-gray-400:hover { color: var(--text-secondary) !important; }
+
+/* 强调色跟随主题（蓝→主题 accent） */
+[data-theme] .text-blue-400 { color: var(--accent) !important; }
+[data-theme] .text-blue-300 { color: var(--accent) !important; opacity: 0.85; }
+[data-theme] .bg-blue-500\/10 { background-color: var(--accent-subtle) !important; }
+[data-theme] .bg-blue-600 { background-color: var(--accent) !important; }
+[data-theme] .bg-blue-600\/20 { background-color: var(--accent-subtle) !important; }
+[data-theme] .hover\:text-blue-400:hover { color: var(--accent) !important; }
+[data-theme] .hover\:bg-blue-500:hover { background-color: var(--accent) !important; }
+[data-theme] .hover\:bg-blue-600:hover { background-color: var(--accent) !important; }
+[data-theme] .border-blue-500 { border-color: var(--accent) !important; }
+[data-theme] .hover\:border-blue-500:hover { border-color: var(--accent) !important; }
+[data-theme] .ring-blue-500 { --tw-ring-color: var(--accent) !important; }
+[data-theme] .focus\:border-blue-500:focus { border-color: var(--accent) !important; }
 
 /* 其他 */
 [data-theme] .ring-offset-gray-900 { --tw-ring-offset-color: var(--bg-base) !important; }

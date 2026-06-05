@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { post, get } from '@/api/client'
-import { refreshConfig, setUIPreview, clearUIPreview } from '@/hooks/useConfig'
+import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 
 
 interface AIModelConfig {
@@ -53,7 +53,7 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_min: 0.4,
     zoom_max: 3.0,
     pinch_zoom_step: 0.02,
-    theme: 'dark',
+    theme: 'punk',
     font: 'sans',
     custom_font: '',
   },
@@ -245,8 +245,9 @@ function ConfigSection({
 
 
 const THEMES = [
-  { key: 'dark', label: '纯黑', desc: '深色背景，白色文字' },
-  { key: 'light', label: '纯白', desc: '白色背景，深色文字' },
+  { key: 'punk', label: '朋克', desc: '深色背景，蓝色点缀' },
+  { key: 'pure', label: '纯黑', desc: '纯黑白，无彩色' },
+  { key: 'light', label: '纯白', desc: '白色背景，深蓝点缀' },
   { key: 'ceramic', label: '陶瓷', desc: '乳白色温暖风格' },
   { key: 'mocha', label: '摩卡', desc: '温暖中性色调' },
 ]
@@ -463,6 +464,17 @@ export function SettingsPage() {
   // 离开页面时清除预览（不保存则恢复原样）
   useEffect(() => {
     return () => { clearUIPreview() }
+  }, [])
+
+  // 浏览器关闭/刷新提示
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedConfig()) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
   const handleSave = async () => {

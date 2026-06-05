@@ -49,7 +49,7 @@ class UIConfig(BaseModel):
     zoom_min: float = 0.4
     zoom_max: float = 3.0
     pinch_zoom_step: float = 0.02
-    theme: str = "dark"
+    theme: str = "punk"
     font: str = "sans"
     custom_font: str = ""
 

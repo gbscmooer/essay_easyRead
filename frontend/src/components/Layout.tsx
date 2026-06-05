@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
 import { getPaper } from '@/api/papers'
+import { hasUnsavedConfig } from '@/hooks/useConfig'
 
 
 interface LayoutProps {
@@ -56,6 +57,13 @@ export function Layout({ children }: LayoutProps) {
               <Link
                 key={item.path}
                 to={item.path}
+                onClick={(e) => {
+                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+                    if (!confirm('有未保存的配置更改，确定离开吗？')) {
+                      e.preventDefault()
+                    }
+                  }
+                }}
                 className={`text-sm transition-colors ${
                   location.pathname === item.path
                     ? 'text-blue-400 font-medium'
@@ -89,6 +97,11 @@ export function Layout({ children }: LayoutProps) {
             <div className="flex items-center gap-1">
               <Link
                 to={`/reader/${paperId}`}
+                onClick={(e) => {
+                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
+                  }
+                }}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   location.pathname.startsWith('/reader')
                     ? 'bg-blue-500/10 text-blue-400 font-medium'
@@ -99,6 +112,11 @@ export function Layout({ children }: LayoutProps) {
               </Link>
               <Link
                 to={`/code/${paperId}`}
+                onClick={(e) => {
+                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
+                  }
+                }}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   location.pathname.startsWith('/code')
                     ? 'bg-blue-500/10 text-blue-400 font-medium'
@@ -111,6 +129,11 @@ export function Layout({ children }: LayoutProps) {
           </div>
           <Link
             to="/library"
+            onClick={(e) => {
+              if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+                if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
+              }
+            }}
             className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
           >
             返回论文库

@@ -26,7 +26,7 @@ const DEFAULT_UI: UIConfig = {
   zoom_min: 0.4,
   zoom_max: 3.0,
   pinch_zoom_step: 0.02,
-  theme: 'dark',
+  theme: 'punk',
   font: 'sans',
   custom_font: '',
 }
@@ -38,6 +38,7 @@ const listeners = new Set<() => void>()
 
 // 预览配置（点击按钮立即生效，保存后才持久化）
 let previewOverrides: Partial<UIConfig> | null = null
+let dirtyListeners = new Set<() => void>()
 
 
 async function fetchConfig(): Promise<AppConfig> {
@@ -84,6 +85,7 @@ export function useUIConfig(): UIConfig {
 export function setUIPreview(overrides: Partial<UIConfig>): void {
   previewOverrides = { ...previewOverrides, ...overrides }
   listeners.forEach(fn => fn())
+  dirtyListeners.forEach(fn => fn())
 }
 
 
@@ -93,6 +95,21 @@ export function setUIPreview(overrides: Partial<UIConfig>): void {
 export function clearUIPreview(): void {
   previewOverrides = null
   listeners.forEach(fn => fn())
+  dirtyListeners.forEach(fn => fn())
+}
+
+export function useConfigDirty(): boolean {
+  const [dirty, setDirty] = useState(!!previewOverrides)
+  useEffect(() => {
+    const update = () => setDirty(!!previewOverrides)
+    dirtyListeners.add(update)
+    return () => { dirtyListeners.delete(update) }
+  }, [])
+  return dirty
+}
+
+export function hasUnsavedConfig(): boolean {
+  return !!previewOverrides
 }
 
 

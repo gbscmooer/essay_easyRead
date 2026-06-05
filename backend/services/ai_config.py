@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
         "zoom_min": 0.4,
         "zoom_max": 3.0,
         "pinch_zoom_step": 0.02,
-        "theme": "dark",
+        "theme": "punk",
         "font": "sans",
         "custom_font": "",
     },
