@@ -140,21 +140,3 @@ async def open_vscode(req: dict):
     except Exception as e:
         return {"error": f"打开失败: {str(e)}"}
 
-
-@app.post("/api/system/restart")
-async def restart_server():
-    """重启后端服务"""
-    import sys
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("正在重启后端服务...")
-
-    # 延迟重启，让响应先返回
-    async def _restart():
-        import asyncio
-        await asyncio.sleep(0.5)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-
-    import asyncio
-    asyncio.create_task(_restart())
-    return {"message": "正在重启..."}

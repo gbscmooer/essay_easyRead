@@ -150,7 +150,7 @@ function BashTab() {
 const tabs = [
   { key: 'backend' as TabKey, label: '后端日志' },
   { key: 'frontend' as TabKey, label: '前端日志' },
-  { key: 'bash' as TabKey, label: 'Bash' },
+  { key: 'bash' as TabKey, label: '控制台' },
 ]
 
 
@@ -158,7 +158,6 @@ export function TerminalPanel() {
   const [activeTab, setActiveTab] = useState<TabKey>('backend')
   const [height, setHeight] = useState(200)
   const [collapsed, setCollapsed] = useState(true)
-  const [restarting, setRestarting] = useState(false)
   const dragRef = useRef(false)
   const startY = useRef(0)
   const startHeight = useRef(0)
@@ -266,38 +265,6 @@ export function TerminalPanel() {
             </div>
           )}
         </div>
-        {!collapsed && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setRestarting(true)
-              fetch('/api/system/restart', { method: 'POST' })
-                .then(() => {
-                  setTimeout(() => {
-                    setRestarting(false)
-                    window.location.reload()
-                  }, 2000)
-                })
-                .catch(() => setRestarting(false))
-            }}
-            disabled={restarting}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-800 rounded transition-colors disabled:opacity-50"
-          >
-            {restarting ? (
-              <>
-                <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
-                重启中...
-              </>
-            ) : (
-              <>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                重启后端
-              </>
-            )}
-          </button>
-        )}
       </div>
 
       {/* 拖拽条 */}

@@ -17,6 +17,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        ws: true,
         // 修复 SSE 缓冲：禁用代理响应的压缩和缓冲
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes: ServerResponse) => {

@@ -78,8 +78,11 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       } else if (p.status === 'failed') {
         // 失败状态也连接，以便显示错误
         setShouldConnect(true)
+      } else if (p.status === 'extracting' || p.status === 'analyzing') {
+        // 正在处理中，自动连接 SSE 显示进度
+        setShouldConnect(true)
       } else {
-        // pending/extracting/analyzing：不自动连接，等待用户点击"开始分析"
+        // pending：等待用户点击"开始分析"
         setShouldConnect(false)
       }
     }).catch(() => {

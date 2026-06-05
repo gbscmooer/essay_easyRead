@@ -9,7 +9,7 @@ if __name__ == "__main__":
         "backend.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        reload=False,
         access_log=True,
         log_level="info",
     )
