@@ -16,6 +16,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
   const [loading, setLoading] = useState(false)
   const [action, setAction] = useState<'translate' | 'summarize' | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const dragging = useRef(false)
@@ -30,6 +31,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
     setAction(null)
     setSelectedText('')
     setConfigError(null)
+    setCopied(false)
   }, [])
 
 
@@ -225,13 +227,27 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
               <span className="text-xs text-gray-400">
                 {action === 'translate' ? '翻译结果' : 'AI 总结'}
               </span>
-              <button
-                onMouseDown={e => e.stopPropagation()}
-                onClick={hidePopup}
-                className="text-gray-500 hover:text-gray-300 text-xs"
-              >
-                &times;
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={() => {
+                    navigator.clipboard.writeText(result).then(() => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    })
+                  }}
+                  className="text-gray-400 hover:text-gray-200 text-xs transition-colors"
+                >
+                  {copied ? '已复制' : '复制'}
+                </button>
+                <button
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={hidePopup}
+                  className="text-gray-500 hover:text-gray-300 text-xs"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
             <div className="px-3 py-2 max-h-48 overflow-auto" onMouseDown={e => e.stopPropagation()}>
               <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">

@@ -1,17 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import type { AnalysisResult, Paper } from '@/types'
+import type { Paper } from '@/types'
 import { getPaper } from '@/api/papers'
 import { extractCodeUrl } from '@/api/code'
 
 
 interface CodeTabProps {
-  result: AnalysisResult
   paperId?: number
 }
 
-export function CodeTab({ result, paperId }: CodeTabProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(0)
+export function CodeTab({ paperId }: CodeTabProps) {
   const [paper, setPaper] = useState<Paper | null>(null)
   const [searching, setSearching] = useState(false)
 
@@ -26,7 +24,6 @@ export function CodeTab({ result, paperId }: CodeTabProps) {
     setSearching(true)
     try {
       await extractCodeUrl(paperId)
-      // 重新获取论文信息
       const updated = await getPaper(paperId)
       setPaper(updated)
     } catch {
@@ -41,7 +38,6 @@ export function CodeTab({ result, paperId }: CodeTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* 代码仓库状态 */}
       <section>
         <h2 className="text-lg font-semibold text-gray-200 mb-3">代码仓库</h2>
 
@@ -123,49 +119,6 @@ export function CodeTab({ result, paperId }: CodeTabProps) {
           </div>
         )}
       </section>
-
-      {/* 概念 → 代码映射 */}
-      {result.code_mapping && result.code_mapping.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">概念 → 代码映射</h2>
-
-          <div className="space-y-3">
-            {result.code_mapping.map((mapping, idx) => {
-              const isExpanded = expandedIndex === idx
-              return (
-                <div
-                  key={idx}
-                  className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden"
-                >
-                  <button
-                    onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-750 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-1 h-6 bg-blue-500 rounded-full" />
-                      <span className="text-gray-200 font-medium text-sm">{mapping.concept}</span>
-                    </div>
-                    <svg
-                      className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="border-t border-gray-700">
-                      <div className="bg-gray-900 p-4 font-mono text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
-                        {mapping.likely_implementation}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
     </div>
   )
 }

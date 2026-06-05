@@ -139,7 +139,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'method' && <MethodTab result={result} />}
         {activeTab === 'experiments' && <ExperimentsTab result={result} />}
-        {activeTab === 'code' && <CodeTab result={result} paperId={paperId} />}
+        {activeTab === 'code' && <CodeTab paperId={paperId} />}
         {activeTab === 'interview' && <InterviewTab result={result} />}
       </div>
     </div>
