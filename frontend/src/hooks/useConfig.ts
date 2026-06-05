@@ -8,6 +8,9 @@ interface UIConfig {
   zoom_min: number
   zoom_max: number
   pinch_zoom_step: number
+  theme: string
+  font: string
+  custom_font: string
 }
 
 interface AppConfig {
@@ -23,6 +26,9 @@ const DEFAULT_UI: UIConfig = {
   zoom_min: 0.4,
   zoom_max: 3.0,
   pinch_zoom_step: 0.02,
+  theme: 'dark',
+  font: 'sans',
+  custom_font: '',
 }
 
 

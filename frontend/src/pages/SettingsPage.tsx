@@ -18,6 +18,9 @@ interface UIConfig {
   zoom_min: number
   zoom_max: number
   pinch_zoom_step: number
+  theme: string
+  font: string
+  custom_font: string
 }
 
 interface AppConfig {
@@ -50,6 +53,9 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_min: 0.4,
     zoom_max: 3.0,
     pinch_zoom_step: 0.02,
+    theme: 'dark',
+    font: 'sans',
+    custom_font: '',
   },
 }
 
@@ -238,6 +244,21 @@ function ConfigSection({
 }
 
 
+const THEMES = [
+  { key: 'dark', label: '纯黑', desc: '深色背景，白色文字' },
+  { key: 'light', label: '纯白', desc: '白色背景，深色文字' },
+  { key: 'ceramic', label: '陶瓷', desc: '乳白色温暖风格' },
+  { key: 'mocha', label: '摩卡', desc: '温暖中性色调' },
+]
+
+const FONTS = [
+  { key: 'sans', label: 'Arial（非衬线）' },
+  { key: 'serif', label: 'Times New Roman（衬线）' },
+  { key: 'mono', label: '等宽字体' },
+  { key: 'custom', label: '自定义字体' },
+]
+
+
 function UIConfigSection({
   config,
   onChange,
@@ -251,7 +272,60 @@ function UIConfigSection({
     <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
       <div>
         <h2 className="text-base font-semibold text-gray-100">界面设置</h2>
-        <p className="text-xs text-gray-500 mt-0.5">阅读器的交互行为参数</p>
+        <p className="text-xs text-gray-500 mt-0.5">主题、字体和交互行为参数</p>
+      </div>
+
+      {/* 主题选择 */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-2">配色风格</label>
+        <div className="grid grid-cols-2 gap-2">
+          {THEMES.map(theme => (
+            <button
+              key={theme.key}
+              onClick={() => onChange({ ...config, theme: theme.key })}
+              className={`px-3 py-2 text-left rounded-lg border transition-colors ${
+                config.theme === theme.key
+                  ? 'border-blue-500 bg-blue-500/10'
+                  : 'border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              <span className={`text-sm ${config.theme === theme.key ? 'text-blue-400' : 'text-gray-300'}`}>
+                {theme.label}
+              </span>
+              <span className="block text-[10px] text-gray-500 mt-0.5">{theme.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 字体选择 */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-2">界面字体</label>
+        <div className="space-y-1.5">
+          {FONTS.map(font => (
+            <button
+              key={font.key}
+              onClick={() => onChange({ ...config, font: font.key })}
+              className={`w-full text-left px-3 py-1.5 text-sm rounded border transition-colors ${
+                config.font === font.key
+                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                  : 'border-gray-700 text-gray-400 hover:border-gray-600'
+              }`}
+            >
+              {font.label}
+            </button>
+          ))}
+        </div>
+        {config.font === 'custom' && (
+          <input
+            type="text"
+            value={config.custom_font}
+            onChange={e => onChange({ ...config, custom_font: e.target.value })}
+            placeholder="输入字体名称，如 PingFang SC"
+            className="mt-2 w-full px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+          />
+        )}
+        <p className="text-[10px] text-gray-600 mt-1">仅作用于界面文字，不影响源码展示</p>
       </div>
 
       {/* 大纲跳转高亮时长 */}

@@ -1,0 +1,28 @@
+import { useEffect } from 'react'
+import { useUIConfig } from '@/hooks/useConfig'
+
+const FONT_MAP: Record<string, string> = {
+  sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+  serif: "'Times New Roman', Georgia, 'Noto Serif', serif",
+  mono: "'Menlo', 'Monaco', 'Courier New', monospace",
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const config = useUIConfig()
+
+  useEffect(() => {
+    const theme = config.theme || 'dark'
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [config.theme])
+
+  useEffect(() => {
+    const font = config.font || 'sans'
+    let fontFamily = FONT_MAP[font] || FONT_MAP.sans
+    if (font === 'custom' && config.custom_font) {
+      fontFamily = `'${config.custom_font}', sans-serif`
+    }
+    document.documentElement.style.setProperty('--font-ui', fontFamily)
+  }, [config.font, config.custom_font])
+
+  return <>{children}</>
+}

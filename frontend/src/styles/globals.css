@@ -1,7 +1,7 @@
 /**
  * 全局样式
  *
- * Tailwind CSS 入口 + 自定义样式。
+ * Tailwind CSS 入口 + 自定义样式 + 主题系统。
  */
 
 /* ============================================================
@@ -12,20 +12,110 @@
 @tailwind utilities;
 
 /* ============================================================
- * 自定义 CSS 变量
+ * 主题 CSS 变量
  * ============================================================ */
 :root {
-  --color-primary: #3b82f6;    /* blue-500 */
-  --color-bg-dark: #030712;    /* gray-950 */
-  --color-bg-card: #111827;    /* gray-900 */
+  --color-primary: #3b82f6;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* 纯黑 (dark) — 默认，ChatGPT 风格 */
+[data-theme="dark"] {
+  --bg-base: #030712;
+  --bg-surface: #111827;
+  --bg-elevated: #1f2937;
+  --border: #374151;
+  --border-light: #4b5563;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --accent: #3b82f6;
+  --accent-subtle: rgba(59, 130, 246, 0.1);
+}
+
+/* 陶瓷 (ceramic) — 乳白色温暖风格 */
+[data-theme="ceramic"] {
+  --bg-base: #faf8f5;
+  --bg-surface: #f5f0e8;
+  --bg-elevated: #eee8dc;
+  --border: #ddd5c4;
+  --border-light: #c9bfab;
+  --text-primary: #2d2a26;
+  --text-secondary: #6b6560;
+  --text-muted: #9a9389;
+  --accent: #c49a3c;
+  --accent-subtle: rgba(196, 154, 60, 0.1);
+}
+
+/* 纯白 (light) — 纯白简洁风格 */
+[data-theme="light"] {
+  --bg-base: #ffffff;
+  --bg-surface: #f9fafb;
+  --bg-elevated: #f3f4f6;
+  --border: #e5e7eb;
+  --border-light: #d1d5db;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --accent: #2563eb;
+  --accent-subtle: rgba(37, 99, 235, 0.08);
+}
+
+/* 摩卡 (mocha) — Claude 风格温暖中性色调 */
+[data-theme="mocha"] {
+  --bg-base: #1a1614;
+  --bg-surface: #252019;
+  --bg-elevated: #302a22;
+  --border: #4a4136;
+  --border-light: #5c5246;
+  --text-primary: #e8dfd6;
+  --text-secondary: #a89a8c;
+  --text-muted: #7a6e62;
+  --accent: #d4956a;
+  --accent-subtle: rgba(212, 149, 106, 0.1);
 }
 
 /* ============================================================
- * 深色主题基础
+ * 基础样式 — 使用 CSS 变量
  * ============================================================ */
 body {
-  @apply bg-gray-950 text-gray-100;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+/* ============================================================
+ * 主题覆盖 — 让 Tailwind 灰色类跟随主题
+ * ============================================================ */
+[data-theme] .bg-gray-950 { background-color: var(--bg-base) !important; }
+[data-theme] .bg-gray-900 { background-color: var(--bg-surface) !important; }
+[data-theme] .bg-gray-800 { background-color: var(--bg-elevated) !important; }
+[data-theme] .bg-gray-700 { background-color: var(--border) !important; }
+[data-theme] .bg-gray-800\/50 { background-color: color-mix(in srgb, var(--bg-elevated) 50%, transparent) !important; }
+[data-theme] .bg-gray-900\/80 { background-color: color-mix(in srgb, var(--bg-surface) 80%, transparent) !important; }
+[data-theme] .bg-gray-900\/90 { background-color: color-mix(in srgb, var(--bg-surface) 90%, transparent) !important; }
+[data-theme] .bg-gray-800\/30 { background-color: color-mix(in srgb, var(--bg-elevated) 30%, transparent) !important; }
+[data-theme] .bg-gray-800\/80 { background-color: color-mix(in srgb, var(--bg-elevated) 80%, transparent) !important; }
+
+[data-theme] .border-gray-800 { border-color: var(--border) !important; }
+[data-theme] .border-gray-700 { border-color: var(--border-light) !important; }
+[data-theme] .border-gray-700\/50 { border-color: color-mix(in srgb, var(--border-light) 50%, transparent) !important; }
+[data-theme] .border-gray-600 { border-color: var(--border-light) !important; }
+
+[data-theme] .text-gray-100 { color: var(--text-primary) !important; }
+[data-theme] .text-gray-200 { color: var(--text-primary) !important; }
+[data-theme] .text-gray-300 { color: var(--text-secondary) !important; }
+[data-theme] .text-gray-400 { color: var(--text-secondary) !important; }
+[data-theme] .text-gray-500 { color: var(--text-muted) !important; }
+[data-theme] .text-gray-600 { color: var(--text-muted) !important; }
+
+[data-theme] .ring-offset-gray-900 { --tw-ring-offset-color: var(--bg-base) !important; }
+[data-theme] .divide-gray-800 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+
+[data-theme] input, [data-theme] textarea, [data-theme] select {
+  background-color: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 
 /* ============================================================
@@ -36,13 +126,14 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-gray-900;
+  background: var(--bg-surface);
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-700 rounded;
+  background: var(--border);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-600;
+  background: var(--border-light);
 }
 
 /* ============================================================
@@ -64,7 +155,7 @@ body {
 }
 
 /* ============================================================
- * Mermaid 深色主题覆盖
+ * Mermaid 主题覆盖
  * ============================================================ */
 .mermaid svg {
   max-width: 100%;

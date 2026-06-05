@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
+import { ThemeProvider } from './ThemeProvider'
 import { getPaper } from '@/api/papers'
 
 
@@ -41,7 +42,8 @@ export function Layout({ children }: LayoutProps) {
   }, [paperId])
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950">
+    <ThemeProvider>
+    <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--bg-base)' }}>
       {/* 一级导航栏 */}
       <nav className={`flex items-center justify-between px-6 bg-gray-900 border-b border-gray-800 shrink-0 transition-all duration-200 ${navCollapsed ? 'h-8' : 'h-12'}`}>
         <Link to="/" className={`font-bold text-gray-100 hover:text-blue-400 transition-colors ${navCollapsed ? 'text-sm' : 'text-base'}`}>
@@ -124,5 +126,6 @@ export function Layout({ children }: LayoutProps) {
       {/* 底部终端面板 */}
       <TerminalPanel />
     </div>
+    </ThemeProvider>
   )
 }
