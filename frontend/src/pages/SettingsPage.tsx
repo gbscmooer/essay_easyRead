@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { post, get } from '@/api/client'
-import { refreshConfig } from '@/hooks/useConfig'
+import { refreshConfig, setUIPreview, clearUIPreview } from '@/hooks/useConfig'
 
 
 interface AIModelConfig {
@@ -282,7 +282,7 @@ function UIConfigSection({
           {THEMES.map(theme => (
             <button
               key={theme.key}
-              onClick={() => onChange({ ...config, theme: theme.key })}
+              onClick={() => { onChange({ ...config, theme: theme.key }); setUIPreview({ theme: theme.key }) }}
               className={`px-3 py-2 text-left rounded-lg border transition-colors ${
                 config.theme === theme.key
                   ? 'border-blue-500 bg-blue-500/10'
@@ -305,7 +305,7 @@ function UIConfigSection({
           {FONTS.map(font => (
             <button
               key={font.key}
-              onClick={() => onChange({ ...config, font: font.key })}
+              onClick={() => { onChange({ ...config, font: font.key }); setUIPreview({ font: font.key }) }}
               className={`w-full text-left px-3 py-1.5 text-sm rounded border transition-colors ${
                 config.font === font.key
                   ? 'border-blue-500 bg-blue-500/10 text-blue-400'
@@ -320,7 +320,7 @@ function UIConfigSection({
           <input
             type="text"
             value={config.custom_font}
-            onChange={e => onChange({ ...config, custom_font: e.target.value })}
+            onChange={e => { onChange({ ...config, custom_font: e.target.value }); setUIPreview({ custom_font: e.target.value }) }}
             placeholder="输入字体名称，如 PingFang SC"
             className="mt-2 w-full px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
           />
@@ -458,6 +458,11 @@ export function SettingsPage() {
       .then(cfg => setConfig(cfg))
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [])
+
+  // 离开页面时清除预览（不保存则恢复原样）
+  useEffect(() => {
+    return () => { clearUIPreview() }
   }, [])
 
   const handleSave = async () => {

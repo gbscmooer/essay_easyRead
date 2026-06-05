@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { get } from '@/api/client'
 
 
-interface UIConfig {
+export interface UIConfig {
   highlight_duration: number
   zoom_step: number
   zoom_min: number
@@ -36,6 +36,9 @@ let cachedConfig: AppConfig | null = null
 let fetchPromise: Promise<AppConfig> | null = null
 const listeners = new Set<() => void>()
 
+// 预览配置（点击按钮立即生效，保存后才持久化）
+let previewOverrides: Partial<UIConfig> | null = null
+
 
 async function fetchConfig(): Promise<AppConfig> {
   if (cachedConfig) return cachedConfig
@@ -60,7 +63,12 @@ export function useUIConfig(): UIConfig {
   const [ui, setUI] = useState<UIConfig>(DEFAULT_UI)
 
   useEffect(() => {
-    const update = () => { fetchConfig().then(cfg => setUI(cfg.ui || DEFAULT_UI)) }
+    const update = () => {
+      fetchConfig().then(cfg => {
+        const saved = cfg.ui || DEFAULT_UI
+        setUI({ ...saved, ...previewOverrides })
+      })
+    }
     update()
     listeners.add(update)
     return () => { listeners.delete(update) }
@@ -70,8 +78,27 @@ export function useUIConfig(): UIConfig {
 }
 
 
+/**
+ * 设置预览配置（立即生效，不持久化）
+ */
+export function setUIPreview(overrides: Partial<UIConfig>): void {
+  previewOverrides = { ...previewOverrides, ...overrides }
+  listeners.forEach(fn => fn())
+}
+
+
+/**
+ * 清除预览，恢复到已保存的配置
+ */
+export function clearUIPreview(): void {
+  previewOverrides = null
+  listeners.forEach(fn => fn())
+}
+
+
 export function refreshConfig(): void {
   cachedConfig = null
   fetchPromise = null
+  previewOverrides = null
   listeners.forEach(fn => fn())
 }

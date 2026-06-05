@@ -94,13 +94,23 @@ body {
 [data-theme] .bg-gray-800\/50 { background-color: color-mix(in srgb, var(--bg-elevated) 50%, transparent) !important; }
 [data-theme] .bg-gray-900\/80 { background-color: color-mix(in srgb, var(--bg-surface) 80%, transparent) !important; }
 [data-theme] .bg-gray-900\/90 { background-color: color-mix(in srgb, var(--bg-surface) 90%, transparent) !important; }
-[data-theme] .bg-gray-800\/30 { background-color: color-mix(in srgb, var(--bg-elevated) 30%, transparent) !important; }
-[data-theme] .bg-gray-800\/80 { background-color: color-mix(in srgb, var(--bg-elevated) 80%, transparent) !important; }
+[data-theme] .bg-gray-800\/30 { background-color: rgba(128, 128, 128, 0.15) !important; }
+[data-theme] .bg-gray-800\/80 { background-color: rgba(128, 128, 128, 0.4) !important; }
 
 [data-theme] .border-gray-800 { border-color: var(--border) !important; }
 [data-theme] .border-gray-700 { border-color: var(--border-light) !important; }
-[data-theme] .border-gray-700\/50 { border-color: color-mix(in srgb, var(--border-light) 50%, transparent) !important; }
+[data-theme] .border-gray-700\/50 { border-color: rgba(128, 128, 128, 0.3) !important; }
 [data-theme] .border-gray-600 { border-color: var(--border-light) !important; }
+[data-theme] .border-gray-500 { border-color: var(--border-light) !important; }
+
+[data-theme] .hover\:border-gray-400:hover { border-color: var(--text-muted) !important; }
+[data-theme] .hover\:border-gray-600:hover { border-color: var(--border-light) !important; }
+[data-theme] .hover\:bg-gray-800:hover { background-color: var(--bg-elevated) !important; }
+[data-theme] .hover\:bg-gray-800\/50:hover { background-color: rgba(128, 128, 128, 0.25) !important; }
+[data-theme] .hover\:bg-gray-700:hover { background-color: var(--border) !important; }
+[data-theme] .hover\:text-gray-200:hover { color: var(--text-primary) !important; }
+[data-theme] .hover\:text-gray-300:hover { color: var(--text-secondary) !important; }
+[data-theme] .hover\:text-gray-400:hover { color: var(--text-secondary) !important; }
 
 [data-theme] .text-gray-100 { color: var(--text-primary) !important; }
 [data-theme] .text-gray-200 { color: var(--text-primary) !important; }
