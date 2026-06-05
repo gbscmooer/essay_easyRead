@@ -146,6 +146,7 @@ function DependencyGraph({
     if (!svg || !containerRef.current) return
     const container = containerRef.current
     const nodes = container.querySelectorAll('g.node')
+    const cleanups: Array<() => void> = []
     nodes.forEach((node) => {
       const text = node.textContent?.trim()
       if (!text) return
@@ -154,9 +155,10 @@ function DependencyGraph({
         (node as HTMLElement).style.cursor = 'pointer'
         const handler = () => onFileClick(filePath)
         node.addEventListener('click', handler)
-        return () => node.removeEventListener('click', handler)
+        cleanups.push(() => node.removeEventListener('click', handler))
       }
     })
+    return () => { cleanups.forEach(fn => fn()) }
   }, [svg, labelToPath, onFileClick])
 
   if (error) {
@@ -227,6 +229,7 @@ function FullscreenGraph({
     if (!svg || !containerRef.current) return
     const container = containerRef.current
     const nodes = container.querySelectorAll('g.node')
+    const cleanups: Array<() => void> = []
     nodes.forEach((node) => {
       const text = node.textContent?.trim()
       if (!text) return
@@ -235,9 +238,10 @@ function FullscreenGraph({
         (node as HTMLElement).style.cursor = 'pointer'
         const handler = () => onFileClick(filePath)
         node.addEventListener('click', handler)
-        return () => node.removeEventListener('click', handler)
+        cleanups.push(() => node.removeEventListener('click', handler))
       }
     })
+    return () => { cleanups.forEach(fn => fn()) }
   }, [svg, labelToPath, onFileClick])
 
   useEffect(() => {

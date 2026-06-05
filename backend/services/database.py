@@ -5,6 +5,7 @@ SQLite + SQLModel 的数据库初始化和 CRUD 操作。
 """
 
 from datetime import datetime, timezone
+from typing import Optional
 from sqlmodel import Session, create_engine, SQLModel, select, col
 from sqlalchemy import func
 
@@ -119,7 +120,7 @@ def create_paper(session: Session, filename: str, pdf_path: str, file_size: int)
     return paper.id
 
 
-def update_paper_status(session: Session, paper_id: int, status: str, error_message: str = None) -> None:
+def update_paper_status(session: Session, paper_id: int, status: str, error_message: Optional[str] = None) -> None:
     """
     更新论文解析状态。
 
@@ -238,6 +239,7 @@ def get_paper(session: Session, paper_id: int) -> dict:
     return {
         "id": paper.id,
         "filename": paper.filename,
+        "pdf_path": paper.pdf_path,
         "title": paper.title,
         "venue": paper.venue,
         "year": paper.year,

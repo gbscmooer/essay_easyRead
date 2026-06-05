@@ -226,6 +226,7 @@ async def stream_analysis(paper_id: int):
                     value = analysis[field_name]
                     # method 中的 mermaid_chart 需要单独处理
                     if field_name == "method" and isinstance(value, dict):
+                        value = dict(value)
                         mermaid = value.pop("mermaid_chart", None)
                         yield format_sse(StreamEvent(
                             event="field",
@@ -352,7 +353,8 @@ async def stream_analysis(paper_id: int):
                     ("title", ""), ("venue", "Unknown"), ("year", 0),
                     ("one_sentence", ""), ("problem", ""),
                     ("key_contributions", []), ("outline", []),
-                    ("method", {}), ("experiments", {}),
+                    ("method", {"overview": "", "pipeline": "", "key_modules": []}),
+                    ("experiments", {"datasets": [], "baselines": [], "main_results": "", "ablation": "", "result_table": [], "figures": []}),
                     ("code_mapping", []), ("interview_qa", []),
                     ("limitations", ""), ("related_papers", []),
                 ]:

@@ -137,7 +137,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         setError('连接中断，请刷新重试')
       }
     }
-  }, [paperId, cleanup])
+  }, [paperId, shouldConnect, cleanup])
 
   const reconnect = useCallback(() => {
     reconnectCountRef.current = 0

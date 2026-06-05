@@ -272,7 +272,7 @@ async def analyze_code(paper_id: int):
                 paper_code_mapping = await ai_analyze_paper_code_mapping(
                     file_contents,
                     paper.get("title", ""),
-                    paper.get("one_sentence", "") if "one_sentence" in paper else "",
+                    analysis.get("one_sentence", "") if analysis else "",
                     existing_mapping,
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],

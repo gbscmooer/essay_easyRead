@@ -187,7 +187,7 @@ def read_file_content(repo_path: str, rel_path: str, max_lines: int = 500) -> st
     """
     # 安全检查：防止路径穿越
     full_path = os.path.realpath(os.path.join(repo_path, rel_path))
-    if not full_path.startswith(os.path.realpath(repo_path)):
+    if not full_path.startswith(os.path.realpath(repo_path) + os.sep):
         raise ValueError("不安全的文件路径")
 
     if not os.path.isfile(full_path):
@@ -231,7 +231,7 @@ def read_notebook_content(repo_path: str, rel_path: str) -> list[dict]:
         ValueError: 路径不安全或文件格式错误
     """
     full_path = os.path.realpath(os.path.join(repo_path, rel_path))
-    if not full_path.startswith(os.path.realpath(repo_path)):
+    if not full_path.startswith(os.path.realpath(repo_path) + os.sep):
         raise ValueError("不安全的文件路径")
 
     if not os.path.isfile(full_path):

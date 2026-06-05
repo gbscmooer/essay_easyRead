@@ -7,7 +7,8 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, create_engine, select, col
+from sqlmodel import Session, create_engine, select
+from sqlalchemy import desc
 from datetime import datetime, timezone
 
 from ..models.workspace import Workspace, WorkspacePaper
@@ -60,7 +61,7 @@ async def list_workspaces():
     """获取所有工作区"""
     engine = _get_engine()
     with Session(engine) as session:
-        workspaces = session.exec(select(Workspace).order_by(col(Workspace.updated_at).desc())).all()
+        workspaces = session.exec(select(Workspace).order_by(desc(Workspace.updated_at))).all()
         result = []
         for ws in workspaces:
             count_statement = select(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
@@ -107,7 +108,7 @@ async def get_workspace(workspace_id: int):
             select(Paper, WorkspacePaper.added_at)
             .join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
             .where(WorkspacePaper.workspace_id == workspace_id)
-            .order_by(col(WorkspacePaper.added_at).desc())
+            .order_by(desc(WorkspacePaper.added_at))
         )
         rows = session.exec(stmt).all()
         papers = []
