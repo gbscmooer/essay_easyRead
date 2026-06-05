@@ -155,34 +155,34 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
         transform: 'translate(-50%, -100%)',
       }}
     >
-      <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl overflow-hidden">
-        {/* 拖拽条 */}
-        <div
-          className="h-1.5 bg-gray-700 cursor-move hover:bg-gray-600 transition-colors"
-          onMouseDown={(e) => {
-            e.preventDefault()
-            const popup = popupRef.current
-            if (!popup) return
-            const rect = popup.getBoundingClientRect()
-            dragging.current = true
-            dragOffset.current = {
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            }
-            document.body.style.cursor = 'move'
-            document.body.style.userSelect = 'none'
-          }}
-        />
+      <div
+        className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl overflow-hidden cursor-move select-none hover:border-gray-500 transition-colors"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          const popup = popupRef.current
+          if (!popup) return
+          const rect = popup.getBoundingClientRect()
+          dragging.current = true
+          dragOffset.current = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          }
+          document.body.style.cursor = 'move'
+          document.body.style.userSelect = 'none'
+        }}
+      >
         {/* 操作按钮行 */}
         {!result && !loading && (
           <div className="flex items-center gap-1 p-1.5">
             <button
+              onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('translate')}
               className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
             >
               翻译
             </button>
             <button
+              onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('summarize')}
               className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
             >
@@ -206,6 +206,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
           <div className="px-3 py-2 max-w-xs">
             <p className="text-xs text-red-400 mb-2">{configError}</p>
             <button
+              onMouseDown={e => e.stopPropagation()}
               onClick={() => {
                 hidePopup()
                 navigate('/settings')
@@ -225,13 +226,14 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                 {action === 'translate' ? '翻译结果' : 'AI 总结'}
               </span>
               <button
+                onMouseDown={e => e.stopPropagation()}
                 onClick={hidePopup}
                 className="text-gray-500 hover:text-gray-300 text-xs"
               >
                 &times;
               </button>
             </div>
-            <div className="px-3 py-2 max-h-48 overflow-auto">
+            <div className="px-3 py-2 max-h-48 overflow-auto" onMouseDown={e => e.stopPropagation()}>
               <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
                 {result}
               </p>
@@ -239,6 +241,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
             {/* 操作按钮 */}
             <div className="flex items-center gap-1 px-3 py-1.5 border-t border-gray-700">
               <button
+                onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('translate')}
                 className={`px-2 py-1 text-xs rounded transition-colors ${
                   action === 'translate'
@@ -249,6 +252,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                 翻译
               </button>
               <button
+                onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('summarize')}
                 className={`px-2 py-1 text-xs rounded transition-colors ${
                   action === 'summarize'
