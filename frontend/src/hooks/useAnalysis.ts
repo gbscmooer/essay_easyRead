@@ -111,6 +111,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       const uploaded = await uploadPaper(file)
       setPaper(uploaded)
       setActivePaperId(uploaded.id)
+      setShouldConnect(true)
     } catch (err) {
       // Re-throw so caller can handle
       throw err

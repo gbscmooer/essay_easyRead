@@ -25,6 +25,7 @@ export function Terminal({ cwd }: TerminalProps) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryCount = 0
     let disposed = false
+    let onDataDisposable: { dispose: () => void } | null = null
 
     function createTerminal() {
       term = new XTerminal({
@@ -105,11 +106,14 @@ export function Terminal({ cwd }: TerminalProps) {
         if (pingTimer) { clearInterval(pingTimer); pingTimer = null }
       }
 
-      term?.onData((data) => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(data)
-        }
-      })
+      if (onDataDisposable) { onDataDisposable.dispose(); onDataDisposable = null }
+      if (term) {
+        onDataDisposable = term.onData((data) => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(data)
+          }
+        })
+      }
     }
 
     function scheduleReconnect() {
@@ -146,6 +150,7 @@ export function Terminal({ cwd }: TerminalProps) {
       observer.disconnect()
       if (pingTimer) clearInterval(pingTimer)
       if (retryTimer) clearTimeout(retryTimer)
+      if (onDataDisposable) { onDataDisposable.dispose(); onDataDisposable = null }
       if (ws) { try { ws.close() } catch {} }
       if (term) { try { term.dispose() } catch {} }
       ws = null

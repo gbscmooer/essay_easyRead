@@ -28,6 +28,7 @@ const DEFAULT_UI: UIConfig = {
 
 let cachedConfig: AppConfig | null = null
 let fetchPromise: Promise<AppConfig> | null = null
+const listeners = new Set<() => void>()
 
 
 async function fetchConfig(): Promise<AppConfig> {
@@ -53,7 +54,10 @@ export function useUIConfig(): UIConfig {
   const [ui, setUI] = useState<UIConfig>(DEFAULT_UI)
 
   useEffect(() => {
-    fetchConfig().then(cfg => setUI(cfg.ui || DEFAULT_UI))
+    const update = () => { fetchConfig().then(cfg => setUI(cfg.ui || DEFAULT_UI)) }
+    update()
+    listeners.add(update)
+    return () => { listeners.delete(update) }
   }, [])
 
   return ui
@@ -63,4 +67,5 @@ export function useUIConfig(): UIConfig {
 export function refreshConfig(): void {
   cachedConfig = null
   fetchPromise = null
+  listeners.forEach(fn => fn())
 }

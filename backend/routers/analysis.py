@@ -344,6 +344,17 @@ async def stream_analysis(paper_id: int):
 
             # 保存结果到数据库
             if result:
+                # 兜底必填字段，防止 AI 返回不完整 JSON 时 500
+                for key, default in [
+                    ("title", ""), ("venue", "Unknown"), ("year", 0),
+                    ("one_sentence", ""), ("problem", ""),
+                    ("key_contributions", []), ("outline", []),
+                    ("method", {}), ("experiments", {}),
+                    ("code_mapping", []), ("interview_qa", []),
+                    ("limitations", ""), ("related_papers", []),
+                ]:
+                    result.setdefault(key, default)
+
                 from ..services.database import update_paper_metadata, save_analysis_result, update_paper_code_url
                 with Session(engine) as session:
                     update_paper_metadata(

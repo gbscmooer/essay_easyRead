@@ -120,7 +120,7 @@ export function OverviewTab({ result, paperId }: OverviewTabProps) {
             {relatedPapers.map((paper, idx) => (
               <div key={idx} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
                 <p className="text-sm font-medium text-gray-200 mb-1">
-                  {paper.url ? (
+                  {paper.url && paper.url.match(/^https?:\/\//) ? (
                     <a href={paper.url} target="_blank" rel="noopener noreferrer"
                        className="hover:text-blue-400 transition-colors">
                       {paper.title}

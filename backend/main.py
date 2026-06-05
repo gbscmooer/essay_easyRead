@@ -8,7 +8,7 @@ import os
 import shutil
 import subprocess
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -96,11 +96,27 @@ async def stream_logs():
     )
 
 
+def _is_localhost(websocket: WebSocket) -> bool:
+    host = websocket.client.host if websocket.client else ""
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+def _is_safe_cwd(path: str) -> bool:
+    real = os.path.realpath(path)
+    project_root = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
+    return real.startswith(project_root + os.sep) or real == project_root
+
+
 @app.websocket("/api/terminal/ws")
 async def terminal_websocket(websocket: WebSocket):
-    """WebSocket 端点：真实 PTY 终端"""
+    """WebSocket 端点：真实 PTY 终端（仅限 localhost）"""
+    if not _is_localhost(websocket):
+        await websocket.close(code=4003, reason="Terminal access restricted to localhost")
+        return
     await websocket.accept()
     cwd = websocket.query_params.get("cwd") or os.getcwd()
+    if not _is_safe_cwd(cwd):
+        cwd = os.getcwd()
     from .services.terminal import handle_terminal_websocket
     try:
         await handle_terminal_websocket(websocket, cwd)
@@ -117,16 +133,22 @@ async def terminal_websocket(websocket: WebSocket):
 
 
 @app.post("/api/system/open-vscode")
-async def open_vscode(req: dict):
-    """打开 VSCode"""
+async def open_vscode(request: Request, req: dict):
+    """打开 VSCode（仅限 localhost）"""
+    if request.client and request.client.host not in ("127.0.0.1", "::1", "localhost"):
+        return {"error": "仅限本地访问"}
+
     path = req.get("path", "")
     if not path or not os.path.exists(path):
         return {"error": "路径不存在"}
 
-    # 尝试找到 code 命令
+    real_path = os.path.realpath(path)
+    project_root = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
+    if not real_path.startswith(project_root + os.sep) and real_path != project_root:
+        return {"error": "路径不在项目目录内"}
+
     code_cmd = shutil.which("code")
     if not code_cmd:
-        # macOS 常见路径
         mac_path = "/usr/local/bin/code"
         if os.path.exists(mac_path):
             code_cmd = mac_path
@@ -135,8 +157,8 @@ async def open_vscode(req: dict):
         return {"error": "未找到 VSCode，请确保已安装并将 'code' 命令添加到 PATH"}
 
     try:
-        subprocess.Popen([code_cmd, path], start_new_session=True)
-        return {"message": f"已打开 VSCode: {path}"}
+        subprocess.Popen([code_cmd, real_path], start_new_session=True)
+        return {"message": f"已打开 VSCode: {real_path}"}
     except Exception as e:
         return {"error": f"打开失败: {str(e)}"}
 

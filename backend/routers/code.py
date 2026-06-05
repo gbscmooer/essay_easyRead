@@ -55,7 +55,11 @@ async def extract_url(paper_id: int):
     from ..services.pdf_parser import extract_pdf_content
     from ..services.ai_analyzer import extract_code_url
 
-    content = extract_pdf_content(pdf_path)
+    try:
+        content = extract_pdf_content(pdf_path)
+    except Exception as e:
+        logger.warning(f"PDF extraction failed for {paper_id}: {e}")
+        return {"code_url": None}
     code_url = extract_code_url(content.full_text)
 
     # 更新数据库

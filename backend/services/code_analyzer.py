@@ -67,6 +67,13 @@ async def clone_repository(url: str, paper_id: int) -> str:
     if not url.endswith(".git"):
         url = url.rstrip("/") + ".git"
 
+    # 安全校验：防止 git 参数注入
+    if "--" in url:
+        raise ValueError("URL 包含非法字符")
+    import re
+    if not re.match(r"https://(?:github\.com|gitlab\.com|bitbucket\.org)/[\w.\-]+/[\w.\-]+(?:\.git)?$", url):
+        raise ValueError(f"不支持的仓库地址: {url}")
+
     target_dir = os.path.join(get_code_download_dir(), str(paper_id))
 
     # 如果已存在，先删除
