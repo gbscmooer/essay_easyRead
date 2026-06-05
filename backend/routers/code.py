@@ -169,8 +169,11 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
     if not code_path:
         raise HTTPException(status_code=400, detail="代码路径不存在")
 
-    from ..services.code_analyzer import read_file_content
+    from ..services.code_analyzer import read_file_content, read_notebook_content
     try:
+        if path.endswith(".ipynb"):
+            cells = read_notebook_content(code_path, path)
+            return {"path": path, "content": None, "cells": cells}
         content = read_file_content(code_path, path)
         return {"path": path, "content": content}
     except FileNotFoundError:

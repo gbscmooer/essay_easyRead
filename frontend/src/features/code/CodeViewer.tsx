@@ -15,7 +15,7 @@ import 'highlight.js/styles/github-dark-dimmed.css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { getCodeFile } from '@/api/code'
+import { getCodeFile, type NotebookCellData, type NotebookOutput } from '@/api/code'
 
 // 注册常用语言
 hljs.registerLanguage('python', python)
@@ -64,19 +64,34 @@ function isNotebook(filename: string): boolean {
 
 interface NotebookCell {
   cell_type: 'code' | 'markdown' | 'raw'
-  source: string[]
+  source: string | string[]
   outputs?: Array<{
     output_type: string
-    text?: string[]
-    data?: Record<string, string[]>
+    text?: string | string[]
+    data?: Record<string, string | string[]>
+    ename?: string
+    evalue?: string
+    execution_count?: number | null
   }>
+  execution_count?: number | null
 }
 
 
 function parseNotebook(content: string): NotebookCell[] | null {
   try {
     const nb = JSON.parse(content)
-    return nb.cells || []
+    const cells = nb.cells || []
+    return cells.map((cell: Record<string, unknown>) => ({
+      ...cell,
+      source: Array.isArray(cell.source) ? cell.source.join('') : String(cell.source || ''),
+      outputs: (cell.outputs as Array<Record<string, unknown>>)?.map((out: Record<string, unknown>) => ({
+        ...out,
+        text: Array.isArray(out.text) ? (out.text as string[]).join('') : out.text,
+        data: out.data ? Object.fromEntries(
+          Object.entries(out.data as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? (v as string[]).join('') : v])
+        ) : undefined,
+      })),
+    }))
   } catch {
     return null
   }
@@ -87,16 +102,67 @@ function NotebookRenderer({ cells }: { cells: NotebookCell[] }) {
   return (
     <div className="space-y-2 p-4">
       {cells.map((cell, idx) => (
-        <NotebookCell key={idx} cell={cell} index={idx} />
+        <NotebookCellView key={idx} cell={cell} index={idx} />
       ))}
     </div>
   )
 }
 
 
-function NotebookCell({ cell, index }: { cell: NotebookCell; index: number }) {
+function NotebookOutputView({ output }: { output: NotebookOutput }) {
+  if (output.output_type === 'stream') {
+    return (
+      <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+        {output.text || ''}
+      </pre>
+    )
+  }
+
+  if (output.output_type === 'execute_result' || output.output_type === 'display_data') {
+    const data = output.data || {}
+    const imageKey = Object.keys(data).find(k => k.startsWith('image/'))
+    if (imageKey) {
+      const src = data[imageKey].startsWith('data:')
+        ? data[imageKey]
+        : `data:${imageKey};base64,${data[imageKey]}`
+      return (
+        <div className="p-4 bg-gray-900/50">
+          <img src={src} alt="notebook output" className="max-w-full mx-auto" />
+        </div>
+      )
+    }
+    if (data['text/plain']) {
+      return (
+        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+          {data['text/plain']}
+        </pre>
+      )
+    }
+    if (output.text) {
+      return (
+        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+          {output.text}
+        </pre>
+      )
+    }
+    return null
+  }
+
+  if (output.output_type === 'error') {
+    return (
+      <pre className="p-4 overflow-x-auto bg-red-900/20 text-sm text-red-300 whitespace-pre-wrap">
+        {output.ename}: {output.evalue}
+      </pre>
+    )
+  }
+
+  return null
+}
+
+
+function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }) {
   const codeRef = useRef<HTMLElement>(null)
-  const source = cell.source.join('')
+  const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source
 
   useEffect(() => {
     if (cell.cell_type === 'code' && codeRef.current) {
@@ -113,7 +179,7 @@ function NotebookCell({ cell, index }: { cell: NotebookCell; index: number }) {
     return (
       <div className="border border-gray-700/50 rounded-lg overflow-hidden">
         <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700/50">
-          In [{index}]: Markdown
+          Markdown
         </div>
         <div className="p-4 prose prose-invert prose-sm max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>
@@ -123,29 +189,27 @@ function NotebookCell({ cell, index }: { cell: NotebookCell; index: number }) {
   }
 
   if (cell.cell_type === 'code') {
-    const outputText = cell.outputs
-      ?.filter(o => o.output_type === 'stream' || o.output_type === 'execute_result')
-      .flatMap(o => o.text || [])
-      .join('') || ''
+    const execLabel = cell.execution_count != null ? `[${cell.execution_count}]` : `[${index}]`
+    const hasOutput = cell.outputs && cell.outputs.length > 0
 
     return (
       <div className="border border-gray-700/50 rounded-lg overflow-hidden">
         <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-400/70 border-b border-gray-700/50">
-          In [{index}]:
+          In {execLabel}
         </div>
         <pre className="p-4 overflow-x-auto bg-[#1e1e2e]">
           <code ref={codeRef} className="language-python text-sm leading-5">
             {source}
           </code>
         </pre>
-        {outputText && (
+        {hasOutput && (
           <>
             <div className="px-3 py-1 bg-green-900/20 text-xs text-green-400/70 border-t border-b border-gray-700/50">
-              Out [{index}]:
+              Out {execLabel}
             </div>
-            <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300">
-              {outputText}
-            </pre>
+            {cell.outputs!.map((output, oIdx) => (
+              <NotebookOutputView key={oIdx} output={output as NotebookOutput} />
+            ))}
           </>
         )}
       </div>
@@ -158,14 +222,15 @@ function NotebookCell({ cell, index }: { cell: NotebookCell; index: number }) {
 
 export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
   const [content, setContent] = useState<string | null>(null)
+  const [apiCells, setApiCells] = useState<NotebookCellData[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const codeRef = useRef<HTMLElement>(null)
 
   // Hooks must be called before any early returns
   const notebookCells = useMemo(
-    () => (filePath && content && isNotebook(filePath)) ? parseNotebook(content) : null,
-    [content, filePath]
+    () => apiCells ?? ((filePath && content && isNotebook(filePath)) ? parseNotebook(content) : null),
+    [apiCells, content, filePath]
   )
 
   useEffect(() => {
@@ -177,8 +242,14 @@ export function CodeViewer({ paperId, filePath }: CodeViewerProps) {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
+    setApiCells(null)
     getCodeFile(paperId, filePath, controller.signal)
-      .then(res => { if (!controller.signal.aborted) setContent(res.content) })
+      .then(res => {
+        if (!controller.signal.aborted) {
+          setContent(res.content)
+          setApiCells(res.cells ?? null)
+        }
+      })
       .catch(err => { if (err.name !== 'AbortError') setError('文件加载失败') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
 

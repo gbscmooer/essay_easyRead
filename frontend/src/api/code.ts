@@ -26,8 +26,25 @@ export async function getCodeTree(paperId: number): Promise<FileNode> {
 }
 
 
+/** Notebook cell 输出中的数据项 */
+export interface NotebookOutput {
+  output_type: string
+  text?: string
+  data?: Record<string, string>
+  ename?: string
+  evalue?: string
+}
+
+/** Notebook cell 结构 */
+export interface NotebookCellData {
+  cell_type: 'code' | 'markdown' | 'raw'
+  source: string
+  outputs: NotebookOutput[]
+  execution_count: number | null
+}
+
 /** 获取文件内容 */
-export async function getCodeFile(paperId: number, path: string, signal?: AbortSignal): Promise<{ path: string; content: string }> {
+export async function getCodeFile(paperId: number, path: string, signal?: AbortSignal): Promise<{ path: string; content: string | null; cells?: NotebookCellData[] }> {
   return get(`/code/${paperId}/file?path=${encodeURIComponent(path)}`, signal)
 }
 

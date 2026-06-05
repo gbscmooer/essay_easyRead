@@ -5,6 +5,7 @@
 """
 
 import os
+import json
 import asyncio
 import logging
 import subprocess
@@ -202,6 +203,80 @@ def read_file_content(repo_path: str, rel_path: str, max_lines: int = 500) -> st
             return "".join(lines)
     except Exception as e:
         return f"[读取失败: {e}]"
+
+
+def read_notebook_content(repo_path: str, rel_path: str) -> list[dict]:
+    """
+    读取并解析 Jupyter Notebook (.ipynb) 文件。
+
+    Args:
+        repo_path: 仓库根目录
+        rel_path: 相对路径
+
+    Returns:
+        解析后的 cell 列表: [{cell_type, source, outputs, execution_count}]
+
+    Raises:
+        FileNotFoundError: 文件不存在
+        ValueError: 路径不安全或文件格式错误
+    """
+    full_path = os.path.realpath(os.path.join(repo_path, rel_path))
+    if not full_path.startswith(os.path.realpath(repo_path)):
+        raise ValueError("不安全的文件路径")
+
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"文件不存在: {rel_path}")
+
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            nb = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"无效的 Notebook JSON: {e}")
+    except Exception as e:
+        raise ValueError(f"读取失败: {e}")
+
+    raw_cells = nb.get("cells", [])
+    cells = []
+    for cell in raw_cells:
+        cell_type = cell.get("cell_type", "raw")
+        source_parts = cell.get("source", [])
+        source = "".join(source_parts) if isinstance(source_parts, list) else str(source_parts)
+        execution_count = cell.get("execution_count")
+
+        outputs = []
+        for out in cell.get("outputs", []):
+            output_type = out.get("output_type", "")
+            processed = {"output_type": output_type}
+
+            if output_type in ("stream", "execute_result", "error"):
+                text_parts = out.get("text", [])
+                processed["text"] = "".join(text_parts) if isinstance(text_parts, list) else str(text_parts)
+                if output_type == "execute_result":
+                    data = out.get("data", {})
+                    processed["data"] = {
+                        k: (v if isinstance(v, str) else "".join(v) if isinstance(v, list) else str(v))
+                        for k, v in data.items()
+                    }
+                if output_type == "error":
+                    processed["ename"] = out.get("ename", "")
+                    processed["evalue"] = out.get("evalue", "")
+            elif output_type == "display_data":
+                data = out.get("data", {})
+                processed["data"] = {
+                    k: (v if isinstance(v, str) else "".join(v) if isinstance(v, list) else str(v))
+                    for k, v in data.items()
+                }
+
+            outputs.append(processed)
+
+        cells.append({
+            "cell_type": cell_type,
+            "source": source,
+            "outputs": outputs,
+            "execution_count": execution_count,
+        })
+
+    return cells
 
 
 def select_core_files(file_tree: dict, repo_path: str, max_files: int = 30) -> list[str]:
