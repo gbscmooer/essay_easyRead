@@ -19,6 +19,8 @@ import { ReaderPage } from '@/pages/ReaderPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CodePage } from '@/pages/CodePage'
+import { WorkspacePage } from '@/pages/WorkspacePage'
+import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
 
 
 export default function App() {
@@ -30,6 +32,8 @@ export default function App() {
         <Route path="/code/:id" element={<CodePage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
       </Routes>
     </Layout>
   )

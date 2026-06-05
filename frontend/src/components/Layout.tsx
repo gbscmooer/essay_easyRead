@@ -12,6 +12,7 @@ interface LayoutProps {
 const primaryNav = [
   { path: '/', label: '首页' },
   { path: '/library', label: '论文库' },
+  { path: '/workspace', label: '工作区' },
   { path: '/settings', label: '配置' },
 ]
 

@@ -17,6 +17,7 @@ from .services.database import init_db
 from .routers.papers import router as papers_router
 from .routers.analysis import router as analysis_router
 from .routers.code import router as code_router
+from .routers.workspaces import router as workspaces_router
 
 
 @asynccontextmanager
@@ -73,6 +74,7 @@ app.add_middleware(
 app.include_router(papers_router)
 app.include_router(analysis_router)
 app.include_router(code_router)
+app.include_router(workspaces_router)
 
 
 @app.get("/")
