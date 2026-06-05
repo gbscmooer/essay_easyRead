@@ -200,6 +200,9 @@ function FigureCard({ fig }: { fig: FigureAnalysis }) {
 
 export function ExperimentsTab({ result }: ExperimentsTabProps) {
   const { experiments } = result
+  if (!experiments) {
+    return <div className="text-gray-500 text-sm text-center py-8">暂无实验分析</div>
+  }
 
   const figures = experiments.figures || []
 

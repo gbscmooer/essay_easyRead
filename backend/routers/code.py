@@ -262,6 +262,8 @@ async def analyze_code(paper_id: int):
                 from ..services.code_analyzer import ai_analyze_paper_code_mapping
                 # 获取已有的 code_mapping
                 existing_mapping = []
+                analysis = None
+                existing_mapping = []
                 try:
                     with Session(engine) as session:
                         analysis = get_analysis(session, paper_id)

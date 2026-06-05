@@ -37,6 +37,9 @@ interface MethodTabProps {
 
 export function MethodTab({ result }: MethodTabProps) {
   const { method, mermaid_chart } = result
+  if (!method) {
+    return <div className="text-gray-500 text-sm text-center py-8">暂无方法论分析</div>
+  }
   const pipelineSteps = method.pipeline
     ? method.pipeline.split('\n').filter(s => s.trim())
     : []
