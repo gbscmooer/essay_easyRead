@@ -219,7 +219,7 @@ async def analyze_code(paper_id: int):
         # 2. 静态分析：依赖图
         yield format_sse(StreamEvent(event="status", data={"message": "正在分析模块依赖..."}))
         core_files = select_core_files(tree, code_path)
-        deps = analyze_imports(code_path, core_files)
+        deps, node_metrics = analyze_imports(code_path, core_files)
 
         # 3. 读取核心文件内容
         yield format_sse(StreamEvent(event="status", data={"message": "正在读取核心文件..."}))
@@ -291,6 +291,7 @@ async def analyze_code(paper_id: int):
                     existing.data_flow = data_flow
                     existing.dependency_graph = deps
                     existing.paper_code_mapping = paper_code_mapping
+                    existing.node_metrics = node_metrics
                     existing.status = "done"
                     session.add(existing)
                 else:
@@ -300,6 +301,7 @@ async def analyze_code(paper_id: int):
                         data_flow=data_flow,
                         dependency_graph=deps,
                         paper_code_mapping=paper_code_mapping,
+                        node_metrics=node_metrics,
                         status="done",
                     )
                     session.add(analysis)
@@ -367,6 +369,7 @@ async def get_code_analysis(paper_id: int):
         data_flow=analysis.data_flow,
         dependency_graph=analysis.dependency_graph,
         paper_code_mapping=analysis.paper_code_mapping,
+        node_metrics=getattr(analysis, 'node_metrics', []) or [],
         status=analysis.status,
         error_message=analysis.error_message,
     )

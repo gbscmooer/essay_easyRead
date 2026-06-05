@@ -147,6 +147,7 @@ class CodeAnalysisResponse(BaseModel):
     data_flow: Optional[str] = None
     dependency_graph: list[dict] = []
     paper_code_mapping: list[dict] = []
+    node_metrics: list[dict] = []
     status: str = "pending"
     error_message: Optional[str] = None
 

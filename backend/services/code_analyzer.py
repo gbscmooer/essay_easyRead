@@ -11,6 +11,9 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import Optional
+from collections import defaultdict
+
+from .import_parser import parse_imports, SUPPORTED_EXTENSIONS, ParsedImport
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +282,139 @@ def read_notebook_content(repo_path: str, rel_path: str) -> list[dict]:
     return cells
 
 
-def select_core_files(file_tree: dict, repo_path: str, max_files: int = 30) -> list[str]:
+def _detect_package_root(repo_path: str) -> str:
+    """检测 Python 包根目录"""
+    # 1. 从 setup.py/pyproject.toml 推断
+    for cfg in ("pyproject.toml", "setup.py", "setup.cfg"):
+        cfg_path = os.path.join(repo_path, cfg)
+        if os.path.isfile(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read(10000)
+                # 查找 package_dir 或 packages 配置
+                import re
+                m = re.search(r'package_dir\s*=\s*\{[^}]*:\s*["\']([^"\']+)["\']', content)
+                if m:
+                    candidate = os.path.join(repo_path, m.group(1))
+                    if os.path.isdir(candidate):
+                        return candidate
+            except Exception:
+                pass
+
+    # 2. 查找包含 __init__.py 的最顶层目录
+    for entry in sorted(os.listdir(repo_path)):
+        init_path = os.path.join(repo_path, entry, "__init__.py")
+        if os.path.isfile(init_path):
+            return repo_path
+
+    # 3. 查找 src/ 目录
+    src_dir = os.path.join(repo_path, "src")
+    if os.path.isdir(src_dir):
+        for entry in os.listdir(src_dir):
+            if os.path.isfile(os.path.join(src_dir, entry, "__init__.py")):
+                return src_dir
+
+    return repo_path
+
+
+def _resolve_module_to_file(module: str, from_file: str, repo_path: str, package_root: str = None) -> Optional[str]:
+    """尝试将模块名解析为本地文件路径（增强版）"""
+    if package_root is None:
+        package_root = repo_path
+
+    # 相对导入: ".utils", "..lib.helper"
+    if module.startswith("."):
+        base_dir = os.path.dirname(from_file)
+        dots = len(module) - len(module.lstrip("."))
+        rel = module[dots:]
+        for ext in ("", ".py", ".js", ".ts", ".jsx", ".tsx", "/__init__.py", "/index.js", "/index.ts", "/index.jsx", "/index.tsx"):
+            candidate = os.path.join(base_dir, ".." * (dots - 1), rel + ext)
+            candidate = os.path.normpath(candidate)
+            full = os.path.join(repo_path, candidate)
+            if os.path.isfile(full):
+                return candidate
+        return None
+
+    # Python 点号模块: "models.backbone"
+    if "." in module and "/" not in module and "\\" not in module:
+        parts = module.split(".")
+        # 从 from_file 位置查找
+        for base in (os.path.dirname(from_file), ""):
+            for suffix in (".py", "/__init__.py"):
+                candidate = os.path.join(*parts) + suffix
+                full = os.path.join(repo_path, base, candidate)
+                if os.path.isfile(full):
+                    return os.path.relpath(full, repo_path)
+        # 从包根目录查找
+        for suffix in (".py", "/__init__.py"):
+            candidate = os.path.join(*parts) + suffix
+            full = os.path.join(package_root, candidate)
+            if os.path.isfile(full):
+                return os.path.relpath(full, repo_path)
+
+    # Python 绝对导入（无点号）: "models" → 查找 models.py 或 models/__init__.py
+    if "." not in module and "/" not in module:
+        for base in (os.path.dirname(from_file), ""):
+            for suffix in (".py", "/__init__.py"):
+                candidate = module + suffix
+                full = os.path.join(repo_path, base, candidate)
+                if os.path.isfile(full):
+                    return os.path.relpath(full, repo_path)
+        # 从包根目录查找
+        for suffix in (".py", "/__init__.py"):
+            candidate = module + suffix
+            full = os.path.join(package_root, candidate)
+            if os.path.isfile(full):
+                return os.path.relpath(full, repo_path)
+
+    # JS/TS 相对路径（不以 . 开头但包含 / 的本地路径）
+    if "/" in module and not module.startswith("@"):
+        for ext in ("", ".js", ".ts", ".jsx", ".tsx", "/index.js", "/index.ts"):
+            candidate = module + ext
+            full = os.path.join(repo_path, os.path.dirname(from_file), candidate)
+            if os.path.isfile(full):
+                return os.path.relpath(full, repo_path)
+
+    return None
+
+
+def _detect_cycles(edges: list[dict]) -> set[tuple[str, str]]:
+    """检测依赖图中的环路，返回循环边的 (source, target) 集合"""
+    adj = defaultdict(set)
+    for edge in edges:
+        adj[edge["source"]].add(edge["target"])
+
+    cycle_edges = set()
+    visited = set()
+    rec_stack = set()
+    path = []
+
+    def dfs(node: str):
+        visited.add(node)
+        rec_stack.add(node)
+        path.append(node)
+
+        for neighbor in adj.get(node, []):
+            if neighbor not in visited:
+                dfs(neighbor)
+            elif neighbor in rec_stack:
+                # 找到环路，标记路径上的所有边
+                idx = path.index(neighbor)
+                for i in range(idx, len(path) - 1):
+                    cycle_edges.add((path[i], path[i + 1]))
+                cycle_edges.add((path[-1], neighbor))
+
+        path.pop()
+        rec_stack.discard(node)
+
+    for node in adj:
+        if node not in visited:
+            dfs(node)
+
+    return cycle_edges
+
+
+def select_core_files(file_tree: dict, repo_path: str, max_files: int = 50) -> list[str]:
     """
     智能选取核心文件用于 AI 分析。
 
@@ -346,18 +481,20 @@ def select_core_files(file_tree: dict, repo_path: str, max_files: int = 30) -> l
     return selected[:max_files]
 
 
-def analyze_imports(repo_path: str, files: list[str]) -> list[dict]:
+def analyze_imports(repo_path: str, files: list[str]) -> tuple[list[dict], list[dict]]:
     """
     静态分析 import 语句，构建模块依赖图。
 
-    支持 Python (import/from), JS/TS (import/require), C++ (#include)。
+    使用 AST 解析 Python，增强正则解析 JS/TS/C++/Go/Rust。
+    新增循环检测和耦合指标。
 
     Returns:
-        [{"source": "model.py", "target": "utils.py", "imports": ["func1", "func2"]}]
+        (edges, node_metrics)
+        edges: [{"source", "target", "imports", "circular", "line"}]
+        node_metrics: [{"file", "fan_in", "fan_out"}]
     """
-    import re
-
     edges = []
+    package_root = _detect_package_root(repo_path)
 
     for rel_path in files:
         full_path = os.path.join(repo_path, rel_path)
@@ -365,85 +502,69 @@ def analyze_imports(repo_path: str, files: list[str]) -> list[dict]:
             continue
 
         ext = os.path.splitext(rel_path)[1].lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            continue
+
         try:
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read(50000)  # 只读前 50KB
+                content = f.read(100000)
         except Exception:
             continue
 
-        imported = []
+        file_imports = parse_imports(rel_path, content)
 
-        if ext == ".py":
-            # Python: import X / from X import Y
-            for m in re.finditer(r"^(?:from\s+(\S+)\s+import\s+(.+)|import\s+(\S+))", content, re.MULTILINE):
-                if m.group(1):  # from X import Y
-                    module = m.group(1)
-                    names = [n.strip().split(" as ")[0] for n in m.group(2).split(",")]
-                    imported.append({"module": module, "names": names})
-                elif m.group(3):  # import X
-                    imported.append({"module": m.group(3), "names": []})
-
-        elif ext in (".js", ".ts", ".jsx", ".tsx"):
-            # JS/TS: import X from 'Y' / require('Y')
-            for m in re.finditer(r"""(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))""", content):
-                module = m.group(1) or m.group(2)
-                if module and not module.startswith("."):
-                    continue  # 只关注本地导入
-                imported.append({"module": module or "", "names": []})
-
-        elif ext in (".cpp", ".cc", ".c", ".h", ".hpp"):
-            # C/C++: #include "file"
-            for m in re.finditer(r'#include\s+"([^"]+)"', content):
-                imported.append({"module": m.group(1), "names": []})
-
-        # 将导入转换为边
-        for imp in imported:
-            module = imp["module"]
-            if not module:
+        for imp in file_imports.imports:
+            if not imp.module:
                 continue
-            # 尝试解析为本地文件
-            target = _resolve_module_to_file(module, rel_path, repo_path)
-            if target:
+            target = _resolve_module_to_file(imp.module, rel_path, repo_path, package_root)
+            if target and target != rel_path:
                 edges.append({
                     "source": rel_path,
                     "target": target,
-                    "imports": imp["names"][:5],  # 最多5个
+                    "imports": imp.names,
+                    "line": imp.line_number,
+                    "circular": False,
                 })
 
-    return edges
+    # 去重
+    seen = set()
+    unique_edges = []
+    for edge in edges:
+        key = (edge["source"], edge["target"])
+        if key not in seen:
+            seen.add(key)
+            unique_edges.append(edge)
+        else:
+            # 合并 imports
+            for existing in unique_edges:
+                if (existing["source"], existing["target"]) == key:
+                    for name in edge["imports"]:
+                        if name not in existing["imports"]:
+                            existing["imports"].append(name)
+                    break
 
+    # 循环检测
+    cycle_edges = _detect_cycles(unique_edges)
+    for edge in unique_edges:
+        if (edge["source"], edge["target"]) in cycle_edges:
+            edge["circular"] = True
 
-def _resolve_module_to_file(module: str, from_file: str, repo_path: str) -> Optional[str]:
-    """尝试将模块名解析为本地文件路径"""
-    from pathlib import Path
+    # 耦合指标
+    fan_in = defaultdict(int)
+    fan_out = defaultdict(int)
+    all_files = set()
+    for edge in unique_edges:
+        fan_in[edge["target"]] += 1
+        fan_out[edge["source"]] += 1
+        all_files.add(edge["source"])
+        all_files.add(edge["target"])
 
-    # Python 模块: "models.backbone" -> "models/backbone.py"
-    if "." in module and "/" not in module and "\\" not in module:
-        parts = module.split(".")
-        candidate = os.path.join(*parts) + ".py"
-        full = os.path.join(repo_path, os.path.dirname(from_file), candidate)
-        if os.path.isfile(full):
-            return os.path.relpath(full, repo_path)
+    node_metrics = [
+        {"file": f, "fan_in": fan_in.get(f, 0), "fan_out": fan_out.get(f, 0)}
+        for f in sorted(all_files)
+    ]
 
-        candidate_dir = os.path.join(*parts, "__init__.py")
-        full = os.path.join(repo_path, os.path.dirname(from_file), candidate_dir)
-        if os.path.isfile(full):
-            return os.path.relpath(full, repo_path)
-
-    # 相对路径导入: "./utils" or "../lib/helper"
-    if module.startswith("."):
-        base_dir = os.path.dirname(from_file)
-        # 去掉开头的点
-        dots = len(module) - len(module.lstrip("."))
-        rel = module[dots:]
-        for ext in ("", ".py", ".js", ".ts", "/__init__.py", "/index.js", "/index.ts"):
-            candidate = os.path.join(base_dir, ".." * (dots - 1), rel + ext)
-            candidate = os.path.normpath(candidate)
-            full = os.path.join(repo_path, candidate)
-            if os.path.isfile(full):
-                return candidate
-
-    return None
+    return unique_edges, node_metrics
 
 
 # ============================================================

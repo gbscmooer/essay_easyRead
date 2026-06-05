@@ -36,8 +36,12 @@ function DataFlowTab({ dataFlow }: { dataFlow: string | null }) {
 }
 
 
-function sanitizeNodeId(path: string): string {
-  return path.replace(/[^a-zA-Z0-9]/g, '_')
+function nodeIdHash(path: string): string {
+  let h = 0
+  for (let i = 0; i < path.length; i++) {
+    h = ((h << 5) - h + path.charCodeAt(i)) | 0
+  }
+  return 'n_' + Math.abs(h).toString(36)
 }
 
 function sanitizeLabel(path: string): string {
@@ -48,8 +52,8 @@ function edgesToMermaid(edges: DependencyEdge[]): string {
   const lines = ['graph LR']
   const seen = new Set<string>()
   for (const edge of edges) {
-    const srcId = sanitizeNodeId(edge.source)
-    const tgtId = sanitizeNodeId(edge.target)
+    const srcId = nodeIdHash(edge.source)
+    const tgtId = nodeIdHash(edge.target)
     if (!seen.has(srcId)) {
       lines.push(`  ${srcId}["${sanitizeLabel(edge.source)}"]`)
       seen.add(srcId)
@@ -58,11 +62,12 @@ function edgesToMermaid(edges: DependencyEdge[]): string {
       lines.push(`  ${tgtId}["${sanitizeLabel(edge.target)}"]`)
       seen.add(tgtId)
     }
-    const label = edge.imports.length > 0 ? sanitizeLabel(edge.imports.slice(0, 3).join(', ')) : ''
+    const label = edge.imports.length > 0 ? sanitizeLabel(edge.imports.join(', ')) : ''
+    const arrow = edge.circular ? '-.->' : '-->'
     if (label) {
-      lines.push(`  ${srcId} -->|"${label}"| ${tgtId}`)
+      lines.push(`  ${srcId} ${arrow}|"${label}"| ${tgtId}`)
     } else {
-      lines.push(`  ${srcId} --> ${tgtId}`)
+      lines.push(`  ${srcId} ${arrow} ${tgtId}`)
     }
   }
   return lines.join('\n')

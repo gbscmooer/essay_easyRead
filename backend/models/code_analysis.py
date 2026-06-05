@@ -44,6 +44,9 @@ class CodeAnalysis(SQLModel, table=True):
     paper_code_mapping: list[dict] = Field(default=[], sa_column=Column(JSON))
     # 每个元素: {"concept": "...", "file": "...", "function": "...", "explanation": "..."}
 
+    # 节点指标（JSON）— fan_in/fan_out 耦合度
+    node_metrics: list[dict] = Field(default=[], sa_column=Column(JSON))
+
     # 状态
     status: str = "pending"  # pending | analyzing | done | failed
     error_message: Optional[str] = None

@@ -156,6 +156,8 @@ export interface DependencyEdge {
   source: string
   target: string
   imports: string[]
+  circular?: boolean
+  line?: number
 }
 
 
@@ -168,6 +170,13 @@ export interface PaperCodeMapping {
 }
 
 
+/** 节点耦合指标 */
+export interface NodeMetric {
+  file: string
+  fan_in: number
+  fan_out: number
+}
+
 /** 代码分析结果 */
 export interface CodeAnalysisResult {
   paper_id: number
@@ -175,6 +184,7 @@ export interface CodeAnalysisResult {
   data_flow: string | null
   dependency_graph: DependencyEdge[]
   paper_code_mapping: PaperCodeMapping[]
+  node_metrics?: NodeMetric[]
   status: 'pending' | 'analyzing' | 'done' | 'failed'
   error_message: string | null
 }

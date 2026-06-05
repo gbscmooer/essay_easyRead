@@ -62,6 +62,25 @@ def _migrate_schema(engine) -> None:
                 except Exception as e:
                     logger.warning(f"Migration failed for {col_name}: {e}")
 
+        # code_analyses 表迁移
+        try:
+            result = conn.exec_driver_sql("PRAGMA table_info(code_analyses)")
+            existing_code_cols = {row[1] for row in result.fetchall()}
+        except Exception:
+            existing_code_cols = set()
+
+        code_migrations = [
+            ("node_metrics", "JSON DEFAULT '[]'"),
+        ]
+        for col_name, col_def in code_migrations:
+            if col_name not in existing_code_cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE code_analyses ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to code_analyses")
+                except Exception as e:
+                    logger.warning(f"Migration failed for {col_name}: {e}")
+
 
 def init_db(database_url: str) -> None:
     """
