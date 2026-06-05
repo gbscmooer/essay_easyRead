@@ -1,20 +1,7 @@
 /**
  * LibraryPage 组件
  *
- * 论文库页面，管理所有已解析的论文。
- *
- * 路由：/library
- *
- * 功能：
- *   - PaperList 组件展示全部论文
- *   - 搜索和筛选
- *   - 批量操作（可选）
- *   - 导出功能
- *
- * 样式：
- *   - max-w-6xl, mx-auto
- *   - 顶部标题 + 搜索栏
- *   - 论文列表
+ * 论文库页面，清新学术风格。
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -82,9 +69,9 @@ export function LibraryPage() {
   }, [])
 
   return (
-    <div className="max-w-6xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
+    <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
       <div className="px-6 pt-6 pb-2">
-        <h1 className="text-2xl font-bold text-gray-100">论文库</h1>
+        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>论文库</h1>
       </div>
       <PaperList
         papers={papers}

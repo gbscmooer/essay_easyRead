@@ -186,10 +186,10 @@ function FigureCard({ fig }: { fig: FigureAnalysis }) {
         </div>
       )}
 
-      {/* AI 解读 */}
+      {/* 解读 */}
       {fig.interpretation && (
         <div className="px-4 py-3 bg-blue-500/5 border-t border-gray-700/50">
-          <p className="text-xs text-gray-400 mb-1 font-medium">AI 解读</p>
+          <p className="text-xs text-gray-400 mb-1 font-medium">解读</p>
           <p className="text-xs text-gray-300 leading-relaxed">{fig.interpretation}</p>
         </div>
       )}

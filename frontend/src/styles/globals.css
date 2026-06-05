@@ -75,6 +75,22 @@
   --accent-subtle: rgba(29, 78, 216, 0.06);
 }
 
+/* 学术 (academic) — 清新学术浅色风，类似 Notion/Readwise */
+[data-theme="academic"] {
+  --bg-base: #fafaf8;
+  --bg-surface: #f3f1ec;
+  --bg-elevated: #eae7df;
+  --border: #ddd9cf;
+  --border-light: #c9c3b6;
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #8a8a8a;
+  --accent: #2563eb;
+  --accent-subtle: rgba(37, 99, 235, 0.07);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
 /* 摩卡 (mocha) — Claude 风格温暖中性色调，浅橙点缀 */
 [data-theme="mocha"] {
   --bg-base: #1a1614;
@@ -177,6 +193,196 @@ body {
   border-color: var(--border);
   color: var(--text-primary);
 }
+
+/* ============================================================
+ * 学术主题专属覆盖
+ * ============================================================ */
+
+/* 卡片阴影替代深色边框 */
+[data-theme="academic"] .bg-gray-900 {
+  background-color: #ffffff !important;
+  box-shadow: var(--shadow-card);
+}
+[data-theme="academic"] .bg-gray-900\/80 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(8px);
+}
+[data-theme="academic"] .bg-gray-900\/50 {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+}
+[data-theme="academic"] .bg-gray-900\/90 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+[data-theme="academic"] .bg-gray-950 {
+  background-color: var(--bg-base) !important;
+}
+[data-theme="academic"] .bg-gray-800 {
+  background-color: #ffffff !important;
+}
+[data-theme="academic"] .bg-gray-800\/50 {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+}
+[data-theme="academic"] .bg-gray-800\/60 {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+}
+[data-theme="academic"] .bg-gray-800\/80 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+[data-theme="academic"] .bg-gray-800\/30 {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+[data-theme="academic"] .bg-gray-700\/80 {
+  background-color: rgba(243, 241, 236, 0.8) !important;
+}
+
+/* 边框 */
+[data-theme="academic"] .border-gray-800 {
+  border-color: var(--border) !important;
+}
+[data-theme="academic"] .border-gray-700 {
+  border-color: var(--border) !important;
+}
+[data-theme="academic"] .border-gray-700\/50 {
+  border-color: rgba(221, 217, 207, 0.5) !important;
+}
+[data-theme="academic"] .border-gray-800\/50 {
+  border-color: rgba(221, 217, 207, 0.5) !important;
+}
+[data-theme="academic"] .border-gray-600 {
+  border-color: var(--border-light) !important;
+}
+
+/* 输入框优化 */
+[data-theme="academic"] input,
+[data-theme="academic"] textarea,
+[data-theme="academic"] select {
+  background-color: #ffffff !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+[data-theme="academic"] input:focus,
+[data-theme="academic"] textarea:focus,
+[data-theme="academic"] select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 按钮 */
+[data-theme="academic"] .bg-blue-600 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+[data-theme="academic"] .hover\:bg-blue-500:hover {
+  background-color: #1d4ed8 !important;
+}
+[data-theme="academic"] .bg-blue-500 {
+  background-color: #3b82f6 !important;
+}
+[data-theme="academic"] .text-blue-400 {
+  color: #2563eb !important;
+}
+[data-theme="academic"] .hover\:text-blue-400:hover {
+  color: #2563eb !important;
+}
+[data-theme="academic"] .text-blue-300 {
+  color: #3b82f6 !important;
+}
+[data-theme="academic"] .bg-blue-500\/10 {
+  background-color: rgba(37, 99, 235, 0.08) !important;
+}
+[data-theme="academic"] .bg-blue-600\/20 {
+  background-color: rgba(37, 99, 235, 0.12) !important;
+}
+
+/* 状态色 */
+[data-theme="academic"] .text-green-400 { color: #16a34a !important; }
+[data-theme="academic"] .bg-green-500 { background-color: #22c55e !important; }
+[data-theme="academic"] .bg-green-400\/10 { background-color: rgba(34, 197, 94, 0.08) !important; }
+[data-theme="academic"] .bg-green-500\/5 { background-color: rgba(34, 197, 94, 0.05) !important; }
+[data-theme="academic"] .border-green-500\/20 { border-color: rgba(34, 197, 94, 0.2) !important; }
+[data-theme="academic"] .border-green-500\/30 { border-color: rgba(34, 197, 94, 0.3) !important; }
+[data-theme="academic"] .bg-green-600 { background-color: #16a34a !important; }
+
+[data-theme="academic"] .text-red-400 { color: #dc2626 !important; }
+[data-theme="academic"] .text-red-300 { color: #ef4444 !important; }
+[data-theme="academic"] .bg-red-500 { background-color: #ef4444 !important; }
+[data-theme="academic"] .bg-red-400\/10 { background-color: rgba(239, 68, 68, 0.08) !important; }
+[data-theme="academic"] .bg-red-500\/10 { background-color: rgba(239, 68, 68, 0.08) !important; }
+[data-theme="academic"] .border-red-500\/30 { border-color: rgba(239, 68, 68, 0.3) !important; }
+[data-theme="academic"] .border-red-500\/50 { border-color: rgba(239, 68, 68, 0.4) !important; }
+[data-theme="academic"] .border-red-500 { border-color: #ef4444 !important; }
+
+[data-theme="academic"] .text-yellow-400 { color: #ca8a04 !important; }
+[data-theme="academic"] .bg-yellow-500 { background-color: #eab308 !important; }
+[data-theme="academic"] .bg-yellow-400\/10 { background-color: rgba(234, 179, 8, 0.1) !important; }
+
+/* 悬停效果 */
+[data-theme="academic"] .hover\:bg-gray-800:hover {
+  background-color: var(--bg-surface) !important;
+}
+[data-theme="academic"] .hover\:bg-gray-800\/50:hover {
+  background-color: rgba(243, 241, 236, 0.6) !important;
+}
+[data-theme="academic"] .hover\:bg-gray-700:hover {
+  background-color: var(--bg-elevated) !important;
+}
+[data-theme="academic"] .hover\:bg-gray-900\/50:hover {
+  background-color: rgba(243, 241, 236, 0.5) !important;
+}
+[data-theme="academic"] .hover\:bg-gray-700\/80:hover {
+  background-color: rgba(234, 231, 223, 0.8) !important;
+}
+
+/* 滚动条 */
+[data-theme="academic"] ::-webkit-scrollbar-track {
+  background: #f5f3ee;
+}
+[data-theme="academic"] ::-webkit-scrollbar-thumb {
+  background: #d4d0c8;
+  border-radius: 4px;
+}
+[data-theme="academic"] ::-webkit-scrollbar-thumb:hover {
+  background: #b8b3a8;
+}
+
+/* 分割条 */
+[data-theme="academic"] .bg-gray-800 {
+  background-color: var(--border) !important;
+}
+[data-theme="academic"] .hover\:bg-blue-500\/50:hover {
+  background-color: rgba(37, 99, 235, 0.3) !important;
+}
+[data-theme="academic"] .active\:bg-blue-500\/70:active {
+  background-color: rgba(37, 99, 235, 0.5) !important;
+}
+
+/* 强调色补充 */
+[data-theme="academic"] .border-blue-500 {
+  border-color: #2563eb !important;
+}
+[data-theme="academic"] .hover\:border-blue-500:hover {
+  border-color: #2563eb !important;
+}
+[data-theme="academic"] .ring-blue-500 {
+  --tw-ring-color: #2563eb !important;
+}
+[data-theme="academic"] .focus\:border-blue-500:focus {
+  border-color: #2563eb !important;
+}
+[data-theme="academic"] .accent-blue-500 {
+  accent-color: #2563eb !important;
+}
+
+/* 文本选择颜色 */
+[data-theme="academic"] ::selection {
+  background-color: rgba(37, 99, 235, 0.15);
+  color: inherit;
+}
+
+/* 占位符 */
+[data-theme="academic"] .placeholder-gray-500::placeholder { color: #9ca3af !important; }
+[data-theme="academic"] .placeholder-gray-600::placeholder { color: #9ca3af !important; }
 
 /* ============================================================
  * 滚动条样式

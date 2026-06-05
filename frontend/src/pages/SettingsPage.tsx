@@ -53,7 +53,7 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_min: 0.4,
     zoom_max: 3.0,
     pinch_zoom_step: 0.02,
-    theme: 'punk',
+    theme: 'academic',
     font: 'sans',
     custom_font: '',
   },
@@ -62,10 +62,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 const PROVIDER_PRESETS = [
   { label: 'OpenAI', base_url: 'https://api.openai.com/v1', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1-mini'] },
-  { label: 'MiMo (Anthropic 格式)', base_url: 'https://token-plan-cn.xiaomimimo.com/anthropic', models: ['mimo-v2.5-pro'] },
   { label: 'Anthropic', base_url: 'https://api.anthropic.com', models: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'] },
-  { label: 'DeepSeek', base_url: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  { label: '自定义', base_url: '', models: [] },
 ]
 
 
@@ -245,6 +242,7 @@ function ConfigSection({
 
 
 const THEMES = [
+  { key: 'academic', label: '学术', desc: '清新浅色，学术风格' },
   { key: 'punk', label: '朋克', desc: '深色背景，蓝色点缀' },
   { key: 'pure', label: '纯黑', desc: '纯黑白，无彩色' },
   { key: 'light', label: '纯白', desc: '白色背景，深蓝点缀' },
@@ -508,8 +506,8 @@ export function SettingsPage() {
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-bold text-gray-100">设置</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          配置 AI 模型参数和界面行为。点击"高级参数"可调整 temperature、token 上限等。
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+          配置模型参数和界面行为。点击"高级参数"可调整 temperature、token 上限等。
         </p>
       </div>
 
@@ -531,7 +529,7 @@ export function SettingsPage() {
 
       <ConfigSection
         title="翻译模型"
-        description="用于选中文本的翻译功能。推荐使用轻量快速的模型。"
+        description="用于选中文本的翻译功能。"
         config={config.translate}
         onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
         defaultMaxTokens={2048}
@@ -539,7 +537,7 @@ export function SettingsPage() {
 
       <ConfigSection
         title="解读模型"
-        description="用于论文解析、AI 总结等功能。推荐使用能力较强的模型。"
+        description="用于论文解析、总结等功能。"
         config={config.analysis}
         onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
         defaultMaxTokens={16384}

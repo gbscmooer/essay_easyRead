@@ -1,25 +1,7 @@
 /**
  * UploadZone 组件
  *
- * PDF 文件上传区域。
- *
- * Props:
- *   onUpload: (file: File) => void - 上传回调
- *   isUploading: boolean - 是否正在上传（禁用交互）
- *
- * 功能：
- *   - 拖拽上传区域（支持 drag & drop）
- *   - 点击选择文件（隐藏的 input[type=file]）
- *   - 文件类型校验：仅接受 .pdf
- *   - 文件大小提示：最大 50MB
- *   - 拖拽时高亮边框
- *   - 上传中显示加载状态
- *
- * 样式：
- *   - 虚线边框：border-2, border-dashed, border-gray-600
- *   - 拖拽高亮：border-blue-500, bg-blue-500/10
- *   - 居中图标 + 文字提示
- *   - hover 时边框变亮
+ * PDF 文件上传区域，清新学术风格设计。
  */
 
 import React, { useState, useRef, useCallback } from 'react'
@@ -89,21 +71,30 @@ export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        className={`flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
-          isDragOver
-            ? 'border-blue-500 bg-blue-500/10'
+        className="flex flex-col items-center justify-center p-10 rounded-xl cursor-pointer transition-all"
+        style={{
+          border: isDragOver
+            ? '2px dashed var(--accent)'
             : isUploading
-            ? 'border-gray-700 bg-gray-900 cursor-not-allowed opacity-60'
-            : 'border-gray-600 bg-gray-900/50 hover:border-gray-400 hover:bg-gray-800/50'
-        }`}
+            ? '2px dashed var(--border)'
+            : '2px dashed var(--border-light)',
+          backgroundColor: isDragOver
+            ? 'var(--accent-subtle)'
+            : isUploading
+            ? 'var(--bg-surface)'
+            : '#ffffff',
+          opacity: isUploading ? 0.6 : 1,
+          cursor: isUploading ? 'not-allowed' : 'pointer',
+        }}
       >
         {/* 上传图标 */}
         <svg
-          className={`w-12 h-12 mb-3 ${isDragOver ? 'text-blue-400' : 'text-gray-500'}`}
+          className="w-10 h-10 mb-3"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
-          strokeWidth={1.5}
+          strokeWidth={1.2}
+          style={{ color: isDragOver ? 'var(--accent)' : 'var(--text-muted)' }}
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
         </svg>
@@ -111,22 +102,22 @@ export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
         {/* 文字提示 */}
         {isUploading ? (
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
-            <span className="text-sm text-gray-400">上传中...</span>
+            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>上传中...</span>
           </div>
         ) : (
           <>
-            <p className="text-sm text-gray-300 mb-1">
+            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               {isDragOver ? '释放以上传文件' : '拖拽 PDF 到此处，或点击选择文件'}
             </p>
-            <p className="text-xs text-gray-500">仅支持 PDF，最大 50MB</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>仅支持 PDF，最大 50MB</p>
           </>
         )}
       </div>
 
       {/* 错误提示 */}
       {error && (
-        <p className="mt-2 text-sm text-red-400 text-center">{error}</p>
+        <p className="mt-2 text-sm text-center" style={{ color: '#dc2626' }}>{error}</p>
       )}
 
       {/* 隐藏的文件输入 */}

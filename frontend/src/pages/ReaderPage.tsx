@@ -150,14 +150,18 @@ export function ReaderPage() {
       {/* 中间 PDF 阅读区 */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* 顶部工具栏 */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900/80 border-b border-gray-800 shrink-0">
+        <div className="flex items-center justify-between px-3 py-1.5 shrink-0" style={{
+          backgroundColor: '#ffffff',
+          borderBottom: '1px solid var(--border)',
+        }}>
           <button
             onClick={() => setSidebarOpen(v => !v)}
-            className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded-md transition-colors"
+            style={{ color: 'var(--text-muted)' }}
             title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d={sidebarOpen
                   ? "M11 19l-7-7 7-7m8 14l-7-7 7-7"
                   : "M13 5l7 7-7 7M5 5l7 7-7 7"}
@@ -165,17 +169,18 @@ export function ReaderPage() {
             </svg>
           </button>
 
-          <span className="text-xs text-gray-500 truncate mx-2">
+          <span className="text-xs truncate mx-2" style={{ color: 'var(--text-muted)' }}>
             {analysis?.title || partialResult?.title || ''}
           </span>
 
           <button
             onClick={() => setPanelOpen(v => !v)}
-            className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded-md transition-colors"
+            style={{ color: 'var(--text-muted)' }}
             title={panelOpen ? '收起分析面板' : '展开分析面板'}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d={panelOpen
                   ? "M13 5l7 7-7 7M5 5l7 7-7 7"
                   : "M11 19l-7-7 7-7m8 14l-7-7 7-7"}
@@ -201,7 +206,8 @@ export function ReaderPage() {
       {panelOpen && (
         <div
           onMouseDown={handleMouseDown}
-          className="w-1.5 shrink-0 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors relative group z-10"
+          className="w-1 shrink-0 cursor-col-resize transition-colors relative group z-10"
+          style={{ backgroundColor: 'var(--border)' }}
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
         </div>
@@ -209,17 +215,18 @@ export function ReaderPage() {
 
       {/* 右侧 AI 分析面板 */}
       <div
-        className="bg-gray-950 overflow-auto transition-[width] duration-100 ease-out shrink-0"
-        style={{ width: panelOpen ? `${panelPct}%` : 0 }}
+        className="overflow-auto transition-[width] duration-100 ease-out shrink-0"
+        style={{ width: panelOpen ? `${panelPct}%` : 0, backgroundColor: '#ffffff' }}
       >
         {panelOpen && (
           <div className="h-full overflow-auto">
             {error && status === 'failed' ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
-                <p className="text-red-400 text-sm text-center">{error}</p>
+                <p className="text-sm text-center" style={{ color: '#dc2626' }}>{error}</p>
                 <button
                   onClick={reparse}
-                  className="px-4 py-2 text-sm bg-gray-800 text-gray-300 rounded hover:bg-gray-700 transition-colors"
+                  className="px-4 py-2 text-sm rounded-lg transition-colors"
+                  style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                 >
                   重试
                 </button>

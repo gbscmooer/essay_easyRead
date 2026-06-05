@@ -26,7 +26,7 @@ const DEFAULT_UI: UIConfig = {
   zoom_min: 0.4,
   zoom_max: 3.0,
   pinch_zoom_step: 0.02,
-  theme: 'punk',
+  theme: 'academic',
   font: 'sans',
   custom_font: '',
 }

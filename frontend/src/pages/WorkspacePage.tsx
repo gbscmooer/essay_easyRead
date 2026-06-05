@@ -47,7 +47,7 @@ export function WorkspacePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -56,8 +56,8 @@ export function WorkspacePage() {
     <div className="max-w-3xl mx-auto px-6 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-100">工作区</h1>
-          <p className="text-sm text-gray-500 mt-1">管理工作区，将论文组织在一起进行分析</p>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>工作区</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>管理工作区，将论文组织在一起进行分析</p>
         </div>
       </div>
 
@@ -69,12 +69,13 @@ export function WorkspacePage() {
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
           placeholder="输入工作区名称..."
-          className="flex-1 px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+          className="flex-1 px-3 py-2 text-sm rounded-lg focus:outline-none"
         />
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+          style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
         >
           {creating ? '创建中...' : '新建工作区'}
         </button>
@@ -83,29 +84,44 @@ export function WorkspacePage() {
       {/* 工作区列表 */}
       {workspaces.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-500">暂无工作区</p>
-          <p className="text-xs text-gray-600 mt-1">创建一个工作区，开始组织你的论文</p>
+          <p style={{ color: 'var(--text-muted)' }}>暂无工作区</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>创建一个工作区，开始组织你的论文</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {workspaces.map(ws => (
             <div
               key={ws.id}
               onClick={() => navigate(`/workspace/${ws.id}`)}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 hover:border-gray-600 cursor-pointer transition-colors group"
+              className="rounded-xl p-4 cursor-pointer transition-all group"
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid var(--border)',
+              }}
+              onMouseEnter={e => {
+                const el = e.currentTarget
+                el.style.borderColor = 'var(--border-light)'
+                el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'
+              }}
+              onMouseLeave={e => {
+                const el = e.currentTarget
+                el.style.borderColor = 'var(--border)'
+                el.style.boxShadow = 'none'
+              }}
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-200 group-hover:text-blue-400 transition-colors">
+                  <h3 className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
                     {ws.name}
                   </h3>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
                     {ws.paper_count} 篇论文
                   </p>
                 </div>
                 <button
                   onClick={(e) => handleDelete(ws.id, e)}
-                  className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all"
+                  className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs transition-all"
+                  style={{ color: 'var(--text-muted)' }}
                 >
                   删除
                 </button>

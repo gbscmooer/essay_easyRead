@@ -2,30 +2,7 @@
  * AnalysisPanel 组件
  *
  * 解析结果展示的主面板，包含 Tab 切换。
- *
- * Props:
- *   result: AnalysisResult - 完整解析结果
- *   partialResult: Partial<AnalysisResult> - 流式接收中的部分结果
- *   status: AnalysisStatus - 解析状态
- *   progressMessage: string - 进度消息
- *
- * Tab 结构：
- *   1. 概览 (OverviewTab) - 默认选中
- *   2. 方法 (MethodTab)
- *   3. 实验 (ExperimentsTab)
- *   4. 代码 (CodeTab)
- *   5. 面试 (InterviewTab)
- *
- * 功能：
- *   - 顶部 Tab 栏切换不同视图
- *   - 如果 status 不是 done，显示 LoadingState
- *   - 如果 status 是 done，显示对应 Tab 的内容
- *   - 每个 Tab 独立渲染，切换时不丢失状态
- *
- * 样式：
- *   - Tab 栏：sticky top-0, bg-gray-900, border-b
- *   - Tab 按钮：px-4, py-2, 选中时 text-blue-400, border-b-2, border-blue-400
- *   - 内容区：p-6, overflow-auto
+ * 清新学术风格：简洁 Tab 栏 + 清晰内容区。
  */
 
 import { useState } from 'react'
@@ -68,21 +45,22 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   if (status === 'idle' && !result) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-        <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center">
-          <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
             />
           </svg>
         </div>
         <div className="text-center">
-          <h3 className="text-lg font-medium text-gray-300 mb-2">尚未启用全局分析</h3>
-          <p className="text-sm text-gray-500 mb-6">点击下方按钮，使用 AI 对论文进行深度分析</p>
+          <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>尚未分析</h3>
+          <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>点击下方按钮开始分析这篇论文</p>
           <button
             onClick={onStartAnalysis}
-            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-6 py-2.5 text-sm font-medium rounded-lg transition-colors"
+            style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
           >
-            AI 分析
+            开始分析
           </button>
         </div>
       </div>
@@ -101,20 +79,24 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   return (
     <div className="flex flex-col h-full">
       {/* Tab 栏 */}
-      <div className="flex items-center gap-0 sticky top-0 z-10 bg-gray-900 border-b border-gray-800 shrink-0">
+      <div className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={{
+        backgroundColor: '#ffffff',
+        borderBottom: '1px solid var(--border)',
+      }}>
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+            className="px-4 py-2.5 text-sm font-medium transition-colors relative"
+            style={
               activeTab === tab.key
-                ? 'text-blue-400'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
+                ? { color: 'var(--accent)' }
+                : { color: 'var(--text-muted)' }
+            }
           >
             {tab.label}
             {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
             )}
           </button>
         ))}
@@ -122,7 +104,8 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         {onReanalyze && (
           <button
             onClick={onReanalyze}
-            className="px-3 py-1.5 mr-2 text-xs text-gray-400 hover:text-blue-400 hover:bg-gray-800 rounded transition-colors"
+            className="px-3 py-1.5 mr-2 text-xs rounded-md transition-colors"
+            style={{ color: 'var(--text-muted)' }}
             title="全部重新分析"
           >
             <svg className="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

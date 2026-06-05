@@ -15,7 +15,7 @@ const primaryNav = [
   { path: '/', label: '首页' },
   { path: '/library', label: '论文库' },
   { path: '/workspace', label: '工作区' },
-  { path: '/settings', label: '配置' },
+  { path: '/settings', label: '设置' },
 ]
 
 
@@ -46,13 +46,18 @@ export function Layout({ children }: LayoutProps) {
     <ThemeProvider>
     <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--bg-base)' }}>
       {/* 一级导航栏 */}
-      <nav className={`flex items-center justify-between px-6 bg-gray-900 border-b border-gray-800 shrink-0 transition-all duration-200 ${navCollapsed ? 'h-8' : 'h-12'}`}>
-        <Link to="/" className={`font-bold text-gray-100 hover:text-blue-400 transition-colors ${navCollapsed ? 'text-sm' : 'text-base'}`}>
-          论文精读助手
+      <nav className={`flex items-center justify-between px-6 shrink-0 transition-all duration-200 ${
+        navCollapsed ? 'h-10' : 'h-14'
+      }`} style={{
+        backgroundColor: 'var(--bg-surface)',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <Link to="/" className={`font-semibold transition-colors ${navCollapsed ? 'text-sm' : 'text-base'}`} style={{ color: 'var(--text-primary)' }}>
+          <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
         </Link>
 
         {!navCollapsed && (
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-1">
             {primaryNav.map(item => (
               <Link
                 key={item.path}
@@ -64,11 +69,16 @@ export function Layout({ children }: LayoutProps) {
                     }
                   }
                 }}
-                className={`text-sm transition-colors ${
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
                   location.pathname === item.path
-                    ? 'text-blue-400 font-medium'
-                    : 'text-gray-400 hover:text-gray-200'
+                    ? 'font-medium'
+                    : 'hover:opacity-80'
                 }`}
+                style={
+                  location.pathname === item.path
+                    ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }
+                    : { color: 'var(--text-secondary)' }
+                }
               >
                 {item.label}
               </Link>
@@ -78,20 +88,25 @@ export function Layout({ children }: LayoutProps) {
 
         <button
           onClick={() => setNavCollapsed(v => !v)}
-          className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+          className="p-1.5 rounded-md transition-colors"
+          style={{ color: 'var(--text-muted)' }}
           title={navCollapsed ? '展开导航栏' : '收起导航栏'}
         >
           <svg className={`w-4 h-4 transition-transform ${navCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 15l7-7 7 7" />
           </svg>
         </button>
       </nav>
 
       {/* 二级导航栏（仅在查看论文时显示，且未收起时）*/}
       {paperId && !navCollapsed && (
-        <div className="flex items-center justify-between px-6 h-10 bg-gray-900/80 border-b border-gray-800 shrink-0">
+        <div className="flex items-center justify-between px-6 h-11 shrink-0" style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderBottom: '1px solid var(--border)',
+          opacity: 0.97,
+        }}>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-500 truncate max-w-xs">
+            <span className="text-xs truncate max-w-xs" style={{ color: 'var(--text-muted)' }}>
               {paperTitle || '加载中...'}
             </span>
             <div className="flex items-center gap-1">
@@ -102,11 +117,16 @@ export function Layout({ children }: LayoutProps) {
                     if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
                   }
                 }}
-                className={`px-3 py-1 text-xs rounded transition-colors ${
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
                   location.pathname.startsWith('/reader')
-                    ? 'bg-blue-500/10 text-blue-400 font-medium'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                    ? 'font-medium'
+                    : ''
                 }`}
+                style={
+                  location.pathname.startsWith('/reader')
+                    ? { backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                    : { color: 'var(--text-muted)' }
+                }
               >
                 论文分析
               </Link>
@@ -117,11 +137,16 @@ export function Layout({ children }: LayoutProps) {
                     if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
                   }
                 }}
-                className={`px-3 py-1 text-xs rounded transition-colors ${
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
                   location.pathname.startsWith('/code')
-                    ? 'bg-blue-500/10 text-blue-400 font-medium'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                    ? 'font-medium'
+                    : ''
                 }`}
+                style={
+                  location.pathname.startsWith('/code')
+                    ? { backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                    : { color: 'var(--text-muted)' }
+                }
               >
                 源码分析
               </Link>
@@ -134,9 +159,10 @@ export function Layout({ children }: LayoutProps) {
                 if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
               }
             }}
-            className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            className="text-xs transition-colors"
+            style={{ color: 'var(--text-muted)' }}
           >
-            返回论文库
+            返回论文库 &rarr;
           </Link>
         </div>
       )}

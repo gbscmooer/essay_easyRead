@@ -122,15 +122,15 @@ export function InterviewTab({ result }: InterviewTabProps) {
                           生成中...
                         </>
                       ) : (
-                        'AI 进一步解释'
+                        '进一步解释'
                       )}
                     </button>
                   </div>
 
-                  {/* AI 解释 */}
+                  {/* 解释 */}
                   {explanation && (
                     <div className="pl-9 bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
-                      <p className="text-xs text-blue-400 font-medium mb-1">AI 深入解释</p>
+                      <p className="text-xs text-blue-400 font-medium mb-1">深入解释</p>
                       <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
                         {explanation}
                       </p>

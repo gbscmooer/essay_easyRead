@@ -11,7 +11,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const config = useUIConfig()
 
   useEffect(() => {
-    const theme = config.theme || 'dark'
+    const theme = config.theme || 'academic'
     document.documentElement.setAttribute('data-theme', theme)
   }, [config.theme])
 

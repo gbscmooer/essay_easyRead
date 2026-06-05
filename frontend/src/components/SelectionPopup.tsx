@@ -188,7 +188,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
               onClick={() => handleAction('summarize')}
               className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
             >
-              AI 总结
+              总结
             </button>
           </div>
         )}
@@ -225,7 +225,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
           <div className="max-w-sm">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-700">
               <span className="text-xs text-gray-400">
-                {action === 'translate' ? '翻译结果' : 'AI 总结'}
+                {action === 'translate' ? '翻译结果' : '总结'}
               </span>
               <div className="flex items-center gap-2">
                 <button
