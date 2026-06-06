@@ -67,6 +67,7 @@ class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
+    similarity_threshold: float = 0.9
 
 class RerankerConfig(BaseModel):
     enabled: bool = True

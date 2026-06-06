@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
+import { get } from '@/api/client'
 import { Tooltip } from '@/components/Tooltip'
 
 interface ControlPanelProps {
@@ -25,7 +26,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
   const [deep, setDeep] = useState(1)
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [threshold, setThreshold] = useState(0.78)
+  const [threshold, setThreshold] = useState(0.9)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
   const [expandedCount, setExpandedCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -45,6 +46,15 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
       })
       .catch(() => {})
   }, [wsId])
+
+  useEffect(() => {
+    get<{ research?: { similarity_threshold?: number } }>('/analysis/config')
+      .then(cfg => {
+        const saved = cfg.research?.similarity_threshold
+        if (typeof saved === 'number') setThreshold(saved)
+      })
+      .catch(() => {})
+  }, [])
 
   const isUsable = (status: string) =>
     status === 'done' || status === 'indexed' || status === 'pending'

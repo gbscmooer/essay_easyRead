@@ -49,9 +49,10 @@ DEFAULT_CONFIG = {
         "device": "auto",
     },
     "research": {
-        "provider": "openalex",  # openalex | semantic_scholar | local
-        "email": "",             # OpenAlex polite pool 邮箱（可选，更稳定）
-        "api_key": "",           # Semantic Scholar API key（可选）
+        "provider": "openalex",       # openalex | semantic_scholar | local
+        "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
+        "api_key": "",                # Semantic Scholar API key（可选）
+        "similarity_threshold": 0.9,  # 图谱相似边阈值（0.5–0.95）
     },
     "reranker": {
         "enabled": True,

@@ -165,6 +165,7 @@ interface ResearchConfig {
   provider: 'openalex' | 'semantic_scholar' | 'local'
   email: string
   api_key: string
+  similarity_threshold: number
 }
 
 interface RerankerConfig {
@@ -240,6 +241,7 @@ const DEFAULT_CONFIG: AppConfig = {
     provider: 'openalex',
     email: '',
     api_key: '',
+    similarity_threshold: 0.9,
   },
   reranker: {
     enabled: true,
@@ -965,6 +967,37 @@ export function SettingsPage() {
             本地模式下，"联网扩展"阶段会被直接跳过；图谱仅基于工作区已上传的论文构建。
           </p>
         )}
+
+        {/* 相似度阈值 */}
+        <div className="pt-2 border-t border-gray-800">
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <span className="text-xs font-medium text-gray-300">默认相似度阈值</span>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                两篇论文向量余弦相似度超过此值时图谱连一条「相似」边。值越大边越少越精炼。可在每次开始研究时临时调整。
+              </p>
+            </div>
+            <span className="text-xs font-mono text-gray-300 ml-4 shrink-0">
+              {config.research.similarity_threshold.toFixed(2)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0.5}
+            max={0.95}
+            step={0.01}
+            value={config.research.similarity_threshold}
+            onChange={e => setConfig(prev => ({
+              ...prev,
+              research: { ...prev.research, similarity_threshold: Number(e.target.value) },
+            }))}
+            className="w-full h-1 accent-blue-500"
+          />
+          <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+            <span>0.50 宽松</span>
+            <span>0.95 严格</span>
+          </div>
+        </div>
       </div>
 
       {/* 重排序模型 */}
