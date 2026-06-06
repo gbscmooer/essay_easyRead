@@ -107,22 +107,122 @@ def _parse_entry(xml_text: str) -> Optional[dict]:
     return {"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year}
 
 
-async def search_by_title(title: str) -> Optional[dict]:
-    """通过精确标题短语搜索 arXiv。
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "in", "on", "at", "to", "for", "of", "with", "and", "or", "not",
+    "it", "this", "that", "from", "by", "as", "its", "we", "our", "via",
+    "towards", "toward", "than", "into", "over", "under", "about",
+})
 
-    返回 {arxiv_id, pdf_url, title, year} 或 None。
+
+def _normalize_title(t: str) -> str:
+    """标题归一化：小写、去连字符、去多余空格。"""
+    return re.sub(r"[\s\-–—:]+", " ", t.lower()).strip()
+
+
+def _extract_keywords(title: str) -> list[str]:
+    """从标题中提取关键词用于 arXiv all: 搜索。"""
+    words = re.findall(r"[a-zA-Z]+", title)
+    return [w for w in words if w.lower() not in _STOP_WORDS and len(w) > 2]
+
+
+def _parse_entries(xml_text: str, max_entries: int = 5) -> list[dict]:
+    """解析多条 arXiv entry，返回 list[{arxiv_id, pdf_url, title, year}]。"""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    results = []
+    for entry in root.findall("atom:entry", ns)[:max_entries]:
+        id_el = entry.find("atom:id", ns)
+        if id_el is None or not id_el.text:
+            continue
+        m = re.search(r"(\d{4}\.\d{4,5})", id_el.text)
+        if not m:
+            continue
+        arxiv_id = m.group(1)
+        pdf_url = ARXIV_PDF_BASE.format(arxiv_id)
+        for link in entry.findall("atom:link", ns):
+            if link.get("title") == "pdf" and link.get("href"):
+                pdf_url = link.get("href")
+                break
+        title_el = entry.find("atom:title", ns)
+        title = (title_el.text or "").strip().replace("\n", " ") if title_el is not None else ""
+        pub_el = entry.find("atom:published", ns)
+        year: Optional[int] = None
+        if pub_el is not None and pub_el.text:
+            try:
+                year = int(pub_el.text[:4])
+            except ValueError:
+                pass
+        results.append({"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year})
+    return results
+
+
+async def search_by_title(title: str) -> Optional[dict]:
+    """通过标题搜索 arXiv，返回 {arxiv_id, pdf_url, title, year} 或 None。
+
+    策略：
+    1. 精确标题短语搜索 (ti:"...")
+    2. 关键词 AND 搜索 (all:kw1 AND all:kw2 ...)  + 模糊标题匹配
     """
     if not title or not title.strip():
         return None
-    # 双引号包裹防止分词
-    query = f'ti:"{title.strip()}"'
-    qs = urllib.parse.urlencode({"search_query": query, "max_results": "1"})
+
+    norm_query = _normalize_title(title)
+
+    # ---- 策略 1：精确标题短语搜索 ----
     try:
+        query = f'ti:"{title.strip()}"'
+        qs = urllib.parse.urlencode({"search_query": query, "max_results": "3"})
         xml_text = await _arxiv_request(qs)
-        return _parse_entry(xml_text)
+        entries = _parse_entries(xml_text)
+        for entry in entries:
+            if _normalize_title(entry["title"]) == norm_query:
+                return entry
     except Exception as e:
-        logger.warning(f"arXiv title search failed ('{title[:50]}'): {e}")
-        return None
+        logger.debug(f"arXiv exact title search failed ('{title[:50]}'): {e}")
+
+    # ---- 策略 2：关键词 AND 搜索 + 模糊匹配 ----
+    try:
+        keywords = _extract_keywords(title)
+        if len(keywords) < 3:
+            return None
+        # 取最多 5 个关键词（arXiv 查询不宜太长）
+        keywords = keywords[:5]
+        query = " AND ".join(f"all:{kw}" for kw in keywords)
+        qs = urllib.parse.urlencode({"search_query": query, "max_results": "5"})
+        xml_text = await _arxiv_request(qs)
+        entries = _parse_entries(xml_text)
+
+        # 找最佳匹配：归一化后的标题应高度相似
+        best = None
+        best_score = 0.0
+        for entry in entries:
+            norm_entry = _normalize_title(entry["title"])
+            score = _title_similarity(norm_query, norm_entry)
+            if score > best_score:
+                best_score = score
+                best = entry
+
+        if best and best_score >= 0.7:
+            return best
+    except Exception as e:
+        logger.debug(f"arXiv keyword search failed ('{title[:50]}'): {e}")
+
+    return None
+
+
+def _title_similarity(a: str, b: str) -> float:
+    """计算两个归一化标题的相似度 (0~1)，基于词集合 Jaccard。"""
+    words_a = set(a.split())
+    words_b = set(b.split())
+    if not words_a or not words_b:
+        return 0.0
+    intersection = words_a & words_b
+    union = words_a | words_b
+    return len(intersection) / len(union)
 
 
 async def get_metadata(arxiv_id: str) -> Optional[dict]:

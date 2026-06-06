@@ -141,3 +141,42 @@ export async function reparsePaper(paperId: number): Promise<Paper> {
 export async function refreshRelatedPapers(paperId: number): Promise<RelatedPaper[]> {
   return post<RelatedPaper[]>(`/analysis/${paperId}/related-papers`)
 }
+
+
+/** 导入结果中单篇论文的状态 */
+export interface ImportPaperResult {
+  title: string
+  status: 'local' | 'downloaded' | 'failed'
+  paper_id?: number
+  message: string
+}
+
+/** 批量导入相关论文的响应 */
+export interface ImportRelatedPapersResponse {
+  results: ImportPaperResult[]
+}
+
+/** 导入单篇论文的入参 */
+export interface ImportPaperItem {
+  title: string
+  doi?: string
+  url?: string
+}
+
+
+/**
+ * 批量导入相关论文到工作区
+ *
+ * 检查本地论文库 → 已有则直接关联 → 没有则通过 S2 下载 PDF → 创建记录并关联
+ *
+ * POST /api/analysis/import-related-papers
+ */
+export async function importRelatedPapers(
+  workspaceId: number,
+  papers: ImportPaperItem[],
+): Promise<ImportRelatedPapersResponse> {
+  return post<ImportRelatedPapersResponse>('/analysis/import-related-papers', {
+    workspace_id: workspaceId,
+    papers,
+  })
+}

@@ -73,15 +73,29 @@ DEFAULT_CONFIG = {
         # "specter2": {"model": "allenai/specter2_base", "device": "auto"},
     },
     "arxiv_expand": {
-        # 是否启用 arXiv 引用列表扩展（从 PDF 文本解析 [N] 引用块）
+        # 是否启用引用列表扩展（解析 seed 论文参考文献并联网下载）
         "enabled": True,
-        # 按引用数降序取 top_k；同时 citation_count >= min_cite_count 的也下载（OR 逻辑）
+        # 引用解析后端：grobid（结构化，默认）| regex（正则，零依赖回退）
+        "parser": "grobid",
+        # GROBID 服务地址（parser=grobid 时使用），标准 Docker 端口 8070
+        "grobid_url": "http://localhost:8070",
+        # 按正文引用频次取 top_k（频次越高越核心）
         "top_k": 5,
-        "min_cite_count": 0,
-        # 是否允许 LLM 提取没有显式 arXiv ID 的引用标题再去搜索
+        # 是否允许 LLM 提取没有标题的引用（仅 regex 后端、且引用无标题时才需要）
         "use_llm_title": True,
-        # 每篇 seed 论文最多进行 LLM+arXiv 搜索的次数上限（防止耗时过长）
+        # 每篇 seed 论文最多进行 LLM/arXiv/CrossRef 标题搜索的次数上限
         "max_llm_refs": 15,
+    },
+    "findpapers": {
+        # 是否启用 findpapers 多源学术搜索引擎
+        # 启用后替代 Semantic Scholar 进行相关论文搜索和 PDF 下载
+        "enabled": False,
+        # 启用的数据库列表（免费数据库默认开启，需 API key 的需额外配置）
+        # 可选搜索库：arxiv, openalex, pubmed, semantic_scholar, ieee, scopus, wos
+        # 注意：crossref 仅用于数据丰富（enrichment），不可作为搜索库
+        "databases": ["arxiv", "openalex", "pubmed", "semantic_scholar"],
+        # 搜索结果数量上限
+        "max_results": 10,
     },
 }
 
@@ -164,6 +178,12 @@ def get_arxiv_expand_config() -> dict:
     """获取 arXiv 引用列表扩展配置"""
     saved = load_config().get("arxiv_expand", {})
     return {**DEFAULT_CONFIG["arxiv_expand"], **saved}
+
+
+def get_findpapers_config() -> dict:
+    """获取 findpapers 多源搜索配置"""
+    saved = load_config().get("findpapers", {})
+    return {**DEFAULT_CONFIG["findpapers"], **saved}
 
 
 def get_reranker_config() -> dict:

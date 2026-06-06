@@ -185,9 +185,14 @@ interface SimilarityConfig {
 interface ArxivExpandConfig {
   enabled: boolean
   top_k: number
-  min_cite_count: number
   use_llm_title: boolean
   max_llm_refs: number
+}
+
+interface FindpapersConfig {
+  enabled: boolean
+  databases: string[]
+  max_results: number
 }
 
 interface AppConfig {
@@ -199,6 +204,7 @@ interface AppConfig {
   reranker: RerankerConfig
   similarity: SimilarityConfig
   arxiv_expand: ArxivExpandConfig
+  findpapers: FindpapersConfig
 }
 
 
@@ -258,9 +264,13 @@ const DEFAULT_CONFIG: AppConfig = {
   arxiv_expand: {
     enabled: true,
     top_k: 5,
-    min_cite_count: 0,
     use_llm_title: true,
     max_llm_refs: 15,
+  },
+  findpapers: {
+    enabled: false,
+    databases: ['arxiv', 'openalex', 'pubmed', 'semantic_scholar'],
+    max_results: 10,
   },
 }
 
@@ -681,6 +691,7 @@ export function SettingsPage() {
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
         similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
         arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
+        findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -1158,18 +1169,7 @@ export function SettingsPage() {
                   onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, top_k: Number(e.target.value) || 5 } }))}
                   className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
                 />
-                <p className="text-[10px] text-gray-600 mt-1">从找到的候选中取引用数前 K 篇</p>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">最低引用数（min_cite_count）</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={config.arxiv_expand.min_cite_count}
-                  onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, min_cite_count: Number(e.target.value) || 0 } }))}
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                <p className="text-[10px] text-gray-600 mt-1">引用数 ≥ 此值也下载（0 = 不限，仅看 Top-K）</p>
+                <p className="text-[10px] text-gray-600 mt-1">从候选论文中取前 K 篇（引用列表越靠前越重要）</p>
               </div>
             </div>
 
@@ -1202,6 +1202,78 @@ export function SettingsPage() {
                   </p>
                 </div>
               )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* findpapers 多源学术搜索 */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-100">findpapers 多源搜索</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              启用后使用 findpapers 库（arXiv、CrossRef、OpenAlex、PubMed 等 8 源并行搜索 + 自动去重）
+              替代 Semantic Scholar 进行相关论文推荐和 PDF 下载。
+              需要 <code className="px-1 rounded bg-gray-800">pip install findpapers</code>。
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+            <input
+              type="checkbox"
+              checked={config.findpapers.enabled}
+              onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, enabled: e.target.checked } }))}
+              className="accent-blue-500"
+            />
+            启用
+          </label>
+        </div>
+
+        {config.findpapers.enabled && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">启用的数据库</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'arxiv', label: 'arXiv', free: true },
+                  { key: 'openalex', label: 'OpenAlex', free: true },
+                  { key: 'pubmed', label: 'PubMed', free: true },
+                  { key: 'semantic_scholar', label: 'Semantic Scholar', free: true },
+                  { key: 'ieee', label: 'IEEE Xplore', free: false },
+                  { key: 'scopus', label: 'Scopus', free: false },
+                  { key: 'wos', label: 'Web of Science', free: false },
+                ].map(db => (
+                  <label key={db.key} className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.findpapers.databases.includes(db.key)}
+                      onChange={e => {
+                        const dbs = e.target.checked
+                          ? [...config.findpapers.databases, db.key]
+                          : config.findpapers.databases.filter(d => d !== db.key)
+                        setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, databases: dbs } }))
+                      }}
+                      className="accent-blue-500"
+                    />
+                    {db.label}
+                    {!db.free && <span className="text-[10px] text-amber-500">(需 key)</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">搜索结果数量上限</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={config.findpapers.max_results}
+                  onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, max_results: Number(e.target.value) || 10 } }))}
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
             </div>
           </>
         )}

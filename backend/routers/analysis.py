@@ -86,9 +86,14 @@ class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
     enabled: bool = True
     top_k: int = 5
-    min_cite_count: int = 0
     use_llm_title: bool = True
     max_llm_refs: int = 15
+
+class FindpapersConfig(BaseModel):
+    """findpapers 多源学术搜索配置。"""
+    enabled: bool = False
+    databases: list[str] = ["arxiv", "openalex", "pubmed", "semantic_scholar"]
+    max_results: int = 10
 
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
@@ -99,6 +104,7 @@ class AppConfig(BaseModel):
     reranker: RerankerConfig = RerankerConfig()
     similarity: SimilarityConfig = SimilarityConfig()
     arxiv_expand: ArxivExpandConfig = ArxivExpandConfig()
+    findpapers: FindpapersConfig = FindpapersConfig()
 
 
 @router.get("/config", response_model=AppConfig)
@@ -107,6 +113,7 @@ async def get_config():
     from ..services.ai_config import load_config
     config = load_config()
     _AE_FIELDS = set(ArxivExpandConfig.model_fields.keys())
+    _FP_FIELDS = set(FindpapersConfig.model_fields.keys())
     return AppConfig(
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
@@ -116,6 +123,7 @@ async def get_config():
         reranker=RerankerConfig(**config.get("reranker", {})),
         similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
+        findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
     )
 
 
@@ -144,6 +152,7 @@ async def update_config(req: AppConfig):
         "reranker": req.reranker.model_dump(),
         "similarity": sim,
         "arxiv_expand": req.arxiv_expand.model_dump(),
+        "findpapers": req.findpapers.model_dump(),
     }
     save_config(config)
     return {"message": "配置已保存"}
@@ -340,6 +349,255 @@ async def text_action(req: TextActionRequest):
 
 
 # ============================================================
+# Pydantic models for import endpoint (defined early, used later)
+# ============================================================
+class ImportPaperItem(BaseModel):
+    title: str
+    doi: str = ""
+    url: str = ""
+
+
+class ImportRelatedPapersRequest(BaseModel):
+    workspace_id: int
+    papers: list[ImportPaperItem]
+
+
+# ============================================================
+# POST /api/analysis/import-related-papers
+# ============================================================
+@router.post("/import-related-papers")
+async def import_related_papers(req: ImportRelatedPapersRequest):
+    """批量导入相关论文到工作区。
+
+    对每篇论文：
+    1. 按标题查重本地论文库
+    2. 若已存在 → 直接关联到工作区
+    3. 若不存在 → 通过 arXiv（优先）/ S2（备选）解析 PDF URL → 下载 → 创建记录 → 关联
+    每篇下载之间设置 3 秒延迟以符合 arXiv 访问规范。
+    """
+    import os
+    from ..models.paper import Paper
+    from ..models.workspace import Workspace, WorkspacePaper
+    from ..services.deep_research.pdf_downloader import download_pdf
+    from sqlmodel import select
+
+    engine = _get_engine()
+    results = []
+
+    # 验证工作区存在
+    with Session(engine) as session:
+        ws = session.get(Workspace, req.workspace_id)
+        if not ws:
+            raise HTTPException(status_code=404, detail="工作区不存在")
+
+    for i, paper_item in enumerate(req.papers):
+        title = paper_item.title.strip()
+        if not title:
+            results.append({"title": title, "status": "failed", "message": "标题为空"})
+            continue
+
+        # 延迟：第一篇不等待，后续每篇等待 3 秒（arXiv ToS 要求 ≥ 3 秒）
+        if i > 0:
+            await asyncio.sleep(3.0)
+
+        # 1) 按标题精确查重
+        with Session(engine, expire_on_commit=False) as session:
+            existing = session.exec(
+                select(Paper).where(Paper.title == title)
+            ).first()
+
+            if existing:
+                # 已存在 → 关联到工作区（不重复添加）
+                wp = session.exec(
+                    select(WorkspacePaper)
+                    .where(WorkspacePaper.workspace_id == req.workspace_id)
+                    .where(WorkspacePaper.paper_id == existing.id)
+                ).first()
+                if not wp:
+                    session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=existing.id))
+                    session.commit()
+                results.append({
+                    "title": title,
+                    "status": "local",
+                    "paper_id": existing.id,
+                    "message": "从本地论文库导入",
+                })
+                continue
+
+        # 2) 尝试获取 PDF URL
+        pdf_url = await _resolve_pdf_url(paper_item)
+
+        if not pdf_url:
+            results.append({
+                "title": title,
+                "status": "failed",
+                "message": "未找到可下载的 PDF",
+            })
+            continue
+
+        # 3) 下载 PDF
+        local_path = await download_pdf(pdf_url)
+        if not local_path:
+            results.append({
+                "title": title,
+                "status": "failed",
+                "message": "PDF 下载失败",
+            })
+            continue
+
+        # 4) 创建 Paper 记录并关联到工作区
+        file_size = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+
+        with Session(engine, expire_on_commit=False) as session:
+            # 再次查重（防止并发导入重复）
+            dup = session.exec(
+                select(Paper).where(Paper.title == title)
+            ).first()
+            if dup:
+                wp = session.exec(
+                    select(WorkspacePaper)
+                    .where(WorkspacePaper.workspace_id == req.workspace_id)
+                    .where(WorkspacePaper.paper_id == dup.id)
+                ).first()
+                if not wp:
+                    session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=dup.id))
+                    session.commit()
+                results.append({
+                    "title": title,
+                    "status": "local",
+                    "paper_id": dup.id,
+                    "message": "从本地论文库导入（并发去重）",
+                })
+                continue
+
+            ext_id = ""
+            if paper_item.doi:
+                ext_id = f"DOI:{paper_item.doi}"
+
+            p = Paper(
+                filename=f"{title[:60]}.pdf",
+                pdf_path=local_path,
+                file_size=file_size,
+                title=title,
+                status="pending",
+                source="uploaded",
+                level=1,
+                external_id=ext_id or None,
+            )
+            session.add(p)
+            session.commit()
+            session.refresh(p)
+
+            session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=p.id))
+            session.commit()
+
+        results.append({
+            "title": title,
+            "status": "downloaded",
+            "paper_id": p.id,
+            "message": "已下载并导入",
+        })
+
+    return {"results": results}
+
+
+async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
+    """解析论文的可下载 PDF URL。
+
+    当 findpapers 启用时，优先使用 findpapers 多源搜索（8 库并行 + 三层下载回退）。
+    否则走默认链：arXiv → OpenAlex → Semantic Scholar。
+    """
+    title = paper_item.title.strip()
+    if not title:
+        return None
+
+    # ---- findpapers 优先（如已启用）----
+    try:
+        from ..services.ai_config import get_findpapers_config
+        fp_cfg = get_findpapers_config()
+        if fp_cfg.get("enabled"):
+            from ..services.findpapers_service import resolve_pdf_url
+            url = await resolve_pdf_url(title, fp_cfg)
+            if url:
+                return url
+            # findpapers 没找到，继续走下面的默认链
+    except Exception:
+        pass
+
+    # ---- 1. arXiv 精确标题搜索 ----
+    try:
+        from ..services.deep_research.arxiv_client import search_by_title, ARXIV_PDF_BASE
+        result = await search_by_title(title)
+        if result and result.get("pdf_url"):
+            return result["pdf_url"]
+    except Exception:
+        pass
+
+    # ---- 2. OpenAlex 模糊搜索（可解析出 arXiv ID / PDF URL）----
+    try:
+        from ..services.deep_research.providers.openalex import (
+            OpenAlexProvider, _extract_arxiv, _extract_pdf,
+        )
+        oa = OpenAlexProvider()
+        try:
+            data = await oa._get("/works", {
+                "search": title,
+                "per-page": 3,
+                "select": "id,title,doi,ids,open_access,primary_location,locations",
+            })
+            for work in (data.get("results") or []):
+                work_title = (work.get("title") or "").strip().lower()
+                # 模糊匹配：标题的前 40 字符相同即可
+                if work_title[:40] == title.lower()[:40]:
+                    # 优先拿 arXiv ID → 构造 arXiv PDF 链接
+                    arxiv_id = _extract_arxiv(work)
+                    if arxiv_id:
+                        return ARXIV_PDF_BASE.format(arxiv_id)
+                    # 否则用 OpenAlex 提供的 PDF URL
+                    pdf = _extract_pdf(work)
+                    if pdf:
+                        return pdf
+        finally:
+            await oa.aclose()
+    except Exception:
+        pass
+
+    # ---- 3. Semantic Scholar 最后备选 ----
+    try:
+        from ..services.semantic_scholar import _rate_limited_get, S2_BASE
+    except Exception:
+        return None
+
+    if paper_item.doi:
+        try:
+            data = await _rate_limited_get(
+                f"{S2_BASE}/paper/DOI:{paper_item.doi}",
+                params={"fields": "openAccessPdf,url"},
+            )
+            oa_pdf = data.get("openAccessPdf") or {}
+            if oa_pdf.get("url"):
+                return oa_pdf["url"]
+        except Exception:
+            pass
+
+    try:
+        data = await _rate_limited_get(
+            f"{S2_BASE}/paper/search",
+            params={"query": title, "fields": "openAccessPdf,title", "limit": 3},
+        )
+        for hit in data.get("data") or []:
+            hit_title = (hit.get("title") or "").strip().lower()
+            if hit_title == title.lower():
+                oa_pdf = hit.get("openAccessPdf") or {}
+                if oa_pdf.get("url"):
+                    return oa_pdf["url"]
+    except Exception:
+        pass
+
+    return None
+
+
+# ============================================================
 # GET /api/analysis/{paper_id}
 # ============================================================
 @router.get("/{paper_id}", response_model=AnalysisResponse)
@@ -503,7 +761,7 @@ async def stream_analysis(paper_id: int):
                     else:
                         result[event.field_name] = event.data.get("value")
 
-            # 搜索相关论文（Semantic Scholar）
+            # 搜索相关论文（findpapers 或 Semantic Scholar）
             try:
                 paper_title = result.get("title", "")
                 if paper_title:
@@ -511,8 +769,15 @@ async def stream_analysis(paper_id: int):
                         event="status",
                         data={"status": "analyzing", "message": "正在搜索相关论文..."},
                     ))
-                    from ..services.semantic_scholar import search_related_papers, generate_relevance_descriptions
-                    related = await search_related_papers(paper_title)
+                    from ..services.ai_config import get_findpapers_config as _get_fp
+                    from ..services.semantic_scholar import generate_relevance_descriptions
+                    _fp = _get_fp()
+                    if _fp.get("enabled"):
+                        from ..services.findpapers_service import search_related_papers as _fp_search
+                        related = await _fp_search(paper_title, _fp)
+                    else:
+                        from ..services.semantic_scholar import search_related_papers
+                        related = await search_related_papers(paper_title)
                     if related:
                         related = await generate_relevance_descriptions(
                             paper_title,
@@ -633,7 +898,7 @@ async def reparse_paper(paper_id: int):
 # ============================================================
 @router.post("/{paper_id}/related-papers")
 async def refresh_related_papers(paper_id: int):
-    """刷新相关论文（通过 Semantic Scholar 搜索）"""
+    """刷新相关论文（根据设置使用 findpapers 或 Semantic Scholar）"""
     engine = _get_engine()
 
     # 获取已有分析结果
@@ -647,14 +912,24 @@ async def refresh_related_papers(paper_id: int):
     if not paper_title:
         raise HTTPException(status_code=400, detail="论文标题为空，无法搜索")
 
-    from ..services.ai_config import get_analysis_config
-    from ..services.semantic_scholar import search_related_papers, generate_relevance_descriptions
+    from ..services.ai_config import get_analysis_config, get_findpapers_config
 
     ai_cfg = get_analysis_config()
+    fp_cfg = get_findpapers_config()
 
     try:
-        related = await search_related_papers(paper_title)
+        if fp_cfg.get("enabled"):
+            # findpapers 多源搜索
+            from ..services.findpapers_service import search_related_papers as fp_search
+            related = await fp_search(paper_title, fp_cfg)
+            logger.info(f"findpapers search returned {len(related)} papers")
+        else:
+            # 原有 Semantic Scholar 搜索
+            from ..services.semantic_scholar import search_related_papers
+            related = await search_related_papers(paper_title)
+
         if related:
+            from ..services.semantic_scholar import generate_relevance_descriptions
             related = await generate_relevance_descriptions(
                 paper_title,
                 analysis.get("one_sentence", ""),

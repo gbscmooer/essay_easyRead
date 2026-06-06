@@ -98,7 +98,7 @@ async def run_pipeline(run_id: int):
                     await emit("stage_start", stage="expand_arxiv")
                     l1_seeds = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
                     logger.info(f"arxiv_expand: l1_seeds={len(l1_seeds)}")
-                    arxiv_papers = await stage_expand_arxiv(ws_id, l1_seeds, emit)
+                    arxiv_papers = await stage_expand_arxiv(ws_id, l1_seeds, emit, run_params=params)
                     fresh_arxiv = [p for p in arxiv_papers if p.id not in seen_ids]
                     seen_ids.update(p.id for p in fresh_arxiv)
                     all_expanded.extend(fresh_arxiv)

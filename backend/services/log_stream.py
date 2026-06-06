@@ -61,9 +61,13 @@ def setup_log_streaming():
         logger = logging.getLogger(logger_name)
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
+        # 阻止向 root 传播，避免日志被 root handler 再次输出（重叠问题）
+        logger.propagate = False
 
-    # 确保 uvicorn access log 启用
-    logging.getLogger("uvicorn.access").propagate = True
+    # 降低 httpx / httpcore 日志级别：屏蔽 routine HTTP 请求 INFO 日志，
+    # 只保留 WARNING 及以上（如连接失败等），消除 429 时的 httpx + app 双重输出
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 async def log_event_generator() -> AsyncGenerator[str, None]:

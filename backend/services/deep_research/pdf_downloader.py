@@ -24,10 +24,19 @@ async def download_pdf(url: str, timeout: float = 30.0) -> Optional[str]:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             r = await client.get(url)
             r.raise_for_status()
-            if not r.headers.get("content-type", "").lower().startswith(("application/pdf", "application/octet-stream")):
-                logger.warning(f"Non-PDF content from {url}")
+            content = r.content
+            ctype = r.headers.get("content-type", "").lower()
+            is_pdf_ctype = ctype.startswith(("application/pdf", "application/octet-stream"))
+            # 兼容 content-type 不规范的服务器：以 %PDF 魔数兜底校验
+            is_pdf_magic = content[:5].startswith(b"%PDF")
+            if not is_pdf_ctype and not is_pdf_magic:
+                # 多为 DOI/出版商 HTML 着陆页，拒绝写盘以免污染论文库
+                logger.warning(
+                    f"Rejected non-PDF content from {url} (content-type={ctype!r})"
+                )
+                return None
             with open(path, "wb") as f:
-                f.write(r.content)
+                f.write(content)
         return path
     except Exception as e:
         logger.warning(f"Download failed for {url}: {e}")

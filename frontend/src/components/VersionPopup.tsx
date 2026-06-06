@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.5.5'
+const APP_VERSION = '1.6.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-06',
+  date: '2026-06-07',
   changes: [
-    '论文库新增「深度研究发现的论文」专栏，展示联网扩展下载的论文，默认折叠',
-    '首页及主论文库默认只显示用户上传的论文，扩展论文不再混入',
-    '专栏每行提供「加入论文库」按钮，一键将扩展论文移入主库并在首页显示',
-    '相似度阈值默认改为 0.9，可在设置持久化，每次打开研究面板自动加载',
+    '深度研究联网扩展改用 GROBID 结构化解析参考文献作为默认后端，下载更准确可控',
+    '按正文实际引用频次排序候选论文（频次越高越核心），找不到参考文献列表则返回空',
+    'arXiv ID / DOI / CrossRef 三路定位下载，无需任何 API key',
+    'start.sh 一键启动前后端 + GROBID 容器，Ctrl+C 统一关闭（不影响 Docker 本身）',
+    '设置页新增引用解析后端配置（GROBID / 正则）',
   ],
 }
 
