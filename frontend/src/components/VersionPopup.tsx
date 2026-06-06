@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.5.1'
+const APP_VERSION = '1.5.2'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
@@ -8,7 +8,7 @@ const CURRENT_RELEASE = {
   changes: [
     '修复 arXiv 引用 ID 提取正则：新增匹配 CoRR abs/XXXX.YYYYY 和 arxiv.org/abs/URL 格式',
     '修复 arXiv 扩展阶段无日志输出问题：pipeline 加诊断日志 + 独立 try/except 防止级联失败',
-    'expand_arxiv 开始前增加配置日志（enabled/top_k/min_cite/seeds 数量）',
+    'LLM 标题提取从逐条调用改为批处理：N 条引用一次 LLM 调用返回 JSON 数组，大幅降低延迟',
     'S2 引用数查询上限限制为 max(top_k×4, 20)，防止大量引用时 API 调用爆炸',
   ],
 }

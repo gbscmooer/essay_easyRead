@@ -14,6 +14,7 @@ arXiv 规范：
 - 排名在 top_k 之内（按引用数降序）
 """
 import asyncio
+import json
 import logging
 from typing import Optional
 
@@ -43,11 +44,27 @@ def _get_engine():
     return _engine
 
 
-async def _llm_extract_title(ref_text: str, cfg: dict) -> Optional[str]:
-    """调用 LLM 从引用文本中提取精确论文标题（轻量调用，max_tokens=80）。"""
+async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optional[str]]:
+    """一次 LLM 调用批量提取多条引用的英文标题。
+
+    返回与 refs 等长的列表，无法识别的条目为 None。
+    """
     api_key = cfg.get("api_key", "")
-    if not api_key:
-        return None
+    if not api_key or not refs:
+        return [None] * len(refs)
+
+    refs_text = "\n".join(
+        f"[{i+1}] {r['raw_text'][:300]}"
+        for i, r in enumerate(refs)
+    )
+    prompt = (
+        f"以下是 {len(refs)} 条学术引用文献，请提取每条的英文论文标题。\n"
+        f"只输出 JSON 数组，长度必须为 {len(refs)}，按序与每条引用对应。\n"
+        f"无法识别则对应位置填空字符串。不要输出任何其他内容。\n\n"
+        f"{refs_text}\n\n"
+        f'格式示例：["Title A", "Title B", "", "Title D"]'
+    )
+
     try:
         from anthropic import AsyncAnthropic
         client = AsyncAnthropic(
@@ -57,21 +74,42 @@ async def _llm_extract_title(ref_text: str, cfg: dict) -> Optional[str]:
         try:
             msg = await client.messages.create(
                 model=cfg.get("model", "claude-haiku-4-5-20251001"),
-                max_tokens=80,
+                max_tokens=1024,
                 temperature=0,
-                system="只输出英文论文标题，不含引号，不含其他任何内容。若无法识别则输出空字符串。",
-                messages=[{
-                    "role": "user",
-                    "content": f"提取以下引用文献的英文论文标题：\n{ref_text}",
-                }],
+                system="只输出 JSON 数组，不含任何其他文字。",
+                messages=[{"role": "user", "content": prompt}],
             )
         finally:
             await client.close()
-        title = msg.content[0].text.strip().strip('"\'')
-        return title if len(title) > 5 else None
+
+        content = msg.content[0].text.strip()
+        if "[" in content:
+            start = content.find("[")
+            end = content.rfind("]") + 1
+            if end > start:
+                content = content[start:end]
+
+        titles = json.loads(content)
+        if not isinstance(titles, list):
+            raise ValueError("non-list response")
+
+        result: list[Optional[str]] = []
+        for t in titles[:len(refs)]:
+            if isinstance(t, str):
+                clean = t.strip().strip('"\'')
+                result.append(clean if len(clean) > 5 else None)
+            else:
+                result.append(None)
+        while len(result) < len(refs):
+            result.append(None)
+
+        found = sum(1 for t in result if t)
+        logger.info(f"LLM batch title extraction: {found}/{len(refs)} titles identified")
+        return result
+
     except Exception as e:
-        logger.warning(f"LLM title extraction failed: {e}")
-        return None
+        logger.warning(f"LLM batch title extraction failed: {e}")
+        return [None] * len(refs)
 
 
 async def stage_expand_arxiv(
@@ -122,34 +160,44 @@ async def stage_expand_arxiv(
 
         logger.info(f"arxiv_expand[seed={seed.id}]: parsed {len(refs)} reference blocks")
 
-        # --- 解析 arXiv ID ---
-        candidates: list[dict] = []  # {arxiv_id, pdf_url, title, year}
-        llm_calls = 0
+        # --- 解析 arXiv ID：正则直接命中 + LLM 批处理兜底 ---
+        candidates: list[dict] = []
+        llm_queue: list[dict] = []
+        direct_count = 0
 
         for ref in refs:
-            arxiv_id: Optional[str] = ref.get("arxiv_id")
-
-            if arxiv_id:
-                # 正则已找到 arXiv ID，直接构造 PDF 链接（不调 arXiv API）
+            if ref.get("arxiv_id"):
                 candidates.append({
-                    "arxiv_id": arxiv_id,
-                    "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-                    "title": ref["raw_text"][:120],  # 解析后会被覆盖
+                    "arxiv_id": ref["arxiv_id"],
+                    "pdf_url": f"https://arxiv.org/pdf/{ref['arxiv_id']}.pdf",
+                    "title": ref["raw_text"][:120],
                     "year": None,
                 })
-            elif use_llm and llm_calls < max_llm_refs:
-                # 没有 arXiv ID，尝试 LLM 提取标题 → arXiv 搜索
-                title = await _llm_extract_title(ref["raw_text"], analysis_cfg)
-                llm_calls += 1
-                if title:
-                    result = await search_by_title(title)  # 含 3 秒限速
-                    if result and result.get("arxiv_id"):
-                        candidates.append({
-                            "arxiv_id": result["arxiv_id"],
-                            "pdf_url": result.get("pdf_url") or f"https://arxiv.org/pdf/{result['arxiv_id']}.pdf",
-                            "title": result.get("title") or title,
-                            "year": result.get("year"),
-                        })
+                direct_count += 1
+            else:
+                llm_queue.append(ref)
+
+        # 一次 LLM 调用批量提取所有无 arXiv ID 引用的标题
+        llm_found = 0
+        if use_llm and llm_queue:
+            batch = llm_queue[:max_llm_refs]
+            logger.info(
+                f"arxiv_expand[seed={seed.id}]: sending {len(batch)} refs to LLM "
+                f"(regex_direct={direct_count}, no_id={len(llm_queue)})"
+            )
+            titles = await _llm_batch_extract_titles(batch, analysis_cfg)
+            for ref, title in zip(batch, titles):
+                if not title:
+                    continue
+                result = await search_by_title(title)  # arXiv API，含 3 秒限速
+                if result and result.get("arxiv_id"):
+                    candidates.append({
+                        "arxiv_id": result["arxiv_id"],
+                        "pdf_url": result.get("pdf_url") or f"https://arxiv.org/pdf/{result['arxiv_id']}.pdf",
+                        "title": result.get("title") or title,
+                        "year": result.get("year"),
+                    })
+                    llm_found += 1
 
         # 去重（同一 arXiv ID 可能从多个 ref 中被提取）
         seen_axids: set[str] = set()
@@ -162,7 +210,7 @@ async def stage_expand_arxiv(
 
         logger.info(
             f"arxiv_expand[seed={seed.id}]: {len(candidates)} unique arXiv candidates "
-            f"(llm_calls={llm_calls})"
+            f"(direct={direct_count}, via_llm={llm_found})"
         )
         if not candidates:
             continue
