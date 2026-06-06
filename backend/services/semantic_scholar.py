@@ -27,30 +27,50 @@ _rate_lock = asyncio.Lock()
 # 共享 httpx 客户端（避免每次请求创建新连接）
 _http_client: httpx.AsyncClient | None = None
 
+# 有 API key 时 S2 给专属 1 RPS；无 key 走共享池，保守用 1.5s
+_RATE_WITH_KEY = 1.1    # seconds
+_RATE_NO_KEY   = 1.5    # seconds
+
 
 def _get_http_client() -> httpx.AsyncClient:
-    """获取共享的 httpx 异步客户端"""
     global _http_client
     if _http_client is None:
         _http_client = httpx.AsyncClient(timeout=30.0)
     return _http_client
 
 
+def _s2_api_key() -> str:
+    """从 ai_config 读取 Semantic Scholar API key（可能为空）。"""
+    try:
+        from .ai_config import get_research_config
+        return get_research_config().get("api_key", "") or ""
+    except Exception:
+        return ""
+
+
 async def _rate_limited_get(url: str, params: dict, timeout: float = 15.0) -> dict:
-    """带速率限制和重试的 GET 请求"""
+    """带速率限制和重试的 GET 请求。
+
+    有 API key 时通过 x-api-key header 发送，享受专属 1 RPS 配额；
+    无 key 时间隔 1.5s，走共享池保守请求。
+    """
     global _last_request_time
     client = _get_http_client()
     response = None
+
+    api_key = _s2_api_key()
+    min_interval = _RATE_WITH_KEY if api_key else _RATE_NO_KEY
+    headers = {"x-api-key": api_key} if api_key else {}
 
     for attempt in range(3):
         async with _rate_lock:
             now = time.monotonic()
             elapsed = now - _last_request_time
-            if elapsed < 1.1:
-                await asyncio.sleep(1.1 - elapsed)
+            if elapsed < min_interval:
+                await asyncio.sleep(min_interval - elapsed)
             _last_request_time = time.monotonic()
 
-        response = await client.get(url, params=params)
+        response = await client.get(url, params=params, headers=headers)
         if response.status_code == 429:
             wait = 3.0 * (attempt + 1)
             logger.warning(f"Semantic Scholar 429, retry {attempt+1}/3 in {wait}s...")
