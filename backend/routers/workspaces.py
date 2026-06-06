@@ -124,6 +124,7 @@ async def get_workspace(workspace_id: int):
                 "code_status": paper.code_status,
                 "source": getattr(paper, "source", "uploaded"),
                 "level": getattr(paper, "level", 1),
+                "parent_paper_id": getattr(paper, "parent_paper_id", None),
                 "created_at": paper.created_at.isoformat() if paper.created_at else None,
                 "added_at": added_at.isoformat() if added_at else None,
             })
@@ -206,6 +207,40 @@ async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest):
         session.add(ws)
         session.commit()
         return {"message": "已添加"}
+
+
+# ============================================================
+# POST /api/workspaces/{workspace_id}/papers/{paper_id}/promote
+# ============================================================
+@router.post("/{workspace_id}/papers/{paper_id}/promote")
+async def promote_paper(workspace_id: int, paper_id: int):
+    """把"深度研究发现"中的论文（L2+）提升为工作区正式论文（L1）。
+
+    - level 设为 1
+    - source 改为 'promoted'（保留 parent_paper_id 作为发现来源溯源）
+    - 仍保留 status（pending / indexed / done）不变
+    """
+    engine = _get_engine()
+    with Session(engine) as session:
+        wp = session.exec(
+            select(WorkspacePaper)
+            .where(WorkspacePaper.workspace_id == workspace_id)
+            .where(WorkspacePaper.paper_id == paper_id)
+        ).first()
+        if not wp:
+            raise HTTPException(status_code=404, detail="论文不在该工作区中")
+        paper = session.get(Paper, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail="论文不存在")
+        paper.level = 1
+        paper.source = "promoted"
+        session.add(paper)
+        ws = session.get(Workspace, workspace_id)
+        if ws:
+            ws.updated_at = datetime.now(timezone.utc)
+            session.add(ws)
+        session.commit()
+        return {"message": "已移入工作区", "paper_id": paper_id}
 
 
 # ============================================================

@@ -1,21 +1,18 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.3.0'
+const APP_VERSION = '1.3.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '深度研究与论文分析解耦：研究流程仅走 embedding，不再调用 LLM',
-    '新增 Reranker 重排序模型（默认硅基流动 BAAI/bge-reranker-v2-m3）',
-    '论文分级体系：手动 L1 / 联网扩展 L2+，支持自选 seed 和深度 deep 跳数',
-    '研究数据源 Provider 抽象：OpenAlex / Semantic Scholar / 本地多源可切换',
-    '工作区论文支持 pending 状态参与研究（仅 bge 索引，不需 LLM 解析）',
-    '新增通用 Tooltip 组件（1.5s 悬停说明），覆盖研究页所有非显性按钮',
-    '知识图谱画板支持缩放按钮和触控板双指缩放，修复尺寸为 0 不显示问题',
-    '返回按钮上下文感知：从论文库进入显示"返回论文库"，从工作区进入显示"返回工作区"',
-    '修复 SSE envelope 序列化错误导致前端 stats 为 undefined',
-    '修复 expand 阶段 DetachedInstanceError 和 numpy 数组真值判断异常',
+    '工作区新增"通过深度研究搜索到的相关论文"独立板块，与本地论文区分展示',
+    '新增「移入工作区」按钮：把研究发现的 L2 论文升级为正式 L1 seed',
+    '修复 expand 阶段已存在论文不进图谱的 bug，现在引用论文会回灌到节点池',
+    '修复历史数据 source=expanded 的论文 level=1 的错误（启动时自动回填为 2）',
+    'OpenAlex 扩展候选量从 top_k×3 提升到 top_k×8，缓解付费墙过滤导致下载数过少',
+    '深度研究 pipeline 自动把工作区已有的 L2+ 论文一并纳入图谱（无需勾选）',
+    'ControlPanel seed 选择改为"seed N/M + 发现 K"展示，更清晰',
   ],
 }
 

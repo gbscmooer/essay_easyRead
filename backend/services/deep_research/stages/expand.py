@@ -43,29 +43,31 @@ def _get_engine():
 SEM = asyncio.Semaphore(3)  # 并发下载上限
 
 
-async def _download_and_register(ref: dict, parent: Paper, ws_id: int, next_level: int) -> Paper | None:
-    if not ref.get("pdf_url"):
-        return None
-    async with SEM:
-        local = await download_pdf(ref["pdf_url"])
-    if not local:
-        return None
+async def _download_and_register(ref: dict, parent: Paper, ws_id: int, next_level: int) -> tuple[Paper | None, bool]:
+    """返回 (paper, is_new)。is_new=False 表示之前就有，但仍需进入图谱。"""
+    ext = ref.get("ext_id") or ref.get("doi") or ref.get("arxiv_id")
 
-    with Session(_get_engine(), expire_on_commit=False) as s:
-        # 去重：external_id / DOI 已存在则跳过
-        ext = ref.get("ext_id") or ref.get("doi") or ref.get("arxiv_id")
-        if ext:
+    # 先查去重：已经存在过的不重复下载（也不重复扣下载配额）
+    if ext:
+        with Session(_get_engine(), expire_on_commit=False) as s:
             existing = s.exec(select(Paper).where(Paper.external_id == ext)).first()
             if existing:
-                # 已存在：只确保挂在该工作区即可
                 wp = s.exec(select(WorkspacePaper)
                             .where(WorkspacePaper.workspace_id == ws_id)
                             .where(WorkspacePaper.paper_id == existing.id)).first()
                 if not wp:
                     s.add(WorkspacePaper(workspace_id=ws_id, paper_id=existing.id))
                     s.commit()
-                return None
+                return existing, False
 
+    if not ref.get("pdf_url"):
+        return None, False
+    async with SEM:
+        local = await download_pdf(ref["pdf_url"])
+    if not local:
+        return None, False
+
+    with Session(_get_engine(), expire_on_commit=False) as s:
         p = Paper(
             filename=f"{(ref.get('title') or 'untitled')[:60]}.pdf",
             pdf_path=local,
@@ -82,7 +84,7 @@ async def _download_and_register(ref: dict, parent: Paper, ws_id: int, next_leve
         s.commit()
         s.add(WorkspacePaper(workspace_id=ws_id, paper_id=p.id))
         s.commit()
-        return p
+        return p, True
 
 
 async def stage_expand(
@@ -120,23 +122,34 @@ async def stage_expand(
         )
         if not ext_paper_id:
             continue
-        refs = await provider.get_paper_references(ext_paper_id, limit=top_k * 3)
+        # 拉更多候选：OpenAlex 只对开放获取论文给出 pdf_url，付费墙占多数，
+        # top_k*3 通常被过滤到不足，把候选放大到 top_k*8 + 兜底 30
+        candidate_limit = max(top_k * 8, 30)
+        refs = await provider.get_paper_references(ext_paper_id, limit=candidate_limit)
+        total_refs = len(refs)
         refs = [r for r in refs if r.get("pdf_url")]
         refs.sort(key=lambda r: r.get("citation_count") or 0, reverse=True)
+        logger.info(
+            f"expand[seed={seed.id}] {total_refs} refs from provider, {len(refs)} with pdf_url"
+        )
 
         added_for_seed = 0
         for ref in refs:
             if added_for_seed >= top_k or expanded_count >= total_limit:
                 break
-            p = await _download_and_register(ref, seed, ws_id, next_level)
-            if p:
-                expanded.append(p)
+            p, is_new = await _download_and_register(ref, seed, ws_id, next_level)
+            if not p:
+                continue
+            # 不管新建还是已存在，都加入图谱节点池
+            expanded.append(p)
+            if is_new:
                 expanded_count += 1
-                added_for_seed += 1
-                await on_paper_added(
-                    "paper_added",
-                    paper_id=p.id, title=p.title, level=p.level,
-                    source_paper_id=seed.id, total_expanded=expanded_count,
-                )
+            added_for_seed += 1
+            await on_paper_added(
+                "paper_added",
+                paper_id=p.id, title=p.title, level=p.level,
+                source_paper_id=seed.id, total_expanded=expanded_count,
+                is_new=is_new,
+            )
 
     return expanded

@@ -65,10 +65,11 @@ async def run_pipeline(run_id: int):
             _set_stage(run_id, "expand")
             await emit("stage_start", stage="expand")
             deep = max(1, int(params.get("deep", 1)))
-            # 多跳扩展：seeds=papers(L1) → L2 → L3 …
-            # 每一跳的 seeds 是上一跳"新下载"的论文，保证只往外走不重复
-            seeds_this_hop = papers
+            # 多跳扩展：seeds=papers 中的 L1 → L2 → L3 …
+            # collect 已经把已有 L2+ 也带进 papers，但扩展第一跳的 seed 必须是 L1
+            seeds_this_hop = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
             all_expanded = []
+            seen_ids = {p.id for p in papers}
             for hop in range(deep):
                 next_level = 2 + hop  # 第 1 跳 → level=2，第 2 跳 → level=3
                 new_papers = await stage_expand(
@@ -77,8 +78,11 @@ async def run_pipeline(run_id: int):
                 )
                 if not new_papers:
                     break
-                all_expanded.extend(new_papers)
-                seeds_this_hop = new_papers
+                # 去重：expand 现在也会回灌"已存在"的引用论文，避免在 papers 里重复
+                fresh = [p for p in new_papers if p.id not in seen_ids]
+                seen_ids.update(p.id for p in fresh)
+                all_expanded.extend(fresh)
+                seeds_this_hop = fresh
             papers = papers + all_expanded
             _set_stage(run_id, "expand", "running", expanded_count=len(all_expanded))
             await emit("stage_done", stage="expand",

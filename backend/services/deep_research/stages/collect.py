@@ -23,24 +23,24 @@ async def stage_collect(ws_id: int, params: dict) -> list[Paper]:
     """收集工作区中可参与研究的论文。
 
     深度研究只用 bge 做 chunk + embed，**不依赖 LLM 分析的 status**。
-    所以只过滤掉真正不能用的：
-    - extracting / analyzing：正在跑别的 pipeline，避免文件占用冲突
-    - failed：跑过但出错，再走可能还是错
+    可用 status：done / pending / indexed。
 
-    可用的：
-    - pending → 仅上传过、没解析过 LLM —— 直接用 PDF 全文切片
-    - done    → LLM 解析完成，chunk 优先用 outline 章节
-    - indexed → 联网扩展下来的，跟 pending 一样只走 PDF 全文
-
-    paper_ids 非空时仅取这些；否则取工作区全部 level=1 论文。
+    返回策略：
+    - 用户在 picker 中勾选的 L1 论文（`paper_ids`）
+    - **加上**工作区内已存在的所有 L2+ 论文（之前研究下载的）
+      这些论文不会再被 expand 重复下载，但要进入图谱和向量检索。
+    - 如果 `paper_ids` 为空，回退为全部 L1 + 全部 L2+。
     """
     pids = params.get("paper_ids")
     with Session(_get_engine(), expire_on_commit=False) as s:
-        stmt = (select(Paper).join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
+        base = (select(Paper).join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
                 .where(WorkspacePaper.workspace_id == ws_id)
                 .where(Paper.status.in_(["done", "indexed", "pending"])))
+
         if pids:
-            stmt = stmt.where(Paper.id.in_(pids))
+            # L1 按 picker 勾选过滤；L2+ 全要
+            picked_l1 = s.exec(base.where(Paper.id.in_(pids)).where(Paper.level == 1)).all()
+            l2_plus = s.exec(base.where(Paper.level >= 2)).all()
+            return list(picked_l1) + list(l2_plus)
         else:
-            stmt = stmt.where(Paper.level == 1)
-        return s.exec(stmt).all()
+            return list(s.exec(base).all())

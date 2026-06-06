@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWorkspace, type WorkspaceDetail } from '@/api/workspaces'
+import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWorkspace, promotePaper, type WorkspaceDetail, type WorkspacePaper } from '@/api/workspaces'
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
 
@@ -74,6 +74,18 @@ export function WorkspaceDetailPage() {
     }
   }
 
+  const handlePromote = async (paperId: number) => {
+    try {
+      await promotePaper(workspaceId, paperId)
+      refresh()
+    } catch {
+      // ignore
+    }
+  }
+
+  const l1Papers = (workspace?.papers ?? []).filter(p => (p.level ?? 1) === 1)
+  const discoveredPapers = (workspace?.papers ?? []).filter(p => (p.level ?? 1) >= 2)
+
   if (loading || !workspace) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -126,7 +138,10 @@ export function WorkspaceDetailPage() {
             </button>
           </div>
         )}
-        <p className="text-sm text-gray-500 mt-1">{workspace.papers.length} 篇论文</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {l1Papers.length} 篇本地论文
+          {discoveredPapers.length > 0 && ` · ${discoveredPapers.length} 篇深度研究发现`}
+        </p>
       </div>
 
       {/* 添加论文 + 深度研究入口 */}
@@ -206,85 +221,155 @@ export function WorkspaceDetailPage() {
         </div>
       )}
 
-      {/* 论文列表 */}
-      {workspace.papers.length === 0 ? (
+      {/* 本地论文 (L1) */}
+      {l1Papers.length === 0 && discoveredPapers.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-gray-500">工作区暂无论文</p>
           <p className="text-xs text-gray-600 mt-1">点击"从论文库添加"将论文加入工作区</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {workspace.papers.map(paper => (
-            <div
-              key={paper.id}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 group transition-colors cursor-pointer"
-              onClick={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = 'var(--border-light)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = ''
-              }}
-            >
-              <div className="flex items-start justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
-                    {paper.title || paper.filename}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1">
-                    {paper.venue && <span className="text-xs text-gray-500">{paper.venue} {paper.year || ''}</span>}
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
-                      paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
-                      paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
-                      'bg-gray-700 text-gray-400'
-                    }`}>
-                      {paper.status === 'done' ? '已解析' :
-                       paper.status === 'indexed' ? '未解析·已索引' :
-                       paper.status === 'failed' ? '失败' : '待解析'}
-                    </span>
-                    {(paper.level ?? 1) > 1 && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded border"
-                        style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-                        title="联网扩展下载的论文（未经 LLM 深度解析）"
-                      >
-                        L{paper.level} · 扩展
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Link
-                      to={`/reader/${paper.id}`}
-                      state={{ from: `/workspace/${workspaceId}` }}
-                      onClick={e => e.stopPropagation()}
-                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      论文分析
-                    </Link>
-                    {paper.code_url && (
-                      <Link
-                        to={`/code/${paper.id}`}
-                        state={{ from: `/workspace/${workspaceId}` }}
-                        onClick={e => e.stopPropagation()}
-                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                      >
-                        源码分析
-                      </Link>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleRemovePaper(paper.id) }}
-                  className="opacity-0 group-hover:opacity-100 ml-3 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all shrink-0"
-                >
-                  移除
-                </button>
+        <>
+          {l1Papers.length > 0 && (
+            <div className="space-y-3">
+              {l1Papers.map(paper => (
+                <PaperCard
+                  key={paper.id}
+                  paper={paper}
+                  workspaceId={workspaceId}
+                  variant="local"
+                  onNavigate={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
+                  onRemove={() => handleRemovePaper(paper.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* 深度研究发现 (L2+) */}
+          {discoveredPapers.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                  通过深度研究搜索到的相关论文
+                </h2>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                  {discoveredPapers.length}
+                </span>
+              </div>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                这些论文已索引、可参与跨论文检索；点击"移入工作区"可将其升级为本地正式论文（参与下一轮研究的 seed）。
+              </p>
+              <div className="space-y-3">
+                {discoveredPapers.map(paper => (
+                  <PaperCard
+                    key={paper.id}
+                    paper={paper}
+                    workspaceId={workspaceId}
+                    variant="discovered"
+                    onNavigate={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
+                    onRemove={() => handleRemovePaper(paper.id)}
+                    onPromote={() => handlePromote(paper.id)}
+                  />
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+
+interface PaperCardProps {
+  paper: WorkspacePaper
+  workspaceId: number
+  variant: 'local' | 'discovered'
+  onNavigate: () => void
+  onRemove: () => void
+  onPromote?: () => void
+}
+
+function PaperCard({ paper, workspaceId, variant, onNavigate, onRemove, onPromote }: PaperCardProps) {
+  const isDiscovered = variant === 'discovered'
+  return (
+    <div
+      className="rounded-lg p-4 group transition-colors cursor-pointer border"
+      style={{
+        backgroundColor: isDiscovered ? 'transparent' : 'var(--bg-surface)',
+        borderColor: isDiscovered ? 'var(--border)' : 'var(--border)',
+        borderStyle: isDiscovered ? 'dashed' : 'solid',
+      }}
+      onClick={onNavigate}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-light)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+    >
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
+            {paper.title || paper.filename}
+          </p>
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
+            {paper.venue && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</span>}
+            <span className={`text-xs px-1.5 py-0.5 rounded ${
+              paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
+              paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
+              paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
+              'bg-gray-700 text-gray-400'
+            }`}>
+              {paper.status === 'done' ? '已解析' :
+               paper.status === 'indexed' ? '未解析·已索引' :
+               paper.status === 'failed' ? '失败' : '待解析'}
+            </span>
+            {isDiscovered && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded border"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                title="联网扩展下载的论文（未经 LLM 深度解析）"
+              >
+                L{paper.level} · 扩展
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <Link
+              to={`/reader/${paper.id}`}
+              state={{ from: `/workspace/${workspaceId}` }}
+              onClick={e => e.stopPropagation()}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              论文分析
+            </Link>
+            {paper.code_url && (
+              <Link
+                to={`/code/${paper.id}`}
+                state={{ from: `/workspace/${workspaceId}` }}
+                onClick={e => e.stopPropagation()}
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                源码分析
+              </Link>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 ml-3 shrink-0">
+          {isDiscovered && onPromote && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPromote() }}
+              className="px-2.5 py-1 text-xs rounded-md border transition-colors"
+              style={{ borderColor: 'var(--accent)', color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }}
+              title="把这篇论文升级为本地正式论文：下一次研究会把它当作 seed 进行扩展"
+            >
+              移入工作区
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemove() }}
+            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all"
+          >
+            移除
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

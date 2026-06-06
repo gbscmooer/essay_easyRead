@@ -18,15 +18,18 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [threshold, setThreshold] = useState(0.78)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
+  const [discoveredCount, setDiscoveredCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [showPicker, setShowPicker] = useState(false)
 
   useEffect(() => {
     getWorkspace(wsId)
       .then(ws => {
-        // 只考虑 level=1（用户手动加的），L2/L3 是研究产物，不参与"选 seed"
+        // 只考虑 level=1（用户手动加的或已"移入工作区"的），L2+ 是研究产物，不参与"选 seed"
         const l1 = ws.papers.filter(p => (p.level ?? 1) === 1)
+        const l2plus = ws.papers.filter(p => (p.level ?? 1) >= 2)
         setPapers(l1)
+        setDiscoveredCount(l2plus.length)
         // 默认勾选所有"可用"的：done / indexed / pending（深度研究只需要 bge 不需要 LLM）
         // 排除 failed 和正在解析中的 (extracting/analyzing)
         const usable = new Set(
@@ -155,7 +158,19 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
         )}
 
         {/* 论文选择按钮 */}
-        <Tooltip content={`展开/折叠论文勾选列表。当前已勾选 ${selectedUsableCount} 篇（工作区共有 ${usableCount} 篇可用于研究）。`}>
+        <Tooltip
+          content={
+            <>
+              展开/折叠 seed 选择列表。当前勾选 {selectedUsableCount} 篇 L1 论文作为研究起点
+              （工作区共 {usableCount} 篇 L1 可用）。
+              {discoveredCount > 0 && (
+                <>
+                  <br />另有 {discoveredCount} 篇"深度研究发现"自动纳入图谱，不需要勾选。
+                </>
+              )}
+            </>
+          }
+        >
           <button
             onClick={() => setShowPicker(v => !v)}
             disabled={disabled}
@@ -166,7 +181,8 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
               backgroundColor: showPicker ? 'var(--accent-subtle)' : 'transparent',
             }}
           >
-            论文 {selectedUsableCount}/{usableCount}
+            seed {selectedUsableCount}/{usableCount}
+            {discoveredCount > 0 && <span className="ml-1 opacity-60">· +{discoveredCount} 发现</span>}
           </button>
         </Tooltip>
 
@@ -216,7 +232,9 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
               color: 'var(--bg-base)',
             }}
           >
-            {disabled ? '运行中...' : `开始研究（${selectedUsableCount} 篇）`}
+            {disabled
+              ? '运行中...'
+              : `开始研究（${selectedUsableCount}${discoveredCount > 0 ? ` + ${discoveredCount}` : ''} 篇）`}
           </button>
         </Tooltip>
       </div>
@@ -226,7 +244,8 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
         <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              勾选要纳入研究的论文（共 {papers.length} 篇 · 可用 {usableCount}）
+              勾选作为研究 seed 的 L1 论文（共 {papers.length} 篇 · 可用 {usableCount}
+              {discoveredCount > 0 && ` · 另有 ${discoveredCount} 篇深度研究发现自动纳入图谱`}）
             </span>
             <div className="flex gap-2">
               <button onClick={selectAll} className="text-xs underline" style={{ color: 'var(--text-secondary)' }}>全选可用</button>

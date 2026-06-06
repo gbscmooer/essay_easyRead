@@ -87,6 +87,18 @@ def _migrate_schema(engine) -> None:
                 except Exception as e:
                     logger.warning(f"Migration failed for {col_name}: {e}")
 
+        # 数据回填：早期 expand 阶段创建的 paper 没有正确写 level
+        # source='expanded' 的论文按定义就是 L2+，level=1 是历史脏数据
+        try:
+            cur = conn.exec_driver_sql(
+                "UPDATE papers SET level = 2 WHERE source = 'expanded' AND (level IS NULL OR level = 1)"
+            )
+            conn.commit()
+            if cur.rowcount:
+                logger.info(f"Migration: backfilled level=2 for {cur.rowcount} expanded papers")
+        except Exception as e:
+            logger.warning(f"Migration backfill expanded.level failed: {e}")
+
 
 def init_db(database_url: str) -> None:
     """

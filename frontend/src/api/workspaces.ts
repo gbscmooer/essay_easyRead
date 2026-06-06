@@ -18,8 +18,9 @@ export interface WorkspacePaper {
   status: string
   code_url: string | null
   code_status: string
-  source?: 'uploaded' | 'expanded'
+  source?: 'uploaded' | 'expanded' | 'promoted'
   level?: number
+  parent_paper_id?: number | null
   created_at: string | null
   added_at: string | null
 }
@@ -65,4 +66,8 @@ export async function addPaperToWorkspace(workspaceId: number, paperId: number):
 
 export async function removePaperFromWorkspace(workspaceId: number, paperId: number): Promise<void> {
   await del(`/workspaces/${workspaceId}/papers/${paperId}`)
+}
+
+export async function promotePaper(workspaceId: number, paperId: number): Promise<void> {
+  await post(`/workspaces/${workspaceId}/papers/${paperId}/promote`, {})
 }
