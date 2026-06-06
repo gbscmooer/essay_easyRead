@@ -340,24 +340,23 @@ def list_papers(
     year: int = None,
     page: int = 1,
     per_page: int = 20,
+    source: str = "uploaded",
 ) -> tuple[list[dict], int]:
     """
     列出论文，支持筛选和分页。
 
     Args:
-        session: 数据库会话
-        search: 搜索关键词（匹配标题）
-        venue: 会议筛选
-        year: 年份筛选
-        page: 页码（从 1 开始）
-        per_page: 每页数量
-
-    Returns:
-        tuple[list[dict], int]: (论文列表, 总数)
+        source: "uploaded"（默认，仅用户上传）| "expanded"（深度研究扩展）| "all"（全部）
     """
     statement = select(Paper)
 
-    # 应用筛选条件
+    # source 过滤
+    if source == "uploaded":
+        statement = statement.where(Paper.source == "uploaded")
+    elif source == "expanded":
+        statement = statement.where(Paper.source == "expanded")
+    # source == "all" 不过滤
+
     if search:
         statement = statement.where(col(Paper.title).contains(search))
     if venue:
@@ -365,11 +364,9 @@ def list_papers(
     if year is not None:
         statement = statement.where(Paper.year == year)
 
-    # 获取总数
     count_statement = select(func.count()).select_from(statement.subquery())
     total = session.exec(count_statement).one()
 
-    # 应用排序和分页
     statement = statement.order_by(Paper.created_at.desc())
     statement = statement.offset((page - 1) * per_page).limit(per_page)
 
@@ -385,6 +382,8 @@ def list_papers(
             "error_message": p.error_message,
             "code_url": p.code_url,
             "code_status": p.code_status,
+            "source": p.source,
+            "level": p.level,
             "created_at": p.created_at,
             "updated_at": p.updated_at,
         }

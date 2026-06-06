@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.5.4'
+const APP_VERSION = '1.5.5'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '相似度阈值默认改为 0.9，并可在设置→深度研究中持久化保存，每次打开控制面板自动加载',
-    '修复 MiMo/ThinkingBlock 兼容：_extract_text() 跳过思维链 block，所有 LLM 响应统一使用',
-    'LLM 标题提取改为批处理：N 条引用一次 LLM 调用返回 JSON 数组，大幅降低延迟',
-    '修复 arXiv 引用 ID 正则：新增 CoRR abs/XXXX.YYYYY 和 arxiv.org/abs/URL 格式匹配',
+    '论文库新增「深度研究发现的论文」专栏，展示联网扩展下载的论文，默认折叠',
+    '首页及主论文库默认只显示用户上传的论文，扩展论文不再混入',
+    '专栏每行提供「加入论文库」按钮，一键将扩展论文移入主库并在首页显示',
+    '相似度阈值默认改为 0.9，可在设置持久化，每次打开研究面板自动加载',
   ],
 }
 

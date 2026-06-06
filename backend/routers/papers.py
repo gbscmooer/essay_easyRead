@@ -109,11 +109,12 @@ async def get_papers_list(
     year: int = Query(None, description="Filter by year"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    source: str = Query("uploaded", description="uploaded | expanded | all"),
 ):
     """获取论文列表，支持筛选和搜索"""
     engine = _get_engine()
     with Session(engine) as session:
-        papers, total = list_papers(session, search, venue, year, page, per_page)
+        papers, total = list_papers(session, search, venue, year, page, per_page, source)
 
     paper_responses = [
         PaperResponse(
@@ -126,6 +127,8 @@ async def get_papers_list(
             error_message=p["error_message"],
             code_url=p.get("code_url"),
             code_status=p.get("code_status", "none"),
+            source=p.get("source", "uploaded"),
+            level=p.get("level", 1),
             created_at=p["created_at"],
             updated_at=p["updated_at"],
         )
@@ -191,6 +194,33 @@ async def delete_paper_endpoint(paper_id: int):
         shutil.rmtree(code_path, ignore_errors=True)
 
     return {"message": "Paper deleted successfully"}
+
+
+# ============================================================
+# POST /api/papers/{paper_id}/promote
+# ============================================================
+@router.post("/{paper_id}/promote")
+async def promote_paper(paper_id: int):
+    """将深度研究扩展论文提升为普通用户论文（移入论文库）"""
+    from datetime import datetime, timezone
+    from sqlmodel import Session as S
+    from ..models.paper import Paper as PaperModel
+
+    engine = _get_engine()
+    with S(engine) as session:
+        p = session.get(PaperModel, paper_id)
+        if p is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
+            )
+        p.source = "uploaded"
+        p.level = 1
+        p.parent_paper_id = None
+        p.updated_at = datetime.now(timezone.utc)
+        session.add(p)
+        session.commit()
+    return {"message": "Paper promoted to library"}
 
 
 # ============================================================

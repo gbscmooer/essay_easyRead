@@ -35,6 +35,7 @@ export async function listPapers(params?: {
   year?: number
   page?: number
   per_page?: number
+  source?: 'uploaded' | 'expanded' | 'all'
 }): Promise<PaperListResponse> {
   const query = new URLSearchParams()
   if (params) {
@@ -71,6 +72,11 @@ export async function getPaper(paperId: number): Promise<Paper> {
  */
 export async function deletePaper(paperId: number): Promise<void> {
   await del<unknown>(`/papers/${paperId}`)
+}
+
+
+export async function promoteExpandedPaper(paperId: number): Promise<void> {
+  await post<unknown>(`/papers/${paperId}/promote`)
 }
 
 

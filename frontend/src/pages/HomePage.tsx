@@ -21,7 +21,7 @@ export function HomePage() {
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   useEffect(() => {
-    listPapers({ page: 1, per_page: 6 })
+    listPapers({ page: 1, per_page: 6, source: 'uploaded' })
       .then(res => setRecentPapers(res.papers))
       .catch(() => {})
     listWorkspaces()
