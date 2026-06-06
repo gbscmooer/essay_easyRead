@@ -264,6 +264,18 @@ def _create_client(api_key: str, base_url: str):
     )
 
 
+def _extract_text(message) -> str:
+    """从 Anthropic 响应中提取第一个文本 block 的内容。
+
+    MiMo 等模型会在 content 里返回 ThinkingBlock，content[0] 不一定是 TextBlock。
+    此函数跳过所有非文本 block，返回第一个有 .text 属性的 block 内容。
+    """
+    for block in message.content:
+        if hasattr(block, "text"):
+            return block.text
+    return ""
+
+
 async def analyze_paper_stream(
     pdf_text: str, api_key: str, base_url: str, model: str,
     temperature: float = 0.1, max_tokens: int = 16384,
@@ -411,7 +423,7 @@ async def generate_mermaid_chart(pipeline_text: str, api_key: str, base_url: str
                     temperature=0.1,
                 )
 
-                content = message.content[0].text.strip()
+                content = _extract_text(message).strip()
 
                 # 提取可能包含的 mermaid 代码块
                 if "```mermaid" in content:

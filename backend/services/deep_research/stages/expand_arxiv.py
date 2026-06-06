@@ -82,7 +82,8 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
         finally:
             await client.close()
 
-        content = msg.content[0].text.strip()
+        from ...ai_analyzer import _extract_text
+        content = _extract_text(msg).strip()
         if "[" in content:
             start = content.find("[")
             end = content.rfind("]") + 1

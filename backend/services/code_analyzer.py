@@ -626,7 +626,8 @@ async def ai_analyze_data_flow(
         )
     finally:
         await client.close()
-    return message.content[0].text.strip()
+    from .ai_analyzer import _extract_text
+    return _extract_text(message).strip()
 
 
 async def ai_analyze_paper_code_mapping(
@@ -678,7 +679,8 @@ async def ai_analyze_paper_code_mapping(
     finally:
         await client.close()
 
-    content = message.content[0].text.strip()
+    from .ai_analyzer import _extract_text
+    content = _extract_text(message).strip()
     # 提取 JSON
     if "```" in content:
         start = content.find("[")
@@ -724,4 +726,5 @@ async def ai_summarize_readme(
         )
     finally:
         await client.close()
-    return message.content[0].text.strip()
+    from .ai_analyzer import _extract_text
+    return _extract_text(message).strip()

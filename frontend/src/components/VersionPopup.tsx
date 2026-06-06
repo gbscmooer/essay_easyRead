@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.5.2'
+const APP_VERSION = '1.5.3'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
+    '修复 MiMo/ThinkingBlock 兼容：_extract_text() 跳过思维链 block，所有 LLM 响应解析统一使用',
     '修复 arXiv 引用 ID 提取正则：新增匹配 CoRR abs/XXXX.YYYYY 和 arxiv.org/abs/URL 格式',
-    '修复 arXiv 扩展阶段无日志输出问题：pipeline 加诊断日志 + 独立 try/except 防止级联失败',
     'LLM 标题提取从逐条调用改为批处理：N 条引用一次 LLM 调用返回 JSON 数组，大幅降低延迟',
-    'S2 引用数查询上限限制为 max(top_k×4, 20)，防止大量引用时 API 调用爆炸',
+    '修复 arXiv 扩展阶段无日志输出问题：pipeline 加诊断日志 + 独立 try/except',
   ],
 }
 

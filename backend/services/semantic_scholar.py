@@ -216,7 +216,8 @@ async def generate_relevance_descriptions(
         finally:
             await client.close()
 
-        content = message.content[0].text.strip()
+        from .ai_analyzer import _extract_text
+        content = _extract_text(message).strip()
         # 提取可能包裹在 ```json ``` 中的内容
         if "```" in content:
             start = content.find("[")
