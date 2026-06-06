@@ -86,11 +86,18 @@ async def stage_expand_arxiv(
     """
     from ...pdf_parser import extract_pdf_content
 
+    logger.info(f"stage_expand_arxiv: start, seeds={len(seeds)}")
+
     cfg = get_arxiv_expand_config()
     top_k: int = int(cfg.get("top_k", 5))
     min_cite: int = int(cfg.get("min_cite_count", 0))
     use_llm: bool = bool(cfg.get("use_llm_title", True))
     max_llm_refs: int = int(cfg.get("max_llm_refs", 15))
+
+    logger.info(
+        f"stage_expand_arxiv: cfg top_k={top_k} min_cite={min_cite} "
+        f"use_llm={use_llm} max_llm_refs={max_llm_refs}"
+    )
 
     analysis_cfg = get_analysis_config()
     added: list[Paper] = []
@@ -160,11 +167,16 @@ async def stage_expand_arxiv(
         if not candidates:
             continue
 
-        # --- 获取 Semantic Scholar 引用数 ---
+        # --- 获取 Semantic Scholar 引用数（最多查 top_k*4 个，避免大量 S2 调用）---
+        max_s2_lookups = max(top_k * 4, 20)
+        lookup_cands = candidates[:max_s2_lookups]
         cite_map: dict[str, int] = {}
-        for c in candidates:
+        for c in lookup_cands:
             axid = c["arxiv_id"]
             cite_map[axid] = await get_citation_count_by_arxiv(axid)
+        # 未查到引用数的候选默认 0
+        for c in candidates:
+            cite_map.setdefault(c["arxiv_id"], 0)
 
         # --- 过滤（OR 逻辑）：top_k ∪ cite ≥ min_cite ---
         sorted_cands = sorted(

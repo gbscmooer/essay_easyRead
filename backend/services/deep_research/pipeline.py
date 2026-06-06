@@ -92,16 +92,23 @@ async def run_pipeline(run_id: int):
             # arXiv 引用列表扩展（补充来源，与 S2/OpenAlex 互补）
             from ..ai_config import get_arxiv_expand_config
             arxiv_cfg = get_arxiv_expand_config()
+            logger.info(f"arxiv_expand enabled={arxiv_cfg.get('enabled', True)}")
             if arxiv_cfg.get("enabled", True):
-                await emit("stage_start", stage="expand_arxiv")
-                l1_seeds = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
-                arxiv_papers = await stage_expand_arxiv(ws_id, l1_seeds, emit)
-                fresh_arxiv = [p for p in arxiv_papers if p.id not in seen_ids]
-                seen_ids.update(p.id for p in fresh_arxiv)
-                all_expanded.extend(fresh_arxiv)
-                papers = papers + fresh_arxiv
-                await emit("stage_done", stage="expand_arxiv",
-                           summary={"arxiv_added": len(fresh_arxiv), "total": len(papers)})
+                try:
+                    await emit("stage_start", stage="expand_arxiv")
+                    l1_seeds = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
+                    logger.info(f"arxiv_expand: l1_seeds={len(l1_seeds)}")
+                    arxiv_papers = await stage_expand_arxiv(ws_id, l1_seeds, emit)
+                    fresh_arxiv = [p for p in arxiv_papers if p.id not in seen_ids]
+                    seen_ids.update(p.id for p in fresh_arxiv)
+                    all_expanded.extend(fresh_arxiv)
+                    papers = papers + fresh_arxiv
+                    await emit("stage_done", stage="expand_arxiv",
+                               summary={"arxiv_added": len(fresh_arxiv), "total": len(papers)})
+                except Exception as arxiv_err:
+                    logger.exception(f"arxiv_expand stage failed (non-fatal): {arxiv_err}")
+                    await emit("stage_done", stage="expand_arxiv",
+                               summary={"arxiv_added": 0, "total": len(papers), "error": str(arxiv_err)})
 
         _set_stage(run_id, "chunk")
         await emit("stage_start", stage="chunk")

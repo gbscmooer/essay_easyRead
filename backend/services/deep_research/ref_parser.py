@@ -13,9 +13,12 @@ _BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
-# arXiv ID：arXiv:2303.08774 或 arXiv: 2303.08774v2
+# arXiv ID 多种格式：
+#   arXiv:2303.08774    arXiv: 2303.08774v2
+#   arxiv.org/abs/2303.08774
+#   CoRR, abs/2303.08774
 _ARXIV_RE = re.compile(
-    r"\barXiv[:\s]+(\d{4}\.\d{4,5}(?:v\d+)?)",
+    r"(?:\barXiv[:\s]+|\barxiv\.org/abs/|\babs/)(\d{4}\.\d{4,5}(?:v\d+)?)",
     re.IGNORECASE,
 )
 

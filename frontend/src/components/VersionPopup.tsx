@@ -1,16 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.5.0'
+const APP_VERSION = '1.5.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '知识图谱右上角新增"回到总观"眼睛按钮，一键缩放到全局视角',
-    'arXiv 引用列表扩展：从 PDF 文本解析 [N] 引用块，提取 arXiv ID（正则 + LLM 兜底），自动下载 PDF',
-    '遵从 arXiv 规范：请求间隔 ≥ 3 秒，串行下载，携带 User-Agent',
-    '过滤策略：top-k 与 min_cite_count OR 逻辑，均可在 Settings 调整',
-    'Settings 新增「arXiv 引用列表扩展」配置区块（enabled/top_k/min_cite/LLM 兜底）',
+    '修复 arXiv 引用 ID 提取正则：新增匹配 CoRR abs/XXXX.YYYYY 和 arxiv.org/abs/URL 格式',
+    '修复 arXiv 扩展阶段无日志输出问题：pipeline 加诊断日志 + 独立 try/except 防止级联失败',
+    'expand_arxiv 开始前增加配置日志（enabled/top_k/min_cite/seeds 数量）',
+    'S2 引用数查询上限限制为 max(top_k×4, 20)，防止大量引用时 API 调用爆炸',
   ],
 }
 
