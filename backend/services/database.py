@@ -55,6 +55,7 @@ def _migrate_schema(engine) -> None:
             ("code_path", "TEXT"),
             ("code_summary", "TEXT"),
             ("source", "TEXT DEFAULT 'uploaded'"),
+            ("level", "INTEGER DEFAULT 1"),
             ("parent_paper_id", "INTEGER"),
             ("external_id", "TEXT"),
         ]

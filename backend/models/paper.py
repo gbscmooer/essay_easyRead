@@ -34,7 +34,9 @@ class Paper(SQLModel, table=True):
     year: Optional[int] = None  # 发表年份
 
     # 状态
-    status: str = "pending"  # pending | extracting | analyzing | done | failed
+    # pending | extracting | analyzing | done | failed
+    # indexed: 深度研究扩展下载的论文，只跑了 PDF 提取 + chunk + embed，没跑 LLM 分析（level=2 专用）
+    status: str = "pending"
     error_message: Optional[str] = None  # 失败时的错误信息
 
     # 代码仓库
@@ -45,6 +47,7 @@ class Paper(SQLModel, table=True):
 
     # 深度研究扩展字段
     source: str = "uploaded"               # uploaded | expanded
+    level: int = 1                         # 1 = 用户手动加入工作区; 2 = 联网扩展下载; 3+ = 多跳扩展
     parent_paper_id: Optional[int] = None  # 仅 expanded：seed 论文 id
     external_id: Optional[str] = None      # S2 paperId 或 arXivId，用于去重
 

@@ -64,9 +64,25 @@ async def run_pipeline(run_id: int):
         if params.get("mode") == "online":
             _set_stage(run_id, "expand")
             await emit("stage_start", stage="expand")
-            papers = await stage_expand(ws_id, papers, params, on_paper_added=emit)
-            _set_stage(run_id, "expand", "running", expanded_count=sum(1 for p in papers if p.source == "expanded"))
-            await emit("stage_done", stage="expand", summary={"total": len(papers)})
+            deep = max(1, int(params.get("deep", 1)))
+            # 多跳扩展：seeds=papers(L1) → L2 → L3 …
+            # 每一跳的 seeds 是上一跳"新下载"的论文，保证只往外走不重复
+            seeds_this_hop = papers
+            all_expanded = []
+            for hop in range(deep):
+                next_level = 2 + hop  # 第 1 跳 → level=2，第 2 跳 → level=3
+                new_papers = await stage_expand(
+                    ws_id, seeds_this_hop, params,
+                    on_paper_added=emit, next_level=next_level,
+                )
+                if not new_papers:
+                    break
+                all_expanded.extend(new_papers)
+                seeds_this_hop = new_papers
+            papers = papers + all_expanded
+            _set_stage(run_id, "expand", "running", expanded_count=len(all_expanded))
+            await emit("stage_done", stage="expand",
+                       summary={"total": len(papers), "expanded": len(all_expanded), "deep": deep})
 
         _set_stage(run_id, "chunk")
         await emit("stage_start", stage="chunk")
@@ -105,14 +121,22 @@ async def run_pipeline(run_id: int):
 
     except Exception as e:
         logger.exception(f"Pipeline run {run_id} failed")
-        with Session(_eng()) as s:
-            run = s.get(ResearchRun, run_id)
-            if run:
-                run.status = "failed"
-                run.error_message = str(e)
-                s.add(run)
-                s.commit()
-        await emit("error", message=str(e), stage=run.current_stage if run else "")
+        err_msg = str(e)
+        current_stage = ""
+        try:
+            with Session(_eng()) as s:
+                r = s.get(ResearchRun, run_id)
+                if r is not None:
+                    current_stage = r.current_stage or ""
+                    r.status = "failed"
+                    r.error_message = err_msg
+                    s.commit()
+        except Exception:
+            logger.exception("Failed to persist failed-state for run %s", run_id)
+        try:
+            await emit("error", message=err_msg, stage=current_stage)
+        except Exception:
+            logger.exception("Failed to emit error event for run %s", run_id)
     finally:
         await bus.close()
         drop_event_bus(run_id)

@@ -51,10 +51,17 @@ async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable
     # 取每篇论文的全部 chunk 的平均向量
     paper_vecs: dict[int, list[float]] = {}
     for p in papers:
-        res = col.get(where={"paper_id": p.id}, include=["embeddings"])
-        if res["embeddings"]:
-            vec = np.mean(np.array(res["embeddings"]), axis=0).tolist()
-            paper_vecs[p.id] = vec
+        try:
+            res = col.get(where={"paper_id": p.id}, include=["embeddings"])
+            embs = res["embeddings"] if isinstance(res, dict) else None
+            arr = np.asarray(embs) if embs is not None else None
+            if arr is not None and arr.size > 0 and arr.ndim >= 2:
+                vec = np.mean(arr, axis=0).tolist()
+                paper_vecs[p.id] = vec
+        except Exception as ex:
+            __import__("logging").getLogger(__name__).warning(
+                f"skip paper {p.id} in similarity step: {ex}"
+            )
 
     ids = list(paper_vecs)
     for i in range(len(ids)):

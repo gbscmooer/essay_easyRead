@@ -170,11 +170,31 @@ async def latest_run(ws_id: int):
 async def query(ws_id: int, req: RagQueryRequest):
     from ..services.deep_research.embedder import embed_query
     from ..services.deep_research.vector_store import query_workspace as ws_query
+    from ..services.deep_research.reranker import rerank
+    from ..services.ai_config import get_reranker_config
 
     vec = await embed_query(req.question)
-    hits = ws_query(ws_id, vec, top_k=req.top_k, paper_ids=req.paper_ids)
-    if not hits:
-        raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
+
+    rcfg = get_reranker_config()
+    # rerank 启用时：先召回更大的候选集，再 rerank 取 top_n；否则直接按 req.top_k 走
+    use_rerank = bool(rcfg.get("enabled", True))
+    final_k = req.top_k
+    if use_rerank:
+        recall_k = max(int(rcfg.get("candidate_k", 30)), final_k)
+        candidates = ws_query(ws_id, vec, top_k=recall_k, paper_ids=req.paper_ids)
+        if not candidates:
+            raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
+        ranked = await rerank(req.question, [c["snippet"] for c in candidates], top_n=final_k)
+        # ranked 已按 score 降序；若 rerank 失败 _fallback 也会返回原序前 N 条
+        hits = []
+        for r in ranked:
+            base = dict(candidates[r["index"]])
+            base["score"] = r["score"]
+            hits.append(base)
+    else:
+        hits = ws_query(ws_id, vec, top_k=final_k, paper_ids=req.paper_ids)
+        if not hits:
+            raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
 
     # 调用 LLM 用 hits 生成回答
     from ..services.ai_analyzer import _create_client

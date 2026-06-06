@@ -12,22 +12,18 @@ def format_sse(event: StreamEvent) -> str:
     """
     将 StreamEvent 格式化为 SSE 文本。
 
-    SSE 格式：
-        event: {event.event}
-        data: {json.dumps(event.dict())}
+    `event:` 行 = StreamEvent.event（事件名）
+    `data:` 行 = StreamEvent.data 的 JSON（仅 inner payload，不再包外层信封）
+                 若 StreamEvent.field_name 非空，会合并进 payload，
+                 以兼容 useStreaming.ts 中 `data.field_name` 的读法。
 
-    Args:
-        event: 流式事件
-
-    Returns:
-        str: 格式化后的 SSE 文本（包含换行符）
-
-    实现要点：
-        - event 行指定 SSE 事件类型
-        - data 行是 JSON 序列化的完整事件
-        - 事件之间用空行分隔
+    历史注意：之前序列化的是整个 model_dump()，导致前端 `JSON.parse(e.data).status`
+    始终拿到 undefined（真值在 data.data.status）。已修正为只发 inner。
     """
-    return f"event: {event.event}\ndata: {json.dumps(event.model_dump(), ensure_ascii=False)}\n\n"
+    payload = dict(event.data or {})
+    if event.field_name is not None and "field_name" not in payload:
+        payload["field_name"] = event.field_name
+    return f"event: {event.event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def format_analysis_as_markdown(analysis: dict) -> str:

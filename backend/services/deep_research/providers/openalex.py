@@ -1,0 +1,182 @@
+"""
+OpenAlex Provider — 免费、无需 key、配额慷慨
+
+API 文档: https://docs.openalex.org/
+- 公共匿名调用即可，速率约 10 req/s（24 h 内 100 k）
+- 提供 `mailto` 邮箱可进入 "polite pool"，获得更稳定的服务质量
+"""
+
+import asyncio
+import logging
+import time
+from typing import Optional
+from urllib.parse import quote
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+OA_BASE = "https://api.openalex.org"
+WORK_FIELDS = "id,title,publication_year,cited_by_count,doi,ids,open_access,primary_location,locations"
+
+
+class OpenAlexProvider:
+    name = "openalex"
+
+    def __init__(self, email: str = ""):
+        self.email = (email or "").strip()
+        self._client: httpx.AsyncClient | None = None
+        self._last_req = 0.0
+        self._lock = asyncio.Lock()
+
+    def _http(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=30.0)
+        return self._client
+
+    async def _get(self, path: str, params: dict | None = None) -> dict:
+        params = dict(params or {})
+        if self.email:
+            params["mailto"] = self.email
+        for attempt in range(3):
+            async with self._lock:
+                gap = time.monotonic() - self._last_req
+                if gap < 0.12:
+                    await asyncio.sleep(0.12 - gap)
+                self._last_req = time.monotonic()
+            try:
+                r = await self._http().get(f"{OA_BASE}{path}", params=params)
+                if r.status_code == 429:
+                    wait = 2.0 * (attempt + 1)
+                    logger.warning(f"OpenAlex 429, retry {attempt+1}/3 in {wait}s")
+                    await asyncio.sleep(wait)
+                    continue
+                r.raise_for_status()
+                return r.json()
+            except httpx.HTTPError as e:
+                if attempt == 2:
+                    raise
+                logger.warning(f"OpenAlex error (attempt {attempt+1}): {e}")
+                await asyncio.sleep(1.0 * (attempt + 1))
+        return {}
+
+    async def find_paper_id(self, title: str, doi: str = "", arxiv_id: str = "") -> Optional[str]:
+        # 1) DOI 最准
+        if doi:
+            try:
+                data = await self._get(f"/works/doi:{doi}", {"select": "id"})
+                if data.get("id"):
+                    return _strip_id(data["id"])
+            except Exception as e:
+                logger.debug(f"OpenAlex DOI lookup failed: {e}")
+        # 2) arXiv：用 DOI 形式 10.48550/arXiv.XXXX.XXXXX
+        if arxiv_id:
+            try:
+                ax_doi = f"10.48550/arXiv.{arxiv_id}"
+                data = await self._get(f"/works/doi:{ax_doi}", {"select": "id"})
+                if data.get("id"):
+                    return _strip_id(data["id"])
+            except Exception:
+                pass
+        # 3) 标题搜索
+        if title:
+            try:
+                data = await self._get("/works", {
+                    "search": title,
+                    "per-page": 1,
+                    "select": "id,title",
+                })
+                arr = data.get("results") or []
+                if arr:
+                    return _strip_id(arr[0]["id"])
+            except Exception as e:
+                logger.debug(f"OpenAlex title search failed: {e}")
+        return None
+
+    async def get_paper_references(self, paper_id: str, limit: int = 50) -> list[dict]:
+        # 1) 读 work，拿 referenced_works
+        try:
+            work = await self._get(f"/works/W{paper_id.lstrip('W')}", {"select": "referenced_works"})
+        except Exception as e:
+            logger.warning(f"OpenAlex fetch work failed: {e}")
+            return []
+        ref_ids = work.get("referenced_works") or []
+        if not ref_ids:
+            return []
+        ref_ids = ref_ids[: min(limit, 50)]
+
+        # 2) 批量拉 references 详情：filter=openalex:W1|W2|...
+        oid_csv = "|".join(_strip_id(r) for r in ref_ids if r)
+        if not oid_csv:
+            return []
+        try:
+            data = await self._get("/works", {
+                "filter": f"openalex:{oid_csv}",
+                "per-page": min(len(ref_ids), 50),
+                "select": WORK_FIELDS,
+            })
+        except Exception as e:
+            logger.warning(f"OpenAlex batch fetch failed: {e}")
+            return []
+
+        results = []
+        for w in data.get("results") or []:
+            if not w.get("title"):
+                continue
+            ids = w.get("ids") or {}
+            doi_url = w.get("doi") or ""
+            doi = doi_url.replace("https://doi.org/", "") if doi_url else None
+            arxiv = _extract_arxiv(w)
+            pdf_url = _extract_pdf(w)
+            results.append({
+                "ext_id": _strip_id(w["id"]),
+                "title": w["title"],
+                "year": w.get("publication_year"),
+                "citation_count": w.get("cited_by_count") or 0,
+                "doi": doi,
+                "arxiv_id": arxiv,
+                "pdf_url": pdf_url,
+            })
+        return results
+
+    async def aclose(self):
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+
+def _strip_id(oid: str) -> str:
+    """https://openalex.org/W123 → W123"""
+    if not oid:
+        return ""
+    return oid.rsplit("/", 1)[-1]
+
+
+def _extract_arxiv(work: dict) -> Optional[str]:
+    """从 ids 或 locations 中尝试抽 arXiv ID"""
+    doi = (work.get("doi") or "").lower()
+    if "arxiv" in doi:
+        # 10.48550/arxiv.2401.12345
+        tail = doi.split("arxiv.", 1)[-1]
+        return tail.strip("/").split("/")[0] if tail else None
+    for loc in (work.get("locations") or []):
+        src = (loc.get("source") or {}).get("display_name") or ""
+        if "arxiv" in src.lower():
+            url = loc.get("landing_page_url") or ""
+            if "arxiv.org/abs/" in url:
+                return url.split("arxiv.org/abs/", 1)[-1].strip("/")
+    return None
+
+
+def _extract_pdf(work: dict) -> Optional[str]:
+    """优先 open_access.oa_url，其次扫描 locations.pdf_url"""
+    oa = work.get("open_access") or {}
+    if oa.get("oa_url"):
+        return oa["oa_url"]
+    pri = work.get("primary_location") or {}
+    if pri.get("pdf_url"):
+        return pri["pdf_url"]
+    for loc in work.get("locations") or []:
+        if loc.get("pdf_url"):
+            return loc["pdf_url"]
+    return None

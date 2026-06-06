@@ -18,6 +18,8 @@ export interface WorkspacePaper {
   status: string
   code_url: string | null
   code_status: string
+  source?: 'uploaded' | 'expanded'
+  level?: number
   created_at: string | null
   added_at: string | null
 }

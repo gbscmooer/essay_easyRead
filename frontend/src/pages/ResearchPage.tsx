@@ -70,7 +70,7 @@ export function ResearchPage() {
         disabled={stream.status === 'running'}
       />
 
-      {stream.status === 'running' && (
+      {(stream.status === 'running' || stream.status === 'failed') && (
         <ProgressPanel
           stage={stream.stage}
           progressMessage={stream.progressMessage}
@@ -87,7 +87,7 @@ export function ResearchPage() {
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
             {graph && (
               <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                {graph.stats.node_count} 节点 / {graph.stats.edge_count} 边
+                {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
               </span>
             )}
           </div>

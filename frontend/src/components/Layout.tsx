@@ -51,16 +51,13 @@ export function Layout({ children }: LayoutProps) {
         backgroundColor: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
       }}>
-        <div className="relative">
-          <button
-            onClick={toggleVersion}
-            className={`font-semibold transition-colors cursor-pointer ${navCollapsed ? 'text-sm' : 'text-base'}`}
-            style={{ color: 'var(--text-primary)', background: 'none', border: 'none' }}
-          >
-            <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
-          </button>
-          {showVersion && <VersionPopup onClose={closeVersion} />}
-        </div>
+        <button
+          onClick={toggleVersion}
+          className={`font-semibold transition-colors cursor-pointer ${navCollapsed ? 'text-sm' : 'text-base'}`}
+          style={{ color: 'var(--text-primary)', background: 'none', border: 'none' }}
+        >
+          <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
+        </button>
 
         {!navCollapsed && (
           <div className="flex items-center gap-1">
@@ -115,6 +112,7 @@ export function Layout({ children }: LayoutProps) {
             <div className="flex items-center gap-1">
               <Link
                 to={`/reader/${paperId}`}
+                state={location.state}
                 onClick={(e) => {
                   if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
                     if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
@@ -135,6 +133,7 @@ export function Layout({ children }: LayoutProps) {
               </Link>
               <Link
                 to={`/code/${paperId}`}
+                state={location.state}
                 onClick={(e) => {
                   if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
                     if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
@@ -155,18 +154,26 @@ export function Layout({ children }: LayoutProps) {
               </Link>
             </div>
           </div>
-          <Link
-            to="/library"
-            onClick={(e) => {
-              if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-                if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
-              }
-            }}
-            className="text-xs transition-colors"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            返回论文库 &rarr;
-          </Link>
+          {(() => {
+            const fromPath = (location.state as { from?: string } | null)?.from
+            const wsMatch = fromPath?.match(/^\/workspace\/(\d+)/)
+            const backTo = wsMatch ? `/workspace/${wsMatch[1]}` : '/library'
+            const backLabel = wsMatch ? '返回工作区' : '返回论文库'
+            return (
+              <Link
+                to={backTo}
+                onClick={(e) => {
+                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
+                  }
+                }}
+                className="text-xs transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {backLabel} &rarr;
+              </Link>
+            )
+          })()}
         </div>
       )}
 
@@ -217,6 +224,9 @@ export function Layout({ children }: LayoutProps) {
 
       {/* 底部终端面板 */}
       <TerminalPanel />
+
+      {/* 版本信息弹窗 */}
+      {showVersion && <VersionPopup onClose={closeVersion} />}
     </div>
     </ThemeProvider>
   )

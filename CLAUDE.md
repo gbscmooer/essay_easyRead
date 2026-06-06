@@ -112,6 +112,7 @@ frontend/src/
 
 ## 开发约定
 
+- **提交流程**: 涉及提交代码时，**必须先阅读 `docs/commit_regular.md`**，按其规范确定版本号、同步 VersionPopup 更新日志和 package.json 版本号，再执行提交
 - **类型对应**: 前端 `types/index.ts` 与后端 `models/schemas.py` 严格对应
 - **错误格式**: API 统一返回 `{detail, code}`
 - **UI 主题**: 深色（bg-gray-950, text-gray-100），主色 blue-500

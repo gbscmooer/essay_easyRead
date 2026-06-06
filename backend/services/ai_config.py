@@ -48,6 +48,20 @@ DEFAULT_CONFIG = {
         "batch_size": 32,
         "device": "auto",
     },
+    "research": {
+        "provider": "openalex",  # openalex | semantic_scholar | local
+        "email": "",             # OpenAlex polite pool 邮箱（可选，更稳定）
+        "api_key": "",           # Semantic Scholar API key（可选）
+    },
+    "reranker": {
+        "enabled": True,
+        "provider": "siliconflow",
+        "model": "BAAI/bge-reranker-v2-m3",
+        "api_key": "",            # 空时回退到 embedding 的 api_key
+        "base_url": "",           # 空时回退到 embedding 的 base_url
+        "candidate_k": 30,        # 向量检索召回数（送入 rerank 的池子大小）
+        "top_n": 5,               # rerank 后送入 LLM 的条数
+    },
 }
 
 
@@ -113,3 +127,21 @@ def get_ui_config() -> dict:
 def get_embedding_config() -> dict:
     """获取 Embedding 模型配置"""
     return load_config().get("embedding", DEFAULT_CONFIG["embedding"])
+
+
+def get_research_config() -> dict:
+    """获取深度研究 Provider 配置"""
+    return load_config().get("research", DEFAULT_CONFIG["research"])
+
+
+def get_reranker_config() -> dict:
+    """获取重排序模型配置。
+    api_key/base_url 留空时自动回退到 embedding 的同字段（默认共用 siliconflow 账号）。
+    """
+    full = load_config()
+    cfg = dict(full.get("reranker", DEFAULT_CONFIG["reranker"]))
+    if not cfg.get("api_key"):
+        cfg["api_key"] = full.get("embedding", {}).get("api_key", "")
+    if not cfg.get("base_url"):
+        cfg["base_url"] = full.get("embedding", {}).get("base_url", "")
+    return cfg

@@ -41,10 +41,12 @@ class PaperResponse(BaseModel):
     title: Optional[str] = None
     venue: Optional[str] = None
     year: Optional[int] = None
-    status: str  # pending | extracting | analyzing | done | failed
+    status: str  # pending | extracting | analyzing | done | failed | indexed
     error_message: Optional[str] = None
     code_url: Optional[str] = None
     code_status: str = "none"
+    source: str = "uploaded"   # uploaded | expanded
+    level: int = 1             # 1=用户手动加; 2+=联网扩展下载
     created_at: datetime
     updated_at: datetime
 
@@ -167,9 +169,10 @@ class CodeSummaryResponse(BaseModel):
 class ResearchRunCreate(BaseModel):
     """创建深度研究任务的请求体"""
     mode: str = "local"                                # "local" | "online"
-    paper_ids: Optional[list[int]] = None              # None = 工作区全部
-    expand_top_k: int = 5                              # 仅 online 模式
-    expand_total_limit: int = 50                       # 安全上限
+    paper_ids: Optional[list[int]] = None              # None = 工作区全部 level=1 论文
+    deep: int = 1                                      # 仅 online：扩展跳数（1=只展 L1 的 refs）
+    expand_top_k: int = 5                              # 仅 online：每篇 seed 最多取多少个 ref
+    expand_total_limit: int = 50                       # 单次 run 下载上限
     rebuild: bool = False                              # True 时清空 ChromaDB & 图谱重建
     similarity_threshold: float = 0.78                 # similar 边阈值
     enable_shared_method: bool = False                 # 是否调用 AI 生成 shared-method 边

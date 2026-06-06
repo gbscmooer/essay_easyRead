@@ -129,13 +129,46 @@ export function WorkspaceDetailPage() {
         <p className="text-sm text-gray-500 mt-1">{workspace.papers.length} 篇论文</p>
       </div>
 
-      {/* 添加论文按钮 */}
-      <div className="mb-4">
+      {/* 添加论文 + 深度研究入口 */}
+      <div className="flex items-center gap-3 mb-4">
         <button
           onClick={handleShowAddPaper}
-          className="px-4 py-2 text-sm bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-gray-600 hover:text-gray-200 transition-colors"
+          className="px-4 py-2 text-sm bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-gray-600 hover:text-gray-200 transition-colors shrink-0"
         >
           + 从论文库添加
+        </button>
+
+        <button
+          onClick={() => navigate(`/workspace/${workspaceId}/research`)}
+          disabled={workspace.papers.length === 0}
+          className="flex-1 group relative overflow-hidden px-6 py-3 rounded-xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            borderColor: 'var(--accent)',
+            background: 'linear-gradient(135deg, var(--accent-subtle), transparent)',
+            color: 'var(--accent)',
+          }}
+          onMouseEnter={e => {
+            if (workspace.papers.length === 0) return
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)'
+            e.currentTarget.style.transform = 'translateY(-1px)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.boxShadow = 'none'
+            e.currentTarget.style.transform = 'none'
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">⚡</span>
+              <div className="text-left">
+                <div className="text-base font-semibold leading-tight">深度研究</div>
+                <div className="text-[11px] mt-0.5 opacity-80">
+                  跨论文构建知识图谱 · RAG 问答
+                </div>
+              </div>
+            </div>
+            <span className="text-xl opacity-60 group-hover:translate-x-1 transition-transform">→</span>
+          </div>
         </button>
       </div>
 
@@ -184,29 +217,47 @@ export function WorkspaceDetailPage() {
           {workspace.papers.map(paper => (
             <div
               key={paper.id}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 group transition-colors"
+              className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 group transition-colors cursor-pointer"
+              onClick={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = 'var(--border-light)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = ''
+              }}
             >
               <div className="flex items-start justify-between">
                 <div className="min-w-0 flex-1">
-                  <Link
-                    to={`/reader/${paper.id}`}
-                    className="text-sm font-medium text-gray-200 hover:text-blue-400 transition-colors"
-                  >
+                  <p className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
                     {paper.title || paper.filename}
-                  </Link>
+                  </p>
                   <div className="flex items-center gap-3 mt-1">
                     {paper.venue && <span className="text-xs text-gray-500">{paper.venue} {paper.year || ''}</span>}
                     <span className={`text-xs px-1.5 py-0.5 rounded ${
                       paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
+                      paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
                       paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
                       'bg-gray-700 text-gray-400'
                     }`}>
-                      {paper.status === 'done' ? '已解析' : paper.status === 'failed' ? '失败' : '待解析'}
+                      {paper.status === 'done' ? '已解析' :
+                       paper.status === 'indexed' ? '未解析·已索引' :
+                       paper.status === 'failed' ? '失败' : '待解析'}
                     </span>
+                    {(paper.level ?? 1) > 1 && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded border"
+                        style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                        title="联网扩展下载的论文（未经 LLM 深度解析）"
+                      >
+                        L{paper.level} · 扩展
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 mt-2">
                     <Link
                       to={`/reader/${paper.id}`}
+                      state={{ from: `/workspace/${workspaceId}` }}
+                      onClick={e => e.stopPropagation()}
                       className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
                     >
                       论文分析
@@ -214,6 +265,8 @@ export function WorkspaceDetailPage() {
                     {paper.code_url && (
                       <Link
                         to={`/code/${paper.id}`}
+                        state={{ from: `/workspace/${workspaceId}` }}
+                        onClick={e => e.stopPropagation()}
                         className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                       >
                         源码分析
@@ -222,7 +275,7 @@ export function WorkspaceDetailPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleRemovePaper(paper.id)}
+                  onClick={(e) => { e.stopPropagation(); handleRemovePaper(paper.id) }}
                   className="opacity-0 group-hover:opacity-100 ml-3 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all shrink-0"
                 >
                   移除

@@ -7,17 +7,21 @@
 
 
 /** 论文基础信息（列表用） */
+export type PaperStatus = 'pending' | 'extracting' | 'analyzing' | 'done' | 'failed' | 'indexed'
+
 export interface Paper {
   id: number
   filename: string
   title: string | null
   venue: string | null
   year: number | null
-  status: 'pending' | 'extracting' | 'analyzing' | 'done' | 'failed'
+  status: PaperStatus
   error_message: string | null
   code_url: string | null
   code_path: string | null
   code_status: 'none' | 'cloning' | 'ready' | 'failed'
+  source?: 'uploaded' | 'expanded'
+  level?: number   // 1=用户手动加；2+=联网扩展
   created_at: string  // ISO 8601
   updated_at: string
 }
@@ -218,6 +222,7 @@ export type ResearchStage = 'collect' | 'expand' | 'chunk' | 'embed' | 'graph' |
 export interface ResearchRunCreate {
   mode: ResearchMode
   paper_ids?: number[] | null
+  deep?: number                  // 仅 online：扩展跳数（默认 1）
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean

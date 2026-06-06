@@ -161,11 +161,29 @@ interface EmbeddingConfig {
   device: string
 }
 
+interface ResearchConfig {
+  provider: 'openalex' | 'semantic_scholar' | 'local'
+  email: string
+  api_key: string
+}
+
+interface RerankerConfig {
+  enabled: boolean
+  provider: 'siliconflow' | 'custom'
+  model: string
+  api_key: string
+  base_url: string
+  candidate_k: number
+  top_n: number
+}
+
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
   ui: UIConfig
   embedding: EmbeddingConfig
+  research: ResearchConfig
+  reranker: RerankerConfig
 }
 
 
@@ -203,6 +221,20 @@ const DEFAULT_CONFIG: AppConfig = {
     base_url: 'https://api.openai.com/v1',
     batch_size: 32,
     device: 'auto',
+  },
+  research: {
+    provider: 'openalex',
+    email: '',
+    api_key: '',
+  },
+  reranker: {
+    enabled: true,
+    provider: 'siliconflow',
+    model: 'BAAI/bge-reranker-v2-m3',
+    api_key: '',
+    base_url: '',
+    candidate_k: 30,
+    top_n: 5,
   },
 }
 
@@ -618,6 +650,8 @@ export function SettingsPage() {
         translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
         analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
         ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
+        research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
+        reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -802,6 +836,190 @@ export function SettingsPage() {
           <p className="text-[10px] text-gray-600">
             本地模式使用 sentence-transformers 加载模型，首次运行会自动下载。切换 provider 后建议重建索引以避免向量维度不匹配。
           </p>
+        )}
+      </div>
+
+      {/* 深度研究 Provider */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-100">深度研究 — 论文扩展源</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            决定"联网扩展"阶段从哪里抓取参考文献。本地模式表示不联网，只用工作区内已上传的论文构建图谱。
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-2">Provider</label>
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { key: 'openalex' as const, label: 'OpenAlex（推荐）' },
+              { key: 'semantic_scholar' as const, label: 'Semantic Scholar' },
+              { key: 'local' as const, label: '本地（不联网）' },
+            ]).map(p => (
+              <button
+                key={p.key}
+                onClick={() => setConfig(prev => ({
+                  ...prev,
+                  research: { ...prev.research, provider: p.key },
+                }))}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  config.research.provider === p.key
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                    : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {config.research.provider === 'openalex' && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                邮箱（可选 · polite pool）
+              </label>
+              <input
+                type="email"
+                value={config.research.email}
+                onChange={e => setConfig(prev => ({
+                  ...prev,
+                  research: { ...prev.research, email: e.target.value },
+                }))}
+                placeholder="you@example.com"
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">
+                填入邮箱可进入 OpenAlex polite pool，获得更稳定的速率配额。不填也能用。
+              </p>
+            </div>
+          </>
+        )}
+
+        {config.research.provider === 'semantic_scholar' && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                API Key（强烈建议填写）
+              </label>
+              <input
+                type="password"
+                value={config.research.api_key}
+                onChange={e => setConfig(prev => ({
+                  ...prev,
+                  research: { ...prev.research, api_key: e.target.value },
+                }))}
+                placeholder="留空使用公共配额（容易 429）"
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">
+                申请地址：
+                <a
+                  href="https://www.semanticscholar.org/product/api"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-400 hover:underline ml-1"
+                >
+                  semanticscholar.org/product/api
+                </a>
+                （免费，约 1–2 天通过）
+              </p>
+            </div>
+          </>
+        )}
+
+        {config.research.provider === 'local' && (
+          <p className="text-[10px] text-gray-600">
+            本地模式下，"联网扩展"阶段会被直接跳过；图谱仅基于工作区已上传的论文构建。
+          </p>
+        )}
+      </div>
+
+      {/* 重排序模型 */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-100">重排序模型（Reranker）</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              在 RAG 跨论文问答时使用。向量检索召回 candidate_k 条候选，再由重排序模型按语义重排，最终取 top_n 喂给 LLM。提升答非所问的概率。
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={config.reranker.enabled}
+              onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, enabled: e.target.checked } }))}
+              className="accent-blue-500"
+            />
+            启用
+          </label>
+        </div>
+
+        {config.reranker.enabled && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">模型</label>
+              <input
+                type="text"
+                value={config.reranker.model}
+                onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, model: e.target.value } }))}
+                placeholder="BAAI/bge-reranker-v2-m3"
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">默认 BAAI/bge-reranker-v2-m3（硅基流动）</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+                <input
+                  type="text"
+                  value={config.reranker.base_url}
+                  onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, base_url: e.target.value } }))}
+                  placeholder="留空 = 继承 embedding 的 base_url"
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={config.reranker.api_key}
+                  onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, api_key: e.target.value } }))}
+                  placeholder="留空 = 继承 embedding 的 api_key"
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">candidate_k（召回数）</label>
+                <input
+                  type="number"
+                  min={5}
+                  max={200}
+                  value={config.reranker.candidate_k}
+                  onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, candidate_k: Number(e.target.value) || 30 } }))}
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[10px] text-gray-600 mt-1">向量检索的初筛数量，越大重排越充分但越慢</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">top_n（送 LLM）</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={config.reranker.top_n}
+                  onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, top_n: Number(e.target.value) || 5 } }))}
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[10px] text-gray-600 mt-1">重排序后保留的最终 chunk 数</p>
+              </div>
+            </div>
+          </>
         )}
       </div>
 

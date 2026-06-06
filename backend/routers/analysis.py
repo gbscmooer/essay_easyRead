@@ -63,11 +63,27 @@ class EmbeddingConfig(BaseModel):
     batch_size: int = 32
     device: str = "auto"
 
+class ResearchConfig(BaseModel):
+    provider: str = "openalex"  # openalex | semantic_scholar | local
+    email: str = ""
+    api_key: str = ""
+
+class RerankerConfig(BaseModel):
+    enabled: bool = True
+    provider: str = "siliconflow"
+    model: str = "BAAI/bge-reranker-v2-m3"
+    api_key: str = ""           # 空时回退到 embedding 的 api_key
+    base_url: str = ""          # 空时回退到 embedding 的 base_url
+    candidate_k: int = 30       # 向量检索召回数
+    top_n: int = 5              # rerank 后送 LLM 的条数
+
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
     ui: UIConfig = UIConfig()
-    embedding: EmbeddingConfig = EmbeddingConfig()  # ← 新增
+    embedding: EmbeddingConfig = EmbeddingConfig()
+    research: ResearchConfig = ResearchConfig()
+    reranker: RerankerConfig = RerankerConfig()
 
 
 @router.get("/config", response_model=AppConfig)
@@ -80,6 +96,8 @@ async def get_config():
         analysis=AIModelConfig(**config.get("analysis", {})),
         ui=UIConfig(**config.get("ui", {})),
         embedding=EmbeddingConfig(**config.get("embedding", {})),
+        research=ResearchConfig(**config.get("research", {})),
+        reranker=RerankerConfig(**config.get("reranker", {})),
     )
 
 
@@ -92,6 +110,8 @@ async def update_config(req: AppConfig):
         "analysis": req.analysis.model_dump(),
         "ui": req.ui.model_dump(),
         "embedding": req.embedding.model_dump(),
+        "research": req.research.model_dump(),
+        "reranker": req.reranker.model_dump(),
     }
     save_config(config)
     return {"message": "配置已保存"}

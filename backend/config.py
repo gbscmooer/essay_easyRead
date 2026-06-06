@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # 开发模式：开启后 uvicorn 自动热重载
+    dev: bool = False
+
     # CORS
     frontend_origin: str = "http://localhost:5173"  # Vite 默认端口
 

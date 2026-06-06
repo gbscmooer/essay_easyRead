@@ -122,6 +122,8 @@ async def get_workspace(workspace_id: int):
                 "status": paper.status,
                 "code_url": paper.code_url,
                 "code_status": paper.code_status,
+                "source": getattr(paper, "source", "uploaded"),
+                "level": getattr(paper, "level", 1),
                 "created_at": paper.created_at.isoformat() if paper.created_at else None,
                 "added_at": added_at.isoformat() if added_at else None,
             })
