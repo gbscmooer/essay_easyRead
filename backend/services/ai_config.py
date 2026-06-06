@@ -71,6 +71,17 @@ DEFAULT_CONFIG = {
         # "bge_centroid": {},
         # "specter2": {"model": "allenai/specter2_base", "device": "auto"},
     },
+    "arxiv_expand": {
+        # 是否启用 arXiv 引用列表扩展（从 PDF 文本解析 [N] 引用块）
+        "enabled": True,
+        # 按引用数降序取 top_k；同时 citation_count >= min_cite_count 的也下载（OR 逻辑）
+        "top_k": 5,
+        "min_cite_count": 0,
+        # 是否允许 LLM 提取没有显式 arXiv ID 的引用标题再去搜索
+        "use_llm_title": True,
+        # 每篇 seed 论文最多进行 LLM+arXiv 搜索的次数上限（防止耗时过长）
+        "max_llm_refs": 15,
+    },
 }
 
 
@@ -146,6 +157,12 @@ def get_research_config() -> dict:
 def get_similarity_config() -> dict:
     """获取论文级相似度计算 Provider 配置"""
     return load_config().get("similarity", DEFAULT_CONFIG["similarity"])
+
+
+def get_arxiv_expand_config() -> dict:
+    """获取 arXiv 引用列表扩展配置"""
+    saved = load_config().get("arxiv_expand", {})
+    return {**DEFAULT_CONFIG["arxiv_expand"], **saved}
 
 
 def get_reranker_config() -> dict:

@@ -250,6 +250,18 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
     return None
 
 
+async def get_citation_count_by_arxiv(arxiv_id: str) -> int:
+    """通过 arXiv ID 查询 Semantic Scholar 引用数，失败返回 0。"""
+    try:
+        data = await _rate_limited_get(
+            f"{S2_BASE}/paper/arXiv:{arxiv_id}",
+            {"fields": "citationCount"},
+        )
+        return int(data.get("citationCount") or 0)
+    except Exception:
+        return 0
+
+
 async def get_paper_references(s2_paper_id: str, limit: int = 50) -> list[dict]:
     """返回结构化 references 列表，包含 openAccessPdf 信息"""
     data = await _rate_limited_get(

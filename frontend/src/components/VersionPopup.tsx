@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.4.1'
+const APP_VERSION = '1.5.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '修复知识图谱孤立节点消失问题（调高相似度阈值后无边节点不再被过滤）',
-    '重新分析按钮新增确认对话框，避免误触消耗大量 Token',
-    '验证 Similarity Provider 设置持久化正常，切换 provider 后保存即生效',
+    '知识图谱右上角新增"回到总观"眼睛按钮，一键缩放到全局视角',
+    'arXiv 引用列表扩展：从 PDF 文本解析 [N] 引用块，提取 arXiv ID（正则 + LLM 兜底），自动下载 PDF',
+    '遵从 arXiv 规范：请求间隔 ≥ 3 秒，串行下载，携带 User-Agent',
+    '过滤策略：top-k 与 min_cite_count OR 逻辑，均可在 Settings 调整',
+    'Settings 新增「arXiv 引用列表扩展」配置区块（enabled/top_k/min_cite/LLM 兜底）',
   ],
 }
 

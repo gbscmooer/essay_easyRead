@@ -81,6 +81,14 @@ class SimilarityConfig(BaseModel):
     """论文级相似度 provider 配置。"""
     provider: str = "bge_centroid"
 
+class ArxivExpandConfig(BaseModel):
+    """arXiv 引用列表扩展配置。"""
+    enabled: bool = True
+    top_k: int = 5
+    min_cite_count: int = 0
+    use_llm_title: bool = True
+    max_llm_refs: int = 15
+
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
@@ -89,6 +97,7 @@ class AppConfig(BaseModel):
     research: ResearchConfig = ResearchConfig()
     reranker: RerankerConfig = RerankerConfig()
     similarity: SimilarityConfig = SimilarityConfig()
+    arxiv_expand: ArxivExpandConfig = ArxivExpandConfig()
 
 
 @router.get("/config", response_model=AppConfig)
@@ -96,6 +105,7 @@ async def get_config():
     """获取全部配置"""
     from ..services.ai_config import load_config
     config = load_config()
+    _AE_FIELDS = set(ArxivExpandConfig.model_fields.keys())
     return AppConfig(
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
@@ -104,6 +114,7 @@ async def get_config():
         research=ResearchConfig(**config.get("research", {})),
         reranker=RerankerConfig(**config.get("reranker", {})),
         similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
+        arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
     )
 
 
@@ -118,9 +129,10 @@ async def list_similarity_providers():
 async def update_config(req: AppConfig):
     """保存全部配置"""
     from ..services.ai_config import save_config
-    # 保留 similarity 中 provider 之外的 provider-specific 子对象（前端不感知）
     from ..services.ai_config import load_config as _load
-    prior_sim = _load().get("similarity", {})
+    prior = _load()
+    # similarity：保留 provider 之外的 provider-specific 子对象
+    prior_sim = prior.get("similarity", {})
     sim = {**prior_sim, **req.similarity.model_dump()}
     config = {
         "translate": req.translate.model_dump(),
@@ -130,6 +142,7 @@ async def update_config(req: AppConfig):
         "research": req.research.model_dump(),
         "reranker": req.reranker.model_dump(),
         "similarity": sim,
+        "arxiv_expand": req.arxiv_expand.model_dump(),
     }
     save_config(config)
     return {"message": "配置已保存"}

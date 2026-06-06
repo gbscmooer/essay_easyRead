@@ -181,6 +181,14 @@ interface SimilarityConfig {
   provider: string
 }
 
+interface ArxivExpandConfig {
+  enabled: boolean
+  top_k: number
+  min_cite_count: number
+  use_llm_title: boolean
+  max_llm_refs: number
+}
+
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
@@ -189,6 +197,7 @@ interface AppConfig {
   research: ResearchConfig
   reranker: RerankerConfig
   similarity: SimilarityConfig
+  arxiv_expand: ArxivExpandConfig
 }
 
 
@@ -243,6 +252,13 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   similarity: {
     provider: 'bge_centroid',
+  },
+  arxiv_expand: {
+    enabled: true,
+    top_k: 5,
+    min_cite_count: 0,
+    use_llm_title: true,
+    max_llm_refs: 15,
   },
 }
 
@@ -662,6 +678,7 @@ export function SettingsPage() {
         research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
         similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
+        arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -1071,6 +1088,90 @@ export function SettingsPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* arXiv 引用列表扩展 */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-100">arXiv 引用列表扩展</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              联网模式下，从 L1 论文 PDF 文本解析 <code className="px-1 rounded bg-gray-800">[N]</code> 引用块，
+              提取 arXiv ID（正则优先，可选 LLM 兜底），从 arXiv 下载 PDF。
+              与 OpenAlex/S2 扩展互补。
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+            <input
+              type="checkbox"
+              checked={config.arxiv_expand.enabled}
+              onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, enabled: e.target.checked } }))}
+              className="accent-blue-500"
+            />
+            启用
+          </label>
+        </div>
+
+        {config.arxiv_expand.enabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Top-K（按引用数取前 K 篇）</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={config.arxiv_expand.top_k}
+                  onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, top_k: Number(e.target.value) || 5 } }))}
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[10px] text-gray-600 mt-1">从找到的候选中取引用数前 K 篇</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">最低引用数（min_cite_count）</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={config.arxiv_expand.min_cite_count}
+                  onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, min_cite_count: Number(e.target.value) || 0 } }))}
+                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[10px] text-gray-600 mt-1">引用数 ≥ 此值也下载（0 = 不限，仅看 Top-K）</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-4">
+              <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.arxiv_expand.use_llm_title}
+                  onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, use_llm_title: e.target.checked } }))}
+                  className="accent-blue-500"
+                />
+                LLM 标题兜底
+              </label>
+              {config.arxiv_expand.use_llm_title && (
+                <div className="flex-1">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    每篇 seed 最多 LLM+arXiv 搜索次数
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={config.arxiv_expand.max_llm_refs}
+                    onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, max_llm_refs: Number(e.target.value) || 15 } }))}
+                    className="w-48 px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <p className="text-[10px] text-gray-600 mt-1">
+                    对无 arXiv ID 的引用，调用解读模型提取标题再搜索（消耗 Token）。
+                    每次 arXiv 搜索间隔 3 秒，过多会显著增加运行时间。
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-3 pt-2">
