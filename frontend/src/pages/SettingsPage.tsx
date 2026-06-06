@@ -177,6 +177,10 @@ interface RerankerConfig {
   top_n: number
 }
 
+interface SimilarityConfig {
+  provider: string
+}
+
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
@@ -184,6 +188,7 @@ interface AppConfig {
   embedding: EmbeddingConfig
   research: ResearchConfig
   reranker: RerankerConfig
+  similarity: SimilarityConfig
 }
 
 
@@ -235,6 +240,9 @@ const DEFAULT_CONFIG: AppConfig = {
     base_url: '',
     candidate_k: 30,
     top_n: 5,
+  },
+  similarity: {
+    provider: 'bge_centroid',
   },
 }
 
@@ -640,6 +648,7 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [simProviders, setSimProviders] = useState<string[]>(['bge_centroid'])
 
   useEffect(() => {
     get<AppConfig>('/analysis/config')
@@ -652,9 +661,14 @@ export function SettingsPage() {
         ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
         research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
+        similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
+
+    get<{ providers: string[] }>('/analysis/similarity/providers')
+      .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
+      .catch(() => {})
   }, [])
 
   // 离开页面时清除预览（不保存则恢复原样）
@@ -1021,6 +1035,42 @@ export function SettingsPage() {
             </div>
           </>
         )}
+      </div>
+
+      {/* 论文级相似度 Provider */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-100">论文级相似度计算（Similarity Provider）</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在 <code className="px-1 rounded bg-gray-800">backend/services/deep_research/similarity/</code> 自行新增 provider 并在 REGISTRY 注册。
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Provider</label>
+          <select
+            value={config.similarity.provider}
+            onChange={e => setConfig(prev => ({ ...prev, similarity: { ...prev.similarity, provider: e.target.value } }))}
+            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            {simProviders.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-gray-600 mt-1">
+            当前默认 <code className="px-1 rounded bg-gray-800">bge_centroid</code>：复用 BGE chunk 向量取归一化均值后算余弦。
+            适合粗略相似度；细分方向区分有限。
+          </p>
+          <div className="mt-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/50">
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              <span className="text-gray-300 font-medium">未来可扩展（已在 base.py 列出 TODO）：</span><br />
+              ·  <span className="text-gray-300">specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
+              ·  <span className="text-gray-300">bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
+              ·  <span className="text-gray-300">hybrid</span> —— 多信号融合<br />
+              ·  <span className="text-gray-300">cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 pt-2">

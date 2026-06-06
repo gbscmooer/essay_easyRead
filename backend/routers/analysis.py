@@ -77,6 +77,10 @@ class RerankerConfig(BaseModel):
     candidate_k: int = 30       # 向量检索召回数
     top_n: int = 5              # rerank 后送 LLM 的条数
 
+class SimilarityConfig(BaseModel):
+    """论文级相似度 provider 配置。"""
+    provider: str = "bge_centroid"
+
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
@@ -84,6 +88,7 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig = EmbeddingConfig()
     research: ResearchConfig = ResearchConfig()
     reranker: RerankerConfig = RerankerConfig()
+    similarity: SimilarityConfig = SimilarityConfig()
 
 
 @router.get("/config", response_model=AppConfig)
@@ -98,13 +103,25 @@ async def get_config():
         embedding=EmbeddingConfig(**config.get("embedding", {})),
         research=ResearchConfig(**config.get("research", {})),
         reranker=RerankerConfig(**config.get("reranker", {})),
+        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
     )
+
+
+@router.get("/similarity/providers")
+async def list_similarity_providers():
+    """暴露所有已注册的 similarity provider，供 Settings 下拉使用。"""
+    from ..services.deep_research.similarity import list_providers
+    return {"providers": list_providers()}
 
 
 @router.post("/config")
 async def update_config(req: AppConfig):
     """保存全部配置"""
     from ..services.ai_config import save_config
+    # 保留 similarity 中 provider 之外的 provider-specific 子对象（前端不感知）
+    from ..services.ai_config import load_config as _load
+    prior_sim = _load().get("similarity", {})
+    sim = {**prior_sim, **req.similarity.model_dump()}
     config = {
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
@@ -112,6 +129,7 @@ async def update_config(req: AppConfig):
         "embedding": req.embedding.model_dump(),
         "research": req.research.model_dump(),
         "reranker": req.reranker.model_dump(),
+        "similarity": sim,
     }
     save_config(config)
     return {"message": "配置已保存"}

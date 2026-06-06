@@ -62,6 +62,15 @@ DEFAULT_CONFIG = {
         "candidate_k": 30,        # 向量检索召回数（送入 rerank 的池子大小）
         "top_n": 5,               # rerank 后送入 LLM 的条数
     },
+    "similarity": {
+        # 论文级相似度计算 provider，对应 backend/services/deep_research/similarity/REGISTRY
+        # 当前支持：bge_centroid（默认，复用 BGE chunk embedding 取平均）
+        # 未来可扩展：specter2 / bibcoupling / hybrid / cross_encoder 等
+        "provider": "bge_centroid",
+        # 每个 provider 的私有配置写在与 name 同名的子对象里，例如：
+        # "bge_centroid": {},
+        # "specter2": {"model": "allenai/specter2_base", "device": "auto"},
+    },
 }
 
 
@@ -132,6 +141,11 @@ def get_embedding_config() -> dict:
 def get_research_config() -> dict:
     """获取深度研究 Provider 配置"""
     return load_config().get("research", DEFAULT_CONFIG["research"])
+
+
+def get_similarity_config() -> dict:
+    """获取论文级相似度计算 Provider 配置"""
+    return load_config().get("similarity", DEFAULT_CONFIG["similarity"])
 
 
 def get_reranker_config() -> dict:

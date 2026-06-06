@@ -1,13 +1,22 @@
 """
-Graph Builder — NetworkX 知识图谱构建
+Graph Builder — 知识图谱构建
 
-节点类型：paper（本期仅实现）
-边类型：cites（基于 parent_paper_id）、similar（基于向量余弦相似度）
+节点类型：paper
+边类型：
+- cites:         由 parent_paper_id 推断的引用关系（单向，父 → 子）
+- similar:       论文级相似度（双向，由 SimilarityProvider 计算）
+- shared-method: 共享方法（占位，未实现）
+
+注意：早期版本用 networkx.DiGraph，但 DiGraph 同一对 (s, t) 只能存一条边，
+导致 cites 边被随后的 similar 边覆盖。当前实现改为直接维护 list[edge]，
+允许同一对节点之间存在多种 kind 的边。
 """
 
-import networkx as nx
-import numpy as np
-from .vector_store import get_or_create
+import logging
+from .similarity import get_similarity_provider
+from ..ai_config import get_similarity_config
+
+logger = logging.getLogger(__name__)
 
 
 def _paper_node(p) -> dict:
@@ -26,66 +35,53 @@ def _paper_node(p) -> dict:
     }
 
 
-def _cosine(a, b):
-    a = np.array(a)
-    b = np.array(b)
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
-
-
 async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable_shared_method: bool) -> dict:
-    g = nx.DiGraph()
-
-    # 1) 节点
-    for p in papers:
-        g.add_node(f"paper:{p.id}", **_paper_node(p))
-
-    # 2) cites 边：基于 expanded 关系（parent_paper_id → child）
+    nodes = [_paper_node(p) for p in papers]
     by_id = {p.id: p for p in papers}
+    edges: list[dict] = []
+
+    # 1) cites 边：基于 parent_paper_id 的"父 → 子"引用
+    cites_count = 0
     for p in papers:
         if p.parent_paper_id and p.parent_paper_id in by_id:
-            g.add_edge(f"paper:{p.parent_paper_id}", f"paper:{p.id}",
-                       kind="cites", weight=1.0)
+            edges.append({
+                "source": f"paper:{p.parent_paper_id}",
+                "target": f"paper:{p.id}",
+                "kind": "cites",
+                "weight": 1.0,
+            })
+            cites_count += 1
 
-    # 3) similar 边：基于每篇论文摘要级向量
-    col = get_or_create(ws_id)
-    # 取每篇论文的全部 chunk 的平均向量
-    paper_vecs: dict[int, list[float]] = {}
-    for p in papers:
-        try:
-            res = col.get(where={"paper_id": p.id}, include=["embeddings"])
-            embs = res["embeddings"] if isinstance(res, dict) else None
-            arr = np.asarray(embs) if embs is not None else None
-            if arr is not None and arr.size > 0 and arr.ndim >= 2:
-                vec = np.mean(arr, axis=0).tolist()
-                paper_vecs[p.id] = vec
-        except Exception as ex:
-            __import__("logging").getLogger(__name__).warning(
-                f"skip paper {p.id} in similarity step: {ex}"
-            )
+    # 2) similar 边：委托给配置的 SimilarityProvider
+    provider = get_similarity_provider(get_similarity_config())
+    logger.info(f"graph similar edges via provider={provider.name}")
+    pairs = await provider.score_pairs(papers, ws_id=ws_id)
+    similar_count = 0
+    for a_id, b_id, sim in pairs:
+        if sim < similarity_threshold:
+            continue
+        # 双向 similar 边方便前端 force-graph 渲染
+        edges.append({
+            "source": f"paper:{a_id}", "target": f"paper:{b_id}",
+            "kind": "similar", "weight": sim,
+        })
+        edges.append({
+            "source": f"paper:{b_id}", "target": f"paper:{a_id}",
+            "kind": "similar", "weight": sim,
+        })
+        similar_count += 2
 
-    ids = list(paper_vecs)
-    for i in range(len(ids)):
-        for j in range(i + 1, len(ids)):
-            sim = _cosine(paper_vecs[ids[i]], paper_vecs[ids[j]])
-            if sim >= similarity_threshold:
-                g.add_edge(f"paper:{ids[i]}", f"paper:{ids[j]}",
-                           kind="similar", weight=sim)
-                # 无向：再加反向
-                g.add_edge(f"paper:{ids[j]}", f"paper:{ids[i]}",
-                           kind="similar", weight=sim)
-
-    # 4) （可选）shared-method 边：对相似度高的 pair 调一次 LLM
-    # 当前为占位实现，enable_shared_method=True 时仅做日志提示
+    # 3) shared-method 边：占位
     if enable_shared_method:
-        logger = __import__("logging").getLogger(__name__)
         logger.warning("shared-method 边生成暂未实现（method_extractor 模块待开发），跳过")
 
-    # 5) 序列化为 dict
-    nodes = [g.nodes[n] for n in g.nodes]
-    edges = [{**g.edges[s, t], "source": s, "target": t} for s, t in g.edges]
     stats = {
         "node_count": len(nodes),
         "edge_count": len(edges),
-        "by_kind": {k: sum(1 for e in edges if e["kind"] == k) for k in ("cites", "similar", "shared-method")},
+        "by_kind": {
+            "cites": cites_count,
+            "similar": similar_count,
+            "shared-method": 0,
+        },
     }
     return {"nodes": nodes, "edges": edges, "stats": stats}

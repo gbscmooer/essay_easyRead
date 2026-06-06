@@ -1,18 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.3.1'
+const APP_VERSION = '1.4.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '工作区新增"通过深度研究搜索到的相关论文"独立板块，与本地论文区分展示',
-    '新增「移入工作区」按钮：把研究发现的 L2 论文升级为正式 L1 seed',
-    '修复 expand 阶段已存在论文不进图谱的 bug，现在引用论文会回灌到节点池',
-    '修复历史数据 source=expanded 的论文 level=1 的错误（启动时自动回填为 2）',
-    'OpenAlex 扩展候选量从 top_k×3 提升到 top_k×8，缓解付费墙过滤导致下载数过少',
-    '深度研究 pipeline 自动把工作区已有的 L2+ 论文一并纳入图谱（无需勾选）',
-    'ControlPanel seed 选择改为"seed N/M + 发现 K"展示，更清晰',
+    '新增论文级相似度 Provider 抽象，可在 Settings 切换/扩展（默认 bge_centroid）',
+    '修复 cites 引用边被 similar 边覆盖丢失的 bug（图谱改用 list 不再用 DiGraph）',
+    '默认 bge_centroid 实现升级：chunk 向量先 L2 归一化再平均，减少长 chunk 模长干扰',
+    'Settings 新增「论文级相似度计算」区块，列出 specter2 / bibcoupling 等未来扩展方向',
+    '新增 GET /api/analysis/similarity/providers 端点供前端动态枚举可用 provider',
   ],
 }
 
