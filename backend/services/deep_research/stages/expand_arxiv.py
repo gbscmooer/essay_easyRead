@@ -66,16 +66,14 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
     )
 
     try:
-        from anthropic import AsyncAnthropic
-        client = AsyncAnthropic(
-            api_key=api_key,
-            base_url=cfg.get("base_url") or None,
-        )
+        from ...ai_analyzer import _create_client
+        client = _create_client(api_key, cfg.get("base_url", ""))
         try:
             msg = await client.messages.create(
                 model=cfg.get("model", "claude-haiku-4-5-20251001"),
                 max_tokens=1024,
-                temperature=0,
+                temperature=1,
+                thinking={"type": "enabled", "budget_tokens": 1024},
                 system="只输出 JSON 数组，不含任何其他文字。",
                 messages=[{"role": "user", "content": prompt}],
             )
