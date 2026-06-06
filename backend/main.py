@@ -18,6 +18,7 @@ from .routers.papers import router as papers_router
 from .routers.analysis import router as analysis_router
 from .routers.code import router as code_router
 from .routers.workspaces import router as workspaces_router
+from .routers.research import router as research_router
 
 
 @asynccontextmanager
@@ -41,6 +42,11 @@ async def lifespan(app: FastAPI):
     upload_dir = settings.resolved_upload_dir
     os.makedirs(upload_dir, exist_ok=True)
     logger.info(f"上传目录: {upload_dir}")
+
+    # 确保 ChromaDB 目录存在
+    chroma_dir = settings.resolved_chroma_dir
+    os.makedirs(chroma_dir, exist_ok=True)
+    logger.info(f"ChromaDB 目录: {chroma_dir}")
 
     # 初始化数据库
     init_db(db_url)
@@ -75,6 +81,7 @@ app.include_router(papers_router)
 app.include_router(analysis_router)
 app.include_router(code_router)
 app.include_router(workspaces_router)
+app.include_router(research_router)
 
 
 @app.get("/")

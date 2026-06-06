@@ -12,6 +12,7 @@ from sqlalchemy import func
 from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
+from ..models.research import ResearchRun, ResearchGraph  # 确保 metadata 注册
 
 
 def _migrate_schema(engine) -> None:
@@ -53,6 +54,9 @@ def _migrate_schema(engine) -> None:
             ("code_status", "TEXT DEFAULT 'none'"),
             ("code_path", "TEXT"),
             ("code_summary", "TEXT"),
+            ("source", "TEXT DEFAULT 'uploaded'"),
+            ("parent_paper_id", "INTEGER"),
+            ("external_id", "TEXT"),
         ]
         for col_name, col_def in paper_migrations:
             if col_name not in existing_paper_cols:

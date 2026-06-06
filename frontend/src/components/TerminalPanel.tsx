@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { APP_VERSION } from './VersionPopup'
 
 const RealTerminal = lazy(() =>
   import('@/features/code/Terminal').then(m => ({ default: m.Terminal }))
@@ -247,6 +248,7 @@ export function TerminalPanel() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <span className="text-xs text-gray-500 font-medium">终端</span>
+          <span className="text-[10px] text-gray-600">v{APP_VERSION}</span>
           {!collapsed && (
             <div className="flex items-center gap-1">
               {tabs.map(tab => (

@@ -205,3 +205,100 @@ export type AnalysisStatus =
   | 'generating'    // 正在生成流程图
   | 'done'          // 完成
   | 'failed'        // 失败
+
+
+// ============================================================
+// Research 相关
+// ============================================================
+
+export type ResearchMode = 'local' | 'online'
+export type ResearchStatus = 'pending' | 'running' | 'done' | 'failed'
+export type ResearchStage = 'collect' | 'expand' | 'chunk' | 'embed' | 'graph' | 'persist'
+
+export interface ResearchRunCreate {
+  mode: ResearchMode
+  paper_ids?: number[] | null
+  expand_top_k?: number
+  expand_total_limit?: number
+  rebuild?: boolean
+  similarity_threshold?: number
+  enable_shared_method?: boolean
+}
+
+export interface ResearchRun {
+  id: number
+  workspace_id: number
+  mode: ResearchMode
+  status: ResearchStatus
+  current_stage: ResearchStage | null
+  error_message: string | null
+  params: Record<string, unknown>
+  paper_count: number
+  expanded_count: number
+  chunk_count: number
+  embed_done: number
+  embed_total: number
+  node_count: number
+  edge_count: number
+  created_at: string
+  updated_at: string
+}
+
+export type GraphNodeKind = 'paper' | 'method' | 'dataset'
+export type GraphEdgeKind = 'cites' | 'similar' | 'shared-method' | 'uses-dataset'
+
+export interface GraphNode {
+  id: string
+  kind: GraphNodeKind
+  label: string
+  meta: {
+    paper_id?: number
+    year?: number | null
+    venue?: string | null
+    source?: 'uploaded' | 'expanded'
+    status?: string
+    external_id?: string | null
+  }
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  kind: GraphEdgeKind
+  weight: number
+}
+
+export interface ResearchGraph {
+  workspace_id: number
+  run_id: number
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  stats: {
+    node_count: number
+    edge_count: number
+    by_kind: Record<GraphEdgeKind, number>
+  }
+  updated_at: string
+}
+
+export interface RagCitation {
+  paper_id: number
+  paper_title: string
+  section_name: string
+  snippet: string
+  score: number
+}
+
+export interface RagQueryResponse {
+  answer: string
+  citations: RagCitation[]
+}
+
+export interface EmbeddingConfig {
+  provider: 'local' | 'openai' | 'siliconflow'
+  model: string
+  api_key: string
+  base_url: string
+  batch_size: number
+  device: string
+}

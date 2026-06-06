@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # CORS
     frontend_origin: str = "http://localhost:5173"  # Vite 默认端口
 
+    # Deep Research
+    chroma_dir: str = "./data/chroma"  # ChromaDB 持久化目录
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -64,6 +67,11 @@ class Settings(BaseSettings):
     def resolved_upload_dir(self) -> str:
         """返回绝对路径的上传目录"""
         return _resolve_path(self.upload_dir)
+
+    @property
+    def resolved_chroma_dir(self) -> str:
+        """返回绝对路径的 ChromaDB 目录"""
+        return _resolve_path(self.chroma_dir)
 
 
 # 全局单例，整个应用使用此实例

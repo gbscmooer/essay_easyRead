@@ -215,3 +215,61 @@ async def generate_relevance_descriptions(
         # relevance 保持空字符串，不影响使用
 
     return related_papers
+
+
+# ============================================================
+# Deep Research 扩展：论文 ID 解析 + 引用列表
+# ============================================================
+
+S2_REF_FIELDS = "title,year,citationCount,externalIds,openAccessPdf,authors"
+
+
+async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Optional[str]:
+    """通过 DOI/arXivId/标题 解析 S2 paperId"""
+    if doi:
+        try:
+            data = await _rate_limited_get(f"{S2_BASE}/paper/DOI:{doi}", params={"fields": "paperId"})
+            return data.get("paperId")
+        except Exception:
+            pass
+    if arxiv_id:
+        try:
+            data = await _rate_limited_get(f"{S2_BASE}/paper/arXiv:{arxiv_id}", params={"fields": "paperId"})
+            return data.get("paperId")
+        except Exception:
+            pass
+    if title:
+        try:
+            data = await _rate_limited_get(f"{S2_BASE}/paper/search",
+                params={"query": title, "fields": "paperId,title", "limit": 1})
+            arr = data.get("data") or []
+            if arr:
+                return arr[0].get("paperId")
+        except Exception:
+            pass
+    return None
+
+
+async def get_paper_references(s2_paper_id: str, limit: int = 50) -> list[dict]:
+    """返回结构化 references 列表，包含 openAccessPdf 信息"""
+    data = await _rate_limited_get(
+        f"{S2_BASE}/paper/{s2_paper_id}/references",
+        params={"fields": f"citedPaper.{S2_REF_FIELDS}", "limit": limit},
+    )
+    results = []
+    for item in data.get("data") or []:
+        cited = item.get("citedPaper") or {}
+        if not cited.get("title"):
+            continue
+        ext = cited.get("externalIds") or {}
+        oa = cited.get("openAccessPdf") or {}
+        results.append({
+            "s2_id": cited.get("paperId"),
+            "title": cited.get("title"),
+            "year": cited.get("year"),
+            "citation_count": cited.get("citationCount") or 0,
+            "doi": ext.get("DOI"),
+            "arxiv_id": ext.get("ArXiv"),
+            "pdf_url": oa.get("url"),
+        })
+    return results

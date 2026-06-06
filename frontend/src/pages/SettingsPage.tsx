@@ -1,9 +1,138 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 
 
-interface AIModelConfig {
+interface TestResult {
+  ok: boolean
+  message: string
+  latency_ms: number | null
+}
+
+
+/** 测试按钮：点击后调用后端 test-connection，显示结果 */
+function TestButton({
+  type,
+  api_key,
+  base_url,
+  model,
+  provider,
+}: {
+  type: 'translate' | 'analysis' | 'embedding'
+  api_key?: string
+  base_url?: string
+  model?: string
+  provider?: string
+}) {
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<TestResult | null>(null)
+  const [showError, setShowError] = useState(false)
+
+  const handleTest = useCallback(async () => {
+    setTesting(true)
+    setResult(null)
+    setShowError(false)
+    try {
+      const res = await post<TestResult>('/analysis/test-connection', {
+        type,
+        api_key: api_key ?? '',
+        base_url: base_url ?? '',
+        model: model ?? '',
+        provider: provider ?? '',
+      })
+      setResult(res)
+    } catch (e: any) {
+      setResult({ ok: false, message: e?.message || '请求失败', latency_ms: null })
+    } finally {
+      setTesting(false)
+    }
+  }, [type, api_key, base_url, model, provider])
+
+  return (
+    <div className="flex items-center gap-2 relative">
+      <button
+        onClick={() => {
+          if (result && !result.ok) {
+            setShowError(v => !v)
+          } else {
+            handleTest()
+          }
+        }}
+        disabled={testing}
+        className={`px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+          result === null
+            ? 'border-gray-600 text-gray-400 hover:border-gray-500 hover:text-gray-300'
+            : result.ok
+              ? 'border-green-500/50 text-green-400 bg-green-500/10'
+              : 'border-red-500/50 text-red-400 bg-red-500/10 cursor-pointer'
+        }`}
+      >
+        {testing ? (
+          <span className="flex items-center gap-1.5">
+            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            测试中
+          </span>
+        ) : result?.ok
+          ? `测试通过${result.latency_ms != null ? ` (${result.latency_ms}ms)` : ''}`
+          : result
+            ? '测试失败'
+            : '测试'}
+      </button>
+
+      {/* 失败时点击按钮弹出错误详情 */}
+      {showError && result && !result.ok && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setShowError(false)}
+          />
+          {/* 弹窗 */}
+          <div
+            className="absolute right-0 top-full mt-2 z-50 w-80 rounded-xl p-4 border"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-red-400">连接失败</span>
+              <button
+                onClick={() => setShowError(false)}
+                className="text-xs hover:opacity-80"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-xs leading-relaxed break-all" style={{ color: 'var(--text-secondary)' }}>
+              {result.message}
+            </p>
+            {result.latency_ms != null && (
+              <p className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>
+                耗时 {result.latency_ms}ms
+              </p>
+            )}
+            <button
+              onClick={() => { setShowError(false); handleTest() }}
+              className="mt-3 px-3 py-1 text-xs rounded-lg border transition-colors"
+              style={{
+                borderColor: 'var(--border)',
+                color: 'var(--text-secondary)',
+                backgroundColor: 'var(--bg-surface)',
+              }}
+            >
+              重试
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}interface AIModelConfig {
   api_key: string
   base_url: string
   model: string
@@ -23,10 +152,20 @@ interface UIConfig {
   custom_font: string
 }
 
+interface EmbeddingConfig {
+  provider: 'local' | 'openai' | 'siliconflow'
+  model: string
+  api_key: string
+  base_url: string
+  batch_size: number
+  device: string
+}
+
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
   ui: UIConfig
+  embedding: EmbeddingConfig
 }
 
 
@@ -57,6 +196,14 @@ const DEFAULT_CONFIG: AppConfig = {
     font: 'sans',
     custom_font: '',
   },
+  embedding: {
+    provider: 'local',
+    model: 'BAAI/bge-m3',
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    batch_size: 32,
+    device: 'auto',
+  },
 }
 
 
@@ -72,12 +219,14 @@ function ConfigSection({
   config,
   onChange,
   defaultMaxTokens,
+  testType,
 }: {
   title: string
   description: string
   config: AIModelConfig
   onChange: (cfg: AIModelConfig) => void
   defaultMaxTokens: number
+  testType: 'translate' | 'analysis'
 }) {
   const [showKey, setShowKey] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -88,13 +237,21 @@ function ConfigSection({
       keyMissing ? 'border-red-500/50' : 'border-gray-800'
     }`}>
       <div>
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold text-gray-100">{title}</h2>
-          {keyMissing && (
-            <span className="text-xs text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
-              未配置 API Key
-            </span>
-          )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-gray-100">{title}</h2>
+            {keyMissing && (
+              <span className="text-xs text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+                未配置 API Key
+              </span>
+            )}
+          </div>
+          <TestButton
+            type={testType}
+            api_key={config.api_key}
+            base_url={config.base_url}
+            model={config.model}
+          />
         </div>
         <p className="text-xs text-gray-500 mt-0.5">{description}</p>
       </div>
@@ -454,7 +611,14 @@ export function SettingsPage() {
 
   useEffect(() => {
     get<AppConfig>('/analysis/config')
-      .then(cfg => setConfig(cfg))
+      .then(cfg => setConfig({
+        ...DEFAULT_CONFIG,
+        ...cfg,
+        embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
+        translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
+        analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
+        ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
+      }))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -533,6 +697,7 @@ export function SettingsPage() {
         config={config.translate}
         onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
         defaultMaxTokens={2048}
+        testType="translate"
       />
 
       <ConfigSection
@@ -541,12 +706,104 @@ export function SettingsPage() {
         config={config.analysis}
         onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
         defaultMaxTokens={16384}
+        testType="analysis"
       />
 
       <UIConfigSection
         config={config.ui}
         onChange={cfg => setConfig(prev => ({ ...prev, ui: cfg }))}
       />
+
+      {/* Embedding 配置 */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-100">Embedding 模型</h2>
+            <p className="text-xs text-gray-500 mt-0.5">用于深度研究的向量嵌入模型。本地模式首次运行需下载模型（~2GB）。</p>
+          </div>
+          <TestButton
+            type="embedding"
+            api_key={config.embedding.api_key}
+            base_url={config.embedding.base_url}
+            model={config.embedding.model}
+            provider={config.embedding.provider}
+          />
+        </div>
+
+        {/* Provider 选择 */}
+        <div>
+          <label className="block text-xs text-gray-500 mb-2">Provider</label>
+          <div className="flex gap-2">
+            {([
+              { key: 'local' as const, label: '本地 (BGE-M3)' },
+              { key: 'siliconflow' as const, label: '硅基流动' },
+              { key: 'openai' as const, label: 'OpenAI' },
+            ]).map(p => (
+              <button
+                key={p.key}
+                onClick={() => setConfig(prev => {
+                  const defaults: Record<string, Partial<EmbeddingConfig>> = {
+                    local: { model: 'BAAI/bge-m3', base_url: 'https://api.openai.com/v1' },
+                    siliconflow: { model: 'BAAI/bge-m3', base_url: 'https://api.siliconflow.cn/v1' },
+                    openai: { model: 'text-embedding-3-small', base_url: 'https://api.openai.com/v1' },
+                  }
+                  return { ...prev, embedding: { ...prev.embedding, provider: p.key, ...defaults[p.key] } }
+                })}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  config.embedding.provider === p.key
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                    : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 模型名 */}
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">模型名称</label>
+          <input
+            type="text"
+            value={config.embedding.model}
+            onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, model: e.target.value } }))}
+            placeholder={config.embedding.provider === 'local' ? 'BAAI/bge-m3' : config.embedding.provider === 'siliconflow' ? 'BAAI/bge-m3' : 'text-embedding-3-small'}
+            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+          />
+        </div>
+
+        {/* OpenAI / SiliconFlow 专用配置 */}
+        {(config.embedding.provider === 'openai' || config.embedding.provider === 'siliconflow') && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+              <input
+                type="text"
+                value={config.embedding.base_url}
+                onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, base_url: e.target.value } }))}
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">API Key</label>
+              <input
+                type="password"
+                value={config.embedding.api_key}
+                onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, api_key: e.target.value } }))}
+                placeholder="sk-..."
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+              />
+            </div>
+          </>
+        )}
+
+        {config.embedding.provider === 'local' && (
+          <p className="text-[10px] text-gray-600">
+            本地模式使用 sentence-transformers 加载模型，首次运行会自动下载。切换 provider 后建议重建索引以避免向量维度不匹配。
+          </p>
+        )}
+      </div>
 
       <div className="flex items-center gap-3 pt-2">
         <button

@@ -10,17 +10,27 @@ import { useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { UploadZone } from '@/features/upload/UploadZone'
 import { listPapers, uploadPaper } from '@/api/papers'
+import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
 
 
 export function HomePage() {
   const navigate = useNavigate()
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])
+  const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   useEffect(() => {
     listPapers({ page: 1, per_page: 6 })
       .then(res => setRecentPapers(res.papers))
+      .catch(() => {})
+    listWorkspaces()
+      .then(ws => {
+        const sorted = ws.sort((a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        )
+        setRecentWorkspaces(sorted.slice(0, 6))
+      })
       .catch(() => {})
   }, [])
 
@@ -74,7 +84,7 @@ export function HomePage() {
                 onClick={() => navigate(`/reader/${paper.id}`)}
                 className="rounded-xl p-4 cursor-pointer transition-all"
                 style={{
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-surface)',
                   boxShadow: 'var(--shadow-card)',
                   border: '1px solid var(--border)',
                 }}
@@ -110,6 +120,55 @@ export function HomePage() {
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {paper.status === 'done' ? '已完成' : paper.status === 'failed' ? '失败' : '处理中'}
                   </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 最近使用工作区 */}
+      {recentWorkspaces.length > 0 && (
+        <section className={recentPapers.length > 0 ? 'mt-10' : ''}>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>最近使用工作区</h2>
+            <button
+              onClick={() => navigate('/workspace')}
+              className="text-xs transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              查看全部 &rarr;
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recentWorkspaces.map(ws => (
+              <div
+                key={ws.id}
+                onClick={() => navigate(`/workspace/${ws.id}`)}
+                className="rounded-xl p-4 cursor-pointer transition-all"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  boxShadow: 'var(--shadow-card)',
+                  border: '1px solid var(--border)',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget
+                  el.style.boxShadow = 'var(--shadow-elevated)'
+                  el.style.borderColor = 'var(--border-light)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget
+                  el.style.boxShadow = 'var(--shadow-card)'
+                  el.style.borderColor = 'var(--border)'
+                }}
+              >
+                <h3 className="text-sm font-medium mb-2 truncate" style={{ color: 'var(--text-primary)' }}>
+                  {ws.name}
+                </h3>
+                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <span>{ws.paper_count} 篇论文</span>
+                  <span>&middot;</span>
+                  <span>{new Date(ws.updated_at).toLocaleDateString('zh-CN')}</span>
                 </div>
               </div>
             ))}

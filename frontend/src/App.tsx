@@ -21,6 +21,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { CodePage } from '@/pages/CodePage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
+import { ResearchPage } from '@/pages/ResearchPage'
 
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
+        <Route path="/workspace/:id/research" element={<ResearchPage />} />
       </Routes>
     </Layout>
   )

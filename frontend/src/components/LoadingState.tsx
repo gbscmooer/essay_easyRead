@@ -196,7 +196,7 @@ export function LoadingState({ status, message, partialResult }: LoadingStatePro
 
         {/* 已识别的标题 */}
         {partialResult.title && (
-          <div className="w-full rounded-lg p-3" style={{ backgroundColor: '#ffffff', border: '1px solid var(--border)' }}>
+          <div className="w-full rounded-lg p-3" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>已识别论文</p>
             <p className="text-sm font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>
               {partialResult.title}

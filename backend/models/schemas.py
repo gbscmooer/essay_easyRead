@@ -158,3 +158,70 @@ class CodeSummaryResponse(BaseModel):
     code_url: Optional[str] = None
     code_status: str = "none"
     code_summary: Optional[str] = None
+
+
+# ============================================================
+# Research 相关 Schema
+# ============================================================
+
+class ResearchRunCreate(BaseModel):
+    """创建深度研究任务的请求体"""
+    mode: str = "local"                                # "local" | "online"
+    paper_ids: Optional[list[int]] = None              # None = 工作区全部
+    expand_top_k: int = 5                              # 仅 online 模式
+    expand_total_limit: int = 50                       # 安全上限
+    rebuild: bool = False                              # True 时清空 ChromaDB & 图谱重建
+    similarity_threshold: float = 0.78                 # similar 边阈值
+    enable_shared_method: bool = False                 # 是否调用 AI 生成 shared-method 边
+
+
+class ResearchRunResponse(BaseModel):
+    """深度研究任务的响应"""
+    id: int
+    workspace_id: int
+    mode: str
+    status: str
+    current_stage: Optional[str] = None
+    error_message: Optional[str] = None
+    params: dict
+    paper_count: int
+    expanded_count: int
+    chunk_count: int
+    embed_done: int
+    embed_total: int
+    node_count: int
+    edge_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResearchGraphResponse(BaseModel):
+    """工作区图谱快照响应"""
+    workspace_id: int
+    run_id: int
+    nodes: list[dict]
+    edges: list[dict]
+    stats: dict
+    updated_at: datetime
+
+
+class RagQueryRequest(BaseModel):
+    """RAG 跨论文问答请求"""
+    question: str
+    top_k: int = 5
+    paper_ids: Optional[list[int]] = None              # None = 全工作区
+
+
+class RagCitation(BaseModel):
+    """RAG 回答中的引用来源"""
+    paper_id: int
+    paper_title: str
+    section_name: str
+    snippet: str
+    score: float
+
+
+class RagQueryResponse(BaseModel):
+    """RAG 问答响应"""
+    answer: str
+    citations: list[RagCitation]

@@ -95,7 +95,7 @@ export function WorkspacePage() {
               onClick={() => navigate(`/workspace/${ws.id}`)}
               className="rounded-xl p-4 cursor-pointer transition-all group"
               style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
               }}
               onMouseEnter={e => {

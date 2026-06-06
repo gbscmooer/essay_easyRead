@@ -82,7 +82,7 @@ export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
             ? 'var(--accent-subtle)'
             : isUploading
             ? 'var(--bg-surface)'
-            : '#ffffff',
+            : 'var(--bg-surface)',
           opacity: isUploading ? 0.6 : 1,
           cursor: isUploading ? 'not-allowed' : 'pointer',
         }}

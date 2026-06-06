@@ -6,6 +6,8 @@ Analysis 路由
 
 import asyncio
 import logging
+import httpx
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -53,10 +55,19 @@ class UIConfig(BaseModel):
     font: str = "sans"
     custom_font: str = ""
 
+class EmbeddingConfig(BaseModel):
+    provider: str = "local"
+    model: str = "BAAI/bge-m3"
+    api_key: str = ""
+    base_url: str = "https://api.openai.com/v1"
+    batch_size: int = 32
+    device: str = "auto"
+
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
     ui: UIConfig = UIConfig()
+    embedding: EmbeddingConfig = EmbeddingConfig()  # ← 新增
 
 
 @router.get("/config", response_model=AppConfig)
@@ -68,6 +79,7 @@ async def get_config():
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
         ui=UIConfig(**config.get("ui", {})),
+        embedding=EmbeddingConfig(**config.get("embedding", {})),
     )
 
 
@@ -79,9 +91,140 @@ async def update_config(req: AppConfig):
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
         "ui": req.ui.model_dump(),
+        "embedding": req.embedding.model_dump(),
     }
     save_config(config)
     return {"message": "配置已保存"}
+
+
+# ============================================================
+# POST /api/analysis/test-connection
+# ============================================================
+
+class TestConnectionRequest(BaseModel):
+    """测试模型连通性请求"""
+    type: str  # "translate" | "analysis" | "embedding"
+    # 可选：前端直接传入当前表单配置，不传则用已保存的配置
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None  # embedding 专用
+
+
+class TestConnectionResponse(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: Optional[int] = None
+
+
+@router.post("/test-connection", response_model=TestConnectionResponse)
+async def test_connection(req: TestConnectionRequest):
+    """测试 AI 模型服务是否可达"""
+    import time
+
+    if req.type in ("translate", "analysis"):
+        return await _test_anthropic_connection(req)
+    elif req.type == "embedding":
+        return await _test_embedding_connection(req)
+    else:
+        raise HTTPException(status_code=400, detail="type 必须是 translate / analysis / embedding")
+
+
+async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnectionResponse:
+    """测试 Anthropic 兼容 API 连通性"""
+    import time
+    from ..services.ai_analyzer import _create_client
+    from ..services.ai_config import get_translate_config, get_analysis_config
+
+    if req.type == "translate":
+        cfg = get_translate_config()
+    else:
+        cfg = get_analysis_config()
+
+    api_key = req.api_key if req.api_key is not None else cfg.get("api_key", "")
+    base_url = req.base_url if req.base_url is not None else cfg.get("base_url", "")
+    model = req.model if req.model is not None else cfg.get("model", "")
+
+    if not api_key:
+        return TestConnectionResponse(ok=False, message="API Key 未填写")
+    if not base_url:
+        return TestConnectionResponse(ok=False, message="Base URL 未填写")
+    if not model:
+        return TestConnectionResponse(ok=False, message="模型名称未填写")
+
+    t0 = time.monotonic()
+    try:
+        client = _create_client(api_key, base_url)
+        try:
+            message = await client.messages.create(
+                model=model,
+                max_tokens=5,
+                system="Reply with OK.",
+                messages=[{"role": "user", "content": "Hi"}],
+            )
+            latency = int((time.monotonic() - t0) * 1000)
+            return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
+        finally:
+            await client.close()
+    except Exception as e:
+        latency = int((time.monotonic() - t0) * 1000)
+        err_msg = str(e)
+        # 截取关键错误信息，避免过长
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        return TestConnectionResponse(ok=False, message=f"连接失败: {err_msg}", latency_ms=latency)
+
+
+async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnectionResponse:
+    """测试 Embedding API 连通性"""
+    import time
+    from ..services.ai_config import get_embedding_config
+
+    cfg = get_embedding_config()
+    provider = req.provider if req.provider is not None else cfg.get("provider", "local")
+    api_key = req.api_key if req.api_key is not None else cfg.get("api_key", "")
+    base_url = req.base_url if req.base_url is not None else cfg.get("base_url", "")
+    model = req.model if req.model is not None else cfg.get("model", "")
+
+    if provider == "local":
+        # 本地模型：测试 sentence-transformers 是否可加载
+        t0 = time.monotonic()
+        try:
+            from sentence_transformers import SentenceTransformer
+            m = SentenceTransformer(model, device="cpu")
+            vec = m.encode(["test"], normalize_embeddings=True)
+            latency = int((time.monotonic() - t0) * 1000)
+            dim = len(vec[0])
+            return TestConnectionResponse(ok=True, message=f"本地模型加载成功 (维度={dim})", latency_ms=latency)
+        except Exception as e:
+            latency = int((time.monotonic() - t0) * 1000)
+            return TestConnectionResponse(ok=False, message=f"本地模型加载失败: {str(e)[:200]}", latency_ms=latency)
+
+    # 远程 API（openai / siliconflow）
+    if not api_key:
+        return TestConnectionResponse(ok=False, message="API Key 未填写")
+    if not base_url:
+        return TestConnectionResponse(ok=False, message="Base URL 未填写")
+
+    t0 = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{base_url.rstrip('/')}/embeddings",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": model, "input": ["test"]},
+            )
+            r.raise_for_status()
+            data = r.json()
+            dim = len(data["data"][0]["embedding"])
+            latency = int((time.monotonic() - t0) * 1000)
+            return TestConnectionResponse(ok=True, message=f"连接成功 (维度={dim})", latency_ms=latency)
+    except httpx.HTTPStatusError as e:
+        latency = int((time.monotonic() - t0) * 1000)
+        return TestConnectionResponse(ok=False, message=f"HTTP {e.response.status_code}: {e.response.text[:150]}", latency_ms=latency)
+    except Exception as e:
+        latency = int((time.monotonic() - t0) * 1000)
+        return TestConnectionResponse(ok=False, message=f"连接失败: {str(e)[:200]}", latency_ms=latency)
 
 
 # ============================================================

@@ -141,7 +141,7 @@ export function PaperList({
                 onClick={() => onSelect(paper.id)}
                 className="flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all group"
                 style={{
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border)',
                 }}
                 onMouseEnter={e => {
@@ -195,7 +195,7 @@ export function PaperList({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
             className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: '#ffffff', border: '1px solid var(--border)' }}
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
             上一页
           </button>
@@ -206,7 +206,7 @@ export function PaperList({
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
             className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: '#ffffff', border: '1px solid var(--border)' }}
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
             下一页
           </button>

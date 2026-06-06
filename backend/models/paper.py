@@ -43,6 +43,11 @@ class Paper(SQLModel, table=True):
     code_path: Optional[str] = None  # 本地 clone 路径
     code_summary: Optional[str] = None  # AI 生成的 README 摘要
 
+    # 深度研究扩展字段
+    source: str = "uploaded"               # uploaded | expanded
+    parent_paper_id: Optional[int] = None  # 仅 expanded：seed 论文 id
+    external_id: Optional[str] = None      # S2 paperId 或 arXivId，用于去重
+
     # 时间戳 — 在 database.py 的 CRUD 中手动设置
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

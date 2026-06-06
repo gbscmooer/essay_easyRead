@@ -151,7 +151,7 @@ export function ReaderPage() {
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* 顶部工具栏 */}
         <div className="flex items-center justify-between px-3 py-1.5 shrink-0" style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--bg-surface)',
           borderBottom: '1px solid var(--border)',
         }}>
           <button
@@ -169,9 +169,7 @@ export function ReaderPage() {
             </svg>
           </button>
 
-          <span className="text-xs truncate mx-2" style={{ color: 'var(--text-muted)' }}>
-            {analysis?.title || partialResult?.title || ''}
-          </span>
+          <div />
 
           <button
             onClick={() => setPanelOpen(v => !v)}
@@ -216,7 +214,7 @@ export function ReaderPage() {
       {/* 右侧 AI 分析面板 */}
       <div
         className="overflow-auto transition-[width] duration-100 ease-out shrink-0"
-        style={{ width: panelOpen ? `${panelPct}%` : 0, backgroundColor: '#ffffff' }}
+        style={{ width: panelOpen ? `${panelPct}%` : 0, backgroundColor: 'var(--bg-surface)' }}
       >
         {panelOpen && (
           <div className="h-full overflow-auto">

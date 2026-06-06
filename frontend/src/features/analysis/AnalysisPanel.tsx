@@ -80,7 +80,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
     <div className="flex flex-col h-full">
       {/* Tab 栏 */}
       <div className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={{
-        backgroundColor: '#ffffff',
+        backgroundColor: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
       }}>
         {tabs.map(tab => (

@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
-import { getPaper } from '@/api/papers'
+import { VersionPopup } from './VersionPopup'
 import { hasUnsavedConfig } from '@/hooks/useConfig'
 
 
@@ -25,22 +25,21 @@ function useCurrentPaperId(): number | null {
   return match ? Number(match[1]) : null
 }
 
+function useCurrentWorkspaceId(): number | null {
+  const m = useLocation().pathname.match(/^\/workspace\/(\d+)(?:\/|$)/)
+  return m ? Number(m[1]) : null
+}
+
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const paperId = useCurrentPaperId()
-  const [paperTitle, setPaperTitle] = useState<string | null>(null)
+  const wsId = useCurrentWorkspaceId()
   const [navCollapsed, setNavCollapsed] = useState(false)
+  const [showVersion, setShowVersion] = useState(false)
 
-  useEffect(() => {
-    if (paperId) {
-      getPaper(paperId)
-        .then(p => setPaperTitle(p.title || p.filename))
-        .catch(() => setPaperTitle(null))
-    } else {
-      setPaperTitle(null)
-    }
-  }, [paperId])
+  const toggleVersion = useCallback(() => setShowVersion(v => !v), [])
+  const closeVersion = useCallback(() => setShowVersion(false), [])
 
   return (
     <ThemeProvider>
@@ -52,9 +51,16 @@ export function Layout({ children }: LayoutProps) {
         backgroundColor: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
       }}>
-        <Link to="/" className={`font-semibold transition-colors ${navCollapsed ? 'text-sm' : 'text-base'}`} style={{ color: 'var(--text-primary)' }}>
-          <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
-        </Link>
+        <div className="relative">
+          <button
+            onClick={toggleVersion}
+            className={`font-semibold transition-colors cursor-pointer ${navCollapsed ? 'text-sm' : 'text-base'}`}
+            style={{ color: 'var(--text-primary)', background: 'none', border: 'none' }}
+          >
+            <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
+          </button>
+          {showVersion && <VersionPopup onClose={closeVersion} />}
+        </div>
 
         {!navCollapsed && (
           <div className="flex items-center gap-1">
@@ -106,9 +112,6 @@ export function Layout({ children }: LayoutProps) {
           opacity: 0.97,
         }}>
           <div className="flex items-center gap-4">
-            <span className="text-xs truncate max-w-xs" style={{ color: 'var(--text-muted)' }}>
-              {paperTitle || '加载中...'}
-            </span>
             <div className="flex items-center gap-1">
               <Link
                 to={`/reader/${paperId}`}
@@ -163,6 +166,46 @@ export function Layout({ children }: LayoutProps) {
             style={{ color: 'var(--text-muted)' }}
           >
             返回论文库 &rarr;
+          </Link>
+        </div>
+      )}
+
+      {/* 工作区级二级导航（在工作区页面显示，且不在论文页面时）*/}
+      {wsId && !paperId && !navCollapsed && (
+        <div className="flex items-center gap-4 px-6 h-11 shrink-0" style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderBottom: '1px solid var(--border)',
+          opacity: 0.97,
+        }}>
+          <Link
+            to={`/workspace/${wsId}`}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              location.pathname === `/workspace/${wsId}`
+                ? 'font-medium'
+                : ''
+            }`}
+            style={
+              location.pathname === `/workspace/${wsId}`
+                ? { backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                : { color: 'var(--text-muted)' }
+            }
+          >
+            论文列表
+          </Link>
+          <Link
+            to={`/workspace/${wsId}/research`}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              location.pathname.includes('/research')
+                ? 'font-medium'
+                : ''
+            }`}
+            style={
+              location.pathname.includes('/research')
+                ? { backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                : { color: 'var(--text-muted)' }
+            }
+          >
+            深度研究 ⚡
           </Link>
         </div>
       )}

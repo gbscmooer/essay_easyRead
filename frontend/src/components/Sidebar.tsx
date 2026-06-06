@@ -32,7 +32,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
 
   return (
     <div className="flex flex-col w-64 h-full" style={{
-      backgroundColor: '#ffffff',
+      backgroundColor: 'var(--bg-surface)',
       borderRight: '1px solid var(--border)',
     }}>
       <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -43,7 +43,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
           onChange={e => setSearch(e.target.value)}
           className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none"
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border)',
             color: 'var(--text-primary)',
           }}
