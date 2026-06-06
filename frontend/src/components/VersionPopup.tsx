@@ -1,16 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.4.0'
+const APP_VERSION = '1.4.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-06',
   changes: [
-    '新增论文级相似度 Provider 抽象，可在 Settings 切换/扩展（默认 bge_centroid）',
-    '修复 cites 引用边被 similar 边覆盖丢失的 bug（图谱改用 list 不再用 DiGraph）',
-    '默认 bge_centroid 实现升级：chunk 向量先 L2 归一化再平均，减少长 chunk 模长干扰',
-    'Settings 新增「论文级相似度计算」区块，列出 specter2 / bibcoupling 等未来扩展方向',
-    '新增 GET /api/analysis/similarity/providers 端点供前端动态枚举可用 provider',
+    '修复知识图谱孤立节点消失问题（调高相似度阈值后无边节点不再被过滤）',
+    '重新分析按钮新增确认对话框，避免误触消耗大量 Token',
+    '验证 Similarity Provider 设置持久化正常，切换 provider 后保存即生效',
   ],
 }
 

@@ -40,6 +40,7 @@ type TabKey = typeof tabs[number]['key']
 
 export function AnalysisPanel({ result, partialResult, status, progressMessage, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
+  const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false)
 
   // 空闲状态：显示"开始分析"按钮
   if (status === 'idle' && !result) {
@@ -102,17 +103,62 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         ))}
         <div className="flex-1" />
         {onReanalyze && (
-          <button
-            onClick={onReanalyze}
-            className="px-3 py-1.5 mr-2 text-xs rounded-md transition-colors"
-            style={{ color: 'var(--text-muted)' }}
-            title="全部重新分析"
-          >
-            <svg className="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            重新分析
-          </button>
+          <>
+            <button
+              onClick={() => setShowReanalyzeConfirm(true)}
+              className="px-3 py-1.5 mr-2 text-xs rounded-md transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              title="全部重新分析"
+            >
+              <svg className="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              重新分析
+            </button>
+            {showReanalyzeConfirm && (
+              <div
+                className="fixed inset-0 z-[200] flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+                onMouseDown={() => setShowReanalyzeConfirm(false)}
+              >
+                <div
+                  className="w-80 rounded-xl border p-5 shadow-2xl"
+                  style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+                  onMouseDown={e => e.stopPropagation()}
+                >
+                  <div className="flex items-start gap-3 mb-4">
+                    <span className="mt-0.5 text-amber-400 shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>确认重新分析？</p>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        将消耗大量 Token 重新对整篇论文进行 AI 解析，原有分析结果将被覆盖。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowReanalyzeConfirm(false)}
+                      className="px-3 py-1.5 text-xs rounded-md border transition-colors hover:opacity-80"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={() => { setShowReanalyzeConfirm(false); onReanalyze() }}
+                      className="px-3 py-1.5 text-xs rounded-md transition-colors"
+                      style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+                    >
+                      确认重新分析
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

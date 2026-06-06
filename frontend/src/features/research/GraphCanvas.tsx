@@ -61,14 +61,8 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode }: GraphCanvasProp
   const graphData = useMemo(() => {
     if (!graph) return { nodes: [], links: [] }
     const filteredEdges = graph.edges.filter(e => edgeFilter.has(e.kind as GraphEdgeKind))
-    const connectedIds = new Set<string>()
-    filteredEdges.forEach(e => {
-      connectedIds.add(e.source)
-      connectedIds.add(e.target)
-    })
-    const visibleNodes = filteredEdges.length > 0
-      ? graph.nodes.filter(n => connectedIds.has(n.id))
-      : graph.nodes
+    // 始终显示所有节点（含孤立节点），不因无边而过滤
+    const visibleNodes = graph.nodes
 
     return {
       nodes: visibleNodes.map(n => ({
