@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf'
 import { SelectionPopup } from '@/components/SelectionPopup'
 import { AnnotationLayer } from './AnnotationLayer'
 import { useUIConfig } from '@/hooks/useConfig'
-import { listAnnotations, createAnnotation, deleteAnnotation } from '@/api/annotations'
+import { listAnnotations, createAnnotation, deleteAnnotation, deleteAnnotationGroup } from '@/api/annotations'
 import type { Annotation, AnnotationType } from '@/types'
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css'
 import 'react-pdf/dist/esm/Page/TextLayer.css'
@@ -63,6 +63,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     annotationType: AnnotationType
     color: string
     text: string
+    groupId: string
   }) => {
     if (!paperId) return
     try {
@@ -75,6 +76,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         annotation_type: data.annotationType,
         color: data.color,
         text: data.text,
+        group_id: data.groupId,
       })
       setAnnotations(prev => [...prev, ann])
     } catch {
@@ -84,12 +86,22 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
   const handleDeleteAnnotation = useCallback(async (id: number) => {
     try {
-      await deleteAnnotation(id)
-      setAnnotations(prev => prev.filter(a => a.id !== id))
+      // Find the annotation to check its group_id
+      const target = annotations.find(a => a.id === id)
+      if (target?.group_id) {
+        // Delete the entire group
+        await deleteAnnotationGroup(target.group_id)
+        const gid = target.group_id
+        setAnnotations(prev => prev.filter(a => a.group_id !== gid))
+      } else {
+        // Fallback: single delete (legacy annotations without group_id)
+        await deleteAnnotation(id)
+        setAnnotations(prev => prev.filter(a => a.id !== id))
+      }
     } catch {
       // ignore
     }
-  }, [])
+  }, [annotations])
 
   const onDocumentLoadSuccess = useCallback(({ numPages: total }: { numPages: number }) => {
     setNumPages(total)

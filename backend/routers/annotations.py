@@ -32,6 +32,7 @@ class AnnotationCreate(BaseModel):
     annotation_type: str = Field("highlight", max_length=20)
     color: str = Field("#fde047", pattern=r"^#[0-9a-fA-F]{6}$")
     text: str = Field("", max_length=5000)
+    group_id: Optional[str] = Field(None, max_length=64)
 
 
 class AnnotationResponse(BaseModel):
@@ -45,6 +46,7 @@ class AnnotationResponse(BaseModel):
     annotation_type: str
     color: str
     text: str
+    group_id: Optional[str] = None
     created_at: datetime
 
 
@@ -62,7 +64,7 @@ async def list_annotations(paper_id: int):
                 id=a.id, paper_id=a.paper_id, page_number=a.page_number,
                 x=a.x, y=a.y, width=a.width, height=a.height,
                 annotation_type=a.annotation_type, color=a.color,
-                text=a.text, created_at=a.created_at,
+                text=a.text, group_id=a.group_id, created_at=a.created_at,
             )
             for a in annotations
         ]
@@ -83,6 +85,7 @@ async def create_annotation(paper_id: int, req: AnnotationCreate):
             annotation_type=req.annotation_type,
             color=req.color,
             text=req.text,
+            group_id=req.group_id,
         )
         session.add(annotation)
         session.commit()
@@ -94,8 +97,24 @@ async def create_annotation(paper_id: int, req: AnnotationCreate):
             width=annotation.width, height=annotation.height,
             annotation_type=annotation.annotation_type,
             color=annotation.color, text=annotation.text,
-            created_at=annotation.created_at,
+            group_id=annotation.group_id, created_at=annotation.created_at,
         )
+
+
+@router.delete("/group/{group_id}")
+async def delete_annotation_group(group_id: str):
+    """Delete all annotations sharing the same group_id (created in one action)."""
+    engine = _get_engine()
+    with Session(engine) as session:
+        annotations = session.exec(
+            select(Annotation).where(Annotation.group_id == group_id)
+        ).all()
+        if not annotations:
+            raise HTTPException(status_code=404, detail={"detail": "标注组不存在", "code": "NOT_FOUND"})
+        for ann in annotations:
+            session.delete(ann)
+        session.commit()
+    return {"message": f"已删除 {len(annotations)} 条标注"}
 
 
 @router.delete("/{annotation_id}")

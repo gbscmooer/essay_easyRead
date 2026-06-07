@@ -102,6 +102,25 @@ def _migrate_schema(engine) -> None:
         except Exception as e:
             logger.warning(f"Migration backfill expanded.level failed: {e}")
 
+        # annotations 表迁移：group_id 字段
+        try:
+            result = conn.exec_driver_sql("PRAGMA table_info(annotations)")
+            existing_ann_cols = {row[1] for row in result.fetchall()}
+        except Exception:
+            existing_ann_cols = set()
+
+        ann_migrations = [
+            ("group_id", "TEXT"),
+        ]
+        for col_name, col_def in ann_migrations:
+            if col_name not in existing_ann_cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE annotations ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to annotations")
+                except Exception as e:
+                    logger.warning(f"Migration failed for {col_name}: {e}")
+
 
 def init_db(database_url: str) -> None:
     """

@@ -12,3 +12,7 @@ export async function createAnnotation(paperId: number, data: AnnotationCreate):
 export async function deleteAnnotation(annotationId: number): Promise<void> {
   await del(`/annotations/${annotationId}`)
 }
+
+export async function deleteAnnotationGroup(groupId: string): Promise<void> {
+  await del(`/annotations/group/${groupId}`)
+}

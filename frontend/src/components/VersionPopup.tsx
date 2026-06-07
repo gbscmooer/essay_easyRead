@@ -1,24 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.9.0'
+const APP_VERSION = '1.10.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-08',
   changes: [
-    '全局 Toast 通知系统，替代静默失败和 alert()',
-    '快捷键体系：⌘N 上传、/ 搜索、? 帮助、1-7 切 Tab',
-    '上传后自动开始分析，无需手动点击',
-    '上传进度条实时显示',
-    'SelectionPopup 移动端支持 + 视口溢出自动翻转',
-    '主题闪白修复（FOUC），首屏即正确主题',
-    'WorkspaceDetailPage 主题适配 + 空状态引导',
-    'ResearchPage 研究运行中离开确认',
-    'ErrorBoundary 重试按钮 + 主题适配',
-    '后端 API 输入验证（Field 长度/范围约束）',
-    '404 页面 + 通配路由',
-    'Sidebar 删除确认 + 搜索空状态区分',
-    'TerminalPanel 拖拽手柄加宽',
+    'PDF 划词标注功能：高亮选中文本并持久化保存',
+    '深度研究新增引用耦合（bibcoupling）相似度算法',
+    '深度研究新增 hybrid 混合相似度：语义 + 引用结构加权融合',
+    '相似度 Provider 可插拔架构，设置页可切换计算方式',
+    '新增核心算法单元测试（52 项）+ 论文解读对比实验评测框架',
   ],
 }
 

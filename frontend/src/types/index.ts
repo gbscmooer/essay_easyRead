@@ -379,6 +379,7 @@ export interface Annotation {
   annotation_type: AnnotationType
   color: string
   text: string
+  group_id: string | null
   created_at: string
 }
 
@@ -391,4 +392,5 @@ export interface AnnotationCreate {
   annotation_type: AnnotationType
   color: string
   text: string
+  group_id?: string | null
 }

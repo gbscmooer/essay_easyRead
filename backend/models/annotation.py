@@ -19,4 +19,5 @@ class Annotation(SQLModel, table=True):
     annotation_type: str = "highlight"
     color: str = "#fde047"
     text: str = Field(sa_column=Column(Text, default=""))
+    group_id: Optional[str] = Field(default=None, max_length=64)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

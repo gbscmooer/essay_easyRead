@@ -15,6 +15,7 @@ interface SelectionPopupProps {
     annotationType: AnnotationType
     color: string
     text: string
+    groupId: string
   }) => void
 }
 
@@ -249,6 +250,9 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
     const pageRect = pageEl.getBoundingClientRect()
     const pageNumber = parseInt(pageEl.dataset.page || '1', 10)
 
+    // Generate a unique group_id so all annotations from this action can be deleted together
+    const groupId = `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
     for (const selRect of lineRects) {
       const x = Math.max(0, (selRect.left - pageRect.left) / pageRect.width)
       const y = Math.max(0, (selRect.top - pageRect.top) / pageRect.height)
@@ -261,6 +265,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         annotationType: type,
         color,
         text: selectedText,
+        groupId,
       })
     }
 
