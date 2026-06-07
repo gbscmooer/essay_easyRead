@@ -26,9 +26,13 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
         "model": "mimo-v2.5-pro",
-        "system_prompt": "",
         "temperature": 0.1,
         "max_tokens": 16384,
+    },
+    # 解读系统提示词：内置(builtin)只读，用户可创建可编辑副本并选用替换
+    "analysis_prompt": {
+        "active": "builtin",   # "builtin" | "custom:<id>"
+        "custom": [],          # [{id, name, content}]
     },
     "ui": {
         "highlight_duration": 3000,
@@ -36,9 +40,10 @@ DEFAULT_CONFIG = {
         "zoom_min": 0.4,
         "zoom_max": 3.0,
         "pinch_zoom_step": 0.02,
-        "theme": "punk",
+        "theme": "light",
         "font": "sans",
         "custom_font": "",
+        "custom_themes": [],
     },
     "embedding": {
         "provider": "local",
@@ -152,6 +157,29 @@ def get_analysis_config() -> dict:
         if not cfg.get("model"):
             cfg["model"] = settings.mimo_model
     return cfg
+
+
+def get_analysis_prompt_config() -> dict:
+    """获取解读提示词配置（active + custom 列表）"""
+    saved = load_config().get("analysis_prompt", {})
+    return {**DEFAULT_CONFIG["analysis_prompt"], **saved}
+
+
+def get_active_analysis_prompt() -> str:
+    """解析当前生效的解读系统提示词。
+
+    active="builtin" → 返回 ai_analyzer 内置 SYSTEM_PROMPT；
+    active="custom:<id>" → 返回对应自定义副本的 content；找不到则回退内置。
+    """
+    from .ai_analyzer import SYSTEM_PROMPT
+    cfg = get_analysis_prompt_config()
+    active = cfg.get("active", "builtin")
+    if isinstance(active, str) and active.startswith("custom:"):
+        cid = active.split(":", 1)[1]
+        for t in cfg.get("custom", []):
+            if t.get("id") == cid and (t.get("content") or "").strip():
+                return t["content"]
+    return SYSTEM_PROMPT
 
 
 def get_embedding_config() -> dict:

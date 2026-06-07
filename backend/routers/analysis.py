@@ -86,9 +86,24 @@ class SimilarityConfig(BaseModel):
 class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
     enabled: bool = True
+    parser: str = "grobid"                          # grobid | regex
+    grobid_url: str = "http://localhost:8070"       # GROBID 服务地址
     top_k: int = 5
     use_llm_title: bool = True
     max_llm_refs: int = 15
+
+
+class PromptTemplate(BaseModel):
+    """解读提示词副本。"""
+    id: str
+    name: str
+    content: str = ""
+
+
+class AnalysisPromptConfig(BaseModel):
+    """解读系统提示词配置。"""
+    active: str = "builtin"            # builtin | custom:<id>
+    custom: list[PromptTemplate] = []
 
 class FindpapersConfig(BaseModel):
     """findpapers 多源学术搜索配置。"""
@@ -99,6 +114,7 @@ class FindpapersConfig(BaseModel):
 class AppConfig(BaseModel):
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
+    analysis_prompt: AnalysisPromptConfig = AnalysisPromptConfig()
     ui: UIConfig = UIConfig()
     embedding: EmbeddingConfig = EmbeddingConfig()
     research: ResearchConfig = ResearchConfig()
@@ -118,6 +134,7 @@ async def get_config():
     return AppConfig(
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
+        analysis_prompt=AnalysisPromptConfig(**config.get("analysis_prompt", {})),
         ui=UIConfig(**config.get("ui", {})),
         embedding=EmbeddingConfig(**config.get("embedding", {})),
         research=ResearchConfig(**config.get("research", {})),
@@ -147,6 +164,7 @@ async def update_config(req: AppConfig):
     config = {
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
+        "analysis_prompt": req.analysis_prompt.model_dump(),
         "ui": req.ui.model_dump(),
         "embedding": req.embedding.model_dump(),
         "research": req.research.model_dump(),
@@ -157,6 +175,98 @@ async def update_config(req: AppConfig):
     }
     save_config(config)
     return {"message": "配置已保存"}
+
+
+# ============================================================
+# 解读提示词：内置只读
+# ============================================================
+@router.get("/builtin-analysis-prompt")
+async def get_builtin_analysis_prompt():
+    """返回内置（只读）解读系统提示词，供前端展示与「复制为副本」。"""
+    from ..services.ai_analyzer import SYSTEM_PROMPT
+    return {"content": SYSTEM_PROMPT}
+
+
+# ============================================================
+# GROBID 服务：状态查询 + 镜像下载
+# ============================================================
+GROBID_IMAGE = "grobid/grobid:0.9.0-crf"
+
+# 镜像拉取状态（进程内）
+_grobid_pull = {"running": False, "ok": None, "log": "", "image": GROBID_IMAGE}
+
+
+async def _docker_image_present(image: str) -> bool:
+    """docker image inspect 判断镜像是否已存在。"""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "image", "inspect", image,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        return proc.returncode == 0
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+@router.get("/grobid/status")
+async def grobid_status():
+    """查询 GROBID 服务情况：服务是否可达 + 镜像是否已下载 + 是否正在拉取。"""
+    from ..services.ai_config import get_arxiv_expand_config
+    from ..services.deep_research.grobid_parser import is_grobid_alive
+    cfg = get_arxiv_expand_config()
+    url = cfg.get("grobid_url", "http://localhost:8070")
+    alive = False
+    try:
+        alive = await is_grobid_alive(url)
+    except Exception:
+        alive = False
+    image_present = await _docker_image_present(GROBID_IMAGE)
+    return {
+        "url": url,
+        "alive": alive,
+        "image": GROBID_IMAGE,
+        "image_present": image_present,
+        "pulling": _grobid_pull["running"],
+        "pull_ok": _grobid_pull["ok"],
+        "pull_log": _grobid_pull["log"][-2000:],
+    }
+
+
+async def _run_grobid_pull():
+    """后台执行 docker pull，记录输出与结果。"""
+    _grobid_pull.update(running=True, ok=None, log=f"$ docker pull {GROBID_IMAGE}\n")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "pull", GROBID_IMAGE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            _grobid_pull["log"] += raw.decode(errors="replace")
+            _grobid_pull["log"] = _grobid_pull["log"][-4000:]
+        await proc.wait()
+        _grobid_pull["ok"] = (proc.returncode == 0)
+        if proc.returncode != 0:
+            _grobid_pull["log"] += f"\n[docker pull 退出码 {proc.returncode}]"
+    except FileNotFoundError:
+        _grobid_pull["ok"] = False
+        _grobid_pull["log"] += "\n[未找到 docker 命令，请先安装并启动 Docker]"
+    except Exception as e:
+        _grobid_pull["ok"] = False
+        _grobid_pull["log"] += f"\n[拉取失败: {e}]"
+    finally:
+        _grobid_pull["running"] = False
+
+
+@router.post("/grobid/pull")
+async def grobid_pull():
+    """后台下载 GROBID 镜像（docker pull）。幂等：已在拉取则返回当前状态。"""
+    if not _grobid_pull["running"]:
+        asyncio.create_task(_run_grobid_pull())
+    return {"running": True, "image": GROBID_IMAGE}
 
 
 # ============================================================

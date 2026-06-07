@@ -240,6 +240,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
             emit_progress(85, "已从缓存恢复 AI 分析结果，跳过重新分析", "analyzing")
         else:
             job.emit(StreamEvent(event="status", data={"status": "analyzing", "message": "正在调用 AI 分析..."}))
+            from .ai_config import get_active_analysis_prompt
             received = 0
             async for event in analyze_paper_stream(
                 content.full_text,
@@ -248,6 +249,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                 ai_cfg["model"],
                 temperature=ai_cfg.get("temperature", 0.1),
                 max_tokens=ai_cfg.get("max_tokens", 16384),
+                system_prompt=get_active_analysis_prompt(),
             ):
                 # analyze_paper_stream 自己会发 error 事件，但我们用异常路径统一处理，
                 # 这里仅转发 status / field，done 留给最终阶段统一发。

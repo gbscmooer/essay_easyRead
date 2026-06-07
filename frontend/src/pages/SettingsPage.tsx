@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 import { ThemeEditor } from '@/features/settings/ThemeEditor'
+import { PromptEditor } from '@/features/settings/PromptEditor'
+import { GrobidPanel } from '@/features/settings/GrobidPanel'
 import type { Theme } from '@/theme/themes'
 
 
@@ -187,9 +189,22 @@ interface SimilarityConfig {
 
 interface ArxivExpandConfig {
   enabled: boolean
+  parser: 'grobid' | 'regex'
+  grobid_url: string
   top_k: number
   use_llm_title: boolean
   max_llm_refs: number
+}
+
+interface PromptTemplate {
+  id: string
+  name: string
+  content: string
+}
+
+interface AnalysisPromptConfig {
+  active: string            // builtin | custom:<id>
+  custom: PromptTemplate[]
 }
 
 interface FindpapersConfig {
@@ -201,6 +216,7 @@ interface FindpapersConfig {
 interface AppConfig {
   translate: AIModelConfig
   analysis: AIModelConfig
+  analysis_prompt: AnalysisPromptConfig
   ui: UIConfig
   embedding: EmbeddingConfig
   research: ResearchConfig
@@ -227,6 +243,10 @@ const DEFAULT_CONFIG: AppConfig = {
     system_prompt: '',
     temperature: 0.1,
     max_tokens: 16384,
+  },
+  analysis_prompt: {
+    active: 'builtin',
+    custom: [],
   },
   ui: {
     highlight_duration: 3000,
@@ -267,6 +287,8 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   arxiv_expand: {
     enabled: true,
+    parser: 'grobid',
+    grobid_url: 'http://localhost:8070',
     top_k: 5,
     use_llm_title: true,
     max_llm_refs: 15,
@@ -661,6 +683,7 @@ export function SettingsPage() {
         embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
         translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
         analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
+        analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
         ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
         research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
@@ -760,6 +783,11 @@ export function SettingsPage() {
         onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
         defaultMaxTokens={16384}
         testType="analysis"
+      />
+
+      <PromptEditor
+        value={config.analysis_prompt}
+        onChange={ap => setConfig(prev => ({ ...prev, analysis_prompt: ap }))}
       />
 
       <UIConfigSection
@@ -1133,6 +1161,13 @@ export function SettingsPage() {
 
         {config.arxiv_expand.enabled && (
           <>
+            <GrobidPanel
+              parser={config.arxiv_expand.parser}
+              grobidUrl={config.arxiv_expand.grobid_url}
+              onChangeParser={p => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, parser: p } }))}
+              onChangeUrl={u => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, grobid_url: u } }))}
+            />
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Top-K（按引用数取前 K 篇）</label>

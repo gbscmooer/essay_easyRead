@@ -281,6 +281,7 @@ def _extract_text(message) -> str:
 async def analyze_paper_stream(
     pdf_text: str, api_key: str, base_url: str, model: str,
     temperature: float = 0.1, max_tokens: int = 16384,
+    system_prompt: str | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     真流式调用 AI 分析论文（Anthropic SDK）。
@@ -303,6 +304,7 @@ async def analyze_paper_stream(
     """
     yield StreamEvent(event="status", data={"message": "正在分析论文内容..."})
 
+    system = system_prompt or SYSTEM_PROMPT
     pdf_text = _sanitize_content(pdf_text)
     delays = _build_retry_delays()
 
@@ -315,7 +317,7 @@ async def analyze_paper_stream(
             async with client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
-                system=SYSTEM_PROMPT,
+                system=system,
                 messages=[{"role": "user", "content": pdf_text}],
                 temperature=temperature,
             ) as stream:
