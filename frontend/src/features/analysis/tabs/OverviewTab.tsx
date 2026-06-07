@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { AnalysisResult, RelatedPaper } from '@/types'
-import { refreshRelatedPapers, importRelatedPapers } from '@/api/papers'
+import { refreshRelatedPapers, importRelatedPapers, exportBibtex } from '@/api/papers'
 import type { ImportPaperResult } from '@/api/papers'
 import { listWorkspaces } from '@/api/workspaces'
 import type { WorkspaceItem } from '@/api/workspaces'
+import { TagManager } from '../TagManager'
 
 
 interface OverviewTabProps {
@@ -16,6 +17,7 @@ interface OverviewTabProps {
 export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps) {
   const [relatedPapers, setRelatedPapers] = useState<RelatedPaper[]>(result.related_papers || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [bibtexLoading, setBibtexLoading] = useState(false)
 
   // Import mode state
   const [importMode, setImportMode] = useState(false)
@@ -151,6 +153,43 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Authors */}
       {result.authors && (
         <p className="text-sm text-gray-400">{result.authors}</p>
+      )}
+
+      {/* Tags + Export */}
+      {paperId && (
+        <div className="flex items-center justify-between gap-3">
+          <TagManager paperId={paperId} />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={async () => {
+                setBibtexLoading(true)
+                try {
+                  const bib = await exportBibtex(paperId)
+                  const blob = new Blob([bib], { type: 'text/plain' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `${(result.title || 'paper').replace(/[^\w\s-]/g, '').trim() || 'paper'}.bib`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch {
+                  // ignore
+                } finally {
+                  setBibtexLoading(false)
+                }
+              }}
+              disabled={bibtexLoading}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+              title="导出 BibTeX"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              BibTeX
+            </button>
+          </div>
+        </div>
       )}
 
       {/* One-sentence contribution */}

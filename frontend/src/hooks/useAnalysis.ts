@@ -121,7 +121,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       startAnalysisJob(uploaded.id).catch(() => {})
       setShouldConnect(true)
     } catch (err) {
-      // Re-throw so caller can handle
+      // 重新抛出异常，以便调用方处理
       throw err
     }
   }, [])

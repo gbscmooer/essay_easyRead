@@ -41,6 +41,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
           placeholder="搜索论文..."
           value={search}
           onChange={e => setSearch(e.target.value)}
+          data-shortcut-search
           className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none"
           style={{
             backgroundColor: 'var(--bg-surface)',
@@ -52,7 +53,9 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
 
       <div className="flex-1 overflow-auto">
         {filtered.length === 0 ? (
-          <p className="text-sm text-center mt-8" style={{ color: 'var(--text-muted)' }}>暂无论文</p>
+          <p className="text-sm text-center mt-8" style={{ color: 'var(--text-muted)' }}>
+            {search.trim() ? '无匹配论文' : '暂无论文'}
+          </p>
         ) : (
           filtered.map(paper => (
             <div
@@ -81,9 +84,11 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
               <button
                 onClick={e => {
                   e.stopPropagation()
-                  onDelete(paper.id)
+                  if (confirm('确定删除这篇论文？删除后不可恢复。')) {
+                    onDelete(paper.id)
+                  }
                 }}
-                className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-xs"
                 style={{ color: 'var(--text-muted)' }}
                 title="删除"
               >

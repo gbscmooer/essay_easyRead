@@ -9,6 +9,7 @@ import { GraphCanvas } from '@/features/research/GraphCanvas'
 import { NodeDetail } from '@/features/research/NodeDetail'
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
+import { toast } from '@/hooks/useToast'
 
 export function ResearchPage() {
   const { id } = useParams<{ id: string }>()
@@ -18,6 +19,17 @@ export function ResearchPage() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'shared-method']))
   const stream = useResearchStream(runId)
+
+  // Leave confirmation when research is running
+  useEffect(() => {
+    if (stream.status !== 'running') return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [stream.status])
 
   // 1) 初始加载历史：图谱 + 最近 run
   useEffect(() => {
@@ -46,7 +58,7 @@ export function ResearchPage() {
       const run = await createRun(wsId, body)
       setRunId(run.id)
     } catch (e: any) {
-      alert(e.message || '启动失败')
+      toast({ type: 'error', message: e.message || '启动失败' })
     }
   }
 
@@ -57,7 +69,7 @@ export function ResearchPage() {
       setGraph(null)
       setRunId(null)
     } catch (e: any) {
-      alert(e.message || '清空失败')
+      toast({ type: 'error', message: e.message || '清空失败' })
     }
   }
 

@@ -104,4 +104,45 @@ async function del<T>(path: string): Promise<T> {
 }
 
 
-export { get, post, upload, del }
+/**
+ * 上传文件（带进度回调）
+ *
+ * @param path API 路径
+ * @param file File 对象
+ * @param onProgress 上传进度回调 (0-100)
+ * @returns 解析后的 JSON 响应
+ */
+function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}${path}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)) } catch { resolve(undefined as T) }
+      } else {
+        let detail = xhr.statusText
+        let code = String(xhr.status)
+        try {
+          const body = JSON.parse(xhr.responseText)
+          detail = body.detail || detail
+          code = body.code || code
+        } catch {}
+        const err = new Error(detail) as Error & { code: string }
+        err.code = code
+        reject(err)
+      }
+    }
+    xhr.onerror = () => reject(new Error('网络错误'))
+    const formData = new FormData()
+    formData.append('file', file)
+    xhr.send(formData)
+  })
+}
+
+
+export { get, post, upload, del, uploadWithProgress }

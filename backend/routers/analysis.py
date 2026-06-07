@@ -8,10 +8,10 @@ import asyncio
 import logging
 import httpx
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlmodel import Session, create_engine
+from pydantic import BaseModel, Field
+from sqlmodel import Session, create_engine, col, select
 
 logger = logging.getLogger(__name__)
 
@@ -275,12 +275,11 @@ async def grobid_pull():
 
 class TestConnectionRequest(BaseModel):
     """测试模型连通性请求"""
-    type: str  # "translate" | "analysis" | "embedding"
-    # 可选：前端直接传入当前表单配置，不传则用已保存的配置
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    model: Optional[str] = None
-    provider: Optional[str] = None  # embedding 专用
+    type: str = Field(..., pattern=r"^(translate|analysis|embedding)$")
+    api_key: Optional[str] = Field(None, max_length=500)
+    base_url: Optional[str] = Field(None, max_length=500)
+    model: Optional[str] = Field(None, max_length=100)
+    provider: Optional[str] = Field(None, max_length=50)
 
 
 class TestConnectionResponse(BaseModel):
@@ -404,8 +403,8 @@ async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnecti
 # ============================================================
 
 class TextActionRequest(BaseModel):
-    text: str
-    action: str  # "translate" | "summarize"
+    text: str = Field(..., max_length=5000)
+    action: str = Field(..., pattern=r"^(translate|summarize)$")
 
 class TextActionResponse(BaseModel):
     result: str
@@ -460,12 +459,12 @@ async def text_action(req: TextActionRequest):
 
 
 # ============================================================
-# Pydantic models for import endpoint (defined early, used later)
+# 导入端点的 Pydantic 模型（提前定义，后续使用）
 # ============================================================
 class ImportPaperItem(BaseModel):
-    title: str
-    doi: str = ""
-    url: str = ""
+    title: str = Field(..., max_length=500)
+    doi: str = Field("", max_length=100)
+    url: str = Field("", max_length=1000)
 
 
 class ImportRelatedPapersRequest(BaseModel):
@@ -706,6 +705,77 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
         pass
 
     return None
+
+
+# ============================================================
+# GET /api/analysis/search
+# 注意：必须定义在 /{paper_id} 之前，否则 "search" 会被当作 paper_id 匹配 → 422
+# ============================================================
+@router.get("/search")
+async def search_analysis_content(
+    q: str = Query(..., min_length=1, description="搜索关键词"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    """跨论文库全文搜索分析结果内容（方法、实验结论等）"""
+    import json as _json
+    from ..models.analysis import AnalysisResult as AR
+    from ..models.paper import Paper as PaperModel
+
+    engine = _get_engine()
+    results = []
+
+    with Session(engine) as session:
+        stmt = select(AR).where(
+            (col(AR.title).contains(q))
+            | (col(AR.one_sentence).contains(q))
+            | (col(AR.problem).contains(q))
+            | (col(AR.limitations).contains(q))
+        )
+        all_analyses = session.exec(stmt).all()
+
+        for ar in all_analyses:
+            paper = session.get(PaperModel, ar.paper_id)
+            if not paper or paper.source != "uploaded":
+                continue
+
+            matched_fields = []
+            if q in (ar.title or ""):
+                matched_fields.append({"field": "title", "snippet": ar.title})
+            if q in (ar.one_sentence or ""):
+                matched_fields.append({"field": "one_sentence", "snippet": ar.one_sentence})
+            if q in (ar.problem or ""):
+                matched_fields.append({"field": "problem", "snippet": ar.problem[:200]})
+            if q in (ar.limitations or ""):
+                matched_fields.append({"field": "limitations", "snippet": ar.limitations[:200]})
+
+            method_str = _json.dumps(ar.method or {}, ensure_ascii=False)
+            if q in method_str:
+                idx = method_str.find(q)
+                start = max(0, idx - 80)
+                end = min(len(method_str), idx + len(q) + 80)
+                matched_fields.append({"field": "method", "snippet": method_str[start:end]})
+
+            exp_str = _json.dumps(ar.experiments or {}, ensure_ascii=False)
+            if q in exp_str:
+                idx = exp_str.find(q)
+                start = max(0, idx - 80)
+                end = min(len(exp_str), idx + len(q) + 80)
+                matched_fields.append({"field": "experiments", "snippet": exp_str[start:end]})
+
+            if matched_fields:
+                results.append({
+                    "paper_id": ar.paper_id,
+                    "title": ar.title,
+                    "venue": ar.venue,
+                    "year": ar.year,
+                    "matched_fields": matched_fields,
+                })
+
+    total = len(results)
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    return {"results": results[start_idx:end_idx], "total": total, "query": q}
 
 
 # ============================================================
@@ -1035,3 +1105,60 @@ async def refresh_related_papers(paper_id: int):
         update_related_papers(session, paper_id, related)
 
     return related
+
+
+# ============================================================
+# GET /api/analysis/{paper_id}/bibtex
+# ============================================================
+@router.get("/{paper_id}/bibtex")
+async def export_bibtex(paper_id: int):
+    """导出论文解析结果为 BibTeX 格式"""
+    import re
+    from fastapi.responses import Response
+
+    engine = _get_engine()
+    try:
+        with Session(engine) as session:
+            paper = get_paper(session, paper_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"})
+
+    if paper["status"] != "done":
+        raise HTTPException(status_code=400, detail={"detail": "Paper analysis is not completed yet", "code": "NOT_READY"})
+
+    try:
+        with Session(engine) as session:
+            analysis = get_analysis(session, paper_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"detail": f"Analysis for paper {paper_id} not found", "code": "NOT_FOUND"})
+
+    title = analysis.get("title", "Unknown")
+    authors = analysis.get("authors", "")
+    venue = analysis.get("venue", "Unknown")
+    year = analysis.get("year", 0)
+
+    cite_key = re.sub(r"[^\w]", "", title.lower().split()[0] if title else "paper") + str(year)
+
+    entry_type = "inproceedings" if venue and venue not in ("Unknown", "") else "article"
+
+    lines = [f"@{entry_type}{{{cite_key},"]
+    lines.append(f"  title     = {{{title}}},")
+    if authors:
+        lines.append(f"  author    = {{{authors}}},")
+    if year:
+        lines.append(f"  year      = {{{year}}},")
+    if venue and venue != "Unknown":
+        if entry_type == "inproceedings":
+            lines.append(f"  booktitle = {{{venue}}},")
+        else:
+            lines.append(f"  journal   = {{{venue}}},")
+    lines.append("}")
+
+    bibtex = "\n".join(lines)
+    safe_title = re.sub(r"[^\w\s\-.]", "", title).strip() or "paper"
+
+    return Response(
+        content=bibtex,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}.bib"'},
+    )

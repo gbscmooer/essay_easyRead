@@ -586,7 +586,7 @@ def _format_file_contents(file_contents: dict[str, str], max_total_chars: int = 
         header = f"\n{'='*60}\n文件: {path}\n{'='*60}\n"
         entry = header + content
         if total + len(entry) > max_total_chars:
-            parts.append(f"\n... [剩余文件已省略]")
+            parts.append("\n... [剩余文件已省略]")
             break
         parts.append(entry)
         total += len(entry)

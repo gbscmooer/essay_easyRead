@@ -308,3 +308,87 @@ export interface EmbeddingConfig {
   batch_size: number
   device: string
 }
+
+
+// ============================================================
+// Tags
+// ============================================================
+
+export interface Tag {
+  id: number
+  name: string
+  color: string
+  paper_count?: number
+}
+
+
+// ============================================================
+// Notes
+// ============================================================
+
+export interface Note {
+  id: number
+  paper_id: number
+  content: string
+  note_type: 'general' | 'section'
+  section_name: string | null
+  page_number: number | null
+  created_at: string
+  updated_at: string
+}
+
+
+// ============================================================
+// Full-text search
+// ============================================================
+
+export interface SearchMatch {
+  field: string
+  snippet: string
+}
+
+export interface SearchResult {
+  paper_id: number
+  title: string
+  venue: string
+  year: number
+  matched_fields: SearchMatch[]
+}
+
+export interface SearchResponse {
+  results: SearchResult[]
+  total: number
+  query: string
+}
+
+
+// ============================================================
+// Annotations (PDF markup)
+// ============================================================
+
+export type AnnotationType = 'highlight' | 'underline' | 'strikethrough'
+
+export interface Annotation {
+  id: number
+  paper_id: number
+  page_number: number
+  x: number
+  y: number
+  width: number
+  height: number
+  annotation_type: AnnotationType
+  color: string
+  text: string
+  created_at: string
+}
+
+export interface AnnotationCreate {
+  page_number: number
+  x: number
+  y: number
+  width: number
+  height: number
+  annotation_type: AnnotationType
+  color: string
+  text: string
+}

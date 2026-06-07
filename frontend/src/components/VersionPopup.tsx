@@ -1,12 +1,24 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.9.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-07',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '全局 Toast 通知系统，替代静默失败和 alert()',
+    '快捷键体系：⌘N 上传、/ 搜索、? 帮助、1-7 切 Tab',
+    '上传后自动开始分析，无需手动点击',
+    '上传进度条实时显示',
+    'SelectionPopup 移动端支持 + 视口溢出自动翻转',
+    '主题闪白修复（FOUC），首屏即正确主题',
+    'WorkspaceDetailPage 主题适配 + 空状态引导',
+    'ResearchPage 研究运行中离开确认',
+    'ErrorBoundary 重试按钮 + 主题适配',
+    '后端 API 输入验证（Field 长度/范围约束）',
+    '404 页面 + 通配路由',
+    'Sidebar 删除确认 + 搜索空状态区分',
+    'TerminalPanel 拖拽手柄加宽',
   ],
 }
 

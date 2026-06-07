@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
 import { VersionPopup } from './VersionPopup'
+import { ShortcutHelp } from './ShortcutHelp'
 import { hasUnsavedConfig } from '@/hooks/useConfig'
+import { useGlobalShortcuts, setHelpCallback } from '@/hooks/useKeyboardShortcuts'
 
 
 interface LayoutProps {
@@ -33,10 +35,18 @@ function useCurrentWorkspaceId(): number | null {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const paperId = useCurrentPaperId()
   const wsId = useCurrentWorkspaceId()
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [showVersion, setShowVersion] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  useGlobalShortcuts(navigate)
+
+  // Register ? shortcut to show help
+  const toggleShortcuts = useCallback(() => setShowShortcuts(v => !v), [])
+  setHelpCallback(toggleShortcuts)
 
   const toggleVersion = useCallback(() => setShowVersion(v => !v), [])
   const closeVersion = useCallback(() => setShowVersion(false), [])
@@ -227,6 +237,9 @@ export function Layout({ children }: LayoutProps) {
 
       {/* 版本信息弹窗 */}
       {showVersion && <VersionPopup onClose={closeVersion} />}
+
+      {/* 快捷键帮助 */}
+      <ShortcutHelp open={showShortcuts} onClose={toggleShortcuts} />
     </div>
     </ThemeProvider>
   )

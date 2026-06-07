@@ -310,6 +310,40 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         # main_done：通知前端立即渲染全部主体字段（不等待相关论文）
         job.emit(StreamEvent(event="main_done", data={"message": "主体分析完成"}))
 
+        # ---- 4.5 LLM 自动分类标签 ----
+        try:
+            from .auto_tagger import auto_tag_paper
+            from ..models.tag import Tag, PaperTag
+            from sqlmodel import select as _sel
+
+            tag_result = await auto_tag_paper(
+                title=result.get("title", ""),
+                one_sentence=result.get("one_sentence", ""),
+                method_overview=(result.get("method") or {}).get("overview", ""),
+                venue=result.get("venue", ""),
+                api_key=ai_cfg["api_key"],
+                base_url=ai_cfg["base_url"],
+                model=ai_cfg["model"],
+            )
+            if tag_result:
+                with Session(engine) as session:
+                    for tag_name in tag_result:
+                        tag = session.exec(_sel(Tag).where(Tag.name == tag_name)).first()
+                        if not tag:
+                            tag = Tag(name=tag_name)
+                            session.add(tag)
+                            session.commit()
+                            session.refresh(tag)
+                        existing = session.exec(
+                            _sel(PaperTag).where(PaperTag.paper_id == paper_id, PaperTag.tag_id == tag.id)
+                        ).first()
+                        if not existing:
+                            session.add(PaperTag(paper_id=paper_id, tag_id=tag.id))
+                    session.commit()
+                job.emit(StreamEvent(event="tags", data={"tags": tag_result}))
+        except Exception as e:
+            logger.warning(f"Auto-tagging skipped: {e}")
+
         # ---- 5. 相关论文搜索（最佳努力；超时/失败仅影响此模块）----
         if related_done and result.get("related_papers"):
             emit_progress(96, "已从缓存恢复相关论文", "analyzing")

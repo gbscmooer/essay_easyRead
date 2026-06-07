@@ -10,9 +10,10 @@ import React, { useState, useRef, useCallback } from 'react'
 interface UploadZoneProps {
   onUpload: (file: File) => void
   isUploading: boolean
+  uploadProgress?: number
 }
 
-export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
+export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: UploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -101,9 +102,19 @@ export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
 
         {/* 文字提示 */}
         {isUploading ? (
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>上传中...</span>
+          <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                {uploadProgress < 100 ? `上传中 ${uploadProgress}%` : '处理中...'}
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--border)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%`, backgroundColor: 'var(--accent)' }}
+              />
+            </div>
           </div>
         ) : (
           <>
@@ -126,6 +137,7 @@ export function UploadZone({ onUpload, isUploading }: UploadZoneProps) {
         type="file"
         accept=".pdf,application/pdf"
         onChange={handleFileChange}
+        data-shortcut-upload
         className="hidden"
       />
     </div>

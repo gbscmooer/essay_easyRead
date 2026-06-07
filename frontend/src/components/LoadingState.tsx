@@ -53,16 +53,16 @@ function getStepProgress(status: AnalysisStatus, receivedFields: number): number
   if (status === 'failed') return 0
   if (status === 'idle') return 0
 
-  // extracting: 0-10%
+  // 提取阶段：0-10%
   if (status === 'extracting') return 5
 
-  // generating: 5-95% based on fields received
+  // 生成阶段：5-95%，根据已接收字段数计算
   if (status === 'generating') {
     const fieldProgress = receivedFields / TOTAL_FIELDS
     return Math.round(5 + fieldProgress * 90)
   }
 
-  // analyzing: 10-95% based on fields received
+  // 分析阶段：10-95%，根据已接收字段数计算
   if (status === 'analyzing') {
     const fieldProgress = receivedFields / TOTAL_FIELDS
     return Math.round(10 + fieldProgress * 85)

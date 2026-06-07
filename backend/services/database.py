@@ -12,7 +12,10 @@ from sqlalchemy import func
 from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
-from ..models.research import ResearchRun, ResearchGraph  # 确保 metadata 注册
+from ..models.research import ResearchRun, ResearchGraph
+from ..models.tag import Tag, PaperTag
+from ..models.note import Note
+from ..models.annotation import Annotation
 
 
 def _migrate_schema(engine) -> None:

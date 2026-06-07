@@ -9,8 +9,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { UploadZone } from '@/features/upload/UploadZone'
-import { listPapers, uploadPaper } from '@/api/papers'
+import { listPapers, uploadPaperWithProgress } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 
 
 export function HomePage() {
@@ -18,6 +19,7 @@ export function HomePage() {
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -36,12 +38,14 @@ export function HomePage() {
 
   const handleUpload = async (file: File) => {
     setIsUploading(true)
+    setUploadProgress(0)
     setUploadError(null)
     try {
-      const paper = await uploadPaper(file)
-      navigate(`/reader/${paper.id}`)
+      const paper = await uploadPaperWithProgress(file, setUploadProgress)
+      navigate(`/reader/${paper.id}`, { state: { autoAnalyze: true } })
     } catch {
       setUploadError('上传失败，请检查文件格式后重试')
+      toast({ type: 'error', message: '上传失败，请检查文件格式后重试' })
     } finally {
       setIsUploading(false)
     }
@@ -58,7 +62,7 @@ export function HomePage() {
           上传 PDF，自动提取方法论、实验结果和代码映射
         </p>
 
-        <UploadZone onUpload={handleUpload} isUploading={isUploading} />
+        <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadProgress={uploadProgress} />
         {uploadError && (
           <p className="mt-4 text-sm" style={{ color: '#dc2626' }}>{uploadError}</p>
         )}

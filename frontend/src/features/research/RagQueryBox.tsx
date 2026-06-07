@@ -70,7 +70,7 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
 
         {loading && (
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 border border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>检索中...</span>
           </div>
         )}

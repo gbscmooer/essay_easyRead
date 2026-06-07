@@ -6,7 +6,7 @@
 
 import logging
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, create_engine, select
 from sqlalchemy import desc
 from datetime import datetime, timezone
@@ -30,7 +30,7 @@ def _get_engine():
 
 
 class WorkspaceCreate(BaseModel):
-    name: str = "未命名工作区"
+    name: str = Field("未命名工作区", max_length=100)
 
 
 class WorkspaceResponse(BaseModel):

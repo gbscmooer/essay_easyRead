@@ -5,7 +5,7 @@
  * 清新学术风格：简洁 Tab 栏 + 清晰内容区。
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { AnalysisResult, AnalysisStatus } from '@/types'
 import { LoadingState } from '@/components/LoadingState'
 import { OverviewTab } from './tabs/OverviewTab'
@@ -14,6 +14,7 @@ import { MethodTab } from './tabs/MethodTab'
 import { ExperimentsTab } from './tabs/ExperimentsTab'
 import { CodeTab } from './tabs/CodeTab'
 import { InterviewTab } from './tabs/InterviewTab'
+import { NotesPanel } from './NotesPanel'
 
 
 interface AnalysisPanelProps {
@@ -36,6 +37,7 @@ const tabs = [
   { key: 'experiments', label: '实验' },
   { key: 'code', label: '代码' },
   { key: 'interview', label: 'Q&A' },
+  { key: 'notes', label: '笔记' },
 ] as const
 
 type TabKey = typeof tabs[number]['key']
@@ -43,6 +45,22 @@ type TabKey = typeof tabs[number]['key']
 export function AnalysisPanel({ result, partialResult, status, progressMessage, progress, relatedStatus, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false)
+
+  // Keyboard shortcuts: 1-7 to switch tabs
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const num = parseInt(e.key)
+      if (num >= 1 && num <= tabs.length) {
+        e.preventDefault()
+        setActiveTab(tabs[num - 1].key)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
 
   // 空闲状态：显示"开始分析"按钮
   if (status === 'idle' && !result) {
@@ -61,7 +79,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
           <button
             onClick={onStartAnalysis}
             className="px-6 py-2.5 text-sm font-medium rounded-lg transition-colors"
-            style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
           >
             开始分析
           </button>
@@ -86,11 +104,12 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         backgroundColor: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
       }}>
-        {tabs.map(tab => (
+        {tabs.map((tab, i) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className="px-4 py-2.5 text-sm font-medium transition-colors relative"
+            title={`${tab.label} (${i + 1})`}
             style={
               activeTab === tab.key
                 ? { color: 'var(--accent)' }
@@ -152,7 +171,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                     <button
                       onClick={() => { setShowReanalyzeConfirm(false); onReanalyze() }}
                       className="px-3 py-1.5 text-xs rounded-md transition-colors"
-                      style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+                      style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
                     >
                       确认重新分析
                     </button>
@@ -172,6 +191,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         {activeTab === 'experiments' && <ExperimentsTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'code' && <CodeTab paperId={paperId} />}
         {activeTab === 'interview' && <InterviewTab result={result} />}
+        {activeTab === 'notes' && paperId && <NotesPanel paperId={paperId} />}
       </div>
     </div>
   )

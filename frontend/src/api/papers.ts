@@ -4,8 +4,8 @@
  * 封装所有论文相关的 API 请求。
  */
 
-import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper } from '@/types'
-import { get, post, upload, del } from './client'
+import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper, SearchResponse } from '@/types'
+import { get, post, upload, del, uploadWithProgress } from './client'
 
 
 /**
@@ -18,6 +18,10 @@ import { get, post, upload, del } from './client'
  */
 export async function uploadPaper(file: File): Promise<Paper> {
   return upload<Paper>('/papers/upload', file)
+}
+
+export async function uploadPaperWithProgress(file: File, onProgress?: (pct: number) => void): Promise<Paper> {
+  return uploadWithProgress<Paper>('/papers/upload', file, onProgress)
 }
 
 
@@ -109,7 +113,7 @@ export async function exportPaper(paperId: number): Promise<string> {
       const body = await res.json()
       detail = body.detail || detail
     } catch {
-      // ignore
+      // 忽略解析错误
     }
     throw new Error(detail)
   }
@@ -209,4 +213,28 @@ export async function importRelatedPapers(
     workspace_id: workspaceId,
     papers,
   })
+}
+
+
+export async function exportBibtex(paperId: number): Promise<string> {
+  const res = await fetch(`/api/analysis/${paperId}/bibtex`)
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || detail
+    } catch {
+      // 忽略解析错误
+    }
+    throw new Error(detail)
+  }
+  return res.text()
+}
+
+
+export async function searchAnalysis(q: string, page?: number, perPage?: number): Promise<SearchResponse> {
+  const params = new URLSearchParams({ q })
+  if (page) params.set('page', String(page))
+  if (perPage) params.set('per_page', String(perPage))
+  return get<SearchResponse>(`/analysis/search?${params.toString()}`)
 }

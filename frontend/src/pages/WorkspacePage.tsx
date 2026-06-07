@@ -75,7 +75,7 @@ export function WorkspacePage() {
           onClick={handleCreate}
           disabled={creating}
           className="px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-          style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
         >
           {creating ? '创建中...' : '新建工作区'}
         </button>

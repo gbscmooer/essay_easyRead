@@ -91,7 +91,7 @@ def _truncate_text(page_texts: list[str], max_chars: int) -> tuple[str, bool]:
             current_len += len(part)
         elif i == len(page_texts) - 1:
             # 最后一页
-            keep_parts.append(f"\n--- [中间页面已省略] ---\n")
+            keep_parts.append("\n--- [中间页面已省略] ---\n")
             keep_parts.append(part)
             break
         else:

@@ -1,7 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { SelectionPopup } from '@/components/SelectionPopup'
+import { AnnotationLayer } from './AnnotationLayer'
 import { useUIConfig } from '@/hooks/useConfig'
+import { listAnnotations, createAnnotation, deleteAnnotation } from '@/api/annotations'
+import type { Annotation, AnnotationType } from '@/types'
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css'
 import 'react-pdf/dist/esm/Page/TextLayer.css'
 
@@ -14,6 +17,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 interface PdfViewerProps {
   pdfUrl: string
+  paperId?: number
   activePage?: number | null
   onPageChange: (page: number) => void
 }
@@ -23,7 +27,7 @@ export interface PdfViewerHandle {
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function PdfViewer(
-  { pdfUrl, activePage, onPageChange },
+  { pdfUrl, paperId, activePage, onPageChange },
   ref,
 ) {
   const uiConfig = useUIConfig()
@@ -32,11 +36,60 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const [pageInput, setPageInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [visiblePage, setVisiblePage] = useState(1)
+  const [annotations, setAnnotations] = useState<Annotation[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const isScrollingRef = useRef(false)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const visiblePageRef = useRef(visiblePage)
+
+  // Load annotations when paperId changes
+  useEffect(() => {
+    if (!paperId) {
+      setAnnotations([])
+      return
+    }
+    listAnnotations(paperId)
+      .then(setAnnotations)
+      .catch(() => setAnnotations([]))
+  }, [paperId])
+
+  const handleAnnotate = useCallback(async (data: {
+    pageNumber: number
+    x: number
+    y: number
+    width: number
+    height: number
+    annotationType: AnnotationType
+    color: string
+    text: string
+  }) => {
+    if (!paperId) return
+    try {
+      const ann = await createAnnotation(paperId, {
+        page_number: data.pageNumber,
+        x: data.x,
+        y: data.y,
+        width: data.width,
+        height: data.height,
+        annotation_type: data.annotationType,
+        color: data.color,
+        text: data.text,
+      })
+      setAnnotations(prev => [...prev, ann])
+    } catch {
+      // ignore
+    }
+  }, [paperId])
+
+  const handleDeleteAnnotation = useCallback(async (id: number) => {
+    try {
+      await deleteAnnotation(id)
+      setAnnotations(prev => prev.filter(a => a.id !== id))
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const onDocumentLoadSuccess = useCallback(({ numPages: total }: { numPages: number }) => {
     setNumPages(total)
@@ -47,7 +100,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     setIsLoading(false)
   }, [])
 
-  // 滚动到指定页面
   const scrollToPage = useCallback((page: number) => {
     const container = scrollRef.current
     const el = pageRefs.current.get(page)
@@ -69,7 +121,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     }, 800)
   }, [onPageChange])
 
-  // 暴露 jumpToPage 方法给父组件
   useImperativeHandle(ref, () => ({
     jumpToPage: (page: number) => {
       if (page >= 1 && page <= numPages) {
@@ -78,7 +129,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     },
   }), [numPages, scrollToPage])
 
-  // 滚动事件：用户滚动时锁定 Observer
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
@@ -101,7 +151,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
   useEffect(() => { visiblePageRef.current = visiblePage }, [visiblePage])
 
-  // IntersectionObserver 跟踪当前可见页（仅非滚动时）
   useEffect(() => {
     const container = scrollRef.current
     if (!container || numPages === 0) return
@@ -133,7 +182,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     return () => observer.disconnect()
   }, [numPages])
 
-  // 两指捏合缩放（触控板 pinch 触发 ctrlKey+wheel）
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
@@ -156,7 +204,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     return () => container.removeEventListener('wheel', handleWheel)
   }, [uiConfig])
 
-  // 清理定时器
   useEffect(() => {
     return () => {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
@@ -184,7 +231,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden relative">
       {/* 文本选择弹窗 */}
-      <SelectionPopup containerRef={scrollRef} />
+      <SelectionPopup containerRef={scrollRef} onAnnotate={handleAnnotate} />
 
       {/* PDF 内容区 — 连续滚动 */}
       <div ref={scrollRef} className="flex-1 overflow-auto">
@@ -220,6 +267,12 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
                   className="shadow-xl"
+                />
+                {/* 标注叠加层 */}
+                <AnnotationLayer
+                  annotations={annotations}
+                  pageNumber={pageNum}
+                  onDelete={handleDeleteAnnotation}
                 />
                 {/* 页码标注 */}
                 <div className="absolute -left-12 top-0 text-xs text-gray-600 w-8 text-right select-none">
@@ -267,6 +320,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
             下一页
           </button>
         </div>
+
+        {/* 标注统计 */}
+        {annotations.length > 0 && (
+          <span className="text-xs text-gray-500">
+            {annotations.length} 个标注
+          </span>
+        )}
 
         {/* 缩放控制 */}
         <div className="flex items-center gap-2">

@@ -63,7 +63,7 @@ function BackendTab() {
         const entry = { ...JSON.parse(event.data) as LogEntry, id: nextLogId() }
         setLogs(prev => [...prev.slice(-499), entry])
       } catch {
-        // ignore
+        // 忽略解析错误
       }
     }
 
@@ -232,6 +232,7 @@ export function TerminalPanel() {
 
   return (
     <div
+      data-terminal-panel
       className="flex flex-col bg-gray-950 border-t border-gray-800"
       style={{ height: collapsed ? 32 : height }}
     >
@@ -273,8 +274,10 @@ export function TerminalPanel() {
       {!collapsed && (
         <div
           onMouseDown={handleMouseDown}
-          className="h-1 shrink-0 cursor-row-resize hover:bg-blue-500/30 transition-colors"
-        />
+          className="h-2 shrink-0 cursor-row-resize flex items-center justify-center group transition-colors"
+        >
+          <div className="w-8 h-1 rounded-full transition-colors" style={{ backgroundColor: 'var(--border)' }} />
+        </div>
       )}
 
       {/* 内容区 */}

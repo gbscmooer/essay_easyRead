@@ -131,7 +131,7 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
                 onClick={handlePull}
                 disabled={status?.pulling}
                 className="text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-60"
-                style={{ color: '#fff', backgroundColor: 'var(--accent)' }}
+                style={{ color: 'var(--bg-base)', backgroundColor: 'var(--accent)' }}
               >
                 {status?.pulling ? '下载中…' : status?.image_present ? '重新下载镜像' : '下载镜像 (docker pull)'}
               </button>

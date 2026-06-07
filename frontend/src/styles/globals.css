@@ -17,6 +17,16 @@
 :root {
   --color-primary: #3b82f6;
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* 代码区配色（VS Code 风格） */
+  --code-bg: #252526;
+  --code-sidebar-bg: #252526;
+  --code-text: #cccccc;
+  --code-text-muted: #6a737d;
+  --code-text-bright: #e8e8e8;
+  --code-selection: #094771;
+  --code-hover: #2a2d2e;
+  --code-border: #404040;
+  --code-folder: #dcb67a;
 }
 
 /* 纯黑 (pure) — 纯黑白，无彩色点缀 */
@@ -45,6 +55,16 @@
   --text-muted: #94a3b8;
   --accent: #1d4ed8;
   --accent-subtle: rgba(29, 78, 216, 0.06);
+  /* 代码区配色（浅色模式） */
+  --code-bg: #f6f8fa;
+  --code-sidebar-bg: #f6f8fa;
+  --code-text: #24292f;
+  --code-text-muted: #656d76;
+  --code-text-bright: #1b1f23;
+  --code-selection: #b6d7ff;
+  --code-hover: #e8e8e8;
+  --code-border: #d0d7de;
+  --code-folder: #9a6700;
 }
 
 /* 摩卡 (mocha) — Claude 风格温暖中性色调，浅橙点缀 */
@@ -59,6 +79,16 @@
   --text-muted: #a89888;
   --accent: #f0a050;
   --accent-subtle: rgba(240, 160, 80, 0.12);
+  /* 代码区配色（摩卡主题） */
+  --code-bg: #201c18;
+  --code-sidebar-bg: #201c18;
+  --code-text: #dcc8a8;
+  --code-text-muted: #a89888;
+  --code-text-bright: #faf0e4;
+  --code-selection: #4a3820;
+  --code-hover: #302a22;
+  --code-border: #4a4136;
+  --code-folder: #f0a050;
 }
 
 /* ============================================================
@@ -132,13 +162,23 @@ body {
 [data-theme] .text-blue-400 { color: var(--accent) !important; }
 [data-theme] .text-blue-300 { color: var(--accent) !important; opacity: 0.85; }
 [data-theme] .hover\:text-blue-400:hover { color: var(--accent) !important; }
+[data-theme] .hover\:text-blue-300:hover { color: var(--accent) !important; opacity: 0.85; }
 [data-theme] .bg-blue-500\/10 { background-color: var(--accent-subtle) !important; }
+[data-theme] .bg-blue-500\/15 { background-color: var(--accent-subtle) !important; }
 [data-theme] .bg-blue-600\/20 { background-color: var(--accent-subtle) !important; }
+[data-theme] .bg-blue-900\/20 { background-color: var(--accent-subtle) !important; }
 [data-theme] .border-blue-500 { border-color: var(--accent) !important; }
+[data-theme] .border-t-blue-500 { border-top-color: var(--accent) !important; }
+[data-theme] .border-t-blue-400 { border-top-color: var(--accent) !important; }
 [data-theme] .hover\:border-blue-500:hover { border-color: var(--accent) !important; }
 [data-theme] .ring-blue-500 { --tw-ring-color: var(--accent) !important; }
 [data-theme] .focus\:border-blue-500:focus { border-color: var(--accent) !important; }
 [data-theme] .accent-blue-500 { accent-color: var(--accent) !important; }
+[data-theme] .hover\:bg-blue-500\/30:hover { background-color: var(--accent-subtle) !important; }
+[data-theme] .hover\:bg-blue-500\/50:hover { background-color: var(--accent-subtle) !important; }
+[data-theme] .active\:bg-blue-500\/70:active { background-color: var(--accent-subtle) !important; }
+[data-theme] .bg-blue-600 { background-color: var(--accent) !important; }
+[data-theme] .hover\:bg-blue-500:hover { background-color: var(--accent) !important; opacity: 0.9; }
 
 /* 其他 */
 [data-theme] .ring-offset-gray-900 { --tw-ring-offset-color: var(--bg-base) !important; }
@@ -282,3 +322,36 @@ body {
 [data-mode="light"] .hljs-meta { color: #6e7781; }
 [data-mode="light"] .hljs-emphasis { font-style: italic; }
 [data-mode="light"] .hljs-strong { font-weight: bold; }
+
+/* ============================================================
+ * 专注模式 — 隐藏导航栏和终端面板
+ * ============================================================ */
+[data-focus-mode="true"] nav,
+[data-focus-mode="true"] [data-terminal-panel] {
+  display: none !important;
+}
+
+/* 二级导航栏：h-11 的 shrink-0 div（非 main、非 flex-1） */
+[data-focus-mode="true"] .h-11.shrink-0 {
+  display: none !important;
+}
+
+[data-focus-mode="true"] .flex.flex-col.h-screen {
+  height: 100vh !important;
+}
+
+[data-focus-mode="true"] main {
+  height: 100vh !important;
+  flex: 1 1 auto !important;
+}
+
+/* ============================================================
+ * Toast 动画
+ * ============================================================ */
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in {
+  animation: slide-in 0.2s ease-out;
+}

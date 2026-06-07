@@ -14,6 +14,7 @@
 
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
+import { ToastContainer } from '@/components/ToastContainer'
 import { HomePage } from '@/pages/HomePage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { LibraryPage } from '@/pages/LibraryPage'
@@ -22,6 +23,7 @@ import { CodePage } from '@/pages/CodePage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
 import { ResearchPage } from '@/pages/ResearchPage'
+import { NotFoundPage } from '@/pages/NotFoundPage'
 
 
 export default function App() {
@@ -36,7 +38,9 @@ export default function App() {
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
         <Route path="/workspace/:id/research" element={<ResearchPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <ToastContainer />
     </Layout>
   )
 }
