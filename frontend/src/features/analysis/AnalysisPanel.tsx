@@ -21,6 +21,8 @@ interface AnalysisPanelProps {
   partialResult: Partial<AnalysisResult>
   status: AnalysisStatus
   progressMessage: string
+  progress?: number
+  relatedStatus?: 'idle' | 'loading' | 'ok' | 'failed'
   onJumpToPage?: (page: number) => void
   paperId?: number
   onStartAnalysis?: () => void
@@ -38,7 +40,7 @@ const tabs = [
 
 type TabKey = typeof tabs[number]['key']
 
-export function AnalysisPanel({ result, partialResult, status, progressMessage, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
+export function AnalysisPanel({ result, partialResult, status, progressMessage, progress, relatedStatus, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false)
 
@@ -72,7 +74,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   if (status !== 'done' || !result) {
     return (
       <div className="flex flex-col h-full">
-        <LoadingState status={status} message={progressMessage} partialResult={partialResult} />
+        <LoadingState status={status} message={progressMessage} partialResult={partialResult} progress={progress} />
       </div>
     )
   }
@@ -164,10 +166,10 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
 
       {/* 内容区 */}
       <div className="flex-1 overflow-auto p-6">
-        {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} />}
+        {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} relatedStatus={relatedStatus} />}
         {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'method' && <MethodTab result={result} />}
-        {activeTab === 'experiments' && <ExperimentsTab result={result} />}
+        {activeTab === 'experiments' && <ExperimentsTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'code' && <CodeTab paperId={paperId} />}
         {activeTab === 'interview' && <InterviewTab result={result} />}
       </div>

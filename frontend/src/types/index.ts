@@ -62,6 +62,7 @@ export interface ResultTableRow {
 export interface FigureAnalysis {
   name: string           // 图表名称，如 "Table 1", "Figure 3"
   caption: string        // 图表标题/说明
+  page?: string          // 图表所在页码（纯数字），用于跳转
   chart_type: string     // 推荐图表类型: bar, line, scatter, table
   columns: string[]      // 表格列名
   rows: string[][]       // 表格数据，每行是字符串数组

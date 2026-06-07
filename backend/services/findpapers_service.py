@@ -98,10 +98,14 @@ def _search_sync(title: str, databases: list[str], max_results: int) -> list[dic
         else:
             authors = ", ".join(author_names) if author_names else ""
 
+        # venue：findpapers 的 paper.source 是 Source 对象，取其 title（刊物名）
+        src = getattr(paper, "source", None)
+        venue = (getattr(src, "title", "") or "") if src is not None else ""
+
         papers.append({
             "title": paper.title or "",
             "authors": authors,
-            "venue": getattr(paper, "source", "") or "",
+            "venue": venue,
             "year": paper.publication_date.year if getattr(paper, "publication_date", None) else 0,
             "doi": paper.doi or "",
             "url": url,

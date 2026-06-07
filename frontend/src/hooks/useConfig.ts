@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { get } from '@/api/client'
+import type { Theme } from '@/theme/themes'
+import { DEFAULT_THEME_ID } from '@/theme/themes'
 
 
 export interface UIConfig {
@@ -11,6 +13,7 @@ export interface UIConfig {
   theme: string
   font: string
   custom_font: string
+  custom_themes?: Theme[]
 }
 
 interface AppConfig {
@@ -26,9 +29,10 @@ const DEFAULT_UI: UIConfig = {
   zoom_min: 0.4,
   zoom_max: 3.0,
   pinch_zoom_step: 0.02,
-  theme: 'academic',
+  theme: DEFAULT_THEME_ID,
   font: 'sans',
   custom_font: '',
+  custom_themes: [],
 }
 
 

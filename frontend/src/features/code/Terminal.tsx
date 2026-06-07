@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal as XTerminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { useThemeMode } from '@/theme/useTheme'
 
 
 interface TerminalProps {
@@ -11,8 +12,41 @@ interface TerminalProps {
 const MAX_RETRIES = 5
 const PING_INTERVAL = 30000
 
+/** 按明暗模式返回 xterm 调色板 */
+function termTheme(mode: 'light' | 'dark') {
+  if (mode === 'light') {
+    return {
+      background: '#f6f8fa', foreground: '#1f2328', cursor: '#1f2328', cursorAccent: '#f6f8fa',
+      selectionBackground: '#b6d3fb',
+      black: '#24292f', red: '#cf222e', green: '#116329', yellow: '#7d4e00', blue: '#0969da',
+      magenta: '#8250df', cyan: '#1b7c83', white: '#6e7781',
+      brightBlack: '#57606a', brightRed: '#a40e26', brightGreen: '#1a7f37', brightYellow: '#633c01',
+      brightBlue: '#218bff', brightMagenta: '#a475f9', brightCyan: '#3192aa', brightWhite: '#8c959f',
+    }
+  }
+  return {
+    background: '#1e1e1e', foreground: '#cccccc', cursor: '#ffffff', cursorAccent: '#1e1e1e',
+    selectionBackground: '#264f78',
+    black: '#1e1e1e', red: '#f44747', green: '#6a9955', yellow: '#d7ba7d', blue: '#569cd6',
+    magenta: '#c586c0', cyan: '#4ec9b0', white: '#d4d4d4',
+    brightBlack: '#808080', brightRed: '#f44747', brightGreen: '#6a9955', brightYellow: '#d7ba7d',
+    brightBlue: '#569cd6', brightMagenta: '#c586c0', brightCyan: '#4ec9b0', brightWhite: '#d4d4d4',
+  }
+}
+
 export function Terminal({ cwd }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<XTerminal | null>(null)
+  const mode = useThemeMode()
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+
+  // 主题明暗切换时更新已存在终端的调色板
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.theme = termTheme(mode)
+    }
+  }, [mode])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -29,34 +63,13 @@ export function Terminal({ cwd }: TerminalProps) {
 
     function createTerminal() {
       term = new XTerminal({
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#cccccc',
-          cursor: '#ffffff',
-          cursorAccent: '#1e1e1e',
-          selectionBackground: '#264f78',
-          black: '#1e1e1e',
-          red: '#f44747',
-          green: '#6a9955',
-          yellow: '#d7ba7d',
-          blue: '#569cd6',
-          magenta: '#c586c0',
-          cyan: '#4ec9b0',
-          white: '#d4d4d4',
-          brightBlack: '#808080',
-          brightRed: '#f44747',
-          brightGreen: '#6a9955',
-          brightYellow: '#d7ba7d',
-          brightBlue: '#569cd6',
-          brightMagenta: '#c586c0',
-          brightCyan: '#4ec9b0',
-          brightWhite: '#d4d4d4',
-        },
+        theme: termTheme(modeRef.current),
         fontSize: 13,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
         cursorBlink: true,
         allowTransparency: true,
       })
+      termRef.current = term
       fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
       term.open(container)
@@ -153,6 +166,7 @@ export function Terminal({ cwd }: TerminalProps) {
       if (onDataDisposable) { onDataDisposable.dispose(); onDataDisposable = null }
       if (ws) { try { ws.close() } catch {} }
       if (term) { try { term.dispose() } catch {} }
+      termRef.current = null
       ws = null
       term = null
       fitAddon = null
@@ -162,8 +176,8 @@ export function Terminal({ cwd }: TerminalProps) {
   return (
     <div
       ref={containerRef}
-      className="h-full w-full bg-[#1e1e1e]"
-      style={{ padding: '4px' }}
+      className="h-full w-full"
+      style={{ padding: '4px', backgroundColor: 'var(--code-bg)' }}
     />
   )
 }

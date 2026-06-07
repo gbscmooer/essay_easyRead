@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useUIConfig } from '@/hooks/useConfig'
+import { resolveTheme, applyTheme } from '@/theme/themes'
 
 const FONT_MAP: Record<string, string> = {
   sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
@@ -11,9 +12,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const config = useUIConfig()
 
   useEffect(() => {
-    const theme = config.theme || 'academic'
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [config.theme])
+    const theme = resolveTheme(config.theme, config.custom_themes || [])
+    applyTheme(theme)
+  }, [config.theme, config.custom_themes])
 
   useEffect(() => {
     const font = config.font || 'sans'

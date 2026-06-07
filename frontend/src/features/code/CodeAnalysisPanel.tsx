@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import mermaid from 'mermaid'
 import type { CodeAnalysisResult, DependencyEdge, PaperCodeMapping } from '@/types'
 import { getCodeFile } from '@/api/code'
+import { useThemeMode } from '@/theme/useTheme'
 
 
 interface CodeAnalysisPanelProps {
@@ -73,29 +74,31 @@ function edgesToMermaid(edges: DependencyEdge[]): string {
   return lines.join('\n')
 }
 
-let mermaidInit = false
-function ensureMermaid() {
-  if (!mermaidInit) {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#3b82f6',
-        primaryTextColor: '#e5e7eb',
-        primaryBorderColor: '#6b7280',
-        lineColor: '#6b7280',
-        secondaryColor: '#1f2937',
-        tertiaryColor: '#111827',
-        background: '#1f2937',
-        mainBkg: '#1f2937',
-        nodeBorder: '#6b7280',
-        clusterBkg: '#111827',
-        clusterBorder: '#374151',
-        edgeLabelBackground: '#1f2937',
-      },
-    })
-    mermaidInit = true
-  }
+let mermaidMode: 'light' | 'dark' | null = null
+function ensureMermaid(mode: 'light' | 'dark') {
+  if (mermaidMode === mode) return
+  const cs = getComputedStyle(document.documentElement)
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: mode === 'dark' ? 'dark' : 'default',
+    themeVariables: {
+      primaryColor: v('--bg-elevated', '#1f2937'),
+      primaryTextColor: v('--text-primary', '#e5e7eb'),
+      primaryBorderColor: v('--border-light', '#6b7280'),
+      lineColor: v('--text-muted', '#6b7280'),
+      secondaryColor: v('--bg-surface', '#1f2937'),
+      tertiaryColor: v('--bg-base', '#111827'),
+      background: v('--bg-surface', '#1f2937'),
+      mainBkg: v('--bg-elevated', '#1f2937'),
+      nodeBorder: v('--border-light', '#6b7280'),
+      nodeTextColor: v('--text-primary', '#e5e7eb'),
+      clusterBkg: v('--bg-base', '#111827'),
+      clusterBorder: v('--border', '#374151'),
+      edgeLabelBackground: v('--bg-elevated', '#1f2937'),
+    },
+  })
+  mermaidMode = mode
 }
 
 function stripEventHandlers(svg: string): string {
@@ -129,18 +132,19 @@ function DependencyGraph({
   const [svg, setSvg] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
+  const mode = useThemeMode()
   const chart = useMemo(() => edgesToMermaid(edges), [edges])
   const labelToPath = useMemo(() => buildLabelToPathMap(edges), [edges])
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid()
+    ensureMermaid(mode)
     const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     mermaid.render(id, chart).then(
       ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
       (err) => { setError(err?.message || '渲染失败'); setSvg('') },
     )
-  }, [chart])
+  }, [chart, mode])
 
   useEffect(() => {
     if (!svg || !containerRef.current) return
@@ -212,18 +216,19 @@ function FullscreenGraph({
   const [zoom, setZoom] = useState(3)
   const [error, setError] = useState<string | null>(null)
 
+  const mode = useThemeMode()
   const chart = useMemo(() => edgesToMermaid(edges), [edges])
   const labelToPath = useMemo(() => buildLabelToPathMap(edges), [edges])
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid()
+    ensureMermaid(mode)
     const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     mermaid.render(id, chart).then(
       ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
       (err) => { setError(err?.message || '渲染失败'); setSvg('') },
     )
-  }, [chart])
+  }, [chart, mode])
 
   useEffect(() => {
     if (!svg || !containerRef.current) return

@@ -51,9 +51,10 @@ class UIConfig(BaseModel):
     zoom_min: float = 0.4
     zoom_max: float = 3.0
     pinch_zoom_step: float = 0.02
-    theme: str = "punk"
+    theme: str = "light"
     font: str = "sans"
     custom_font: str = ""
+    custom_themes: list[dict] = []  # 用户自定义主题 [{id, name, colors:{...}}]
 
 class EmbeddingConfig(BaseModel):
     provider: str = "local"
@@ -656,7 +657,12 @@ async def stream_analysis(paper_id: int):
         )
 
     async def event_generator():
-        """SSE 事件生成器"""
+        """SSE 事件生成器。
+
+        已完成/失败：直接从数据库回放结果。
+        进行中/待分析：订阅后台分析任务（analysis_runner），
+        实时接收进度与字段。客户端断开仅取消订阅，不会终止后台分析。
+        """
 
         # 根据论文状态决定行为
         if paper["status"] == "done":
@@ -709,7 +715,7 @@ async def stream_analysis(paper_id: int):
             ))
             return
 
-        # 状态为 pending/extracting/analyzing：重新启动分析
+        # 状态为 pending/extracting/analyzing：订阅后台分析任务
         pdf_path = paper.get("pdf_path")
         if not pdf_path:
             # 需要从数据库获取完整的 paper 记录
@@ -723,124 +729,22 @@ async def stream_analysis(paper_id: int):
             yield format_sse(StreamEvent(event="error", data={"message": "PDF file path not found"}))
             return
 
-        # 启动新的分析流程
+        # 确保后台任务在运行（已运行则复用，断线重连会回放已产生的进度）
+        from ..services.analysis_runner import get_job, ensure_job
+        job = get_job(paper_id)
+        if job is None or job.done:
+            job = ensure_job(paper_id, pdf_path)
+
+        queue = job.subscribe()
         try:
-            # 更新状态为 extracting
-            with Session(engine) as session:
-                update_paper_status(session, paper_id, "extracting")
-            yield format_sse(StreamEvent(event="status", data={"status": "extracting", "message": "正在提取 PDF 文本..."}))
-
-            # 提取 PDF 文本
-            from ..services.pdf_parser import extract_pdf_content
-            content = await asyncio.to_thread(extract_pdf_content, pdf_path)
-
-            # 更新状态为 analyzing
-            with Session(engine) as session:
-                update_paper_status(session, paper_id, "analyzing")
-
-            # 调用 AI 分析并流式推送（使用解读配置）
-            from ..services.ai_analyzer import analyze_paper_stream
-            from ..services.ai_config import get_analysis_config
-            ai_cfg = get_analysis_config()
-            result = {}
-            async for event in analyze_paper_stream(
-                content.full_text,
-                ai_cfg["api_key"],
-                ai_cfg["base_url"],
-                ai_cfg["model"],
-                temperature=ai_cfg.get("temperature", 0.1),
-                max_tokens=ai_cfg.get("max_tokens", 16384),
-            ):
+            while True:
+                event = await queue.get()
                 yield format_sse(event)
-
-                # 收集结果用于保存
-                if event.event == "field" and event.field_name:
-                    if event.field_name == "mermaid_chart":
-                        result["method"] = result.get("method", {})
-                        result["method"]["mermaid_chart"] = event.data.get("value")
-                    else:
-                        result[event.field_name] = event.data.get("value")
-
-            # 搜索相关论文（findpapers 或 Semantic Scholar）
-            try:
-                paper_title = result.get("title", "")
-                if paper_title:
-                    yield format_sse(StreamEvent(
-                        event="status",
-                        data={"status": "analyzing", "message": "正在搜索相关论文..."},
-                    ))
-                    from ..services.ai_config import get_findpapers_config as _get_fp
-                    from ..services.semantic_scholar import generate_relevance_descriptions
-                    _fp = _get_fp()
-                    if _fp.get("enabled"):
-                        from ..services.findpapers_service import search_related_papers as _fp_search
-                        related = await _fp_search(paper_title, _fp)
-                    else:
-                        from ..services.semantic_scholar import search_related_papers
-                        related = await search_related_papers(paper_title)
-                    if related:
-                        related = await generate_relevance_descriptions(
-                            paper_title,
-                            result.get("one_sentence", ""),
-                            related,
-                            ai_cfg["api_key"],
-                            ai_cfg["base_url"],
-                            ai_cfg["model"],
-                        )
-                    result["related_papers"] = related
-                    yield format_sse(StreamEvent(
-                        event="field",
-                        field_name="related_papers",
-                        data={"value": related},
-                    ))
-            except Exception as e:
-                logger.warning(f"Semantic Scholar lookup failed: {e}")
-                result["related_papers"] = []
-
-            # 提取代码仓库 URL（正则匹配）
-            from ..services.ai_analyzer import extract_code_url
-            code_url = extract_code_url(content.full_text)
-            if code_url:
-                yield format_sse(StreamEvent(
-                    event="status",
-                    data={"status": "analyzing", "message": f"找到代码仓库: {code_url}"},
-                ))
-
-            # 保存结果到数据库
-            if result:
-                # 兜底必填字段，防止 AI 返回不完整 JSON 时 500
-                for key, default in [
-                    ("title", ""), ("venue", "Unknown"), ("year", 0),
-                    ("one_sentence", ""), ("problem", ""),
-                    ("key_contributions", []), ("outline", []),
-                    ("method", {"overview": "", "pipeline": "", "key_modules": []}),
-                    ("experiments", {"datasets": [], "baselines": [], "main_results": "", "ablation": "", "result_table": [], "figures": []}),
-                    ("code_mapping", []), ("interview_qa", []),
-                    ("limitations", ""), ("related_papers", []),
-                ]:
-                    result.setdefault(key, default)
-
-                from ..services.database import update_paper_metadata, save_analysis_result, update_paper_code_url
-                with Session(engine) as session:
-                    update_paper_metadata(
-                        session,
-                        paper_id,
-                        result.get("title", ""),
-                        result.get("venue", "Unknown"),
-                        result.get("year", 0),
-                    )
-                    save_analysis_result(session, paper_id, result)
-                    if code_url:
-                        update_paper_code_url(session, paper_id, code_url)
-                    update_paper_status(session, paper_id, "done")
-
-        except Exception as e:
-            with Session(engine) as session:
-                update_paper_status(session, paper_id, "failed", str(e))
-            yield format_sse(StreamEvent(
-                event="error",
-                data={"message": f"解析失败: {str(e)}"},
-            ))
+                if event.event in ("done", "error"):
+                    break
+        finally:
+            # 客户端断开（切换页面/刷新）只取消订阅，后台分析继续运行
+            job.unsubscribe(queue)
 
     return StreamingResponse(
         event_generator(),
@@ -851,6 +755,75 @@ async def stream_analysis(paper_id: int):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ============================================================
+# POST /api/analysis/{paper_id}/start
+# ============================================================
+@router.post("/{paper_id}/start")
+async def start_analysis(paper_id: int):
+    """在后台启动论文分析（不依赖 SSE 连接）。
+
+    幂等：若任务已在运行则直接返回当前进度。前端可先调用本接口启动，
+    再连接 /stream 获取实时进度；中途切换页面也不会中断分析。
+    """
+    engine = _get_engine()
+    try:
+        with Session(engine) as session:
+            paper = get_paper(session, paper_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
+        )
+
+    if paper["status"] == "done":
+        return {"status": "done", "percent": 100, "message": "已完成"}
+
+    pdf_path = paper.get("pdf_path")
+    if not pdf_path:
+        from ..models.paper import Paper as PaperModel
+        with Session(engine) as session:
+            db_paper = session.get(PaperModel, paper_id)
+            if db_paper:
+                pdf_path = db_paper.pdf_path
+    if not pdf_path:
+        raise HTTPException(status_code=400, detail={"detail": "PDF file path not found", "code": "NO_PDF"})
+
+    from ..services.analysis_runner import get_job, ensure_job
+    job = get_job(paper_id)
+    if job is None or job.done:
+        job = ensure_job(paper_id, pdf_path)
+
+    return {"status": job.status, "percent": job.percent, "message": job.message}
+
+
+# ============================================================
+# GET /api/analysis/{paper_id}/progress
+# ============================================================
+@router.get("/{paper_id}/progress")
+async def get_analysis_progress(paper_id: int):
+    """查询后台分析进度（无需保持 SSE 连接）。"""
+    engine = _get_engine()
+    try:
+        with Session(engine) as session:
+            paper = get_paper(session, paper_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
+        )
+
+    if paper["status"] == "done":
+        return {"status": "done", "percent": 100, "message": "已完成", "running": False}
+    if paper["status"] == "failed":
+        return {"status": "failed", "percent": 0, "message": paper.get("error_message", "分析失败"), "running": False}
+
+    from ..services.analysis_runner import get_job
+    job = get_job(paper_id)
+    if job is None:
+        return {"status": paper["status"], "percent": 0, "message": "", "running": False}
+    return {"status": job.status, "percent": job.percent, "message": job.message, "running": not job.done}
 
 
 # ============================================================
@@ -868,6 +841,10 @@ async def reparse_paper(paper_id: int):
             status_code=404,
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
+
+    # 显式重新解析：清除断点缓存，强制从头分析
+    from ..services.analysis_runner import clear_cache
+    clear_cache(paper_id)
 
     # 重置状态为 pending
     with Session(engine) as session:

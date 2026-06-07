@@ -9,9 +9,11 @@ import type { WorkspaceItem } from '@/api/workspaces'
 interface OverviewTabProps {
   result: AnalysisResult
   paperId?: number
+  /** 相关论文模块独立状态：loading 搜索中 / failed 超时或失败 */
+  relatedStatus?: 'idle' | 'loading' | 'ok' | 'failed'
 }
 
-export function OverviewTab({ result, paperId }: OverviewTabProps) {
+export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps) {
   const [relatedPapers, setRelatedPapers] = useState<RelatedPaper[]>(result.related_papers || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -353,6 +355,28 @@ export function OverviewTab({ result, paperId }: OverviewTabProps) {
                 </div>
               </div>
             ))}
+          </div>
+        ) : relatedStatus === 'loading' && !isRefreshing ? (
+          <div className="flex items-center justify-center gap-2 py-6">
+            <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+            <span className="text-sm text-gray-400">主体分析已完成，正在后台搜索相关论文...</span>
+          </div>
+        ) : relatedStatus === 'failed' && !isRefreshing ? (
+          <div
+            className="text-center py-6 rounded-lg border"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
+          >
+            <p className="text-sm mb-1" style={{ color: '#ef4444' }}>相关论文搜索超时或失败</p>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
+            {paperId && (
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+              >
+                {isRefreshing ? '搜索中...' : '重新搜索'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="text-center py-6">

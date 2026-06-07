@@ -118,6 +118,36 @@ export async function exportPaper(paperId: number): Promise<string> {
 
 
 /**
+ * 在后台启动论文分析（不依赖 SSE 连接）。
+ *
+ * 幂等：任务已运行时返回当前进度。前端先调用本接口，再连接 /stream，
+ * 即使中途切换页面分析也会在后台继续。
+ *
+ * POST /api/analysis/{paperId}/start
+ */
+export interface AnalysisProgress {
+  status: string
+  percent: number
+  message: string
+  running?: boolean
+}
+
+export async function startAnalysisJob(paperId: number): Promise<AnalysisProgress> {
+  return post<AnalysisProgress>(`/analysis/${paperId}/start`)
+}
+
+
+/**
+ * 查询后台分析进度（无需保持 SSE 连接）。
+ *
+ * GET /api/analysis/{paperId}/progress
+ */
+export async function getAnalysisProgress(paperId: number): Promise<AnalysisProgress> {
+  return get<AnalysisProgress>(`/analysis/${paperId}/progress`)
+}
+
+
+/**
  * 重新解析论文
  *
  * @param paperId 论文 ID

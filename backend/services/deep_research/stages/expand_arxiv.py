@@ -239,6 +239,7 @@ async def stage_expand_arxiv(
 
     analysis_cfg = get_analysis_config()
     added: list[Paper] = []
+    added_ids: set[int] = set()   # 按 paper.id 去重，避免多 seed 引用同一篇时返回重复对象
     total_added = 0
 
     for seed in seeds:
@@ -422,7 +423,8 @@ async def stage_expand_arxiv(
                     if not wp:
                         s.add(WorkspacePaper(workspace_id=ws_id, paper_id=existing.id))
                         s.commit()
-                    if existing not in added:
+                    if existing.id not in added_ids:
+                        added_ids.add(existing.id)
                         added.append(existing)
                     await on_paper_added(
                         "paper_added",
@@ -481,6 +483,7 @@ async def stage_expand_arxiv(
                 s.refresh(p)
 
             total_added += 1
+            added_ids.add(p.id)
             added.append(p)
             logger.info(
                 f"arxiv_expand: added paper={p.id} '{p.title[:50]}' "

@@ -6,6 +6,8 @@ interface LoadingStateProps {
   status: AnalysisStatus
   message: string
   partialResult: Partial<AnalysisResult>
+  /** 后端计算的进度百分比（0-100）。<0 时回退到前端字段估算 */
+  progress?: number
 }
 
 // 分析阶段产出的字段（按典型到达顺序）
@@ -70,16 +72,22 @@ function getStepProgress(status: AnalysisStatus, receivedFields: number): number
 }
 
 
-export function LoadingState({ status, message, partialResult }: LoadingStateProps) {
+export function LoadingState({ status, message, partialResult, progress: serverProgress = -1 }: LoadingStateProps) {
   const receivedFields = useMemo(
     () => countReceivedFields(partialResult),
     [partialResult]
   )
 
-  const progress = useMemo(
+  // 优先使用后端计算的进度；无 progress 事件（如旧连接、回放）时回退到前端估算
+  const estimated = useMemo(
     () => getStepProgress(status, receivedFields),
     [status, receivedFields]
   )
+  const progress = status === 'done'
+    ? 100
+    : serverProgress >= 0
+    ? Math.max(serverProgress, estimated)
+    : estimated
 
   const isActive = status !== 'done' && status !== 'failed' && status !== 'idle'
 

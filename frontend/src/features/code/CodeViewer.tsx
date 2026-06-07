@@ -11,11 +11,11 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import markdownLang from 'highlight.js/lib/languages/markdown'
 import xml from 'highlight.js/lib/languages/xml'
 import css from 'highlight.js/lib/languages/css'
-import 'highlight.js/styles/github-dark-dimmed.css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { getCodeFile, type NotebookCellData, type NotebookOutput } from '@/api/code'
+import { useThemeMode } from '@/theme/useTheme'
 
 // 注册常用语言
 hljs.registerLanguage('python', python)
@@ -163,6 +163,8 @@ function NotebookOutputView({ output }: { output: NotebookOutput }) {
 
 function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }) {
   const codeRef = useRef<HTMLElement>(null)
+  const mode = useThemeMode()
+  const proseClass = mode === 'dark' ? 'prose prose-invert' : 'prose'
   const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source
 
   useEffect(() => {
@@ -182,7 +184,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
         <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700/50">
           Markdown
         </div>
-        <div className="p-4 prose prose-invert prose-sm max-w-none">
+        <div className={`p-4 ${proseClass} prose-sm max-w-none`}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>
         </div>
       </div>
@@ -198,7 +200,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
         <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-400/70 border-b border-gray-700/50">
           In {execLabel}
         </div>
-        <pre className="p-4 overflow-x-auto bg-[#1e1e2e]">
+        <pre className="p-4 overflow-x-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
           <code ref={codeRef} className="language-python text-sm leading-5">
             {source}
           </code>
@@ -230,6 +232,8 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   const containerRef = useRef<HTMLDivElement>(null)
   const [highlightLine, setHighlightLine] = useState<number | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const mode = useThemeMode()
+  const proseClass = mode === 'dark' ? 'prose prose-invert' : 'prose'
 
   // Hooks must be called before any early returns
   const notebookCells = useMemo(
@@ -317,7 +321,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   const language = getLanguage(filePath)
 
   return (
-    <div ref={containerRef} className="h-full overflow-auto bg-[#1e1e2e]">
+    <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
       {/* 文件路径 */}
       <div className="sticky top-0 z-10 px-4 py-2 bg-gray-900/90 border-b border-gray-800 backdrop-blur-sm">
         <span className="text-xs text-gray-400 font-mono">{filePath}</span>
@@ -328,7 +332,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
         <NotebookRenderer cells={notebookCells} />
       ) : isMarkdown(filePath) ? (
         /* Markdown 渲染 */
-        <div className="p-6 prose prose-invert prose-sm max-w-none">
+        <div className={`p-6 ${proseClass} prose-sm max-w-none`}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || ''}</ReactMarkdown>
         </div>
       ) : (

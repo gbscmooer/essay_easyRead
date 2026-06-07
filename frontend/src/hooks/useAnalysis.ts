@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { Paper, AnalysisResult, AnalysisStatus } from '@/types'
-import { uploadPaper, getPaper, getAnalysis, reparsePaper } from '@/api/papers'
+import { uploadPaper, getPaper, getAnalysis, reparsePaper, startAnalysisJob } from '@/api/papers'
 import { useStreaming } from './useStreaming'
 
 
@@ -23,6 +23,10 @@ interface UseAnalysisReturn {
   status: AnalysisStatus
   /** 进度消息 */
   progressMessage: string
+  /** 后端计算的进度百分比（0-100），无 progress 事件时为 -1 */
+  progress: number
+  /** 相关论文模块的独立状态 */
+  relatedStatus: 'idle' | 'loading' | 'ok' | 'failed'
   /** 部分解析结果（流式接收中） */
   partialResult: Partial<AnalysisResult>
   /** 错误信息 */
@@ -55,6 +59,8 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     partialResult,
     error: streamError,
     progressMessage,
+    progress,
+    relatedStatus,
   } = useStreaming(activePaperId, shouldConnect)
 
   // 初始加载：如果传入 initialPaperId，加载论文信息
@@ -111,6 +117,8 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       const uploaded = await uploadPaper(file)
       setPaper(uploaded)
       setActivePaperId(uploaded.id)
+      // 先在后台启动分析（与 SSE 解耦），再连接流获取实时进度
+      startAnalysisJob(uploaded.id).catch(() => {})
       setShouldConnect(true)
     } catch (err) {
       // Re-throw so caller can handle
@@ -127,6 +135,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     try {
       const updated = await reparsePaper(activePaperId)
       setPaper(updated)
+      await startAnalysisJob(activePaperId)
       setShouldConnect(true)
     } catch {
       setShouldConnect(false)
@@ -137,6 +146,8 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   // 开始分析（从 idle 状态触发）
   const startAnalysis = useCallback(() => {
     if (activePaperId === null) return
+    // 后台启动分析任务，再连接 SSE 显示进度
+    startAnalysisJob(activePaperId).catch(() => {})
     setShouldConnect(true)
   }, [activePaperId])
 
@@ -155,11 +166,20 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
 
   const error = localError || streamError || paper?.error_message || null
 
+  // 相关论文是主体完成后才异步返回的，用流式 partialResult 覆盖已加载结果，实现实时更新
+  const displayAnalysis: AnalysisResult | null = analysis
+    ? (partialResult.related_papers !== undefined
+        ? { ...analysis, related_papers: partialResult.related_papers }
+        : analysis)
+    : null
+
   return {
     paper,
-    analysis,
+    analysis: displayAnalysis,
     status,
     progressMessage,
+    progress,
+    relatedStatus,
     partialResult,
     error,
     uploadAndAnalyze,

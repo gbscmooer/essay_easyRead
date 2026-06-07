@@ -36,6 +36,8 @@ export function ReaderPage() {
     analysis,
     status,
     progressMessage,
+    progress,
+    relatedStatus,
     partialResult,
     error,
     reparse,
@@ -235,6 +237,8 @@ export function ReaderPage() {
                 partialResult={partialResult}
                 status={status}
                 progressMessage={progressMessage}
+                progress={progress}
+                relatedStatus={relatedStatus}
                 onJumpToPage={handleOutlineJump}
                 paperId={paperId}
                 onStartAnalysis={startAnalysis}

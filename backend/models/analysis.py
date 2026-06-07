@@ -70,6 +70,7 @@ class FigureAnalysis(SQLModel):
 
     name: str  # 图表编号，如 "Table 1", "Figure 3"
     caption: str  # 图表标题
+    page: str = ""  # 该图表在论文中的页码（纯数字），用于跳转
     chart_type: str  # 推荐图表类型: bar, line, scatter, table
     columns: list[str] = []  # 列名
     rows: list[list[str]] = []  # 数据行

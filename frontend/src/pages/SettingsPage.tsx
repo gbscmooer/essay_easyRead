@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
+import { ThemeEditor } from '@/features/settings/ThemeEditor'
+import type { Theme } from '@/theme/themes'
 
 
 interface TestResult {
@@ -150,6 +152,7 @@ interface UIConfig {
   theme: string
   font: string
   custom_font: string
+  custom_themes?: Theme[]
 }
 
 interface EmbeddingConfig {
@@ -231,9 +234,10 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_min: 0.4,
     zoom_max: 3.0,
     pinch_zoom_step: 0.02,
-    theme: 'academic',
+    theme: 'light',
     font: 'sans',
     custom_font: '',
+    custom_themes: [],
   },
   embedding: {
     provider: 'local',
@@ -466,15 +470,6 @@ function ConfigSection({
 }
 
 
-const THEMES = [
-  { key: 'academic', label: '学术', desc: '清新浅色，学术风格' },
-  { key: 'punk', label: '朋克', desc: '深色背景，蓝色点缀' },
-  { key: 'pure', label: '纯黑', desc: '纯黑白，无彩色' },
-  { key: 'light', label: '纯白', desc: '白色背景，深蓝点缀' },
-  { key: 'ceramic', label: '陶瓷', desc: '乳白色温暖风格' },
-  { key: 'mocha', label: '摩卡', desc: '温暖中性色调' },
-]
-
 const FONTS = [
   { key: 'sans', label: 'Arial（非衬线）' },
   { key: 'serif', label: 'Times New Roman（衬线）' },
@@ -499,28 +494,8 @@ function UIConfigSection({
         <p className="text-xs text-gray-500 mt-0.5">主题、字体和交互行为参数</p>
       </div>
 
-      {/* 主题选择 */}
-      <div>
-        <label className="block text-xs text-gray-500 mb-2">配色风格</label>
-        <div className="grid grid-cols-2 gap-2">
-          {THEMES.map(theme => (
-            <button
-              key={theme.key}
-              onClick={() => { onChange({ ...config, theme: theme.key }); setUIPreview({ theme: theme.key }) }}
-              className={`px-3 py-2 text-left rounded-lg border transition-colors ${
-                config.theme === theme.key
-                  ? 'border-blue-500 bg-blue-500/10'
-                  : 'border-gray-700 hover:border-gray-600'
-              }`}
-            >
-              <span className={`text-sm ${config.theme === theme.key ? 'text-blue-400' : 'text-gray-300'}`}>
-                {theme.label}
-              </span>
-              <span className="block text-[10px] text-gray-500 mt-0.5">{theme.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* 主题选择 + 自定义编辑器 */}
+      <ThemeEditor config={config} onChange={onChange} />
 
       {/* 字体选择 */}
       <div>

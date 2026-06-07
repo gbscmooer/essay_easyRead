@@ -90,6 +90,7 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
       {
         "name": "Table 1",
         "caption": "在 XX 数据集上与 SOTA 方法的对比",
+        "page": "6",
         "chart_type": "bar",
         "columns": ["Method", "mAP", "F1"],
         "rows": [
@@ -124,6 +125,7 @@ SYSTEM_PROMPT = """你是一个专业的学术论文分析助手，擅长 CV/ML 
 6. experiments.figures 是重点：逐一列出论文中每一个数据表格(Table)和图表(Figure)，每个都要：
    - name: 图表编号，如 "Table 1", "Figure 3"
    - caption: 图表的原始标题或说明文字
+   - page: 该图表所在的页码（纯数字，如 "6"），用于点击跳转到论文对应页
    - chart_type: 推荐可视化类型（bar=柱状图, line=折线图, scatter=散点图, table=纯表格）
    - columns: 表格的列名数组
    - rows: 表格数据，每行是字符串数组，数值保持原始精度
