@@ -154,11 +154,6 @@ def get_analysis_config() -> dict:
     return cfg
 
 
-def get_ui_config() -> dict:
-    """获取 UI 配置"""
-    return load_config().get("ui", DEFAULT_CONFIG["ui"])
-
-
 def get_embedding_config() -> dict:
     """获取 Embedding 模型配置"""
     return load_config().get("embedding", DEFAULT_CONFIG["embedding"])
