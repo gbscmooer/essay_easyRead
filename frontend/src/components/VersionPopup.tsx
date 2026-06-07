@@ -1,14 +1,12 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.0'
+const APP_VERSION = '1.8.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-07',
   changes: [
-    '设置页新增「解读提示词」：内置提示词只读，可复制为副本自由编辑并选用替换',
-    '设置页新增 GROBID 引用解析后端配置：可选 GROBID/正则、查询服务状态、一键下载镜像',
-    '清理过时设置：默认主题修正为纯白，移除已失效的解读系统提示词字段',
+    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
   ],
 }
 

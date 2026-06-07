@@ -9,7 +9,7 @@
   - 正文内 <ref type="bibr"> 链接可精确统计引用频次
 
 GROBID 是独立 Java 服务，标准跑法（Docker）：
-    docker run --rm -p 8070:8070 grobid/grobid:0.8.1
+    docker run --rm -p 8070:8070 grobid/grobid:0.9.0-crf
 健康检查： GET /api/isalive
 
 输出 dict 与 ref_parser.extract_references() 同构：

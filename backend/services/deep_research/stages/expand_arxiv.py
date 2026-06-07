@@ -189,7 +189,7 @@ async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dic
         else:
             logger.warning(
                 f"GROBID not reachable at {grobid_url}, falling back to regex parser. "
-                f"启动： docker run --rm -p 8070:8070 grobid/grobid:0.8.1"
+                f"启动： docker run --rm -p 8070:8070 grobid/grobid:0.9.0-crf"
             )
 
     # ── 正则回退 ──
