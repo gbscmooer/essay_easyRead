@@ -163,9 +163,9 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
             <div
               className="w-2 h-2 transform rotate-45"
               style={{
-                backgroundColor: '#1f2937',
-                borderRight: '1px solid #4b5563',
-                borderBottom: '1px solid #4b5563',
+                backgroundColor: 'var(--bg-elevated)',
+                borderRight: '1px solid var(--border)',
+                borderBottom: '1px solid var(--border)',
                 marginTop: '-4px',
               }}
             />

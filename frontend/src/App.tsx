@@ -1,18 +1,21 @@
 /**
- * 应用根组件
+ * 应用路由（数据路由 createBrowserRouter）
  *
- * 路由配置：
- *   /           → HomePage（首页，上传入口 + 论文库概览）
- *   /reader/:id → ReaderPage（论文精读页，PDF预览 + 解析结果）
- *   /library    → LibraryPage（论文库，筛选和搜索）
+ * 采用数据路由以启用 useBlocker（设置页「未保存离开」拦截）。
+ * 所有页面挂在 RootLayout 这一布局路由下，经 <Outlet/> 渲染。
  *
- * 布局：
- *   - 深色主题，bg-gray-950
- *   - 顶部导航栏（Logo + 导航链接）
- *   - 页面内容区
+ * 路由表：
+ *   /                       → HomePage（首页，上传入口 + 论文库概览）
+ *   /reader/:id             → ReaderPage（论文精读页）
+ *   /code/:id               → CodePage（代码分析）
+ *   /library                → LibraryPage（论文库）
+ *   /settings               → SettingsPage（设置）
+ *   /workspace[/:id]        → 工作区列表 / 详情
+ *   /workspace/:id/research → ResearchPage（深度研究）
+ *   *                       → NotFoundPage（404）
  */
 
-import { Routes, Route } from 'react-router-dom'
+import { createBrowserRouter, Outlet } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ToastContainer } from '@/components/ToastContainer'
 import { HomePage } from '@/pages/HomePage'
@@ -26,21 +29,31 @@ import { ResearchPage } from '@/pages/ResearchPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
 
-export default function App() {
+function RootLayout() {
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/reader/:id" element={<ReaderPage />} />
-        <Route path="/code/:id" element={<CodePage />} />
-        <Route path="/library" element={<LibraryPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/workspace" element={<WorkspacePage />} />
-        <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
-        <Route path="/workspace/:id/research" element={<ResearchPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
+      <Outlet />
       <ToastContainer />
     </Layout>
   )
 }
+
+export const router = createBrowserRouter(
+  [
+    {
+      element: <RootLayout />,
+      children: [
+        { path: '/', element: <HomePage /> },
+        { path: '/reader/:id', element: <ReaderPage /> },
+        { path: '/code/:id', element: <CodePage /> },
+        { path: '/library', element: <LibraryPage /> },
+        { path: '/settings', element: <SettingsPage /> },
+        { path: '/workspace', element: <WorkspacePage /> },
+        { path: '/workspace/:id', element: <WorkspaceDetailPage /> },
+        { path: '/workspace/:id/research', element: <ResearchPage /> },
+        { path: '*', element: <NotFoundPage /> },
+      ],
+    },
+  ],
+  { future: { v7_relativeSplatPath: true } },
+)

@@ -68,7 +68,9 @@ class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
-    similarity_threshold: float = 0.9
+    similarity_threshold: float = 0.9  # 已弃用，相似边改用 kNN 稀疏化
+    knn_k: int = 8                      # 每篇论文最多保留 K 条最相似的边
+    link_distance: float = 50
 
 class RerankerConfig(BaseModel):
     enabled: bool = True
@@ -79,9 +81,21 @@ class RerankerConfig(BaseModel):
     candidate_k: int = 30       # 向量检索召回数
     top_n: int = 5              # rerank 后送 LLM 的条数
 
+class FacetWeights(BaseModel):
+    """facet_weighted 各维度权重（保存时不强制归一化，provider 内部归一化）。"""
+    purpose: float = 0.5
+    method: float = 0.2
+    baseline: float = 0.15
+    dataset: float = 0.05
+
+class FacetWeightedConfig(BaseModel):
+    weights: FacetWeights = FacetWeights()
+    use_embedding: bool = True
+
 class SimilarityConfig(BaseModel):
     """论文级相似度 provider 配置。"""
     provider: str = "bge_centroid"
+    facet_weighted: FacetWeightedConfig = FacetWeightedConfig()
 
 class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
@@ -139,7 +153,7 @@ async def get_config():
         embedding=EmbeddingConfig(**config.get("embedding", {})),
         research=ResearchConfig(**config.get("research", {})),
         reranker=RerankerConfig(**config.get("reranker", {})),
-        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
+        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider", "facet_weighted")}),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
         findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
     )
@@ -707,75 +721,6 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
     return None
 
 
-# ============================================================
-# GET /api/analysis/search
-# 注意：必须定义在 /{paper_id} 之前，否则 "search" 会被当作 paper_id 匹配 → 422
-# ============================================================
-@router.get("/search")
-async def search_analysis_content(
-    q: str = Query(..., min_length=1, description="搜索关键词"),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-):
-    """跨论文库全文搜索分析结果内容（方法、实验结论等）"""
-    import json as _json
-    from ..models.analysis import AnalysisResult as AR
-    from ..models.paper import Paper as PaperModel
-
-    engine = _get_engine()
-    results = []
-
-    with Session(engine) as session:
-        stmt = select(AR).where(
-            (col(AR.title).contains(q))
-            | (col(AR.one_sentence).contains(q))
-            | (col(AR.problem).contains(q))
-            | (col(AR.limitations).contains(q))
-        )
-        all_analyses = session.exec(stmt).all()
-
-        for ar in all_analyses:
-            paper = session.get(PaperModel, ar.paper_id)
-            if not paper or paper.source != "uploaded":
-                continue
-
-            matched_fields = []
-            if q in (ar.title or ""):
-                matched_fields.append({"field": "title", "snippet": ar.title})
-            if q in (ar.one_sentence or ""):
-                matched_fields.append({"field": "one_sentence", "snippet": ar.one_sentence})
-            if q in (ar.problem or ""):
-                matched_fields.append({"field": "problem", "snippet": ar.problem[:200]})
-            if q in (ar.limitations or ""):
-                matched_fields.append({"field": "limitations", "snippet": ar.limitations[:200]})
-
-            method_str = _json.dumps(ar.method or {}, ensure_ascii=False)
-            if q in method_str:
-                idx = method_str.find(q)
-                start = max(0, idx - 80)
-                end = min(len(method_str), idx + len(q) + 80)
-                matched_fields.append({"field": "method", "snippet": method_str[start:end]})
-
-            exp_str = _json.dumps(ar.experiments or {}, ensure_ascii=False)
-            if q in exp_str:
-                idx = exp_str.find(q)
-                start = max(0, idx - 80)
-                end = min(len(exp_str), idx + len(q) + 80)
-                matched_fields.append({"field": "experiments", "snippet": exp_str[start:end]})
-
-            if matched_fields:
-                results.append({
-                    "paper_id": ar.paper_id,
-                    "title": ar.title,
-                    "venue": ar.venue,
-                    "year": ar.year,
-                    "matched_fields": matched_fields,
-                })
-
-    total = len(results)
-    start_idx = (page - 1) * per_page
-    end_idx = start_idx + per_page
-    return {"results": results[start_idx:end_idx], "total": total, "query": q}
 
 
 # ============================================================

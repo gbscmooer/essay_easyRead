@@ -190,7 +190,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                     key={field.key}
                     className="text-xs px-2 py-0.5 rounded-full transition-colors"
                     style={received
-                      ? { backgroundColor: 'rgba(34,197,94,0.1)', color: '#16a34a', border: '1px solid rgba(34,197,94,0.2)' }
+                      ? { backgroundColor: 'var(--success-subtle)', color: 'var(--success)', border: '1px solid var(--success)' }
                       : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
                     }
                   >
@@ -215,7 +215,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
         {/* 错误状态 */}
         {status === 'failed' && (
           <div className="text-center">
-            <p className="text-sm mb-2" style={{ color: '#dc2626' }}>解析失败</p>
+            <p className="text-sm mb-2" style={{ color: 'var(--error)' }}>解析失败</p>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>请在左侧点击「重试」按钮重新分析</p>
           </div>
         )}

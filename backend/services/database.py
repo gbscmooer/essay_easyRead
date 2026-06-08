@@ -61,6 +61,9 @@ def _migrate_schema(engine) -> None:
             ("level", "INTEGER DEFAULT 1"),
             ("parent_paper_id", "INTEGER"),
             ("external_id", "TEXT"),
+            ("authors", "TEXT"),
+            ("full_text", "TEXT"),
+            ("index_status", "TEXT DEFAULT 'none'"),
         ]
         for col_name, col_def in paper_migrations:
             if col_name not in existing_paper_cols:
@@ -280,9 +283,11 @@ def get_paper(session: Session, paper_id: int) -> dict:
         "filename": paper.filename,
         "pdf_path": paper.pdf_path,
         "title": paper.title,
+        "authors": paper.authors,
         "venue": paper.venue,
         "year": paper.year,
         "status": paper.status,
+        "index_status": paper.index_status,
         "error_message": paper.error_message,
         "code_url": paper.code_url,
         "code_status": paper.code_status,
@@ -380,7 +385,8 @@ def list_papers(
     # source == "all" 不过滤
 
     if search:
-        statement = statement.where(col(Paper.title).contains(search))
+        # 大小写不敏感：统一 lower 后子串匹配
+        statement = statement.where(func.lower(col(Paper.title)).contains(search.lower()))
     if venue:
         statement = statement.where(Paper.venue == venue)
     if year is not None:
@@ -398,9 +404,11 @@ def list_papers(
             "id": p.id,
             "filename": p.filename,
             "title": p.title,
+            "authors": p.authors,
             "venue": p.venue,
             "year": p.year,
             "status": p.status,
+            "index_status": p.index_status,
             "error_message": p.error_message,
             "code_url": p.code_url,
             "code_status": p.code_status,

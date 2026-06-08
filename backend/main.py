@@ -55,6 +55,11 @@ async def lifespan(app: FastAPI):
     init_db(db_url)
     logger.info("数据库初始化完成")
 
+    # 存量论文自动索引补跑（全文 + 元数据），后台进行不阻塞启动
+    import asyncio
+    from .services.auto_indexer import reindex_missing
+    asyncio.create_task(reindex_missing())
+
     logger.info("应用初始化完成，服务就绪")
 
     yield

@@ -12,11 +12,13 @@ from .base import SimilarityProvider
 from .bge_centroid import BgeCentroidProvider
 from .bibcoupling import BibCouplingProvider
 from .hybrid import HybridProvider
+from .facet_weighted import FacetWeightedProvider
 
 REGISTRY: dict[str, type] = {
     "bge_centroid": BgeCentroidProvider,
     "bibcoupling": BibCouplingProvider,
     "hybrid": HybridProvider,
+    "facet_weighted": FacetWeightedProvider,
 }
 
 

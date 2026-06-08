@@ -73,6 +73,68 @@ async def parse_references(
     return _parse_tei(resp.text)
 
 
+async def parse_header(
+    pdf_path: str, grobid_url: str, timeout: float = 60.0
+) -> Optional[dict]:
+    """调 GROBID processHeaderDocument，抽取论文头部元数据。
+
+    返回 {title, authors, year, venue}（缺失字段为 None / ""）；出错抛异常，
+    由调用方决定是否回退启发式提取。
+    """
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    url = grobid_url.rstrip("/") + "/api/processHeaderDocument"
+    files = {"input": (os.path.basename(pdf_path), pdf_bytes, "application/pdf")}
+    data = {"consolidateHeader": "0"}
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(url, files=files, data=data)
+    resp.raise_for_status()
+    return _parse_header_tei(resp.text)
+
+
+def _parse_header_tei(xml_text: str) -> dict:
+    """解析 processHeaderDocument 的 TEI，取 title / authors / year / venue。"""
+    root = ET.fromstring(xml_text)
+
+    # 标题：fileDesc/titleStmt/title 优先，回退 analytic/title
+    title_el = root.find(".//tei:fileDesc/tei:titleStmt/tei:title", _TEI)
+    if title_el is None or not (title_el.text or "").strip():
+        title_el = root.find(".//tei:sourceDesc//tei:analytic/tei:title", _TEI)
+    title = (title_el.text or "").strip() if title_el is not None else ""
+
+    # 作者：analytic/author/persName → "Forename Surname"
+    authors: list[str] = []
+    for pers in root.iterfind(".//tei:sourceDesc//tei:author/tei:persName", _TEI):
+        fore = " ".join((e.text or "").strip() for e in pers.iterfind("tei:forename", _TEI) if (e.text or "").strip())
+        sur_el = pers.find("tei:surname", _TEI)
+        sur = (sur_el.text or "").strip() if sur_el is not None else ""
+        name = (fore + " " + sur).strip()
+        if name:
+            authors.append(name)
+
+    # 年份：任意 date[@when] 里抽 4 位年
+    year = None
+    for date_el in root.iterfind(".//tei:sourceDesc//tei:date", _TEI):
+        when = date_el.get("when") or (date_el.text or "")
+        m = re.search(r"(19|20)\d{2}", when)
+        if m:
+            year = int(m.group(0))
+            break
+
+    # 刊物：monogr/title（会议/期刊名）
+    venue_el = root.find(".//tei:sourceDesc//tei:monogr/tei:title", _TEI)
+    venue = (venue_el.text or "").strip() if venue_el is not None else ""
+
+    return {
+        "title": title or None,
+        "authors": ", ".join(authors) or None,
+        "year": year,
+        "venue": venue or None,
+    }
+
+
 def _parse_tei(xml_text: str) -> list[dict]:
     """解析 GROBID TEI XML，抽取引用 + 正文引用频次。"""
     root = ET.fromstring(xml_text)

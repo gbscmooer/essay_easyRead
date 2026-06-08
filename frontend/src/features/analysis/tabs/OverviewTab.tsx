@@ -405,7 +405,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
             className="text-center py-6 rounded-lg border"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
           >
-            <p className="text-sm mb-1" style={{ color: '#ef4444' }}>相关论文搜索超时或失败</p>
+            <p className="text-sm mb-1" style={{ color: 'var(--error)' }}>相关论文搜索超时或失败</p>
             <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
             {paperId && (
               <button

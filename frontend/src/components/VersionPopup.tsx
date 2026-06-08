@@ -1,16 +1,17 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.10.0'
+const APP_VERSION = '1.11.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-08',
   changes: [
-    'PDF 划词标注功能：高亮选中文本并持久化保存',
-    '深度研究新增引用耦合（bibcoupling）相似度算法',
-    '深度研究新增 hybrid 混合相似度：语义 + 引用结构加权融合',
-    '相似度 Provider 可插拔架构，设置页可切换计算方式',
-    '新增核心算法单元测试（52 项）+ 论文解读对比实验评测框架',
+    '智能搜索增强：关键词高亮、文件名兜底搜索、全文匹配行号定位',
+    '搜索结果新增「本地论文」「联网扩展」来源标号',
+    '上传即自动索引：PDF 全文提取 + 元数据回写，支持全局搜索',
+    '设置页模块化重构：拆分为独立组件，新增深度研究专属设置面板',
+    '深度研究新增 facet_weighted 多维度加权相似度算法',
+    '「全局搜索」悬停 1 秒显示浮动说明窗口',
   ],
 }
 

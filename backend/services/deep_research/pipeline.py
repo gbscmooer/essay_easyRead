@@ -129,6 +129,7 @@ async def run_pipeline(run_id: int):
             ws_id, papers,
             similarity_threshold=params.get("similarity_threshold", 0.78),
             enable_shared_method=params.get("enable_shared_method", False),
+            knn_k=int(params.get("knn_k", 8)),
         )
         _set_stage(run_id, "graph", "running",
                    node_count=len(graph["nodes"]), edge_count=len(graph["edges"]))
@@ -144,6 +145,14 @@ async def run_pipeline(run_id: int):
         _set_stage(run_id, "persist", "done")
         await emit("done", run_id=run_id,
                    node_count=len(graph["nodes"]), edge_count=len(graph["edges"]))
+
+        # 本轮新下载的联网扩展论文也补索引（提取正文 full_text），使其可被论文库全局搜索命中
+        try:
+            import asyncio as _asyncio
+            from ..auto_indexer import reindex_missing
+            _asyncio.create_task(reindex_missing())
+        except Exception:
+            logger.warning("auto_index: 研究运行后触发补索引失败", exc_info=True)
 
     except Exception as e:
         logger.exception(f"Pipeline run {run_id} failed")

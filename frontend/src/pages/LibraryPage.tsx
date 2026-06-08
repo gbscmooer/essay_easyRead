@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper, SearchResult } from '@/types'
-import { listPapers, deletePaper, promoteExpandedPaper, searchAnalysis } from '@/api/papers'
+import { listPapers, deletePaper, promoteExpandedPaper, smartSearch } from '@/api/papers'
 import { PaperList } from '@/features/library/PaperList'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -54,8 +54,8 @@ function ExpandedPaperRow({
       <span
         className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
         style={{
-          backgroundColor: paper.status === 'failed' ? 'rgba(239,68,68,0.12)' : 'var(--bg-surface)',
-          color: paper.status === 'failed' ? '#ef4444' : 'var(--text-muted)',
+          backgroundColor: paper.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-surface)',
+          color: paper.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
         }}
       >
         {statusText}
@@ -90,13 +90,16 @@ export function LibraryPage() {
   const [expandedTotal, setExpandedTotal] = useState(0)
   const [showExpanded, setShowExpanded] = useState(false)
 
-  const [fullSearchQuery, setFullSearchQuery] = useState('')
+  // 智能搜索：searchResults 为 null = 浏览模式；非 null = 搜索结果模式
+  const [globalSearch, setGlobalSearch] = useState(false)
+  const [includeExpanded, setIncludeExpanded] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [searchTotal, setSearchTotal] = useState(0)
   const [searchLoading, setSearchLoading] = useState(false)
 
+  // 浏览：仅在无搜索词时拉取分页论文（同时为筛选下拉提供 venue/year 选项）
   const fetchPapers = useCallback(() => {
     listPapers({
-      search: search || undefined,
       venue: venue || undefined,
       year,
       page,
@@ -108,7 +111,24 @@ export function LibraryPage() {
         setTotal(res.total)
       })
       .catch(() => {})
-  }, [search, venue, year, page])
+  }, [venue, year, page])
+
+  // 智能搜索：搜索词非空时调 smart-search（元数据 + 解读内容 + 可选全局正文）
+  useEffect(() => {
+    const q = search.trim()
+    if (!q) {
+      setSearchResults(null)
+      return
+    }
+    setSearchLoading(true)
+    smartSearch(q, { venue: venue || undefined, year, global: globalSearch, includeExpanded, page, perPage })
+      .then(res => {
+        setSearchResults(res.results)
+        setSearchTotal(res.total)
+      })
+      .catch(() => { setSearchResults([]); setSearchTotal(0) })
+      .finally(() => setSearchLoading(false))
+  }, [search, venue, year, globalSearch, includeExpanded, page])
 
   const fetchExpandedPapers = useCallback(() => {
     listPapers({ source: 'expanded', per_page: 100 })
@@ -154,21 +174,15 @@ export function LibraryPage() {
     fetchPapers()
   }, [fetchPapers])
 
-  const handleFullSearch = useCallback(async () => {
-    if (!fullSearchQuery.trim()) {
-      setSearchResults(null)
-      return
-    }
-    setSearchLoading(true)
-    try {
-      const res = await searchAnalysis(fullSearchQuery.trim())
-      setSearchResults(res.results)
-    } catch {
-      setSearchResults([])
-    } finally {
-      setSearchLoading(false)
-    }
-  }, [fullSearchQuery])
+  const handleToggleGlobal = useCallback((v: boolean) => {
+    setGlobalSearch(v)
+    setPage(1)
+  }, [])
+
+  const handleToggleExpanded = useCallback((v: boolean) => {
+    setIncludeExpanded(v)
+    setPage(1)
+  }, [])
 
   return (
     <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
@@ -178,7 +192,7 @@ export function LibraryPage() {
 
       <PaperList
         papers={papers}
-        total={total}
+        total={searchResults !== null ? searchTotal : total}
         onSelect={handleSelect}
         onDelete={handleDelete}
         onSearch={handleSearch}
@@ -186,80 +200,14 @@ export function LibraryPage() {
         onPageChange={handlePageChange}
         page={page}
         perPage={perPage}
+        globalSearch={globalSearch}
+        onToggleGlobal={handleToggleGlobal}
+        includeExpanded={includeExpanded}
+        onToggleExpanded={handleToggleExpanded}
+        searchResults={searchResults}
+        searchLoading={searchLoading}
+        searchQuery={search}
       />
-
-      {/* 全文搜索 */}
-      <div className="px-6 py-3 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={fullSearchQuery}
-              onChange={e => setFullSearchQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleFullSearch()}
-              placeholder="全文搜索分析内容（方法、实验结论等）..."
-              className="w-full px-4 py-2 pl-10 text-sm rounded-lg focus:outline-none"
-              style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-            />
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: 'var(--text-muted)' }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <button
-            onClick={handleFullSearch}
-            disabled={searchLoading || !fullSearchQuery.trim()}
-            className="px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-40"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
-          >
-            {searchLoading ? '搜索中...' : '搜索'}
-          </button>
-          {searchResults && (
-            <button
-              onClick={() => { setSearchResults(null); setFullSearchQuery('') }}
-              className="px-3 py-2 text-sm rounded-lg border transition-colors"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-            >
-              清除
-            </button>
-          )}
-        </div>
-
-        {searchResults && (
-          <div className="mt-3 space-y-2 max-h-64 overflow-auto">
-            {searchResults.length === 0 ? (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>未找到匹配结果</p>
-            ) : (
-              searchResults.map(r => (
-                <div
-                  key={r.paper_id}
-                  onClick={() => navigate(`/reader/${r.paper_id}`)}
-                  className="p-3 rounded-lg border cursor-pointer transition-colors"
-                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                >
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{r.title}</p>
-                  <div className="flex items-center gap-2 text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                    {r.venue && <span>{r.venue}</span>}
-                    {r.year && <span>{r.year}</span>}
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {r.matched_fields.map((m, i) => (
-                      <span
-                        key={i}
-                        className="text-[10px] px-1.5 py-0.5 rounded"
-                        style={{ backgroundColor: 'var(--accent-subtle, rgba(59,130,246,0.1))', color: 'var(--accent)' }}
-                      >
-                        {m.field}: {m.snippet.slice(0, 60)}{m.snippet.length > 60 ? '...' : ''}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
 
       {/* 深度研究发现区块 */}
       {expandedTotal > 0 && (

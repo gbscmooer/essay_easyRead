@@ -12,7 +12,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +82,21 @@ async def upload_paper(file: UploadFile = File(...)):
         paper_id = create_paper(session, file.filename, pdf_path, len(content))
         paper = get_paper(session, paper_id)
 
+    # 自动索引：后台提取全文 + 基本元数据（不跑 LLM，不阻塞上传响应）
+    from ..services.auto_indexer import auto_index
+    asyncio.create_task(auto_index(paper_id, pdf_path))
+
     # 不自动启动分析，用户在阅读页面手动点击"开始分析"
 
     return PaperResponse(
         id=paper["id"],
         filename=paper["filename"],
         title=paper["title"],
+        authors=paper.get("authors"),
         venue=paper["venue"],
         year=paper["year"],
         status=paper["status"],
+        index_status=paper.get("index_status", "none"),
         error_message=paper["error_message"],
         code_url=paper.get("code_url"),
         code_status=paper.get("code_status", "none"),
@@ -121,9 +127,11 @@ async def get_papers_list(
             id=p["id"],
             filename=p["filename"],
             title=p["title"],
+            authors=p.get("authors"),
             venue=p["venue"],
             year=p["year"],
             status=p["status"],
+            index_status=p.get("index_status", "none"),
             error_message=p["error_message"],
             code_url=p.get("code_url"),
             code_status=p.get("code_status", "none"),
@@ -136,6 +144,120 @@ async def get_papers_list(
     ]
 
     return PaperListResponse(papers=paper_responses, total=total)
+
+
+# ============================================================
+# GET /api/papers/smart-search
+# 智能搜索：标题/作者/刊物/年份 + 解读内容（+ 可选全局正文全文），统一返回命中标签
+# 注意：必须定义在 /{paper_id} 之前，否则 "smart-search" 会被当成 paper_id → 422
+# ============================================================
+def _match_content_fields(ar, ql: str) -> list[dict]:
+    """在解读结果（AnalysisResult）里做大小写不敏感命中，返回 matched_fields。"""
+    import json as _json
+
+    out: list[dict] = []
+    if ar.one_sentence and ql in ar.one_sentence.lower():
+        out.append({"field": "one_sentence", "snippet": ar.one_sentence})
+    if ar.problem and ql in ar.problem.lower():
+        out.append({"field": "problem", "snippet": ar.problem[:200]})
+    if ar.limitations and ql in ar.limitations.lower():
+        out.append({"field": "limitations", "snippet": ar.limitations[:200]})
+
+    for field, obj in (("method", ar.method), ("experiments", ar.experiments)):
+        s = _json.dumps(obj or {}, ensure_ascii=False)
+        sl = s.lower()
+        if ql in sl:
+            idx = sl.find(ql)
+            start = max(0, idx - 80)
+            end = min(len(s), idx + len(ql) + 80)
+            out.append({"field": field, "snippet": s[start:end]})
+    return out
+
+
+@router.get("/smart-search")
+async def smart_search(
+    q: str = Query(..., min_length=1, description="搜索关键词（大小写不敏感）"),
+    venue: str = Query(None, description="按会议筛选"),
+    year: int = Query(None, description="按年份筛选"),
+    global_: bool = Query(False, alias="global", description="开启则额外匹配论文正文全文"),
+    include_expanded: bool = Query(False, description="开启则一并搜索深度研究联网下载的相关论文"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    """论文库统一智能搜索：元数据 + 解读内容 + 可选全文，命中并集 + 命中标签。"""
+    from ..models.paper import Paper as PaperModel
+    from ..models.analysis import AnalysisResult as AR
+
+    ql = q.lower()
+    engine = _get_engine()
+    results: list[dict] = []
+
+    with Session(engine) as session:
+        stmt = select(PaperModel)
+        # 默认只搜「加入论文库」（uploaded）；开启后并入联网扩展下载的相关论文（expanded）
+        if not include_expanded:
+            stmt = stmt.where(PaperModel.source == "uploaded")
+        if venue:
+            stmt = stmt.where(PaperModel.venue == venue)
+        if year is not None:
+            stmt = stmt.where(PaperModel.year == year)
+        papers = session.exec(stmt).all()
+
+        for p in papers:
+            matched: list[dict] = []
+            # 元数据
+            if p.title and ql in p.title.lower():
+                matched.append({"field": "title", "snippet": p.title})
+            # 文件名兜底：当 title 为空或 title 未命中时，额外检查原始文件名
+            if p.filename and ql in p.filename.lower():
+                # 避免 title 和 filename 重复命中（如文件名就是标题）
+                if not (p.title and ql in p.title.lower()):
+                    matched.append({"field": "filename", "snippet": p.filename})
+            if p.authors and ql in p.authors.lower():
+                matched.append({"field": "authors", "snippet": p.authors})
+            if p.venue and ql in p.venue.lower():
+                matched.append({"field": "venue", "snippet": p.venue})
+            if p.year and ql in str(p.year):
+                matched.append({"field": "year", "snippet": str(p.year)})
+
+            # 解读内容（加异常保护，避免单篇论文 JSON 异常导致整个搜索崩溃）
+            try:
+                ar = session.exec(select(AR).where(AR.paper_id == p.id)).first()
+                if ar:
+                    matched.extend(_match_content_fields(ar, ql))
+            except Exception as ex:
+                logger.warning(f"smart_search: paper {p.id} 解读内容匹配异常: {ex}")
+
+            # 全局：正文全文字面匹配
+            if global_ and p.full_text and ql in p.full_text.lower():
+                fl = p.full_text.lower()
+                idx = fl.find(ql)
+                start = max(0, idx - 80)
+                end = min(len(p.full_text), idx + len(ql) + 80)
+                # 计算匹配位置所在行号
+                line_num = p.full_text[:idx].count('\n') + 1
+                matched.append({
+                    "field": "fulltext",
+                    "snippet": "…" + p.full_text[start:end] + "…",
+                    "line": line_num,
+                })
+
+            if matched:
+                results.append({
+                    "paper_id": p.id,
+                    "title": p.title or p.filename,
+                    "authors": p.authors,
+                    "venue": p.venue,
+                    "year": p.year,
+                    "source": p.source,
+                    "matched_fields": matched,
+                })
+
+    # 命中字段越多越靠前
+    results.sort(key=lambda r: len(r["matched_fields"]), reverse=True)
+    total = len(results)
+    start_idx = (page - 1) * per_page
+    return {"results": results[start_idx:start_idx + per_page], "total": total, "query": q}
 
 
 # ============================================================
@@ -158,9 +280,11 @@ async def get_paper_detail(paper_id: int):
         id=paper["id"],
         filename=paper["filename"],
         title=paper["title"],
+        authors=paper.get("authors"),
         venue=paper["venue"],
         year=paper["year"],
         status=paper["status"],
+        index_status=paper.get("index_status", "none"),
         error_message=paper["error_message"],
         code_url=paper.get("code_url"),
         code_status=paper.get("code_status", "none"),

@@ -18,6 +18,8 @@ export function WorkspaceDetailPage() {
   const [showAddPaper, setShowAddPaper] = useState(false)
   const [libraryPapers, setLibraryPapers] = useState<Paper[]>([])
   const [loadingPapers, setLoadingPapers] = useState(false)
+  const [selectedDiscovered, setSelectedDiscovered] = useState<Set<number>>(new Set())
+  const [batchLoading, setBatchLoading] = useState(false)
 
   const refresh = useCallback(() => {
     if (!workspaceId) return
@@ -81,6 +83,56 @@ export function WorkspaceDetailPage() {
       refresh()
     } catch {
       toast({ type: 'error', message: '升级论文失败' })
+    }
+  }
+
+  const toggleDiscovered = (paperId: number) => {
+    setSelectedDiscovered(prev => {
+      const next = new Set(prev)
+      if (next.has(paperId)) next.delete(paperId); else next.add(paperId)
+      return next
+    })
+  }
+
+  const selectAllDiscovered = () => {
+    setSelectedDiscovered(new Set(discoveredPapers.map(p => p.id)))
+  }
+
+  const deselectAllDiscovered = () => {
+    setSelectedDiscovered(new Set())
+  }
+
+  const handleBatchPromote = async () => {
+    if (selectedDiscovered.size === 0) return
+    setBatchLoading(true)
+    try {
+      const ids = Array.from(selectedDiscovered)
+      // allSettled：部分失败时已成功的不回滚，仍要刷新列表 + 如实汇报失败数
+      const results = await Promise.allSettled(ids.map(id => promotePaper(workspaceId, id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      setSelectedDiscovered(new Set())
+      refresh()
+      if (failed === 0) toast({ type: 'success', message: `已移入 ${ids.length} 篇论文` })
+      else toast({ type: 'error', message: `${ids.length - failed} 篇已移入，${failed} 篇失败` })
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  const handleBatchRemove = async () => {
+    if (selectedDiscovered.size === 0) return
+    if (!confirm(`确定从工作区移除选中的 ${selectedDiscovered.size} 篇论文？`)) return
+    setBatchLoading(true)
+    try {
+      const ids = Array.from(selectedDiscovered)
+      const results = await Promise.allSettled(ids.map(id => removePaperFromWorkspace(workspaceId, id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      setSelectedDiscovered(new Set())
+      refresh()
+      if (failed === 0) toast({ type: 'success', message: `已移除 ${ids.length} 篇论文` })
+      else toast({ type: 'error', message: `${ids.length - failed} 篇已移除，${failed} 篇失败` })
+    } finally {
+      setBatchLoading(false)
     }
   }
 
@@ -269,13 +321,55 @@ export function WorkspaceDetailPage() {
           {/* 深度研究发现 (L2+) */}
           {discoveredPapers.length > 0 && (
             <div className="mt-8">
-              <div className="flex items-center gap-2 mb-3">
-                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                  通过深度研究搜索到的相关论文
-                </h2>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
-                  {discoveredPapers.length}
-                </span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    通过深度研究搜索到的相关论文
+                  </h2>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                    {discoveredPapers.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedDiscovered.size > 0 ? (
+                    <>
+                      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        已选 {selectedDiscovered.size} 篇
+                      </span>
+                      <button
+                        onClick={handleBatchPromote}
+                        disabled={batchLoading}
+                        className="px-2.5 py-1 text-xs rounded-md transition-colors disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+                      >
+                        {batchLoading ? '移入中…' : '批量移入工作区'}
+                      </button>
+                      <button
+                        onClick={handleBatchRemove}
+                        disabled={batchLoading}
+                        className="px-2.5 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
+                        style={{ borderColor: 'var(--error)', color: 'var(--error)' }}
+                      >
+                        {batchLoading ? '移除中…' : '批量移除'}
+                      </button>
+                      <button
+                        onClick={deselectAllDiscovered}
+                        className="text-xs transition-colors"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        取消选择
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={selectAllDiscovered}
+                      className="text-xs transition-colors"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      全选
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
                 这些论文已索引、可参与跨论文检索；点击"移入工作区"可将其升级为本地正式论文（参与下一轮研究的 seed）。
@@ -287,6 +381,8 @@ export function WorkspaceDetailPage() {
                     paper={paper}
                     workspaceId={workspaceId}
                     variant="discovered"
+                    selected={selectedDiscovered.has(paper.id)}
+                    onToggleSelect={() => toggleDiscovered(paper.id)}
                     onNavigate={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
                     onRemove={() => handleRemovePaper(paper.id)}
                     onPromote={() => handlePromote(paper.id)}
@@ -306,33 +402,56 @@ interface PaperCardProps {
   paper: WorkspacePaper
   workspaceId: number
   variant: 'local' | 'discovered'
+  selected?: boolean
+  onToggleSelect?: () => void
   onNavigate: () => void
   onRemove: () => void
   onPromote?: () => void
 }
 
-function PaperCard({ paper, workspaceId, variant, onNavigate, onRemove, onPromote }: PaperCardProps) {
+function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNavigate, onRemove, onPromote }: PaperCardProps) {
   const isDiscovered = variant === 'discovered'
   return (
     <div
       className="rounded-lg p-4 group transition-all cursor-pointer border"
       style={{
         backgroundColor: isDiscovered ? 'transparent' : 'var(--bg-surface)',
-        borderColor: isDiscovered ? 'var(--border)' : 'var(--border)',
+        borderColor: selected ? 'var(--accent)' : 'var(--border)',
         borderStyle: isDiscovered ? 'dashed' : 'solid',
-        boxShadow: 'none',
+        boxShadow: selected ? '0 0 0 1px var(--accent)' : 'none',
       }}
       onClick={onNavigate}
       onMouseEnter={e => {
-        e.currentTarget.style.borderColor = 'var(--border-light)'
-        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
+        if (!selected) e.currentTarget.style.borderColor = 'var(--border-light)'
+        e.currentTarget.style.boxShadow = selected ? '0 0 0 1px var(--accent)' : '0 2px 8px rgba(0,0,0,0.08)'
       }}
       onMouseLeave={e => {
-        e.currentTarget.style.borderColor = 'var(--border)'
-        e.currentTarget.style.boxShadow = 'none'
+        if (!selected) e.currentTarget.style.borderColor = 'var(--border)'
+        e.currentTarget.style.boxShadow = selected ? '0 0 0 1px var(--accent)' : 'none'
       }}
     >
       <div className="flex items-start justify-between">
+        {/* Checkbox for discovered papers */}
+        {isDiscovered && onToggleSelect && (
+          <div
+            className="shrink-0 mr-3 mt-0.5"
+            onClick={e => { e.stopPropagation(); onToggleSelect() }}
+          >
+            <div
+              className="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+              style={{
+                borderColor: selected ? 'var(--accent)' : 'var(--border)',
+                backgroundColor: selected ? 'var(--accent)' : 'transparent',
+              }}
+            >
+              {selected && (
+                <svg className="w-3 h-3" fill="none" stroke="var(--bg-base)" viewBox="0 0 24 24" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
             {paper.title || paper.filename}

@@ -39,9 +39,11 @@ class PaperResponse(BaseModel):
     id: int
     filename: str
     title: Optional[str] = None
+    authors: Optional[str] = None       # 作者列表（逗号分隔），自动索引/解读填充
     venue: Optional[str] = None
     year: Optional[int] = None
     status: str  # pending | extracting | analyzing | done | failed | indexed
+    index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None
     code_url: Optional[str] = None
     code_status: str = "none"

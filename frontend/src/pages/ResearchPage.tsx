@@ -5,8 +5,10 @@ import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research
 import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
 import { ProgressPanel } from '@/features/research/ProgressPanel'
-import { GraphCanvas } from '@/features/research/GraphCanvas'
+import { GraphCanvas, type SelectedEdge } from '@/features/research/GraphCanvas'
 import { NodeDetail } from '@/features/research/NodeDetail'
+import { EdgeDetail } from '@/features/research/EdgeDetail'
+import { ResearchSettingsDrawer } from '@/features/research/ResearchSettingsDrawer'
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 import { toast } from '@/hooks/useToast'
@@ -17,7 +19,10 @@ export function ResearchPage() {
   const [runId, setRunId] = useState<number | null>(null)
   const [graph, setGraph] = useState<ResearchGraph | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null)
   const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'shared-method']))
+  const [linkDistance, setLinkDistance] = useState(50)
+  const [showSettings, setShowSettings] = useState(false)
   const stream = useResearchStream(runId)
 
   // Leave confirmation when research is running
@@ -80,6 +85,8 @@ export function ResearchPage() {
         onStart={onStart}
         onClear={onClear}
         disabled={stream.status === 'running'}
+        linkDistance={linkDistance}
+        onLinkDistanceChange={setLinkDistance}
       />
 
       {(stream.status === 'running' || stream.status === 'failed') && (
@@ -97,16 +104,27 @@ export function ResearchPage() {
         <div className="flex-1 flex flex-col gap-2 min-w-0">
           <div className="flex items-center justify-between">
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
-            {graph && (
-              <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {graph && (
+                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
+                </span>
+              )}
+              <button
+                onClick={() => setShowSettings(true)}
+                className="text-[11px] px-2 py-1 rounded-md border transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                研究设置
+              </button>
+            </div>
           </div>
           <GraphCanvas
             graph={graph}
             edgeFilter={edgeFilter}
-            onSelectNode={setSelectedNode}
+            onSelectNode={(n) => { setSelectedNode(n); if (n) setSelectedEdge(null) }}
+            onSelectEdge={(e) => { setSelectedEdge(e); if (e) setSelectedNode(null) }}
+            linkDistance={linkDistance}
           />
         </div>
         <RagQueryBox wsId={wsId} />
@@ -114,6 +132,12 @@ export function ResearchPage() {
 
       {/* 节点详情抽屉 */}
       <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
+
+      {/* 相似边详情抽屉 */}
+      <EdgeDetail edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
+
+      {/* 研究设置抽屉（与设置页共用 DeepResearchSettings） */}
+      <ResearchSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   )
 }

@@ -116,11 +116,11 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
             </div>
 
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              <Dot color={status?.alive ? '#22c55e' : '#ef4444'} />
+              <Dot color={status?.alive ? 'var(--success)' : 'var(--error)'} />
               服务{status?.alive ? '已就绪（可达）' : '未运行 / 不可达'}
             </div>
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              <Dot color={status?.image_present ? '#22c55e' : 'var(--text-muted)'} />
+              <Dot color={status?.image_present ? 'var(--success)' : 'var(--text-muted)'} />
               镜像{status?.image_present ? '已下载' : '未下载'}
               <span style={{ color: 'var(--text-muted)' }}>（{status?.image || 'grobid/grobid:0.9.0-crf'}）</span>
             </div>
@@ -136,7 +136,7 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
                 {status?.pulling ? '下载中…' : status?.image_present ? '重新下载镜像' : '下载镜像 (docker pull)'}
               </button>
               {status?.pull_ok === true && !status?.pulling && (
-                <span className="text-xs" style={{ color: '#22c55e' }}>下载完成</span>
+                <span className="text-xs" style={{ color: 'var(--success)' }}>下载完成</span>
               )}
               {status?.pull_ok === false && !status?.pulling && (
                 <span className="text-xs" style={{ color: 'var(--error)' }}>下载失败，见日志</span>

@@ -64,7 +64,7 @@ export function HomePage() {
 
         <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadProgress={uploadProgress} />
         {uploadError && (
-          <p className="mt-4 text-sm" style={{ color: '#dc2626' }}>{uploadError}</p>
+          <p className="mt-4 text-sm" style={{ color: 'var(--error)' }}>{uploadError}</p>
         )}
       </div>
 

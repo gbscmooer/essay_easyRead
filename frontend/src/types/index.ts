@@ -13,9 +13,11 @@ export interface Paper {
   id: number
   filename: string
   title: string | null
+  authors?: string | null        // 作者列表（逗号分隔），自动索引/解读填充
   venue: string | null
   year: number | null
   status: PaperStatus
+  index_status?: 'none' | 'indexing' | 'indexed' | 'failed'  // 自动索引状态
   error_message: string | null
   code_url: string | null
   code_path: string | null
@@ -227,7 +229,8 @@ export interface ResearchRunCreate {
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean
-  similarity_threshold?: number
+  similarity_threshold?: number  // 已弃用，相似边改用 kNN 稀疏化
+  knn_k?: number                 // 每篇论文最多保留 K 条最相似的边
   enable_shared_method?: boolean
 }
 
@@ -264,7 +267,25 @@ export interface GraphNode {
     source?: 'uploaded' | 'expanded'
     status?: string
     external_id?: string | null
+    importance?: number        // PageRank 归一化 [0,1]，标识关键论文
+    cluster?: number           // Louvain 社区编号（-1 为孤立点）
+    cluster_label?: string     // 研究子方向标题（簇内最重要论文标题）
   }
+}
+
+export interface SimilarityComponent {
+  facet: string            // purpose | method | baseline | dataset
+  label: string            // 中文显示名
+  sim: number              // 该维度相似度 [0,1]
+  weight: number           // 归一化后的权重
+  contribution: number     // sim × weight，对综合分的实际贡献
+  reason: string           // 该维度的说明（LLM 理由或共享项描述）
+  shared: string[]         // 共享项（数据集/baseline）
+}
+
+export interface SimilarityDetail {
+  weight: number                     // 综合相似度
+  components: SimilarityComponent[]   // 各维度分解
 }
 
 export interface GraphEdge {
@@ -272,6 +293,7 @@ export interface GraphEdge {
   target: string
   kind: GraphEdgeKind
   weight: number
+  detail?: SimilarityDetail   // facet_weighted 等 provider 提供的相似度分解
 }
 
 export interface ResearchGraph {
@@ -283,6 +305,8 @@ export interface ResearchGraph {
     node_count: number
     edge_count: number
     by_kind: Record<GraphEdgeKind, number>
+    clusters?: number
+    top_papers?: { id: string; label: string; importance: number }[]
   }
   updated_at: string
 }
@@ -345,13 +369,16 @@ export interface Note {
 export interface SearchMatch {
   field: string
   snippet: string
+  line?: number  // 全文匹配时的行号
 }
 
 export interface SearchResult {
   paper_id: number
   title: string
-  venue: string
-  year: number
+  authors?: string | null
+  venue?: string | null
+  year?: number | null
+  source?: 'uploaded' | 'expanded'
   matched_fields: SearchMatch[]
 }
 

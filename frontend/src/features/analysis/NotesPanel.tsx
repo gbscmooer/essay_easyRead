@@ -129,7 +129,7 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
                   <button
                     onClick={() => handleDelete(note.id)}
                     className="text-[10px] transition-colors"
-                    style={{ color: '#ef4444' }}
+                    style={{ color: 'var(--error)' }}
                   >
                     删除
                   </button>

@@ -232,9 +232,17 @@ export async function exportBibtex(paperId: number): Promise<string> {
 }
 
 
-export async function searchAnalysis(q: string, page?: number, perPage?: number): Promise<SearchResponse> {
+/** 论文库统一智能搜索：元数据 + 解读内容 + 可选全局正文全文 */
+export async function smartSearch(
+  q: string,
+  opts: { venue?: string; year?: number; global?: boolean; includeExpanded?: boolean; page?: number; perPage?: number } = {},
+): Promise<SearchResponse> {
   const params = new URLSearchParams({ q })
-  if (page) params.set('page', String(page))
-  if (perPage) params.set('per_page', String(perPage))
-  return get<SearchResponse>(`/analysis/search?${params.toString()}`)
+  if (opts.venue) params.set('venue', opts.venue)
+  if (opts.year) params.set('year', String(opts.year))
+  if (opts.global) params.set('global', 'true')
+  if (opts.includeExpanded) params.set('include_expanded', 'true')
+  if (opts.page) params.set('page', String(opts.page))
+  if (opts.perPage) params.set('per_page', String(opts.perPage))
+  return get<SearchResponse>(`/papers/smart-search?${params.toString()}`)
 }

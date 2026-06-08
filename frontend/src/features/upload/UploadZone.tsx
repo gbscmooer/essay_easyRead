@@ -128,7 +128,7 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
 
       {/* 错误提示 */}
       {error && (
-        <p className="mt-2 text-sm text-center" style={{ color: '#dc2626' }}>{error}</p>
+        <p className="mt-2 text-sm text-center" style={{ color: 'var(--error)' }}>{error}</p>
       )}
 
       {/* 隐藏的文件输入 */}

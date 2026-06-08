@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
-import { get } from '@/api/client'
+import { get, post } from '@/api/client'
 import { Tooltip } from '@/components/Tooltip'
 
 interface ControlPanelProps {
@@ -9,6 +9,8 @@ interface ControlPanelProps {
   onStart: (body: ResearchRunCreate) => void
   onClear: () => void
   disabled: boolean
+  linkDistance: number
+  onLinkDistanceChange: (v: number) => void
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -20,17 +22,18 @@ const STATUS_LABEL: Record<string, string> = {
   analyzing:  '分析中',
 }
 
-export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelProps) {
+export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, onLinkDistanceChange }: ControlPanelProps) {
   const [mode, setMode] = useState<ResearchMode>('local')
   const [topK, setTopK] = useState(5)
   const [deep, setDeep] = useState(1)
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [threshold, setThreshold] = useState(0.9)
+  const [knnK, setKnnK] = useState(8)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
   const [expandedCount, setExpandedCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [showPicker, setShowPicker] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
 
   useEffect(() => {
     getWorkspace(wsId)
@@ -48,10 +51,12 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
   }, [wsId])
 
   useEffect(() => {
-    get<{ research?: { similarity_threshold?: number } }>('/analysis/config')
+    get<{ research?: { knn_k?: number; link_distance?: number } }>('/analysis/config')
       .then(cfg => {
-        const saved = cfg.research?.similarity_threshold
-        if (typeof saved === 'number') setThreshold(saved)
+        const savedKnn = cfg.research?.knn_k
+        if (typeof savedKnn === 'number') setKnnK(savedKnn)
+        const savedDist = cfg.research?.link_distance
+        if (typeof savedDist === 'number') onLinkDistanceChange(savedDist)
       })
       .catch(() => {})
   }, [])
@@ -90,8 +95,29 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
       expand_top_k: topK,
       deep,
       rebuild,
-      similarity_threshold: threshold,
+      knn_k: knnK,
     })
+  }
+
+  const handleSaveAdvanced = async () => {
+    setSaveState('saving')
+    try {
+      // Fetch current full config, patch research section, then save
+      const fullCfg = await get<Record<string, any>>('/analysis/config')
+      const patched = {
+        ...fullCfg,
+        research: {
+          ...(fullCfg.research || {}),
+          knn_k: knnK,
+          link_distance: linkDistance,
+        },
+      }
+      await post('/analysis/config', patched)
+      setSaveState('saved')
+      setTimeout(() => setSaveState('idle'), 1500)
+    } catch {
+      setSaveState('idle')
+    }
   }
 
   // 开始按钮文字：区分本地/联网，并说明论文来源
@@ -328,8 +354,8 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
                     <span
                       className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
                       style={{
-                        backgroundColor: p.status === 'failed' ? 'rgba(239,68,68,0.12)' : 'var(--bg-base)',
-                        color: p.status === 'failed' ? '#ef4444' : 'var(--text-muted)',
+                        backgroundColor: p.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-base)',
+                        color: p.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
                       }}
                     >
                       {STATUS_LABEL[p.status] ?? p.status}
@@ -344,22 +370,51 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
 
       {/* 高级设置面板 */}
       {showAdvanced && (
-        <div className="mt-3 pt-3 border-t flex items-center gap-4" style={{ borderColor: 'var(--border)' }}>
-          <Tooltip content={'两篇论文向量余弦相似度超过此值时，图谱里会连一条「相似」边。值越大边越少越精炼；值越小边越多越密。默认 0.78。'}>
+        <div className="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap" style={{ borderColor: 'var(--border)' }}>
+          <Tooltip content={'相似边稀疏化：每篇论文只与最相似的 K 篇连「相似」边（kNN）。值越小图谱越稀疏精炼，越大越密。替代了旧的绝对阈值——因为 BGE 余弦整体偏高，绝对阈值几乎失效。默认 8。'}>
             <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>相似度阈值</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>相似边密度 K</span>
               <input
                 type="range"
-                min={0.5}
-                max={0.95}
-                step={0.01}
-                value={threshold}
-                onChange={e => setThreshold(Number(e.target.value))}
+                min={2}
+                max={20}
+                step={1}
+                value={knnK}
+                onChange={e => setKnnK(Number(e.target.value))}
                 className="w-24 h-1 accent-blue-500"
               />
-              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{threshold}</span>
+              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{knnK}</span>
             </div>
           </Tooltip>
+
+          <Tooltip content={'知识图谱中节点之间连线的基准长度。值越大节点间距越远、图谱越松散；值越小节点越紧凑。默认 50。'}>
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>节点边长</span>
+              <input
+                type="range"
+                min={20}
+                max={150}
+                step={5}
+                value={linkDistance}
+                onChange={e => onLinkDistanceChange(Number(e.target.value))}
+                className="w-24 h-1 accent-blue-500"
+              />
+              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{linkDistance}</span>
+            </div>
+          </Tooltip>
+
+          <button
+            onClick={handleSaveAdvanced}
+            disabled={saveState === 'saving'}
+            className="px-3 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
+            style={{
+              borderColor: 'var(--border)',
+              backgroundColor: saveState === 'saved' ? 'var(--success-subtle)' : 'transparent',
+              color: saveState === 'saved' ? 'var(--success)' : 'var(--text-secondary)',
+            }}
+          >
+            {saveState === 'saving' ? '保存中…' : saveState === 'saved' ? '已保存' : '保存'}
+          </button>
         </div>
       )}
     </div>

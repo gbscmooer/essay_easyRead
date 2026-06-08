@@ -280,7 +280,7 @@ export function ReaderPage() {
             <div className="h-full overflow-auto">
               {error && status === 'failed' ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
-                  <p className="text-sm text-center" style={{ color: '#dc2626' }}>{error}</p>
+                  <p className="text-sm text-center" style={{ color: 'var(--error)' }}>{error}</p>
                   <button
                     onClick={reparse}
                     className="px-4 py-2 text-sm rounded-lg transition-colors"

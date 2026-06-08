@@ -30,8 +30,13 @@ class Paper(SQLModel, table=True):
 
     # 元信息（解析后填充）
     title: Optional[str] = None  # AI 提取的论文标题
+    authors: Optional[str] = None  # 作者列表（逗号分隔），自动索引或解读填充
     venue: Optional[str] = None  # 会议/期刊，如 "CVPR", "NeurIPS"
     year: Optional[int] = None  # 发表年份
+
+    # 自动索引：上传即提取的纯文本（供全局字面搜索）+ 索引状态
+    full_text: Optional[str] = None  # PyMuPDF 提取的全文（截断 ~300k）
+    index_status: str = "none"  # none | indexing | indexed | failed
 
     # 状态
     # pending | extracting | analyzing | done | failed
