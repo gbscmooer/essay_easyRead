@@ -118,11 +118,12 @@ export function HomePage() {
                       backgroundColor:
                         paper.status === 'done' ? '#22c55e'
                         : paper.status === 'failed' ? '#ef4444'
+                        : paper.status === 'pending' ? '#6b7280'
                         : '#eab308'
                     }}
                   />
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {paper.status === 'done' ? '已完成' : paper.status === 'failed' ? '失败' : '处理中'}
+                    {paper.status === 'done' ? '已完成' : paper.status === 'failed' ? '失败' : paper.status === 'pending' ? '尚未解析' : '处理中'}
                   </span>
                 </div>
               </div>

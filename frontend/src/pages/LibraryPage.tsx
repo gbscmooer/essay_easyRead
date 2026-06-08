@@ -48,9 +48,16 @@ function ExpandedPaperRow({
         <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
           {paper.title || paper.filename}
         </p>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          {[paper.venue, paper.year].filter(Boolean).join(' · ')}
-        </p>
+        <div className="flex items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {paper.year && <span>{paper.year}</span>}
+          {paper.category && (
+            <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+              {paper.category}
+            </span>
+          )}
+          {paper.venue && <span>{paper.venue}</span>}
+          {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>已索引</span>}
+        </div>
       </div>
       <span
         className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
@@ -212,6 +219,7 @@ export function LibraryPage() {
         const res = await listPapers({ source: pollSource, per_page: 200 }).catch(() => null)
         const indexing = res ? res.papers.filter(p => p.index_status === 'indexing').length : 0
         fetchPapers()
+        if (includeExpanded) fetchExpandedPapers()  // 同步刷新「深度研究发现的论文」区块
         const elapsed = Date.now() - started
         if (indexing === 0 && elapsed > 4000) {
           setReindexing(false)
@@ -232,7 +240,7 @@ export function LibraryPage() {
       setReindexNote('重新索引失败，请重试')
       setTimeout(() => setReindexNote(null), 4000)
     }
-  }, [reindexing, fetchPapers, includeExpanded])
+  }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
 
   return (
     <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
