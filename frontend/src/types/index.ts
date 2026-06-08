@@ -16,6 +16,7 @@ export interface Paper {
   authors?: string | null        // 作者列表（逗号分隔），自动索引/解读填充
   venue: string | null
   year: number | null
+  category?: string | null       // arXiv 学科分类，如 "cs.LG"，自动索引提取
   status: PaperStatus
   index_status?: 'none' | 'indexing' | 'indexed' | 'failed'  // 自动索引状态
   error_message: string | null
@@ -288,12 +289,19 @@ export interface SimilarityDetail {
   components: SimilarityComponent[]   // 各维度分解
 }
 
+export interface CitationContext {
+  section: string
+  context: string
+  intent?: string   // baseline | reuse | inspiration | background
+}
+
 export interface GraphEdge {
   source: string
   target: string
   kind: GraphEdgeKind
   weight: number
-  detail?: SimilarityDetail   // facet_weighted 等 provider 提供的相似度分解
+  detail?: SimilarityDetail
+  contexts?: CitationContext[]
 }
 
 export interface ResearchGraph {

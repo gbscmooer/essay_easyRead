@@ -20,6 +20,7 @@ Stage 2b — expand_arxiv（v2：引用提取管线）
 import asyncio
 import json
 import logging
+import re
 from typing import Optional
 
 from sqlmodel import Session, create_engine, select
@@ -168,11 +169,11 @@ async def _resolve_candidate_pdf_url(candidate: dict) -> Optional[str]:
 # 引用解析：GROBID（默认）→ 正则回退
 # ────────────────────────────────────────────────────────────────
 
-async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dict], str]:
-    """按配置选择引用解析后端，返回 (refs, backend_name)。
+async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dict], list[dict], str]:
+    """按配置选择引用解析后端，返回 (refs, contexts, backend_name)。
 
     parser=grobid 且服务可达时用 GROBID（结构化、带标题、兼容任意引用格式）；
-    否则回退正则解析（零依赖，但只能解析 [N] 且不提供标题）。
+    否则回退正则解析（零依赖，但只能解析 [N] 且不提供标题，contexts 为空）。
     """
     parser = (cfg.get("parser") or "grobid").lower()
 
@@ -180,9 +181,9 @@ async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dic
         grobid_url = cfg.get("grobid_url", "http://localhost:8070")
         if await is_grobid_alive(grobid_url):
             try:
-                refs = await grobid_parse_references(pdf_path, grobid_url)
+                refs, contexts = await grobid_parse_references(pdf_path, grobid_url)
                 if refs:
-                    return refs, "grobid"
+                    return refs, contexts, "grobid"
                 logger.warning("GROBID returned 0 refs, falling back to regex parser")
             except Exception as e:
                 logger.warning(f"GROBID parse failed ({e}), falling back to regex parser")
@@ -196,7 +197,7 @@ async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dic
     from ...pdf_parser import extract_pdf_content
     content = await asyncio.to_thread(extract_pdf_content, pdf_path)
     refs = extract_references(content.full_text or "")
-    return refs, "regex"
+    return refs, [], "regex"
 
 
 # ────────────────────────────────────────────────────────────────
@@ -208,7 +209,7 @@ async def stage_expand_arxiv(
     seeds: list,
     on_paper_added,
     run_params: Optional[dict] = None,
-) -> list[Paper]:
+) -> tuple[list[Paper], dict[int, list[dict]]]:
     """
     通过解析 seed 论文的参考文献列表扩展工作区。
 
@@ -218,7 +219,7 @@ async def stage_expand_arxiv(
     2. 引用自带 DOI → DOI 下载
     3. 有标题（GROBID 直接给 / 正则后端用 LLM 提）→ arXiv 搜索 / CrossRef 查 DOI
 
-    返回所有找到的论文（新下载 + 已存在 dedup 后）。
+    返回 (所有找到的论文, 引用上下文映射 {seed_id: [enriched_contexts]})。
     """
     logger.info(f"stage_expand_arxiv: start, seeds={len(seeds)}")
 
@@ -239,8 +240,9 @@ async def stage_expand_arxiv(
 
     analysis_cfg = get_analysis_config()
     added: list[Paper] = []
-    added_ids: set[int] = set()   # 按 paper.id 去重，避免多 seed 引用同一篇时返回重复对象
+    added_ids: set[int] = set()
     total_added = 0
+    all_seed_contexts: dict[int, list[dict]] = {}
 
     for seed in seeds:
         if not getattr(seed, "pdf_path", None):
@@ -248,7 +250,7 @@ async def stage_expand_arxiv(
 
         # ── Step 1: 解析参考文献（GROBID 默认，正则回退）──
         try:
-            refs, backend = await _parse_references_for_seed(seed.pdf_path, cfg)
+            refs, raw_contexts, backend = await _parse_references_for_seed(seed.pdf_path, cfg)
         except Exception as e:
             logger.warning(f"arxiv_expand: ref parse failed for paper {seed.id}: {e}")
             continue
@@ -259,8 +261,27 @@ async def stage_expand_arxiv(
 
         logger.info(
             f"arxiv_expand[seed={seed.id}]: parsed {len(refs)} references "
-            f"(backend={backend})"
+            f"(backend={backend}, contexts={len(raw_contexts)})"
         )
+
+        # ── Step 1.5: 用 refs 的标识符充实 contexts ──
+        if raw_contexts:
+            ref_by_index: dict[int, dict] = {}
+            for r in refs:
+                ref_by_index[r.get("index", -1)] = r
+            enriched: list[dict] = []
+            for ctx in raw_contexts:
+                m = re.search(r"\d+", ctx.get("ref_id", ""))
+                idx = int(m.group(0)) if m else -1
+                ref = ref_by_index.get(idx)
+                enriched.append({
+                    **ctx,
+                    "ref_index": idx,
+                    "arxiv_id": ref.get("arxiv_id") if ref else None,
+                    "doi": ref.get("doi") if ref else None,
+                    "title": ref.get("title") if ref else None,
+                })
+            all_seed_contexts[seed.id] = enriched
 
         # ── Step 2: 分类 — 自带 ID 直接命中 vs 需按标题搜索 ──
         candidates: list[dict] = []
@@ -496,5 +517,5 @@ async def stage_expand_arxiv(
                 is_new=True,
             )
 
-    logger.info(f"arxiv_expand: done, total_added={total_added}, total_returned={len(added)}")
-    return added
+    logger.info(f"arxiv_expand: done, total_added={total_added}, total_returned={len(added)}, seeds_with_contexts={len(all_seed_contexts)}")
+    return added, all_seed_contexts

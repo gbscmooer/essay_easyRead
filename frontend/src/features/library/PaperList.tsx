@@ -10,8 +10,15 @@ import { Tooltip } from '@/components/Tooltip'
 
 
 interface FilterParams {
-  venue?: string
+  category?: string
   year?: number
+  dateAdded?: string   // "YYYY-MM-DD"
+}
+
+/** ISO 日期（YYYY-MM-DD）→ 本地展示（YYYY/M/D） */
+function formatDate(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  return `${y}/${Number(m)}/${Number(d)}`
 }
 
 // 命中字段 → 中文标签（智能搜索结果用）
@@ -95,17 +102,26 @@ export function PaperList({
   searchQuery,
 }: PaperListProps) {
   const [searchInput, setSearchInput] = useState('')
-  const [venueFilter, setVenueFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [yearFilter, setYearFilter] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
 
-  const venues = useMemo(() => {
-    const set = new Set(papers.map(p => p.venue).filter(Boolean))
+  // 全部方向：GROBID 提取的 arXiv 学科分类（如 cs.LG）
+  const categories = useMemo(() => {
+    const set = new Set(papers.map(p => p.category).filter(Boolean))
     return Array.from(set).sort() as string[]
   }, [papers])
 
+  // 全部年份：仅保留合理年份（过滤脏年份如 20、2）
   const years = useMemo(() => {
-    const set = new Set(papers.map(p => p.year).filter(Boolean))
-    return Array.from(set).sort((a, b) => (b ?? 0) - (a ?? 0)) as number[]
+    const set = new Set(papers.map(p => p.year).filter((y): y is number => !!y && y >= 1900))
+    return Array.from(set).sort((a, b) => b - a)
+  }, [papers])
+
+  // 全部添加日期：按加入论文库的日期（取 created_at 的日期部分，UTC）
+  const dates = useMemo(() => {
+    const set = new Set(papers.map(p => p.created_at.slice(0, 10)).filter(Boolean))
+    return Array.from(set).sort().reverse()
   }, [papers])
 
   const totalPages = Math.ceil(total / perPage)
@@ -114,14 +130,30 @@ export function PaperList({
     onSearch(searchInput)
   }
 
-  const handleFilterVenue = (venue: string) => {
-    setVenueFilter(venue)
-    onFilter({ venue: venue || undefined, year: yearFilter ? Number(yearFilter) : undefined })
+  const applyFilter = (next: { category?: string; year?: string; date?: string }) => {
+    const category = next.category ?? categoryFilter
+    const year = next.year ?? yearFilter
+    const date = next.date ?? dateFilter
+    onFilter({
+      category: category || undefined,
+      year: year ? Number(year) : undefined,
+      dateAdded: date || undefined,
+    })
+  }
+
+  const handleFilterCategory = (category: string) => {
+    setCategoryFilter(category)
+    applyFilter({ category })
   }
 
   const handleFilterYear = (year: string) => {
     setYearFilter(year)
-    onFilter({ venue: venueFilter || undefined, year: year ? Number(year) : undefined })
+    applyFilter({ year })
+  }
+
+  const handleFilterDate = (date: string) => {
+    setDateFilter(date)
+    applyFilter({ date })
   }
 
   return (
@@ -181,15 +213,15 @@ export function PaperList({
             含联网扩展论文
           </label>
 
-          {/* 会议筛选 */}
+          {/* 方向筛选（arXiv 学科分类，GROBID 提取） */}
           <select
-            value={venueFilter}
-            onChange={e => handleFilterVenue(e.target.value)}
+            value={categoryFilter}
+            onChange={e => handleFilterCategory(e.target.value)}
             className="px-3 py-2 text-sm rounded-lg focus:outline-none"
           >
-            <option value="">全部会议</option>
-            {venues.map(v => (
-              <option key={v} value={v}>{v}</option>
+            <option value="">全部方向</option>
+            {categories.map(c => (
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
 
@@ -202,6 +234,18 @@ export function PaperList({
             <option value="">全部年份</option>
             {years.map(y => (
               <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+
+          {/* 添加日期筛选（加入论文库的日期） */}
+          <select
+            value={dateFilter}
+            onChange={e => handleFilterDate(e.target.value)}
+            className="px-3 py-2 text-sm rounded-lg focus:outline-none"
+          >
+            <option value="">全部添加日期</option>
+            {dates.map(d => (
+              <option key={d} value={d}>{formatDate(d)}</option>
             ))}
           </select>
         </div>
@@ -301,6 +345,11 @@ export function PaperList({
                   <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
                     {paper.venue && <span>{paper.venue}</span>}
                     {paper.year && <span>{paper.year}</span>}
+                    {paper.category && (
+                      <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                        {paper.category}
+                      </span>
+                    )}
                     <span>{new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
                   </div>
                 </div>

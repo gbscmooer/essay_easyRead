@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper, SearchResult } from '@/types'
-import { listPapers, deletePaper, promoteExpandedPaper, smartSearch } from '@/api/papers'
+import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibrary } from '@/api/papers'
 import { PaperList } from '@/features/library/PaperList'
+import { Tooltip } from '@/components/Tooltip'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -82,13 +83,18 @@ export function LibraryPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [venue, setVenue] = useState('')
+  const [category, setCategory] = useState('')
   const [year, setYear] = useState<number | undefined>()
+  const [dateAdded, setDateAdded] = useState('')
   const perPage = 20
 
   const [expandedPapers, setExpandedPapers] = useState<Paper[]>([])
   const [expandedTotal, setExpandedTotal] = useState(0)
   const [showExpanded, setShowExpanded] = useState(false)
+
+  // 重新索引：用 GROBID 重提元数据缺失/索引失败的论文，轮询观察进度
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexNote, setReindexNote] = useState<string | null>(null)
 
   // 智能搜索：searchResults 为 null = 浏览模式；非 null = 搜索结果模式
   const [globalSearch, setGlobalSearch] = useState(false)
@@ -100,8 +106,9 @@ export function LibraryPage() {
   // 浏览：仅在无搜索词时拉取分页论文（同时为筛选下拉提供 venue/year 选项）
   const fetchPapers = useCallback(() => {
     listPapers({
-      venue: venue || undefined,
+      category: category || undefined,
       year,
+      date_added: dateAdded || undefined,
       page,
       per_page: perPage,
       source: 'uploaded',
@@ -111,7 +118,7 @@ export function LibraryPage() {
         setTotal(res.total)
       })
       .catch(() => {})
-  }, [venue, year, page])
+  }, [category, year, dateAdded, page])
 
   // 智能搜索：搜索词非空时调 smart-search（元数据 + 解读内容 + 可选全局正文）
   useEffect(() => {
@@ -121,14 +128,14 @@ export function LibraryPage() {
       return
     }
     setSearchLoading(true)
-    smartSearch(q, { venue: venue || undefined, year, global: globalSearch, includeExpanded, page, perPage })
+    smartSearch(q, { category: category || undefined, year, dateAdded: dateAdded || undefined, global: globalSearch, includeExpanded, page, perPage })
       .then(res => {
         setSearchResults(res.results)
         setSearchTotal(res.total)
       })
       .catch(() => { setSearchResults([]); setSearchTotal(0) })
       .finally(() => setSearchLoading(false))
-  }, [search, venue, year, globalSearch, includeExpanded, page])
+  }, [search, category, year, dateAdded, globalSearch, includeExpanded, page])
 
   const fetchExpandedPapers = useCallback(() => {
     listPapers({ source: 'expanded', per_page: 100 })
@@ -158,9 +165,10 @@ export function LibraryPage() {
     setPage(1)
   }, [])
 
-  const handleFilter = useCallback((filters: { venue?: string; year?: number }) => {
-    setVenue(filters.venue || '')
+  const handleFilter = useCallback((filters: { category?: string; year?: number; dateAdded?: string }) => {
+    setCategory(filters.category || '')
     setYear(filters.year)
+    setDateAdded(filters.dateAdded || '')
     setPage(1)
   }, [])
 
@@ -184,10 +192,78 @@ export function LibraryPage() {
     setPage(1)
   }, [])
 
+  const handleReindex = useCallback(async () => {
+    if (reindexing) return
+    setReindexNote(null)
+    setReindexing(true)
+    try {
+      const { queued } = await reindexLibrary(includeExpanded)
+      if (queued === 0) {
+        setReindexing(false)
+        setReindexNote('没有可重新索引的论文')
+        setTimeout(() => setReindexNote(null), 4000)
+        return
+      }
+      setReindexNote(`正在重新索引 ${queued} 篇论文${includeExpanded ? '（含联网扩展）' : ''}…`)
+      // 轮询：当不再有论文处于 indexing（且已过启动窗口）即视为完成
+      const pollSource = includeExpanded ? 'all' : 'uploaded'
+      const started = Date.now()
+      const poll = async () => {
+        const res = await listPapers({ source: pollSource, per_page: 200 }).catch(() => null)
+        const indexing = res ? res.papers.filter(p => p.index_status === 'indexing').length : 0
+        fetchPapers()
+        const elapsed = Date.now() - started
+        if (indexing === 0 && elapsed > 4000) {
+          setReindexing(false)
+          setReindexNote('重新索引完成')
+          setTimeout(() => setReindexNote(null), 4000)
+          return
+        }
+        if (elapsed > 180000) {  // 兜底超时
+          setReindexing(false)
+          setReindexNote(null)
+          return
+        }
+        setTimeout(poll, 3000)
+      }
+      setTimeout(poll, 3000)
+    } catch {
+      setReindexing(false)
+      setReindexNote('重新索引失败，请重试')
+      setTimeout(() => setReindexNote(null), 4000)
+    }
+  }, [reindexing, fetchPapers, includeExpanded])
+
   return (
     <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
-      <div className="px-6 pt-6 pb-2">
+      <div className="px-6 pt-6 pb-2 flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>论文库</h1>
+        <div className="flex items-center gap-3">
+          {reindexNote && (
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{reindexNote}</span>
+          )}
+          <Tooltip
+            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回（不跳过已索引的论文）。默认处理论文库里的所有论文；勾选「含联网扩展论文」后会一并重做深度研究发现的论文。需后台 GROBID 服务在运行。"
+            delay={600}
+            placement="bottom"
+          >
+            <button
+              onClick={handleReindex}
+              disabled={reindexing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}
+            >
+              <svg
+                className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {reindexing ? '索引中…' : '重新索引'}
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       <PaperList

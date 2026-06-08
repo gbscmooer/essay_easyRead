@@ -62,6 +62,8 @@ async def run_pipeline(run_id: int):
         _set_stage(run_id, "collect", "running", paper_count=len(papers))
         await emit("stage_done", stage="collect", summary={"count": len(papers)})
 
+        seed_citation_contexts: dict[int, list[dict]] = {}
+
         if params.get("mode") == "online":
             _set_stage(run_id, "expand")
             await emit("stage_start", stage="expand")
@@ -98,7 +100,8 @@ async def run_pipeline(run_id: int):
                     await emit("stage_start", stage="expand_arxiv")
                     l1_seeds = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
                     logger.info(f"arxiv_expand: l1_seeds={len(l1_seeds)}")
-                    arxiv_papers = await stage_expand_arxiv(ws_id, l1_seeds, emit, run_params=params)
+                    arxiv_papers, arxiv_contexts = await stage_expand_arxiv(ws_id, l1_seeds, emit, run_params=params)
+                    seed_citation_contexts = arxiv_contexts
                     fresh_arxiv = [p for p in arxiv_papers if p.id not in seen_ids]
                     seen_ids.update(p.id for p in fresh_arxiv)
                     all_expanded.extend(fresh_arxiv)
@@ -112,7 +115,7 @@ async def run_pipeline(run_id: int):
 
         _set_stage(run_id, "chunk")
         await emit("stage_start", stage="chunk")
-        chunks = await stage_chunk(papers)
+        chunks = await stage_chunk(papers, citation_contexts=seed_citation_contexts)
         _set_stage(run_id, "chunk", "running", chunk_count=len(chunks))
         await emit("stage_done", stage="chunk", summary={"count": len(chunks)})
 
@@ -130,6 +133,7 @@ async def run_pipeline(run_id: int):
             similarity_threshold=params.get("similarity_threshold", 0.78),
             enable_shared_method=params.get("enable_shared_method", False),
             knn_k=int(params.get("knn_k", 8)),
+            citation_contexts=seed_citation_contexts,
         )
         _set_stage(run_id, "graph", "running",
                    node_count=len(graph["nodes"]), edge_count=len(graph["edges"]))

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import type { GraphNode, ResearchGraph, GraphEdgeKind, SimilarityDetail } from '@/types'
+import type { GraphNode, ResearchGraph, GraphEdgeKind, SimilarityDetail, CitationContext } from '@/types'
 
 export interface SelectedEdge {
   sourceLabel: string
@@ -8,6 +8,7 @@ export interface SelectedEdge {
   kind: GraphEdgeKind
   weight: number
   detail?: SimilarityDetail
+  contexts?: CitationContext[]
 }
 
 interface GraphCanvasProps {
@@ -103,6 +104,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         kind: e.kind,
         weight: e.weight,
         detail: e.detail,
+        contexts: e.contexts,
       })),
     }
   }, [graph, edgeFilter])
@@ -168,6 +170,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       kind: link.kind,
       weight: link.weight,
       detail: link.detail,
+      contexts: link.contexts,
     })
   }, [onSelectEdge])
 
@@ -255,10 +258,25 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
           linkColor={linkColor}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={0.9}
-          linkWidth={(link: any) => Math.max(1, link.weight * 3)}
-          linkLabel={(link: any) => link.detail
-            ? `综合相似度 ${link.weight.toFixed(2)} · 点击查看分解`
-            : `${link.kind} (${link.weight.toFixed(2)})`}
+          linkWidth={(link: any) => {
+            if (link.kind === 'cites') {
+              const n = link.contexts?.length ?? 0
+              if (n >= 4) return 3.5
+              if (n >= 2) return 2.5
+              if (n >= 1) return 1.8
+              return 1
+            }
+            return Math.max(1, link.weight * 3)
+          }}
+          linkLabel={(link: any) => {
+            if (link.kind === 'cites' && link.contexts?.length) {
+              return `引用 · ${link.contexts.length} 处上下文 · 点击查看`
+            }
+            if (link.detail) {
+              return `综合相似度 ${link.weight.toFixed(2)} · 点击查看分解`
+            }
+            return `${link.kind} (${link.weight.toFixed(2)})`
+          }}
           onNodeClick={handleNodeClick}
           onLinkClick={handleLinkClick}
           onZoomEnd={(t: any) => setZoomLevel(t.k)}

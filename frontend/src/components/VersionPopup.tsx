@@ -1,17 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.11.0'
+const APP_VERSION = '1.12.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-08',
   changes: [
-    '智能搜索增强：关键词高亮、文件名兜底搜索、全文匹配行号定位',
-    '搜索结果新增「本地论文」「联网扩展」来源标号',
-    '上传即自动索引：PDF 全文提取 + 元数据回写，支持全局搜索',
-    '设置页模块化重构：拆分为独立组件，新增深度研究专属设置面板',
-    '深度研究新增 facet_weighted 多维度加权相似度算法',
-    '「全局搜索」悬停 1 秒显示浮动说明窗口',
+    '论文库新增「重新索引」：逐篇用 GROBID 重做元数据，可选「含联网扩展论文」覆盖全部论文',
+    '元数据索引统一以 GROBID 为唯一来源，不再由 LLM 解读回写',
+    '新增 arXiv 学科方向（如 cs.LG）提取与展示',
+    '筛选栏改为「方向 / 年份 / 添加日期」，新增按添加日期筛选',
+    '修复 arXiv 论文年份识别：优先取戳上版本日期，避免误抓正文或 ID 中的年份',
   ],
 }
 

@@ -42,6 +42,7 @@ class PaperResponse(BaseModel):
     authors: Optional[str] = None       # 作者列表（逗号分隔），自动索引/解读填充
     venue: Optional[str] = None
     year: Optional[int] = None
+    category: Optional[str] = None      # arXiv 学科分类，如 "cs.LG"
     status: str  # pending | extracting | analyzing | done | failed | indexed
     index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None

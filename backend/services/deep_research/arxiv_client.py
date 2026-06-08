@@ -63,8 +63,23 @@ async def _arxiv_request(qs: str) -> str:
     return resp.text
 
 
+# arXiv 扩展命名空间，<arxiv:primary_category term="cs.LG"/> 给出主学科分类
+_ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+
+
+def _extract_category(entry) -> Optional[str]:
+    """取 entry 的主学科分类（如 cs.LG）：优先 arxiv:primary_category，回退首个 atom:category。"""
+    pc = entry.find("arxiv:primary_category", _ARXIV_NS)
+    if pc is not None and pc.get("term"):
+        return pc.get("term")
+    cat = entry.find("atom:category", _ARXIV_NS)
+    if cat is not None and cat.get("term"):
+        return cat.get("term")
+    return None
+
+
 def _parse_entry(xml_text: str) -> Optional[dict]:
-    """从 arXiv Atom feed 解析第一条 entry，返回 {arxiv_id, pdf_url, title, year}。"""
+    """从 arXiv Atom feed 解析第一条 entry，返回 {arxiv_id, pdf_url, title, year, category}。"""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
@@ -104,7 +119,8 @@ def _parse_entry(xml_text: str) -> Optional[dict]:
         except ValueError:
             pass
 
-    return {"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year}
+    return {"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year,
+            "category": _extract_category(entry)}
 
 
 _STOP_WORDS = frozenset({
@@ -156,7 +172,8 @@ def _parse_entries(xml_text: str, max_entries: int = 5) -> list[dict]:
                 year = int(pub_el.text[:4])
             except ValueError:
                 pass
-        results.append({"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year})
+        results.append({"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year,
+                        "category": _extract_category(entry)})
     return results
 
 

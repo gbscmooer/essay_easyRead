@@ -95,6 +95,7 @@ async def upload_paper(file: UploadFile = File(...)):
         authors=paper.get("authors"),
         venue=paper["venue"],
         year=paper["year"],
+        category=paper.get("category"),
         status=paper["status"],
         index_status=paper.get("index_status", "none"),
         error_message=paper["error_message"],
@@ -111,8 +112,9 @@ async def upload_paper(file: UploadFile = File(...)):
 @router.get("", response_model=PaperListResponse)
 async def get_papers_list(
     search: str = Query(None, description="Search by title"),
-    venue: str = Query(None, description="Filter by venue"),
+    category: str = Query(None, description="按 arXiv 学科方向筛选，如 cs.LG"),
     year: int = Query(None, description="Filter by year"),
+    date_added: str = Query(None, description="按加入论文库日期筛选，YYYY-MM-DD"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     source: str = Query("uploaded", description="uploaded | expanded | all"),
@@ -120,7 +122,10 @@ async def get_papers_list(
     """获取论文列表，支持筛选和搜索"""
     engine = _get_engine()
     with Session(engine) as session:
-        papers, total = list_papers(session, search, venue, year, page, per_page, source)
+        papers, total = list_papers(
+            session, search=search, category=category, year=year,
+            date_added=date_added, page=page, per_page=per_page, source=source,
+        )
 
     paper_responses = [
         PaperResponse(
@@ -130,6 +135,7 @@ async def get_papers_list(
             authors=p.get("authors"),
             venue=p["venue"],
             year=p["year"],
+            category=p.get("category"),
             status=p["status"],
             index_status=p.get("index_status", "none"),
             error_message=p["error_message"],
@@ -177,8 +183,9 @@ def _match_content_fields(ar, ql: str) -> list[dict]:
 @router.get("/smart-search")
 async def smart_search(
     q: str = Query(..., min_length=1, description="搜索关键词（大小写不敏感）"),
-    venue: str = Query(None, description="按会议筛选"),
+    category: str = Query(None, description="按 arXiv 学科方向筛选，如 cs.LG"),
     year: int = Query(None, description="按年份筛选"),
+    date_added: str = Query(None, description="按加入论文库日期筛选，YYYY-MM-DD"),
     global_: bool = Query(False, alias="global", description="开启则额外匹配论文正文全文"),
     include_expanded: bool = Query(False, description="开启则一并搜索深度研究联网下载的相关论文"),
     page: int = Query(1, ge=1),
@@ -197,10 +204,13 @@ async def smart_search(
         # 默认只搜「加入论文库」（uploaded）；开启后并入联网扩展下载的相关论文（expanded）
         if not include_expanded:
             stmt = stmt.where(PaperModel.source == "uploaded")
-        if venue:
-            stmt = stmt.where(PaperModel.venue == venue)
+        if category:
+            stmt = stmt.where(PaperModel.category == category)
         if year is not None:
             stmt = stmt.where(PaperModel.year == year)
+        if date_added:
+            from sqlalchemy import func as _func
+            stmt = stmt.where(_func.date(PaperModel.created_at) == date_added)
         papers = session.exec(stmt).all()
 
         for p in papers:
@@ -261,6 +271,28 @@ async def smart_search(
 
 
 # ============================================================
+# POST /api/papers/reindex
+# 批量重新索引：用 GROBID 强制重提元数据，覆盖未解读论文的脏数据。
+# 注意：必须定义在 /{paper_id} 之前，否则 "reindex" 会被当成 paper_id → 422
+# ============================================================
+@router.post("/reindex")
+async def reindex_library_endpoint(
+    include_expanded: bool = Query(False, description="是否一并重索引联网扩展下载的论文"),
+):
+    """重新索引：对范围内每篇论文逐篇清空旧索引并用 GROBID 重做（不跳过已索引的）。
+
+    默认处理「加入论文库」的所有论文；include_expanded=True 时一并处理深度研究发现的论文。
+    后台异步执行，立即返回处理数量；前端可轮询论文列表的 index_status 观察进度。
+    """
+    from ..services.auto_indexer import count_reindex_targets, reindex_library
+
+    queued = await asyncio.to_thread(count_reindex_targets, include_expanded)
+    if queued:
+        asyncio.create_task(reindex_library(include_expanded))
+    return {"queued": queued}
+
+
+# ============================================================
 # GET /api/papers/{paper_id}
 # ============================================================
 @router.get("/{paper_id}", response_model=PaperResponse)
@@ -283,6 +315,7 @@ async def get_paper_detail(paper_id: int):
         authors=paper.get("authors"),
         venue=paper["venue"],
         year=paper["year"],
+        category=paper.get("category"),
         status=paper["status"],
         index_status=paper.get("index_status", "none"),
         error_message=paper["error_message"],

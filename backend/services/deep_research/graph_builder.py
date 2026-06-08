@@ -13,6 +13,7 @@ Graph Builder — 知识图谱构建
 """
 
 import logging
+import re
 from collections import defaultdict
 from .similarity import get_similarity_provider
 from .graph_analytics import annotate_graph
@@ -23,6 +24,35 @@ logger = logging.getLogger(__name__)
 # 相似边的最小分数地板：低于此值即便进了某节点的 top-k 也不连边，
 # 避免论文很少时把几乎不相关的对也连上。kNN 是主控，这是兜底。
 MIN_SIMILARITY = 0.05
+
+
+def _normalize_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+
+
+def _match_contexts_to_paper(contexts: list[dict], target_paper) -> list[dict]:
+    ext_id = getattr(target_paper, "external_id", None) or ""
+    target_arxiv = ""
+    target_doi = ""
+    if ext_id.startswith("arxiv:"):
+        target_arxiv = ext_id[6:]
+    elif ext_id.startswith("doi:"):
+        target_doi = ext_id[4:]
+
+    target_title_norm = _normalize_title(getattr(target_paper, "title", "") or "")
+
+    matched: list[dict] = []
+    for ctx in contexts:
+        ctx_arxiv = ctx.get("arxiv_id") or ""
+        ctx_doi = ctx.get("doi") or ""
+        if target_arxiv and ctx_arxiv and target_arxiv == ctx_arxiv:
+            matched.append(ctx)
+        elif target_doi and ctx_doi and target_doi == ctx_doi:
+            matched.append(ctx)
+        elif target_title_norm and ctx.get("title"):
+            if _normalize_title(ctx["title"]) == target_title_norm:
+                matched.append(ctx)
+    return matched[:20]
 
 
 def _sparsify_knn(pairs: list[tuple[int, int, float]], knn_k: int, floor: float):
@@ -67,21 +97,36 @@ def _paper_node(p) -> dict:
 
 
 async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable_shared_method: bool,
-                      knn_k: int = 8) -> dict:
+                      knn_k: int = 8, citation_contexts: dict[int, list[dict]] | None = None) -> dict:
     nodes = [_paper_node(p) for p in papers]
     by_id = {p.id: p for p in papers}
     edges: list[dict] = []
+    ctx_map = citation_contexts or {}
 
     # 1) cites 边：基于 parent_paper_id 的"父 → 子"引用
     cites_count = 0
     for p in papers:
         if p.parent_paper_id and p.parent_paper_id in by_id:
-            edges.append({
+            edge: dict = {
                 "source": f"paper:{p.parent_paper_id}",
                 "target": f"paper:{p.id}",
                 "kind": "cites",
                 "weight": 1.0,
-            })
+            }
+            seed_contexts = ctx_map.get(p.parent_paper_id)
+            if seed_contexts:
+                matched = _match_contexts_to_paper(seed_contexts, p)
+                if matched:
+                    edge["contexts"] = [
+                        {
+                            "section": c.get("section", ""),
+                            "context": c.get("context", ""),
+                            "intent": c.get("intent", "background"),
+                        }
+                        for c in matched
+                    ]
+                    edge["weight"] = min(1.0 + len(matched) * 0.15, 2.0)
+            edges.append(edge)
             cites_count += 1
 
     # 2) similar 边：委托给配置的 SimilarityProvider，再用 kNN 稀疏化

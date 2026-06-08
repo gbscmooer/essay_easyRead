@@ -185,7 +185,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
     engine = _get_engine()
 
     from .database import (
-        update_paper_status, update_paper_metadata,
+        update_paper_status,
         save_analysis_result, update_paper_code_url, update_related_papers,
     )
 
@@ -294,12 +294,9 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         result = _json_safe(result)
 
         with Session(engine) as session:
-            update_paper_metadata(
-                session, paper_id,
-                result.get("title", ""),
-                result.get("venue", "Unknown"),
-                result.get("year", 0),
-            )
+            # 注意：不再由 LLM 解读结果回写 Paper 的 title/venue/year。
+            # 论文库索引（Paper 元数据）统一以 GROBID 自动索引为唯一来源，
+            # 解读结果只存进 AnalysisResult 供阅读页展示。
             save_analysis_result(session, paper_id, result)
             if code_url:
                 update_paper_code_url(session, paper_id, code_url)

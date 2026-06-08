@@ -64,6 +64,7 @@ def _migrate_schema(engine) -> None:
             ("authors", "TEXT"),
             ("full_text", "TEXT"),
             ("index_status", "TEXT DEFAULT 'none'"),
+            ("category", "TEXT"),
         ]
         for col_name, col_def in paper_migrations:
             if col_name not in existing_paper_cols:
@@ -286,6 +287,7 @@ def get_paper(session: Session, paper_id: int) -> dict:
         "authors": paper.authors,
         "venue": paper.venue,
         "year": paper.year,
+        "category": paper.category,
         "status": paper.status,
         "index_status": paper.index_status,
         "error_message": paper.error_message,
@@ -363,8 +365,9 @@ def update_related_papers(session: Session, paper_id: int, related_papers: list[
 def list_papers(
     session: Session,
     search: str = None,
-    venue: str = None,
+    category: str = None,
     year: int = None,
+    date_added: str = None,
     page: int = 1,
     per_page: int = 20,
     source: str = "uploaded",
@@ -373,6 +376,9 @@ def list_papers(
     列出论文，支持筛选和分页。
 
     Args:
+        category:   按 arXiv 学科方向（如 cs.LG）筛选
+        year:       按论文发表年份筛选
+        date_added: 按加入论文库的日期筛选（"YYYY-MM-DD"）
         source: "uploaded"（默认，仅用户上传）| "expanded"（深度研究扩展）| "all"（全部）
     """
     statement = select(Paper)
@@ -387,10 +393,12 @@ def list_papers(
     if search:
         # 大小写不敏感：统一 lower 后子串匹配
         statement = statement.where(func.lower(col(Paper.title)).contains(search.lower()))
-    if venue:
-        statement = statement.where(Paper.venue == venue)
+    if category:
+        statement = statement.where(Paper.category == category)
     if year is not None:
         statement = statement.where(Paper.year == year)
+    if date_added:
+        statement = statement.where(func.date(Paper.created_at) == date_added)
 
     count_statement = select(func.count()).select_from(statement.subquery())
     total = session.exec(count_statement).one()
@@ -407,6 +415,7 @@ def list_papers(
             "authors": p.authors,
             "venue": p.venue,
             "year": p.year,
+            "category": p.category,
             "status": p.status,
             "index_status": p.index_status,
             "error_message": p.error_message,
