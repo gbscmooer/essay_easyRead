@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.8.2'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '添加 Toast 通知组件，替代静默错误处理',
+    '论文库删除、工作区操作、Grobid 镜像下载失败时显示错误提示',
   ],
 }
 

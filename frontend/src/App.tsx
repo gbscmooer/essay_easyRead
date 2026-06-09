@@ -14,6 +14,7 @@
 
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
+import { useToastProvider } from '@/hooks/useToast'
 import { HomePage } from '@/pages/HomePage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { LibraryPage } from '@/pages/LibraryPage'
@@ -25,6 +26,8 @@ import { ResearchPage } from '@/pages/ResearchPage'
 
 
 export default function App() {
+  const { ToastContainer } = useToastProvider()
+
   return (
     <Layout>
       <Routes>
@@ -37,6 +40,7 @@ export default function App() {
         <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
         <Route path="/workspace/:id/research" element={<ResearchPage />} />
       </Routes>
+      <ToastContainer />
     </Layout>
   )
 }

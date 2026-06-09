@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWorkspace, promotePaper, type WorkspaceDetail, type WorkspacePaper } from '@/api/workspaces'
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
+import { toast } from '@/hooks/useToast'
 
 
 export function WorkspaceDetailPage() {
@@ -48,8 +49,9 @@ export function WorkspaceDetailPage() {
       // 过滤掉已在工作区中的论文
       const existingIds = new Set(workspace?.papers.map(p => p.id) || [])
       setLibraryPapers(res.papers.filter(p => !existingIds.has(p.id)))
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '加载论文列表失败' })
+      setShowAddPaper(false)
     } finally {
       setLoadingPapers(false)
     }
