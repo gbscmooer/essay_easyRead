@@ -41,8 +41,8 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
         provider: provider ?? '',
       })
       setResult(res)
-    } catch (e: any) {
-      setResult({ ok: false, message: e?.message || '请求失败', latency_ms: null })
+    } catch (e: unknown) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : '请求失败', latency_ms: null })
     } finally {
       setTesting(false)
     }

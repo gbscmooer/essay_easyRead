@@ -119,10 +119,11 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       setPaper(uploaded)
       setActivePaperId(uploaded.id)
       // 先在后台启动分析（与 SSE 解耦），再连接流获取实时进度
-      startAnalysisJob(uploaded.id).catch((e: any) => {
+      startAnalysisJob(uploaded.id).catch((e: unknown) => {
         setShouldConnect(false)
-        setLocalError(e?.message || '启动分析任务失败')
-        toast({ type: 'error', message: e?.message || '启动分析任务失败' })
+        const msg = e instanceof Error ? e.message : '启动分析任务失败'
+        setLocalError(msg)
+        toast({ type: 'error', message: msg })
       })
       setShouldConnect(true)
     } catch (err) {
@@ -152,10 +153,11 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const startAnalysis = useCallback(() => {
     if (activePaperId === null) return
     // 后台启动分析任务，再连接 SSE 显示进度
-    startAnalysisJob(activePaperId).catch((e: any) => {
+    startAnalysisJob(activePaperId).catch((e: unknown) => {
       setShouldConnect(false)
-      setLocalError(e?.message || '启动分析任务失败')
-      toast({ type: 'error', message: e?.message || '启动分析任务失败' })
+      const msg = e instanceof Error ? e.message : '启动分析任务失败'
+      setLocalError(msg)
+      toast({ type: 'error', message: msg })
     })
     setShouldConnect(true)
   }, [activePaperId])

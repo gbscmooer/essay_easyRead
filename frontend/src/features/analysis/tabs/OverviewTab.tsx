@@ -184,8 +184,8 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   a.download = `${(result.title || 'paper').replace(/[^\w\s-]/g, '').trim() || 'paper'}.bib`
                   a.click()
                   URL.revokeObjectURL(url)
-                } catch (e: any) {
-                  toast({ type: 'error', message: e?.message || '导出 BibTeX 失败' })
+                } catch (e: unknown) {
+                  toast({ type: 'error', message: e instanceof Error ? e.message : '导出 BibTeX 失败' })
                 } finally {
                   setBibtexLoading(false)
                 }

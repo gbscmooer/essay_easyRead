@@ -21,8 +21,8 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
     try {
       const res = await queryRag(wsId, question.trim())
       setResult(res)
-    } catch (e: any) {
-      setError(e.message || '查询失败')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '查询失败')
     } finally {
       setLoading(false)
     }

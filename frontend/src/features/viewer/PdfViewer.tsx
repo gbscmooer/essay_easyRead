@@ -81,8 +81,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         group_id: data.groupId,
       })
       setAnnotations(prev => [...prev, ann])
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '创建标注失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '创建标注失败' })
     }
   }, [paperId])
 
@@ -100,8 +100,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         await deleteAnnotation(id)
         setAnnotations(prev => prev.filter(a => a.id !== id))
       }
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '删除标注失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '删除标注失败' })
     }
   }, [annotations])
 

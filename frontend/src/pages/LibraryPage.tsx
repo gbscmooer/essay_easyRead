@@ -168,8 +168,8 @@ export default function LibraryPage() {
     try {
       await deletePaper(id)
       fetchPapers()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '删除论文失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '删除论文失败' })
     }
   }, [fetchPapers])
 

@@ -8,9 +8,9 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, select
 
-from ..config import settings
+from ..services.database import get_engine
 from ..models.research import ResearchRun, ResearchGraph
 from ..models.workspace import Workspace, WorkspacePaper
 from ..models.paper import Paper
@@ -28,19 +28,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
-
 
 @router.post("/workspaces/{ws_id}/runs", response_model=ResearchRunResponse)
 async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, ws_id)
         if not ws:
@@ -86,7 +77,7 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
 
 @router.get("/runs/{run_id}", response_model=ResearchRunResponse)
 async def get_run(run_id: int) -> ResearchRunResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
         if not run:
@@ -96,7 +87,7 @@ async def get_run(run_id: int) -> ResearchRunResponse:
 
 @router.get("/runs/{run_id}/stream")
 async def stream_run(run_id: int) -> StreamingResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
         if not run:
@@ -142,7 +133,7 @@ async def stream_run(run_id: int) -> StreamingResponse:
 
 @router.get("/workspaces/{ws_id}/graph", response_model=ResearchGraphResponse)
 async def get_graph(ws_id: int) -> ResearchGraphResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
         if not g:
@@ -155,7 +146,7 @@ async def get_graph(ws_id: int) -> ResearchGraphResponse:
 
 @router.get("/workspaces/{ws_id}/latest-run", response_model=ResearchRunResponse)
 async def latest_run(ws_id: int) -> ResearchRunResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         run = session.exec(
             select(ResearchRun).where(ResearchRun.workspace_id == ws_id)
@@ -234,7 +225,7 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
 @router.delete("/workspaces/{ws_id}")
 async def clear_research(ws_id: int) -> dict:
     """清空该工作区的图谱与向量索引（不删除 expanded 论文文件）"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
         if g:

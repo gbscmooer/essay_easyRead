@@ -7,6 +7,7 @@
 import { useState, useMemo } from 'react'
 import type { Paper, SearchResult } from '@/types'
 import { Tooltip } from '@/components/Tooltip'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 
 interface FilterParams {
@@ -105,6 +106,7 @@ export function PaperList({
   const [categoryFilter, setCategoryFilter] = useState('')
   const [yearFilter, setYearFilter] = useState('')
   const [dateFilter, setDateFilter] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   // 全部方向：GROBID 提取的 arXiv 学科分类（如 cs.LG）
   const categories = useMemo(() => {
@@ -354,8 +356,7 @@ export function PaperList({
                   <button
                     onClick={e => {
                       e.stopPropagation()
-                      if (!confirm('确定删除这篇论文？删除后不可恢复。')) return
-                      onDelete(paper.id)
+                      setDeleteTarget(paper.id)
                     }}
                     aria-label="删除论文"
                     className="opacity-0 group-hover:opacity-100 transition-all text-sm"
@@ -397,6 +398,20 @@ export function PaperList({
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除论文"
+        message="确定删除这篇论文？删除后不可恢复。"
+        variant="danger"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        onConfirm={() => {
+          if (deleteTarget !== null) onDelete(deleteTarget)
+          setDeleteTarget(null)
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

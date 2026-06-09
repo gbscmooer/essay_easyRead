@@ -76,8 +76,8 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
       refreshConfig()
       toast({ type: 'success', message: '研究设置已保存' })
       onClose()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '保存失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '保存失败' })
     } finally {
       setSaving(false)
     }

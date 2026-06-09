@@ -11,26 +11,15 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlmodel import Session, create_engine
+from sqlmodel import Session
 
 logger = logging.getLogger(__name__)
 
 from ..models.schemas import AnalysisResponse, PaperResponse, StreamEvent
-from ..config import settings
-from ..services.database import get_paper, get_analysis, update_paper_status
+from ..services.database import get_paper, get_analysis, update_paper_status, get_engine
 from ..utils.streaming import format_sse
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
-
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 # ============================================================
@@ -495,7 +484,7 @@ async def import_related_papers(req: ImportRelatedPapersRequest) -> dict:
     from ..services.deep_research.pdf_downloader import download_pdf
     from sqlmodel import select
 
-    engine = _get_engine()
+    engine = get_engine()
     results = []
 
     # 验证工作区存在
@@ -718,7 +707,7 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
 @router.get("/{paper_id}", response_model=AnalysisResponse)
 async def get_analysis_result(paper_id: int) -> AnalysisResponse:
     """获取论文的完整解析结果"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -775,7 +764,7 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
 @router.get("/{paper_id}/stream")
 async def stream_analysis(paper_id: int) -> StreamingResponse:
     """SSE 流式解析端点"""
-    engine = _get_engine()
+    engine = get_engine()
 
     # 获取论文状态
     try:
@@ -898,7 +887,7 @@ async def start_analysis(paper_id: int) -> dict:
     幂等：若任务已在运行则直接返回当前进度。前端可先调用本接口启动，
     再连接 /stream 获取实时进度；中途切换页面也不会中断分析。
     """
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -935,7 +924,7 @@ async def start_analysis(paper_id: int) -> dict:
 @router.get("/{paper_id}/progress")
 async def get_analysis_progress(paper_id: int) -> dict:
     """查询后台分析进度（无需保持 SSE 连接）。"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -963,7 +952,7 @@ async def get_analysis_progress(paper_id: int) -> dict:
 @router.post("/{paper_id}/reparse")
 async def reparse_paper(paper_id: int) -> PaperResponse:
     """重新解析一篇论文"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -1006,7 +995,7 @@ async def reparse_paper(paper_id: int) -> PaperResponse:
 @router.post("/{paper_id}/related-papers")
 async def refresh_related_papers(paper_id: int) -> list:
     """刷新相关论文（根据设置使用 findpapers 或 Semantic Scholar）"""
-    engine = _get_engine()
+    engine = get_engine()
 
     # 获取已有分析结果
     try:

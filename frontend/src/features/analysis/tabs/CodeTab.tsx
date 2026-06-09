@@ -16,7 +16,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
 
   useEffect(() => {
     if (paperId) {
-      getPaper(paperId).then(setPaper).catch((e: any) => { toast({ type: 'error', message: e?.message || '加载论文信息失败' }) })
+      getPaper(paperId).then(setPaper).catch((e: unknown) => { toast({ type: 'error', message: e instanceof Error ? e.message : '加载论文信息失败' }) })
     }
   }, [paperId])
 
@@ -27,8 +27,8 @@ export function CodeTab({ paperId }: CodeTabProps) {
       await extractCodeUrl(paperId)
       const updated = await getPaper(paperId)
       setPaper(updated)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '提取代码 URL 失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '提取代码 URL 失败' })
     } finally {
       setSearching(false)
     }

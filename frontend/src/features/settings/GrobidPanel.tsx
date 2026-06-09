@@ -57,8 +57,8 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
     try {
       await pullGrobidImage()
       refresh()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '拉取 Grobid 镜像失败' })
+    } catch (e: unknown) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '拉取 Grobid 镜像失败' })
     }
   }
 

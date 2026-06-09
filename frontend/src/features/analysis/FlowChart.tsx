@@ -106,7 +106,7 @@ export function FlowChart({ chart }: FlowChartProps) {
           setSvg(renderedSvg)
           setError(null)
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         // 如果清洗后仍然失败，尝试最简化的图表
         try {
           const fallback = 'graph TD\n    A[Input] --> B[Process]\n    B --> C[Output]'
@@ -117,7 +117,7 @@ export function FlowChart({ chart }: FlowChartProps) {
           }
         } catch {
           if (!cancelled) {
-            setError(err?.message || '流程图语法错误')
+            setError(err instanceof Error ? err.message : '流程图语法错误')
             setSvg('')
           }
         }

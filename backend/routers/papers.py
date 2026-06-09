@@ -336,13 +336,14 @@ async def delete_paper_endpoint(paper_id: int) -> dict:
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    # 删除 PDF 文件
-    if os.path.exists(pdf_path):
-        os.remove(pdf_path)
+    # 删除 PDF 文件（异步化避免阻塞事件循环）
+    def _cleanup_files():
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        if code_path and os.path.isdir(code_path):
+            shutil.rmtree(code_path, ignore_errors=True)
 
-    # 删除代码仓库目录
-    if code_path and os.path.isdir(code_path):
-        shutil.rmtree(code_path, ignore_errors=True)
+    await asyncio.to_thread(_cleanup_files)
 
     return {"message": "Paper deleted successfully"}
 
