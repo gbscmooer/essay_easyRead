@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: ./backend
+    container_name: essay-read-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - db-data:/app/data
+      - uploads:/app/uploads
+      - code-downloads:/app/code_downloads
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - FRONTEND_ORIGIN=http://localhost
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: essay-read-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  uploads:
+  code-downloads:

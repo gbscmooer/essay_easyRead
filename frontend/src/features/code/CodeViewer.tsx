@@ -1,35 +1,39 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import hljs from 'highlight.js/lib/core'
-import python from 'highlight.js/lib/languages/python'
-import javascript from 'highlight.js/lib/languages/javascript'
-import typescript from 'highlight.js/lib/languages/typescript'
-import cpp from 'highlight.js/lib/languages/cpp'
-import java from 'highlight.js/lib/languages/java'
-import bash from 'highlight.js/lib/languages/bash'
-import json from 'highlight.js/lib/languages/json'
-import yaml from 'highlight.js/lib/languages/yaml'
-import markdownLang from 'highlight.js/lib/languages/markdown'
-import xml from 'highlight.js/lib/languages/xml'
-import css from 'highlight.js/lib/languages/css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { getCodeFile, type NotebookCellData, type NotebookOutput } from '@/api/code'
 import { useThemeMode } from '@/theme/useTheme'
 
-// 注册常用语言
-hljs.registerLanguage('python', python)
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('typescript', typescript)
-hljs.registerLanguage('cpp', cpp)
-hljs.registerLanguage('java', java)
-hljs.registerLanguage('bash', bash)
-hljs.registerLanguage('json', json)
-hljs.registerLanguage('yaml', yaml)
-hljs.registerLanguage('markdown', markdownLang)
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('html', xml)
-hljs.registerLanguage('css', css)
+// highlight.js 语言按需加载映射
+const LANG_MAP: Record<string, () => Promise<{ default: any }>> = {
+  python: () => import('highlight.js/lib/languages/python'),
+  javascript: () => import('highlight.js/lib/languages/javascript'),
+  typescript: () => import('highlight.js/lib/languages/typescript'),
+  cpp: () => import('highlight.js/lib/languages/cpp'),
+  java: () => import('highlight.js/lib/languages/java'),
+  bash: () => import('highlight.js/lib/languages/bash'),
+  json: () => import('highlight.js/lib/languages/json'),
+  yaml: () => import('highlight.js/lib/languages/yaml'),
+  markdown: () => import('highlight.js/lib/languages/markdown'),
+  xml: () => import('highlight.js/lib/languages/xml'),
+  html: () => import('highlight.js/lib/languages/xml'),
+  css: () => import('highlight.js/lib/languages/css'),
+}
+
+// 已加载语言缓存，避免重复 import
+const loadedLangs = new Set<string>()
+
+async function ensureLanguage(lang: string) {
+  if (loadedLangs.has(lang)) return
+  const loader = LANG_MAP[lang]
+  if (loader) {
+    const mod = await loader()
+    hljs.registerLanguage(lang, mod.default)
+    loadedLangs.add(lang)
+  }
+}
 
 
 interface CodeViewerProps {
@@ -113,7 +117,7 @@ function NotebookRenderer({ cells }: { cells: NotebookCell[] }) {
 function NotebookOutputView({ output }: { output: NotebookOutput }) {
   if (output.output_type === 'stream') {
     return (
-      <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+      <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
         {output.text || ''}
       </pre>
     )
@@ -127,21 +131,21 @@ function NotebookOutputView({ output }: { output: NotebookOutput }) {
         ? data[imageKey]
         : `data:${imageKey};base64,${data[imageKey]}`
       return (
-        <div className="p-4 bg-gray-900/50">
+        <div className="p-4" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5 }}>
           <img src={src} alt="notebook output" className="max-w-full mx-auto" />
         </div>
       )
     }
     if (data['text/plain']) {
       return (
-        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+        <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
           {data['text/plain']}
         </pre>
       )
     }
     if (output.text) {
       return (
-        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+        <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
           {output.text}
         </pre>
       )
@@ -169,19 +173,25 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 
   useEffect(() => {
     if (cell.cell_type === 'code' && codeRef.current) {
-      codeRef.current.removeAttribute('data-highlighted')
-      try {
-        hljs.highlightElement(codeRef.current)
-      } catch {
-        // ignore
-      }
+      const el = codeRef.current
+      // 获取语言类名并按需加载
+      const langClass = Array.from(el.classList).find(c => c.startsWith('language-'))
+      const lang = langClass ? langClass.replace('language-', '') : 'python'
+      ensureLanguage(lang).then(() => {
+        el.removeAttribute('data-highlighted')
+        try {
+          hljs.highlightElement(el)
+        } catch {
+          // ignore
+        }
+      })
     }
   }, [cell.cell_type, source])
 
   if (cell.cell_type === 'markdown') {
     return (
-      <div className="border border-gray-700/50 rounded-lg overflow-hidden">
-        <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700/50">
+      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+        <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', borderColor: 'var(--border-light)', opacity: 0.5 }}>
           Markdown
         </div>
         <div className={`p-4 ${proseClass} prose-sm max-w-none`}>
@@ -196,8 +206,8 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
     const hasOutput = cell.outputs && cell.outputs.length > 0
 
     return (
-      <div className="border border-gray-700/50 rounded-lg overflow-hidden">
-        <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-400/70 border-b border-gray-700/50">
+      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+        <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)', borderColor: 'var(--border-light)' }}>
           In {execLabel}
         </div>
         <pre className="p-4 overflow-x-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
@@ -207,7 +217,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
         </pre>
         {hasOutput && (
           <>
-            <div className="px-3 py-1 bg-green-900/20 text-xs text-green-400/70 border-t border-b border-gray-700/50">
+            <div className="px-3 py-1 text-xs border-t border-b" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)', borderColor: 'var(--border-light)' }}>
               Out {execLabel}
             </div>
             {cell.outputs!.map((output, oIdx) => (
@@ -223,6 +233,10 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 }
 
 
+const VIRTUALIZE_THRESHOLD = 2000
+const LINE_HEIGHT = 20 // matches leading-5
+const VIRTUAL_BUFFER = 50
+
 export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps) {
   const [content, setContent] = useState<string | null>(null)
   const [apiCells, setApiCells] = useState<NotebookCellData[] | null>(null)
@@ -230,8 +244,11 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   const [error, setError] = useState<string | null>(null)
   const codeRef = useRef<HTMLElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const lineBoxRef = useRef<HTMLDivElement>(null)
   const [highlightLine, setHighlightLine] = useState<number | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(0)
   const mode = useThemeMode()
   const proseClass = mode === 'dark' ? 'prose prose-invert' : 'prose'
 
@@ -267,12 +284,16 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   useEffect(() => {
     if (codeRef.current && content && filePath && !isMarkdown(filePath) && !isNotebook(filePath)) {
-      codeRef.current.removeAttribute('data-highlighted')
-      try {
-        hljs.highlightElement(codeRef.current)
-      } catch {
-        // ignore
-      }
+      const lang = getLanguage(filePath)
+      ensureLanguage(lang).then(() => {
+        if (!codeRef.current) return
+        codeRef.current.removeAttribute('data-highlighted')
+        try {
+          hljs.highlightElement(codeRef.current)
+        } catch {
+          // ignore
+        }
+      })
     }
   }, [content, filePath])
 
@@ -295,7 +316,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   if (!filePath) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-muted)' }}>
         选择文件查看代码
       </div>
     )
@@ -304,7 +325,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -319,12 +340,50 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   const lines = (content || '').split('\n')
   const language = getLanguage(filePath)
+  const shouldVirtualize = lines.length > VIRTUALIZE_THRESHOLD
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!shouldVirtualize) return
+    const el = e.currentTarget
+    setScrollTop(el.scrollTop)
+    if (containerHeight !== el.clientHeight) {
+      setContainerHeight(el.clientHeight)
+    }
+  }, [shouldVirtualize, containerHeight])
+
+  // Virtualized line range
+  const startLine = shouldVirtualize
+    ? Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - VIRTUAL_BUFFER)
+    : 0
+  const endLine = shouldVirtualize
+    ? Math.min(lines.length, startLine + Math.ceil((containerHeight || 600) / LINE_HEIGHT) + VIRTUAL_BUFFER * 2)
+    : lines.length
+
+  const lineNumbers = useMemo(() => {
+    const nums: React.ReactNode[] = []
+    for (let i = startLine; i < endLine; i++) {
+      nums.push(
+        <div
+          key={i}
+          id={`line-${i + 1}`}
+          className="text-xs leading-5 px-2"
+          style={highlightLine === i + 1
+            ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }
+            : { color: 'var(--text-muted)' }
+          }
+        >
+          {i + 1}
+        </div>
+      )
+    }
+    return nums
+  }, [startLine, endLine, highlightLine])
 
   return (
-    <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
+    <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }} onScroll={handleScroll}>
       {/* 文件路径 */}
-      <div className="sticky top-0 z-10 px-4 py-2 bg-gray-900/90 border-b border-gray-800 backdrop-blur-sm">
-        <span className="text-xs text-gray-400 font-mono">{filePath}</span>
+      <div className="sticky top-0 z-10 px-4 py-2 border-b backdrop-blur-sm" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.9, borderColor: 'var(--border)' }}>
+        <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{filePath}</span>
       </div>
 
       {/* Jupyter Notebook 渲染 */}
@@ -339,18 +398,14 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
         /* 普通代码渲染 */
         <div className="flex">
           {/* 行号 */}
-          <div className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r border-gray-800/50">
-            {lines.map((_, i) => (
-              <div
-                key={i}
-                id={`line-${i + 1}`}
-                className={`text-xs leading-5 px-2 ${
-                  highlightLine === i + 1 ? 'text-blue-400 bg-blue-500/15' : 'text-gray-600'
-                }`}
-              >
-                {i + 1}
-              </div>
-            ))}
+          <div ref={lineBoxRef} className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r" style={{ borderColor: 'var(--border)' }}>
+            {shouldVirtualize && startLine > 0 && (
+              <div style={{ height: startLine * LINE_HEIGHT }} />
+            )}
+            {lineNumbers}
+            {shouldVirtualize && endLine < lines.length && (
+              <div style={{ height: (lines.length - endLine) * LINE_HEIGHT }} />
+            )}
           </div>
 
           {/* 代码 */}

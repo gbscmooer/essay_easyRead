@@ -29,6 +29,9 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
                 "paper_id": c["paper_id"], "paper_title": c["paper_title"],
                 "section_name": c["section_name"], "chunk_index": c["chunk_index"],
                 "page_hint": c["page_hint"],
+                **({"seed_paper_id": c["seed_paper_id"]} if c.get("seed_paper_id") else {}),
+                **({"target_arxiv_id": c["target_arxiv_id"]} if c.get("target_arxiv_id") else {}),
+                **({"target_doi": c["target_doi"]} if c.get("target_doi") else {}),
             } for c in batch],
         )
         done += len(batch)

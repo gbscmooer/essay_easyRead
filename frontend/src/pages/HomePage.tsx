@@ -9,46 +9,55 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { UploadZone } from '@/features/upload/UploadZone'
-import { listPapers, uploadPaper } from '@/api/papers'
+import { listPapers, uploadPaperWithProgress } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 
-export function HomePage() {
+export default function HomePage() {
   const navigate = useNavigate()
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    listPapers({ page: 1, per_page: 6, source: 'uploaded' })
-      .then(res => setRecentPapers(res.papers))
-      .catch(() => {})
-    listWorkspaces()
-      .then(ws => {
-        const sorted = ws.sort((a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-        setRecentWorkspaces(sorted.slice(0, 6))
-      })
-      .catch(() => {})
+    Promise.all([
+      listPapers({ page: 1, per_page: 6, source: 'uploaded' })
+        .then(res => setRecentPapers(res.papers))
+        .catch(() => { toast({ type: 'error', message: '加载最近论文失败' }) }),
+      listWorkspaces()
+        .then(ws => {
+          const sorted = ws.sort((a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          )
+          setRecentWorkspaces(sorted.slice(0, 6))
+        })
+        .catch(() => { toast({ type: 'error', message: '加载工作区失败' }) }),
+    ]).finally(() => setLoading(false))
   }, [])
 
   const handleUpload = async (file: File) => {
     setIsUploading(true)
+    setUploadProgress(0)
     setUploadError(null)
     try {
-      const paper = await uploadPaper(file)
-      navigate(`/reader/${paper.id}`)
+      const paper = await uploadPaperWithProgress(file, setUploadProgress)
+      toast({ type: 'success', message: '上传成功，正在自动分析...' })
+      navigate(`/reader/${paper.id}`, { state: { autoAnalyze: true } })
     } catch {
       setUploadError('上传失败，请检查文件格式后重试')
+      toast({ type: 'error', message: '上传失败，请检查文件格式后重试' })
     } finally {
       setIsUploading(false)
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <div className="max-w-4xl mx-auto px-6 py-8">
       {/* Hero 区域 */}
       <div className="text-center mb-14">
         <h1 className="text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
@@ -58,14 +67,21 @@ export function HomePage() {
           上传 PDF，自动提取方法论、实验结果和代码映射
         </p>
 
-        <UploadZone onUpload={handleUpload} isUploading={isUploading} />
+        <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadProgress={uploadProgress} />
         {uploadError && (
-          <p className="mt-4 text-sm" style={{ color: '#dc2626' }}>{uploadError}</p>
+          <p className="mt-4 text-sm" style={{ color: 'var(--error)' }}>{uploadError}</p>
         )}
       </div>
 
+      {/* 加载状态 */}
+      {loading && (
+        <div className="flex items-center justify-center py-16">
+          <LoadingSpinner />
+        </div>
+      )}
+
       {/* 最近论文 */}
-      {recentPapers.length > 0 && (
+      {!loading && recentPapers.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>最近解析</h2>
@@ -81,22 +97,15 @@ export function HomePage() {
             {recentPapers.map(paper => (
               <div
                 key={paper.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(`/reader/${paper.id}`)}
-                className="rounded-xl p-4 cursor-pointer transition-all"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/reader/${paper.id}`) } }}
+                className="rounded-xl p-4 cursor-pointer card-hover transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   boxShadow: 'var(--shadow-card)',
                   border: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-elevated)'
-                  el.style.borderColor = 'var(--border-light)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-card)'
-                  el.style.borderColor = 'var(--border)'
                 }}
               >
                 <h3 className="text-sm font-medium mb-2 line-clamp-2 leading-snug" style={{ color: 'var(--text-primary)' }}>
@@ -114,11 +123,12 @@ export function HomePage() {
                       backgroundColor:
                         paper.status === 'done' ? '#22c55e'
                         : paper.status === 'failed' ? '#ef4444'
+                        : paper.status === 'pending' ? '#6b7280'
                         : '#eab308'
                     }}
                   />
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {paper.status === 'done' ? '已完成' : paper.status === 'failed' ? '失败' : '处理中'}
+                    {paper.status === 'done' ? '已完成' : paper.status === 'failed' ? '失败' : paper.status === 'pending' ? '尚未解析' : '处理中'}
                   </span>
                 </div>
               </div>
@@ -144,22 +154,15 @@ export function HomePage() {
             {recentWorkspaces.map(ws => (
               <div
                 key={ws.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(`/workspace/${ws.id}`)}
-                className="rounded-xl p-4 cursor-pointer transition-all"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
+                className="rounded-xl p-4 cursor-pointer card-hover transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   boxShadow: 'var(--shadow-card)',
                   border: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-elevated)'
-                  el.style.borderColor = 'var(--border-light)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-card)'
-                  el.style.borderColor = 'var(--border)'
                 }}
               >
                 <h3 className="text-sm font-medium mb-2 truncate" style={{ color: 'var(--text-primary)' }}>

@@ -4,8 +4,8 @@
  * 封装所有论文相关的 API 请求。
  */
 
-import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper } from '@/types'
-import { get, post, upload, del } from './client'
+import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper, SearchResponse } from '@/types'
+import { get, post, upload, del, uploadWithProgress } from './client'
 
 
 /**
@@ -20,6 +20,10 @@ export async function uploadPaper(file: File): Promise<Paper> {
   return upload<Paper>('/papers/upload', file)
 }
 
+export async function uploadPaperWithProgress(file: File, onProgress?: (pct: number) => void): Promise<Paper> {
+  return uploadWithProgress<Paper>('/papers/upload', file, onProgress)
+}
+
 
 /**
  * 获取论文列表
@@ -31,8 +35,9 @@ export async function uploadPaper(file: File): Promise<Paper> {
  */
 export async function listPapers(params?: {
   search?: string
-  venue?: string
+  category?: string
   year?: number
+  date_added?: string
   page?: number
   per_page?: number
   source?: 'uploaded' | 'expanded' | 'all'
@@ -81,6 +86,20 @@ export async function promoteExpandedPaper(paperId: number): Promise<void> {
 
 
 /**
+ * 重新索引元数据缺失（年份/标题/分类）或索引失败的论文。
+ *
+ * includeExpanded=true 时一并重索引联网扩展下载的论文。
+ * 后台异步执行，返回本次排队重跑的论文数；前端可轮询列表观察 index_status。
+ *
+ * POST /api/papers/reindex?include_expanded=...
+ */
+export async function reindexLibrary(includeExpanded = false): Promise<{ queued: number }> {
+  const qs = includeExpanded ? '?include_expanded=true' : ''
+  return post<{ queued: number }>(`/papers/reindex${qs}`)
+}
+
+
+/**
  * 获取完整解析结果
  *
  * @param paperId 论文 ID
@@ -109,7 +128,7 @@ export async function exportPaper(paperId: number): Promise<string> {
       const body = await res.json()
       detail = body.detail || detail
     } catch {
-      // ignore
+      // 忽略解析错误
     }
     throw new Error(detail)
   }
@@ -209,4 +228,37 @@ export async function importRelatedPapers(
     workspace_id: workspaceId,
     papers,
   })
+}
+
+
+export async function exportBibtex(paperId: number): Promise<string> {
+  const res = await fetch(`/api/analysis/${paperId}/bibtex`)
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || detail
+    } catch {
+      // 忽略解析错误
+    }
+    throw new Error(detail)
+  }
+  return res.text()
+}
+
+
+/** 论文库统一智能搜索：元数据 + 解读内容 + 可选全局正文全文 */
+export async function smartSearch(
+  q: string,
+  opts: { category?: string; year?: number; dateAdded?: string; global?: boolean; includeExpanded?: boolean; page?: number; perPage?: number } = {},
+): Promise<SearchResponse> {
+  const params = new URLSearchParams({ q })
+  if (opts.category) params.set('category', opts.category)
+  if (opts.year) params.set('year', String(opts.year))
+  if (opts.dateAdded) params.set('date_added', opts.dateAdded)
+  if (opts.global) params.set('global', 'true')
+  if (opts.includeExpanded) params.set('include_expanded', 'true')
+  if (opts.page) params.set('page', String(opts.page))
+  if (opts.perPage) params.set('per_page', String(opts.perPage))
+  return get<SearchResponse>(`/papers/smart-search?${params.toString()}`)
 }

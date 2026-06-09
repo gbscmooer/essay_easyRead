@@ -57,7 +57,9 @@ DEFAULT_CONFIG = {
         "provider": "openalex",       # openalex | semantic_scholar | local
         "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
-        "similarity_threshold": 0.9,  # 图谱相似边阈值（0.5–0.95）
+        "similarity_threshold": 0.9,  # 图谱相似边阈值（已弃用，相似边改用 kNN 稀疏化）
+        "knn_k": 8,                   # 每篇论文最多保留 K 条最相似的边（控制图谱稀密）
+        "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
     },
     "reranker": {
         "enabled": True,
@@ -70,12 +72,19 @@ DEFAULT_CONFIG = {
     },
     "similarity": {
         # 论文级相似度计算 provider，对应 backend/services/deep_research/similarity/REGISTRY
-        # 当前支持：bge_centroid（默认，复用 BGE chunk embedding 取平均）
-        # 未来可扩展：specter2 / bibcoupling / hybrid / cross_encoder 等
+        # 可选：bge_centroid（默认）/ bibcoupling / hybrid / facet_weighted
         "provider": "bge_centroid",
-        # 每个 provider 的私有配置写在与 name 同名的子对象里，例如：
-        # "bge_centroid": {},
-        # "specter2": {"model": "allenai/specter2_base", "device": "auto"},
+        # 每个 provider 的私有配置写在与 name 同名的子对象里：
+        # facet_weighted：可解释的多维度相似度，权重会自动归一化到 1
+        "facet_weighted": {
+            "weights": {
+                "purpose": 0.5,    # 研究目的
+                "method": 0.2,     # 方法
+                "baseline": 0.15,  # 对比基线
+                "dataset": 0.05,   # 数据集
+            },
+            "use_embedding": True,  # purpose/method 用 embedding 余弦；False 走纯词重叠
+        },
     },
     "arxiv_expand": {
         # 是否启用引用列表扩展（解析 seed 论文参考文献并联网下载）

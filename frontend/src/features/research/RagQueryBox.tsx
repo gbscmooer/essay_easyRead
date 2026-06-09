@@ -29,7 +29,7 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
   }
 
   return (
-    <div className="w-80 shrink-0 flex flex-col rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+    <div className="w-full md:w-80 shrink-0 flex flex-col rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
       {/* 标题 */}
       <div className="px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
         <h3 className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>跨论文问答</h3>
@@ -70,7 +70,7 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
 
         {loading && (
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 border border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>检索中...</span>
           </div>
         )}

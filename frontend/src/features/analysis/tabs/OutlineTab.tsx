@@ -9,7 +9,7 @@ interface OutlineTabProps {
 export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
   if (!result.outline || result.outline.length === 0) {
     return (
-      <div className="text-gray-500 text-sm text-center py-8">
+      <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>
         暂无大纲信息
       </div>
     )
@@ -23,11 +23,11 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-200">论文大纲</h2>
-      <p className="text-gray-500 text-xs">点击章节跳转到论文对应位置</p>
+      <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>论文大纲</h2>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>点击章节跳转到论文对应位置</p>
 
       <div className="relative">
-        <div className="absolute left-3 top-2 bottom-2 w-px bg-gray-700" />
+        <div className="absolute left-3 top-2 bottom-2 w-px" style={{ backgroundColor: 'var(--border-light)' }} />
 
         <div className="space-y-2">
           {result.outline.map((item, idx) => {
@@ -36,34 +36,29 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
 
             return (
               <div key={idx} className="relative pl-10">
-                <div className="absolute left-1.5 top-2.5 w-3 h-3 rounded-full bg-blue-500 border-2 border-gray-900 z-10" />
+                <div className="absolute left-1.5 top-2.5 w-3 h-3 rounded-full z-10" style={{ backgroundColor: 'var(--accent)', border: '2px solid var(--bg-base)' }} />
 
                 <button
                   onClick={() => pageNum && onJumpToPage?.(pageNum)}
                   disabled={!clickable}
-                  className={`w-full text-left bg-gray-800/50 rounded-lg p-3 border border-gray-700/50 transition-colors ${
-                    clickable
-                      ? 'hover:bg-gray-800 hover:border-blue-500/30 cursor-pointer'
-                      : 'cursor-default'
-                  }`}
+                  className="w-full text-left rounded-lg p-3 border transition-colors"
+                  style={clickable ? { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' } : { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)', cursor: 'default' }}
+                  onMouseEnter={e => { if (clickable) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' } }}
+                  onMouseLeave={e => { if (clickable) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-light)' } }}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <h3 className={`text-sm font-medium ${
-                      clickable ? 'text-blue-300 hover:text-blue-200' : 'text-gray-200'
-                    }`}>
+                    <h3 className="text-sm font-medium"
+                    style={{ color: clickable ? 'var(--accent)' : 'var(--text-primary)' }}>
                       {item.section}
                     </h3>
                     {item.page && (
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        clickable
-                          ? 'text-blue-400 bg-blue-500/10'
-                          : 'text-gray-500 bg-gray-800'
-                      }`}>
+                      <span className="text-xs px-2 py-0.5 rounded"
+                      style={clickable ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' } : { color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
                         p.{item.page}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 leading-relaxed">
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                     {item.summary}
                   </p>
                 </button>

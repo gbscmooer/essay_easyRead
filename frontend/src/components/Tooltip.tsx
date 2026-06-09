@@ -49,7 +49,8 @@ export function Tooltip({ content, children, delay = 1500, placement = 'bottom',
       timerRef.current = null
     }
     setOpen(false)
-    setCoords(null)
+    // 延迟清除 coords 以允许淡出动画
+    setTimeout(() => setCoords(null), 150)
   }, [])
 
   // 显示后校正水平位置（居中对齐 + 视口边界）
@@ -79,11 +80,11 @@ export function Tooltip({ content, children, delay = 1500, placement = 'bottom',
       >
         {children}
       </span>
-      {open && coords && createPortal(
+      {coords && createPortal(
         <div
           ref={tipRef}
           role="tooltip"
-          className="fixed z-[9999] pointer-events-none rounded-lg px-3 py-2 text-xs shadow-lg border max-w-xs leading-relaxed"
+          className={`fixed z-[9999] pointer-events-none rounded-lg px-3 py-2 text-xs shadow-lg border max-w-xs leading-relaxed transition-opacity duration-150 ${open ? 'opacity-100' : 'opacity-0'}`}
           style={{
             top: coords.top,
             left: 0,             // useLayoutEffect 会重写

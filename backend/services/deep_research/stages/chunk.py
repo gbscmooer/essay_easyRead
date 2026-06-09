@@ -32,9 +32,12 @@ def _sliding_window(text: str, chunk_size: int = 1200, overlap: int = 200):
     return out
 
 
-async def stage_chunk(papers) -> list[dict]:
-    """对所有论文进行文本切片"""
+async def stage_chunk(papers, *, citation_contexts: dict[int, list[dict]] | None = None) -> list[dict]:
+    """对所有论文进行文本切片，并附加引用上下文切片。"""
     chunks = []
+    ctx_map = citation_contexts or {}
+    by_id = {p.id: p for p in papers}
+
     for p in papers:
         # 优先用浅分析的 outline 章节切片
         outline_sections = []
@@ -69,5 +72,35 @@ async def stage_chunk(papers) -> list[dict]:
                 })
         except Exception:
             continue
+
+    # 引用上下文切片
+    for seed_id, contexts in ctx_map.items():
+        seed = by_id.get(seed_id)
+        if not seed:
+            continue
+        for i, ctx in enumerate(contexts):
+            section = ctx.get("section", "")
+            context_text = ctx.get("context", "")
+            if not context_text:
+                continue
+            intent = ctx.get("intent", "")
+            prefix_parts = ["Citation Context"]
+            if intent:
+                prefix_parts.append(intent)
+            if section:
+                prefix_parts.append(section)
+            text = f"[{' | '.join(prefix_parts)}] {context_text}"
+            chunks.append({
+                "id": f"{seed_id}:cite_ctx:{i}",
+                "paper_id": seed_id,
+                "paper_title": seed.title or "",
+                "section_name": section or "Citation Context",
+                "chunk_index": i,
+                "page_hint": "",
+                "text": text,
+                "seed_paper_id": seed_id,
+                "target_arxiv_id": ctx.get("arxiv_id"),
+                "target_doi": ctx.get("doi"),
+            })
 
     return chunks

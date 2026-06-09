@@ -39,7 +39,7 @@ def _get_engine():
 
 
 @router.post("/workspaces/{ws_id}/runs", response_model=ResearchRunResponse)
-async def create_run(ws_id: int, req: ResearchRunCreate):
+async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
     engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, ws_id)
@@ -85,7 +85,7 @@ async def create_run(ws_id: int, req: ResearchRunCreate):
 
 
 @router.get("/runs/{run_id}", response_model=ResearchRunResponse)
-async def get_run(run_id: int):
+async def get_run(run_id: int) -> ResearchRunResponse:
     engine = _get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
@@ -95,7 +95,7 @@ async def get_run(run_id: int):
 
 
 @router.get("/runs/{run_id}/stream")
-async def stream_run(run_id: int):
+async def stream_run(run_id: int) -> StreamingResponse:
     engine = _get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
@@ -141,7 +141,7 @@ async def stream_run(run_id: int):
 
 
 @router.get("/workspaces/{ws_id}/graph", response_model=ResearchGraphResponse)
-async def get_graph(ws_id: int):
+async def get_graph(ws_id: int) -> ResearchGraphResponse:
     engine = _get_engine()
     with Session(engine) as session:
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
@@ -154,7 +154,7 @@ async def get_graph(ws_id: int):
 
 
 @router.get("/workspaces/{ws_id}/latest-run", response_model=ResearchRunResponse)
-async def latest_run(ws_id: int):
+async def latest_run(ws_id: int) -> ResearchRunResponse:
     engine = _get_engine()
     with Session(engine) as session:
         run = session.exec(
@@ -167,7 +167,7 @@ async def latest_run(ws_id: int):
 
 
 @router.post("/workspaces/{ws_id}/query", response_model=RagQueryResponse)
-async def query(ws_id: int, req: RagQueryRequest):
+async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     from ..services.deep_research.embedder import embed_query
     from ..services.deep_research.vector_store import query_workspace as ws_query
     from ..services.deep_research.reranker import rerank
@@ -232,7 +232,7 @@ async def query(ws_id: int, req: RagQueryRequest):
 
 
 @router.delete("/workspaces/{ws_id}")
-async def clear_research(ws_id: int):
+async def clear_research(ws_id: int) -> dict:
     """清空该工作区的图谱与向量索引（不删除 expanded 论文文件）"""
     engine = _get_engine()
     with Session(engine) as session:

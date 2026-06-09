@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { Paper, AnalysisResult, AnalysisStatus } from '@/types'
 import { uploadPaper, getPaper, getAnalysis, reparsePaper, startAnalysisJob } from '@/api/papers'
 import { useStreaming } from './useStreaming'
+import { toast } from '@/hooks/useToast'
 
 
 interface UseAnalysisReturn {
@@ -79,7 +80,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
         getAnalysis(initialPaperId).then(result => {
           if (!cancelled) setAnalysis(result)
         }).catch(() => {
-          // 解析结果获取失败，SSE 会自动尝试
+          toast({ type: 'error', message: '加载分析结果失败' })
         })
       } else if (p.status === 'failed') {
         // 失败状态也连接，以便显示错误
@@ -92,7 +93,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
         setShouldConnect(false)
       }
     }).catch(() => {
-      // 论文加载失败
+      toast({ type: 'error', message: '加载论文信息失败' })
     })
 
     return () => { cancelled = true }
@@ -104,7 +105,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       getAnalysis(activePaperId).then(result => {
         setAnalysis(result)
       }).catch(() => {
-        // 获取失败，partialResult 已有数据
+        toast({ type: 'error', message: '加载完整分析失败' })
       })
     }
   }, [streamStatus, activePaperId])
@@ -118,10 +119,14 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       setPaper(uploaded)
       setActivePaperId(uploaded.id)
       // 先在后台启动分析（与 SSE 解耦），再连接流获取实时进度
-      startAnalysisJob(uploaded.id).catch(() => {})
+      startAnalysisJob(uploaded.id).catch((e: any) => {
+        setShouldConnect(false)
+        setLocalError(e?.message || '启动分析任务失败')
+        toast({ type: 'error', message: e?.message || '启动分析任务失败' })
+      })
       setShouldConnect(true)
     } catch (err) {
-      // Re-throw so caller can handle
+      // 重新抛出异常，以便调用方处理
       throw err
     }
   }, [])
@@ -147,7 +152,11 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   const startAnalysis = useCallback(() => {
     if (activePaperId === null) return
     // 后台启动分析任务，再连接 SSE 显示进度
-    startAnalysisJob(activePaperId).catch(() => {})
+    startAnalysisJob(activePaperId).catch((e: any) => {
+      setShouldConnect(false)
+      setLocalError(e?.message || '启动分析任务失败')
+      toast({ type: 'error', message: e?.message || '启动分析任务失败' })
+    })
     setShouldConnect(true)
   }, [activePaperId])
 

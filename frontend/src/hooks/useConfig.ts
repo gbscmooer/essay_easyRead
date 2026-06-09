@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { get } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import type { Theme } from '@/theme/themes'
 import { DEFAULT_THEME_ID } from '@/theme/themes'
 
@@ -45,6 +46,22 @@ let previewOverrides: Partial<UIConfig> | null = null
 let dirtyListeners = new Set<() => void>()
 
 
+/** 从 localStorage 读取保存的主题 key，用于首屏渲染避免闪白 */
+function getSavedThemeKey(): string | null {
+  try { return localStorage.getItem('essay_theme') } catch { return null }
+}
+
+/**
+ * 把后端已保存的主题写入 localStorage，供 index.html 内联脚本首屏读取。
+ * 只持久化后端真实配置（不含预览覆盖），避免未保存的预览污染首屏。
+ */
+function persistThemeToStorage(ui: UIConfig): void {
+  try {
+    localStorage.setItem('essay_theme', ui.theme)
+    localStorage.setItem('essay_custom_themes', JSON.stringify(ui.custom_themes ?? []))
+  } catch { /* localStorage 不可用时忽略 */ }
+}
+
 async function fetchConfig(): Promise<AppConfig> {
   if (cachedConfig) return cachedConfig
   if (fetchPromise) return fetchPromise
@@ -57,6 +74,7 @@ async function fetchConfig(): Promise<AppConfig> {
     })
     .catch(() => {
       fetchPromise = null
+      toast({ type: 'warning', message: '配置加载失败，使用默认值' })
       return { translate: { temperature: 0, max_tokens: 0 }, analysis: { temperature: 0, max_tokens: 0 }, ui: DEFAULT_UI }
     })
 
@@ -65,14 +83,18 @@ async function fetchConfig(): Promise<AppConfig> {
 
 
 export function useUIConfig(): UIConfig {
-  const [ui, setUI] = useState<UIConfig>(DEFAULT_UI)
+  // 初始化时从 localStorage 读取保存的主题，避免等待 fetch 导致首屏闪白
+  const savedTheme = getSavedThemeKey()
+  const initialUI = savedTheme ? { ...DEFAULT_UI, theme: savedTheme } : DEFAULT_UI
+  const [ui, setUI] = useState<UIConfig>(initialUI)
 
   useEffect(() => {
     const update = () => {
       fetchConfig().then(cfg => {
         const saved = cfg.ui || DEFAULT_UI
+        persistThemeToStorage(saved)
         setUI({ ...saved, ...previewOverrides })
-      })
+      }).catch(() => {})
     }
     update()
     listeners.add(update)
@@ -80,6 +102,22 @@ export function useUIConfig(): UIConfig {
   }, [])
 
   return ui
+}
+
+
+/** Focused hook: only theme/font-related config fields */
+export function useThemeConfig() {
+  const { theme, font, custom_font, custom_themes } = useUIConfig()
+  return useMemo(() => ({ theme, font, custom_font, custom_themes }), [theme, font, custom_font, custom_themes])
+}
+
+
+/** Focused hook: only zoom/highlight config fields */
+export function useViewerConfig() {
+  const { highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step } = useUIConfig()
+  return useMemo(() => ({
+    highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step,
+  }), [highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step])
 }
 
 

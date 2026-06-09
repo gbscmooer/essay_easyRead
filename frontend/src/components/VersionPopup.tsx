@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.15.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    'highlight.js语言按需加载，减少初始bundle体积',
+    'CodeAnalysisPanel的mermaid改为动态导入，CodePage体积减少约47KB',
+    'CSS主题覆盖规则精简，移除未使用的冗余选择器',
+    'Vite构建启用CSS代码分割（cssCodeSplit）',
   ],
 }
 
@@ -31,10 +34,40 @@ export function VersionPopup({ onClose }: { onClose: () => void }) {
     }
   }, [onClose])
 
+  // Focus trap
+  useEffect(() => {
+    if (!popupRef.current) return
+    const el = popupRef.current
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      const focusable = el.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    // Focus first interactive element
+    const firstFocusable = el.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    firstFocusable?.focus()
+
+    document.addEventListener('keydown', handleTab)
+    return () => document.removeEventListener('keydown', handleTab)
+  }, [])
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
       <div
         ref={popupRef}
+        role="dialog"
+        aria-modal="true"
         className="w-80 rounded-xl border overflow-hidden"
         style={{
           backgroundColor: 'var(--bg-elevated)',

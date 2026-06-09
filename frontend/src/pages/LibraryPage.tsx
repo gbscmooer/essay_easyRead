@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Paper } from '@/types'
-import { listPapers, deletePaper, promoteExpandedPaper } from '@/api/papers'
+import type { Paper, SearchResult } from '@/types'
+import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibrary } from '@/api/papers'
+import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
+import { Tooltip } from '@/components/Tooltip'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -41,21 +43,31 @@ function ExpandedPaperRow({
     <div
       className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-colors group"
       style={{ backgroundColor: 'var(--bg-base)' }}
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(paper.id)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
     >
       <div className="flex-1 min-w-0">
         <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
           {paper.title || paper.filename}
         </p>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          {[paper.venue, paper.year].filter(Boolean).join(' · ')}
-        </p>
+        <div className="flex items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {paper.year && <span>{paper.year}</span>}
+          {paper.category && (
+            <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+              {paper.category}
+            </span>
+          )}
+          {paper.venue && <span>{paper.venue}</span>}
+          {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>已索引</span>}
+        </div>
       </div>
       <span
         className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
         style={{
-          backgroundColor: paper.status === 'failed' ? 'rgba(239,68,68,0.12)' : 'var(--bg-surface)',
-          color: paper.status === 'failed' ? '#ef4444' : 'var(--text-muted)',
+          backgroundColor: paper.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-surface)',
+          color: paper.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
         }}
       >
         {statusText}
@@ -76,25 +88,38 @@ function ExpandedPaperRow({
   )
 }
 
-export function LibraryPage() {
+export default function LibraryPage() {
   const navigate = useNavigate()
   const [papers, setPapers] = useState<Paper[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [venue, setVenue] = useState('')
+  const [category, setCategory] = useState('')
   const [year, setYear] = useState<number | undefined>()
+  const [dateAdded, setDateAdded] = useState('')
   const perPage = 20
 
   const [expandedPapers, setExpandedPapers] = useState<Paper[]>([])
   const [expandedTotal, setExpandedTotal] = useState(0)
   const [showExpanded, setShowExpanded] = useState(false)
 
+  // 重新索引：用 GROBID 重提元数据缺失/索引失败的论文，轮询观察进度
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexNote, setReindexNote] = useState<string | null>(null)
+
+  // 智能搜索：searchResults 为 null = 浏览模式；非 null = 搜索结果模式
+  const [globalSearch, setGlobalSearch] = useState(false)
+  const [includeExpanded, setIncludeExpanded] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [searchTotal, setSearchTotal] = useState(0)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  // 浏览：仅在无搜索词时拉取分页论文（同时为筛选下拉提供 venue/year 选项）
   const fetchPapers = useCallback(() => {
     listPapers({
-      search: search || undefined,
-      venue: venue || undefined,
+      category: category || undefined,
       year,
+      date_added: dateAdded || undefined,
       page,
       per_page: perPage,
       source: 'uploaded',
@@ -103,8 +128,25 @@ export function LibraryPage() {
         setPapers(res.papers)
         setTotal(res.total)
       })
-      .catch(() => {})
-  }, [search, venue, year, page])
+      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
+  }, [category, year, dateAdded, page])
+
+  // 智能搜索：搜索词非空时调 smart-search（元数据 + 解读内容 + 可选全局正文）
+  useEffect(() => {
+    const q = search.trim()
+    if (!q) {
+      setSearchResults(null)
+      return
+    }
+    setSearchLoading(true)
+    smartSearch(q, { category: category || undefined, year, dateAdded: dateAdded || undefined, global: globalSearch, includeExpanded, page, perPage })
+      .then(res => {
+        setSearchResults(res.results)
+        setSearchTotal(res.total)
+      })
+      .catch(() => { setSearchResults([]); setSearchTotal(0) })
+      .finally(() => setSearchLoading(false))
+  }, [search, category, year, dateAdded, globalSearch, includeExpanded, page])
 
   const fetchExpandedPapers = useCallback(() => {
     listPapers({ source: 'expanded', per_page: 100 })
@@ -112,7 +154,7 @@ export function LibraryPage() {
         setExpandedPapers(res.papers)
         setExpandedTotal(res.total)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载扩展论文失败' }) })
   }, [])
 
   useEffect(() => { fetchPapers() }, [fetchPapers])
@@ -126,7 +168,9 @@ export function LibraryPage() {
     try {
       await deletePaper(id)
       fetchPapers()
-    } catch {}
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '删除论文失败' })
+    }
   }, [fetchPapers])
 
   const handleSearch = useCallback((query: string) => {
@@ -134,9 +178,10 @@ export function LibraryPage() {
     setPage(1)
   }, [])
 
-  const handleFilter = useCallback((filters: { venue?: string; year?: number }) => {
-    setVenue(filters.venue || '')
+  const handleFilter = useCallback((filters: { category?: string; year?: number; dateAdded?: string }) => {
+    setCategory(filters.category || '')
     setYear(filters.year)
+    setDateAdded(filters.dateAdded || '')
     setPage(1)
   }, [])
 
@@ -150,15 +195,94 @@ export function LibraryPage() {
     fetchPapers()
   }, [fetchPapers])
 
+  const handleToggleGlobal = useCallback((v: boolean) => {
+    setGlobalSearch(v)
+    setPage(1)
+  }, [])
+
+  const handleToggleExpanded = useCallback((v: boolean) => {
+    setIncludeExpanded(v)
+    setPage(1)
+  }, [])
+
+  const handleReindex = useCallback(async () => {
+    if (reindexing) return
+    setReindexNote(null)
+    setReindexing(true)
+    try {
+      const { queued } = await reindexLibrary(includeExpanded)
+      if (queued === 0) {
+        setReindexing(false)
+        setReindexNote('没有可重新索引的论文')
+        setTimeout(() => setReindexNote(null), 4000)
+        return
+      }
+      setReindexNote(`正在重新索引 ${queued} 篇论文${includeExpanded ? '（含联网扩展）' : ''}…`)
+      // 轮询：当不再有论文处于 indexing（且已过启动窗口）即视为完成
+      const pollSource = includeExpanded ? 'all' : 'uploaded'
+      const started = Date.now()
+      const poll = async () => {
+        const res = await listPapers({ source: pollSource, per_page: 200 }).catch(() => null)
+        const indexing = res ? res.papers.filter(p => p.index_status === 'indexing').length : 0
+        fetchPapers()
+        if (includeExpanded) fetchExpandedPapers()  // 同步刷新「深度研究发现的论文」区块
+        const elapsed = Date.now() - started
+        if (indexing === 0 && elapsed > 4000) {
+          setReindexing(false)
+          setReindexNote('重新索引完成')
+          setTimeout(() => setReindexNote(null), 4000)
+          return
+        }
+        if (elapsed > 180000) {  // 兜底超时
+          setReindexing(false)
+          setReindexNote(null)
+          return
+        }
+        setTimeout(poll, 3000)
+      }
+      setTimeout(poll, 3000)
+    } catch {
+      setReindexing(false)
+      setReindexNote('重新索引失败，请重试')
+      setTimeout(() => setReindexNote(null), 4000)
+    }
+  }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
+
   return (
     <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
-      <div className="px-6 pt-6 pb-2">
+      <div className="px-6 pt-6 pb-2 flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>论文库</h1>
+        <div className="flex items-center gap-3">
+          {reindexNote && (
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{reindexNote}</span>
+          )}
+          <Tooltip
+            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回（不跳过已索引的论文）。默认处理论文库里的所有论文；勾选「含联网扩展论文」后会一并重做深度研究发现的论文。需后台 GROBID 服务在运行。"
+            delay={600}
+            placement="bottom"
+          >
+            <button
+              onClick={handleReindex}
+              disabled={reindexing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}
+            >
+              <svg
+                className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {reindexing ? '索引中…' : '重新索引'}
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       <PaperList
         papers={papers}
-        total={total}
+        total={searchResults !== null ? searchTotal : total}
         onSelect={handleSelect}
         onDelete={handleDelete}
         onSearch={handleSearch}
@@ -166,6 +290,13 @@ export function LibraryPage() {
         onPageChange={handlePageChange}
         page={page}
         perPage={perPage}
+        globalSearch={globalSearch}
+        onToggleGlobal={handleToggleGlobal}
+        includeExpanded={includeExpanded}
+        onToggleExpanded={handleToggleExpanded}
+        searchResults={searchResults}
+        searchLoading={searchLoading}
+        searchQuery={search}
       />
 
       {/* 深度研究发现区块 */}

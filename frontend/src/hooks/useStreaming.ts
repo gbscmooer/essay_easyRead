@@ -88,7 +88,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         setStatus(data.status as AnalysisStatus)
         setProgressMessage(data.message || '')
       } catch {
-        // ignore parse errors
+        // 忽略解析错误
       }
     })
 
@@ -101,7 +101,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         if (data.status && !mainDoneRef.current) setStatus(data.status as AnalysisStatus)
         if (data.message) setProgressMessage(data.message)
       } catch {
-        // ignore parse errors
+        // 忽略解析错误
       }
     })
 
@@ -113,7 +113,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         const value = data.value
         setPartialResult(prev => ({ ...prev, [fieldName]: value }))
       } catch {
-        // ignore parse errors
+        // 忽略解析错误
       }
     })
 
@@ -132,7 +132,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         const data = JSON.parse(e.data)
         if (data.status) setRelatedStatus(data.status)
       } catch {
-        // ignore
+        // 忽略解析错误
       }
     })
 

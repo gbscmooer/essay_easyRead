@@ -1,0 +1,137 @@
+{
+  "papers": [
+    {
+      "id": "resnet",
+      "title": "Deep Residual Learning for Image Recognition",
+      "authors": "Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun",
+      "venue": "CVPR",
+      "year": 2016,
+      "ground_truth": {
+        "one_sentence": "提出残差连接（skip connection）解决深层网络退化问题，使训练数百层的网络成为可能",
+        "problem": "深层网络存在梯度消失和退化问题，直接堆叠层数反而导致精度下降",
+        "key_contributions": [
+          "提出残差学习框架，通过跳跃连接让网络学习残差映射而非直接映射",
+          "在 ImageNet 上训练了 152 层网络，取得 3.57% top-5 错误率",
+          "在 COCO 目标检测和分割任务上取得显著提升"
+        ],
+        "method_summary": "在每几个叠层之间添加跳跃连接（identity shortcut），使网络学习 F(x)+x 而非直接学习 H(x)",
+        "experiments_datasets": ["ImageNet", "COCO"],
+        "main_result": "152 层 ResNet 在 ImageNet 上 top-5 错误率 3.57%，优于 VGG 等浅层网络"
+      }
+    },
+    {
+      "id": "vit",
+      "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+      "authors": "Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, Neil Houlsby",
+      "venue": "ICLR",
+      "year": 2021,
+      "ground_truth": {
+        "one_sentence": "将纯 Transformer 架构直接应用于图像块序列，在大规模预训练后在多个视觉基准上超越 CNN",
+        "problem": "CNN 在视觉领域占主导地位，Transformer 在 NLP 中成功但尚未在视觉中大规模验证",
+        "key_contributions": [
+          "将图像分割为固定大小的 patch 序列，直接输入标准 Transformer 编码器",
+          "证明在大规模数据集上预训练后，纯 Transformer 可以超越 CNN",
+          "展示了 Transformer 的可扩展性和计算效率优势"
+        ],
+        "method_summary": "图像分割为 16x16 patch → 线性嵌入 + 位置编码 → Transformer 编码器 → MLP 分类头",
+        "experiments_datasets": ["ImageNet", "CIFAR-10/100", "VTAB"],
+        "main_result": "ViT-Huge 在 ImageNet 上达到 88.55% top-1 准确率，超越所有 CNN 基线"
+      }
+    },
+    {
+      "id": "detr",
+      "title": "End-to-End Object Detection with Transformers",
+      "authors": "Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, Sergey Zagoruyko",
+      "venue": "ECCV",
+      "year": 2020,
+      "ground_truth": {
+        "one_sentence": "提出 DETR，将目标检测建模为集合预测问题，用 Transformer 和二分匹配去除 NMS 等手工组件",
+        "problem": "传统目标检测依赖锚框、NMS 等手工设计的后处理组件，流程复杂且非端到端",
+        "key_contributions": [
+          "将目标检测建模为直接的集合预测问题",
+          "使用匈牙利算法进行二分匹配实现端到端训练",
+          "去除 NMS、锚框等手工组件，简化检测流程"
+        ],
+        "method_summary": "CNN backbone 提取特征 → Transformer 编码器-解码器 → 并行预测 N 个目标 → 匈牙利匹配损失",
+        "experiments_datasets": ["COCO"],
+        "main_result": "在 COCO 上达到与 Faster R-CNN 相当的性能（42 AP），且无需 NMS 和锚框"
+      }
+    },
+    {
+      "id": "clip",
+      "title": "Learning Transferable Visual Models From Natural Language Supervision",
+      "authors": "Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, Ilya Sutskever",
+      "venue": "ICML",
+      "year": 2021,
+      "ground_truth": {
+        "one_sentence": "通过在 4 亿图文对上对比学习，训练出可零样本迁移的视觉-语言模型",
+        "problem": "视觉模型通常在固定类别上训练，无法直接识别新类别，泛化能力有限",
+        "key_contributions": [
+          "构建了 4 亿图文对的 WebImageText 数据集",
+          "使用对比学习训练图像编码器和文本编码器的对齐表示",
+          "实现了强大的零样本迁移能力，无需微调即可识别新类别"
+        ],
+        "method_summary": "图像编码器 + 文本编码器 → 对比损失拉近匹配对、推远不匹配对 → 零样本分类 via 文本提示",
+        "experiments_datasets": ["ImageNet", "30+ 数据集零样本评估"],
+        "main_result": "零样本 CLIP 在 ImageNet 上达到 76.2% 准确率，无需使用 ImageNet 训练数据"
+      }
+    },
+    {
+      "id": "dino",
+      "title": "Emerging Properties in Self-Supervised Vision Transformers",
+      "authors": "Mathilde Caron, Hugo Touvron, Ishan Misra, Hervé Jégou, Julien Mairal, Piotr Bojanowski, Armand Joulin",
+      "venue": "ICCV",
+      "year": 2021,
+      "ground_truth": {
+        "one_sentence": "自监督训练的 ViT 涌现出显式的语义分割能力，注意力图自动对应物体轮廓",
+        "problem": "自监督学习在视觉中的效果不如 NLP，且不清楚自监督 ViT 学到了什么特征",
+        "key_contributions": [
+          "提出 DINO 自蒸馏框架：学生网络通过 EMA 教师网络的输出进行自监督训练",
+          "发现自监督 ViT 的 [CLS] token 注意力图自动对应语义分割",
+          "在 k-NN 分类上达到 74.5% ImageNet 准确率（无任何微调）"
+        ],
+        "method_summary": "学生-教师自蒸馏 + 中心化 + EMA 更新教师 + 多裁剪增强 → [CLS] token 聚类",
+        "experiments_datasets": ["ImageNet", "COCO", "ADE20K"],
+        "main_result": "DINO ViT-B/16 在 ImageNet k-NN 上达到 74.5%，线性探测达到 80.1%"
+      }
+    }
+  ],
+  "evaluation_fields": [
+    {
+      "field": "one_sentence",
+      "type": "text",
+      "metric": "semantic_similarity",
+      "description": "一句话摘要的语义准确性"
+    },
+    {
+      "field": "problem",
+      "type": "text",
+      "metric": "semantic_similarity",
+      "description": "问题定义的准确性"
+    },
+    {
+      "field": "key_contributions",
+      "type": "list",
+      "metric": "coverage",
+      "description": "关键贡献的覆盖率（命中数/总数）"
+    },
+    {
+      "field": "method_summary",
+      "type": "text",
+      "metric": "semantic_similarity",
+      "description": "方法描述的准确性"
+    },
+    {
+      "field": "experiments_datasets",
+      "type": "list",
+      "metric": "exact_match",
+      "description": "数据集名称的精确匹配"
+    },
+    {
+      "field": "main_result",
+      "type": "text",
+      "metric": "semantic_similarity",
+      "description": "主要结果的准确性"
+    }
+  ]
+}

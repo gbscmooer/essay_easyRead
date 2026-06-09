@@ -21,22 +21,44 @@ essay_read/
 │   │   ├── paper.py                # Paper 数据库模型
 │   │   ├── analysis.py             # AnalysisResult + 子结构模型
 │   │   ├── code_analysis.py        # CodeAnalysis 数据库模型
+│   │   ├── workspace.py            # Workspace + WorkspacePaper 模型（多对多）
+│   │   ├── research.py             # ResearchRun + ResearchGraph 模型
 │   │   └── schemas.py              # API 请求/响应 Schema
 │   ├── routers/
 │   │   ├── __init__.py
 │   │   ├── papers.py               # /api/papers/* 路由
 │   │   ├── analysis.py             # /api/analysis/* 路由（含配置管理、文本操作）
-│   │   └── code.py                 # /api/code/* 路由（代码仓库管理）
+│   │   ├── code.py                 # /api/code/* 路由（代码仓库管理）
+│   │   ├── workspaces.py           # /api/workspaces/* 路由（工作区 CRUD + 论文关联）
+│   │   └── research.py             # /api/research/* 路由（深度研究 run、SSE、图谱、RAG）
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── ai_analyzer.py          # MiMo/Anthropic API 调用（论文分析）
-│   │   ├── ai_config.py            # AI 配置管理（读写 data/ai_config.json）
+│   │   ├── ai_config.py            # AI 配置管理（读写 data/ai_config.json，含 GROBID/findpapers）
+│   │   ├── analysis_runner.py      # 分析后台任务管理器（断点续传，SSE 解耦）
 │   │   ├── code_analyzer.py        # 代码仓库 clone、文件树、静态分析、AI 分析
 │   │   ├── database.py             # SQLite CRUD + schema 迁移
+│   │   ├── findpapers_service.py   # findpapers 多源学术搜索（可替代 Semantic Scholar）
+│   │   ├── import_parser.py        # 多语言 import 解析（Python AST + JS/TS/C++ 正则）
 │   │   ├── log_stream.py           # 后端日志 SSE 流
 │   │   ├── pdf_parser.py           # PDF 文本提取（PyMuPDF + pypdf 双路径）
 │   │   ├── semantic_scholar.py     # Semantic Scholar 相关论文搜索
-│   │   └── terminal.py             # WebSocket PTY 终端
+│   │   ├── terminal.py             # WebSocket PTY 终端
+│   │   └── deep_research/          # 深度研究子模块
+│   │       ├── pipeline.py              # 研究流水线编排
+│   │       ├── embedder.py              # 文本向量化
+│   │       ├── vector_store.py          # 向量存储（ChromaDB）+ RAG 查询
+│   │       ├── graph_builder.py         # 引文图谱构建（NetworkX）
+│   │       ├── event_bus.py             # 异步事件总线（SSE 进度推送）
+│   │       ├── grobid_parser.py         # GROBID 结构化引用解析
+│   │       ├── ref_parser.py            # 引用解析调度（GROBID / regex 回退）
+│   │       ├── arxiv_client.py          # arXiv 论文下载
+│   │       ├── crossref_client.py       # CrossRef 元数据查询
+│   │       ├── pdf_downloader.py        # PDF 批量下载
+│   │       ├── reranker.py              # 搜索结果重排序
+│   │       ├── stages/                  # 流水线各阶段实现
+│   │       ├── providers/               # 外部数据源适配器
+│   │       └── similarity/              # 相似度计算
 │   └── utils/
 │       ├── __init__.py
 │       └── streaming.py            # SSE 格式化 + Markdown 导出
@@ -57,17 +79,28 @@ essay_read/
         │   ├── client.ts           # fetch 封装（get/post/upload/del）
         │   ├── papers.ts           # 论文 API 调用
         │   ├── code.ts             # 代码仓库 API 调用
-        │   └── textAction.ts       # 文本翻译/总结 API
+        │   ├── textAction.ts       # 文本翻译/总结 API
+        │   ├── settings.ts         # 设置 API
+        │   ├── workspaces.ts       # 工作区 API
+        │   └── research.ts         # 深度研究 API
         ├── hooks/
-        │   ├── useStreaming.ts     # SSE 流式 hook
+        │   ├── useStreaming.ts      # SSE 流式 hook
         │   ├── useAnalysis.ts      # 解析生命周期 hook
-        │   └── useConfig.ts        # 配置管理 hook
+        │   ├── useConfig.ts        # 配置管理 hook
+        │   └── useResearchStream.ts # 深度研究 SSE 进度流 hook
         ├── components/
         │   ├── Layout.tsx          # 全局布局（双层导航 + 底部终端）
         │   ├── Sidebar.tsx         # 论文列表侧边栏（折叠式覆盖层）
         │   ├── LoadingState.tsx    # 加载状态
+        │   ├── ErrorBoundary.tsx   # React 错误边界
         │   ├── SelectionPopup.tsx  # PDF 选中文本弹窗（翻译/AI 总结）
-        │   └── TerminalPanel.tsx   # 底部终端面板（后端日志/前端日志/PTY）
+        │   ├── TerminalPanel.tsx   # 底部终端面板（后端日志/前端日志/PTY）
+        │   ├── ThemeProvider.tsx   # 主题注入（读取配置，应用 CSS 变量）
+        │   ├── Tooltip.tsx         # 通用工具提示组件
+        │   └── VersionPopup.tsx    # 版本更新日志弹窗
+        ├── theme/
+        │   ├── themes.ts           # 主题定义与解析（resolveTheme/applyTheme）
+        │   └── useTheme.ts         # 主题 hook
         ├── features/
         │   ├── upload/
         │   │   └── UploadZone.tsx  # PDF 上传区
@@ -88,14 +121,25 @@ essay_read/
         │   │   ├── CodeViewer.tsx        # 代码查看器（highlight.js）
         │   │   ├── FileBrowser.tsx       # 文件浏览器
         │   │   └── Terminal.tsx          # xterm.js 终端组件
-        │   └── library/
-        │       └── PaperList.tsx   # 论文库列表
+        │   ├── library/
+        │   │   └── PaperList.tsx         # 论文库列表
+        │   └── research/
+        │       ├── GraphCanvas.tsx       # 引文图谱可视化（react-force-graph-2d）
+        │       ├── NodeDetail.tsx        # 图谱节点详情面板
+        │       ├── EdgeFilter.tsx        # 图谱边过滤
+        │       ├── ControlPanel.tsx      # 研究控制面板
+        │       ├── ProgressPanel.tsx     # 研究进度面板（SSE 实时推送）
+        │       ├── RagQueryBox.tsx       # RAG 问答输入框
+        │       └── CitationChip.tsx      # 引用来源标签组件
         ├── pages/
-        │   ├── HomePage.tsx        # 首页（上传 + 最近论文）
-        │   ├── ReaderPage.tsx      # 论文精读（PDF + 解析结果）
-        │   ├── CodePage.tsx        # 代码分析（三栏布局）
-        │   ├── LibraryPage.tsx     # 论文库
-        │   └── SettingsPage.tsx    # 配置页（AI 模型 + UI 设置）
+        │   ├── HomePage.tsx             # 首页（上传 + 最近论文）
+        │   ├── ReaderPage.tsx           # 论文精读（PDF + 解析结果）
+        │   ├── CodePage.tsx             # 代码分析（三栏布局）
+        │   ├── LibraryPage.tsx          # 论文库
+        │   ├── SettingsPage.tsx         # 配置页（AI 模型 + UI 设置）
+        │   ├── WorkspacePage.tsx        # 工作区列表
+        │   ├── WorkspaceDetailPage.tsx  # 工作区详情（论文管理）
+        │   └── ResearchPage.tsx         # 深度研究（图谱 + RAG）
         └── styles/
             └── globals.css         # Tailwind + 自定义样式
 ```
@@ -148,7 +192,52 @@ essay_read/
 | created_at | datetime | 创建时间 |
 | updated_at | datetime | 更新时间 |
 
-### 1.3 CodeAnalysis（数据库模型）
+### 1.3 Workspace / WorkspacePaper（数据库模型）
+
+**Workspace:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int (PK) | 自增主键 |
+| name | str | 工作区名称（默认"未命名工作区"）|
+| created_at | datetime | 创建时间 |
+| updated_at | datetime | 更新时间 |
+
+**WorkspacePaper（多对多关联表）:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int (PK) | 自增主键 |
+| workspace_id | int (FK) | 关联 Workspace，**ondelete=CASCADE** |
+| paper_id | int (FK) | 关联 Paper，**ondelete=CASCADE** |
+
+### 1.4 ResearchRun / ResearchGraph（数据库模型）
+
+**ResearchRun:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int (PK) | 自增主键 |
+| workspace_id | int (FK) | 关联 Workspace，**ondelete=CASCADE** |
+| mode | str | `local` / `online` |
+| status | str | `pending` / `running` / `done` / `failed` |
+| current_stage | str? | 当前阶段：`collect` / `expand` / `chunk` / `embed` / `graph` / `persist` |
+| error_message | str? | 失败时的错误信息 |
+| params | dict | 输入参数快照（paper_ids、expand_top_k、rebuild 等）|
+| created_at | datetime | 创建时间 |
+| updated_at | datetime | 更新时间 |
+
+**ResearchGraph:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int (PK) | 自增主键 |
+| workspace_id | int (FK) | 关联 Workspace，**ondelete=CASCADE** |
+| nodes | list[dict] | 图谱节点（JSON）|
+| edges | list[dict] | 图谱边（JSON）|
+| created_at | datetime | 创建时间 |
+
+### 1.5 CodeAnalysis（数据库模型）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -163,7 +252,7 @@ essay_read/
 | created_at | datetime | 创建时间 |
 | updated_at | datetime | 更新时间 |
 
-### 1.4 嵌套结构
+### 1.6 嵌套结构
 
 **MethodModel:**
 ```json
@@ -262,7 +351,16 @@ essay_read/
     "highlight_duration": 3000,
     "zoom_step": 0.2,
     "zoom_min": 0.4,
-    "zoom_max": 3.0
+    "zoom_max": 3.0,
+    "theme": "str - 主题名称",
+    "custom_themes": []
+  },
+  "citation": {
+    "parser": "grobid",
+    "grobid_url": "http://localhost:8070"
+  },
+  "findpapers": {
+    "enabled": false
   }
 }
 ```
@@ -453,6 +551,80 @@ WebSocket PTY 终端。
 - **Request**: `{path: str}`
 - **Response 200**: `{message: str}` 或 `{error: str}`
 
+### 2.24 GET /api/workspaces
+
+获取全部工作区列表。
+
+- **Response 200**: `Workspace[]`
+
+### 2.25 POST /api/workspaces
+
+创建工作区。
+
+- **Request**: `{name: str}`
+- **Response 200**: `Workspace`
+
+### 2.26 GET /api/workspaces/{workspace_id}
+
+获取单个工作区（含关联论文列表）。
+
+- **Response 200**: `{workspace: Workspace, papers: PaperResponse[]}`
+- **Error 404**: `NOT_FOUND`
+
+### 2.27 PATCH /api/workspaces/{workspace_id}
+
+更新工作区名称。
+
+- **Request**: `{name: str}`
+- **Response 200**: `Workspace`
+
+### 2.28 DELETE /api/workspaces/{workspace_id}
+
+删除工作区。
+
+- **Response 200**: `{message: str}`
+
+### 2.29 POST /api/workspaces/{workspace_id}/papers
+
+向工作区添加论文。
+
+- **Request**: `{paper_id: int}`
+- **Response 200**: `{message: str}`
+
+### 2.30 DELETE /api/workspaces/{workspace_id}/papers/{paper_id}
+
+从工作区移除论文。
+
+- **Response 200**: `{message: str}`
+
+### 2.31 POST /api/research/workspaces/{workspace_id}/runs
+
+启动深度研究任务。
+
+- **Request**: `{mode: "local"|"online", paper_ids: int[], expand_top_k: int, rebuild: bool}`
+- **Response 200**: `ResearchRunResponse`
+
+### 2.32 GET /api/research/workspaces/{workspace_id}/runs/{run_id}/stream
+
+SSE 订阅深度研究进度。
+
+- **Response**: `text/event-stream`
+- **事件**: `stage`（阶段变化）、`progress`（百分比）、`done`、`error`
+
+### 2.33 GET /api/research/workspaces/{workspace_id}/graph
+
+获取工作区引文图谱。
+
+- **Response 200**: `ResearchGraphResponse`（nodes、edges）
+- **Error 404**: 图谱尚未生成
+
+### 2.34 POST /api/research/workspaces/{workspace_id}/rag
+
+RAG 问答查询。
+
+- **Request**: `{query: str, top_k: int}`
+- **Response 200**: `RagQueryResponse`（answer、citations）
+
 ---
 
 ## 三、前端页面规范
@@ -466,6 +638,9 @@ WebSocket PTY 终端。
 | `/code/:id` | CodePage | 代码分析（三栏布局）|
 | `/library` | LibraryPage | 论文库管理 |
 | `/settings` | SettingsPage | AI 模型 + UI 配置 |
+| `/workspace` | WorkspacePage | 工作区列表 |
+| `/workspace/:id` | WorkspaceDetailPage | 工作区详情（论文管理）|
+| `/workspace/:id/research` | ResearchPage | 深度研究（引文图谱 + RAG）|
 
 ### 3.2 Layout 结构
 
@@ -534,22 +709,26 @@ WebSocket PTY 终端。
 | 代码 | CodeTab | code_mapping 卡片列表 |
 | Q&A | InterviewTab | 翻转卡片网格（Q→A），min-h-48 + overflow-auto |
 
-### 3.6 流式更新（真流式）
+### 3.6 流式更新（后台任务 + SSE 订阅模型）
 
-- 上传后立即连接 SSE (`/api/analysis/{id}/stream`)
+分析任务在后端 `analysis_runner` 后台 asyncio 任务中运行，与 SSE 连接解耦：
+
+- 上传后后端启动后台任务，前端连接 `/api/analysis/{id}/stream` **订阅**进度
 - `useStreaming(paperId: number | null, shouldConnect: boolean = true)` hook 管理连接
   - paperId 为 null 时不连接（idle）
   - shouldConnect 为 false 时不连接
   - 在组件顶层无条件调用（遵守 React 规则）
 - 每收到一个 `field` 事件，更新 `partialResult`，该字段立即渲染
+- **断开不终止分析**：SSE 断开只取消订阅，分析继续执行；重连后回放已缓冲事件
+- **断点续传**：分析字段增量写入 `data/analysis_cache/{paper_id}.json`；进程重启后若缓存完整则跳过 AI 调用，从断点继续搜索相关论文
 - 连接断开自动重连（最多 3 次，间隔 1s/2s/4s）
-- 重连时根据 paper.status 决定行为（见 2.8）
 
 ---
 
 ## 四、UI 设计规范
 
-- **主题**: 深色（bg-gray-950, text-gray-100）
+- **主题系统**: `theme/themes.ts` 定义多套主题，`ThemeProvider` 读取配置后以 CSS 变量方式注入全局；默认深色主题
+- **默认主题**: 深色（bg-gray-950, text-gray-100）
 - **字体**: Inter / 系统字体
 - **卡片**: bg-gray-800, border-gray-700, rounded-lg
 - **主色**: blue-500 (#3b82f6)
@@ -567,7 +746,7 @@ WebSocket PTY 终端。
 2. **错误处理**: API 统一返回 `{detail, code}` 格式
 3. **数据库**: SQLite，开发环境文件存储在 `./data/essay_read.db`
 4. **文件上传**: 存储在 `./uploads/` 目录，文件名使用 UUID
-5. **级联删除**: AnalysisResult 和 CodeAnalysis 均设置 `ondelete=CASCADE`
+5. **级联删除**: AnalysisResult、CodeAnalysis、WorkspacePaper、ResearchRun、ResearchGraph 均设置 `ondelete=CASCADE`
 6. **PDF 文本**: 超过 100k 字符时智能截断（保留前3页+最后1页）
 7. **AI 调用**: 使用 Anthropic SDK，通过配置页管理 API Key/Base URL/Model
 8. **SSE 代理**: Vite proxy 配置禁用 SSE 缓冲
@@ -591,6 +770,12 @@ WebSocket PTY 终端。
 | pypdf | PDF 文本提取（后备路径）|
 | anthropic | Anthropic SDK（MiMo API）|
 | httpx | HTTP 客户端（Semantic Scholar）|
+| chromadb | 向量数据库（深度研究 RAG）|
+| sentence-transformers | 文本向量化（深度研究嵌入）|
+| networkx | 图计算（引文图谱构建）|
+| torch | 深度学习框架（sentence-transformers 依赖）|
+| numpy | 数值计算 |
+| pytest / pytest-asyncio | 测试框架 |
 
 ### 前端（package.json）
 
@@ -600,6 +785,7 @@ WebSocket PTY 终端。
 | react-router-dom | 路由 |
 | react-pdf | PDF 渲染 |
 | recharts | 图表可视化 |
+| react-force-graph-2d | 引文图谱力导向图可视化 |
 | mermaid | 流程图渲染 |
 | react-markdown / remark-gfm | Markdown 渲染 |
 | highlight.js | 代码高亮 |

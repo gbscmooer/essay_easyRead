@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { getPaper } from '@/api/papers'
 import { extractCodeUrl } from '@/api/code'
+import { toast } from '@/hooks/useToast'
 
 
 interface CodeTabProps {
@@ -15,7 +16,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
 
   useEffect(() => {
     if (paperId) {
-      getPaper(paperId).then(setPaper).catch(() => {})
+      getPaper(paperId).then(setPaper).catch((e: any) => { toast({ type: 'error', message: e?.message || '加载论文信息失败' }) })
     }
   }, [paperId])
 
@@ -26,8 +27,8 @@ export function CodeTab({ paperId }: CodeTabProps) {
       await extractCodeUrl(paperId)
       const updated = await getPaper(paperId)
       setPaper(updated)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '提取代码 URL 失败' })
     } finally {
       setSearching(false)
     }
@@ -39,13 +40,13 @@ export function CodeTab({ paperId }: CodeTabProps) {
   return (
     <div className="space-y-6">
       <section>
-        <h2 className="text-lg font-semibold text-gray-200 mb-3">代码仓库</h2>
+        <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>代码仓库</h2>
 
         {codeUrl ? (
-          <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 space-y-3">
+          <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-sm text-gray-300">已找到代码仓库</span>
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>已找到代码仓库</span>
             </div>
             <a
               href={codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`}
@@ -59,7 +60,10 @@ export function CodeTab({ paperId }: CodeTabProps) {
               {codeStatus === 'none' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg transition-colors"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -71,7 +75,10 @@ export function CodeTab({ paperId }: CodeTabProps) {
               {codeStatus === 'ready' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg transition-colors"
+                  style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -81,8 +88,8 @@ export function CodeTab({ paperId }: CodeTabProps) {
                 </Link>
               )}
               {codeStatus === 'cloning' && (
-                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-gray-700 text-gray-400 rounded-lg">
-                  <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>
+                  <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} />
                   正在克隆...
                 </span>
               )}
@@ -92,19 +99,22 @@ export function CodeTab({ paperId }: CodeTabProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 text-center space-y-3">
+          <div className="rounded-lg p-4 text-center space-y-3" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
             <div>
-              <p className="text-sm text-gray-500">未找到公开的源码地址</p>
-              <p className="text-xs text-gray-600 mt-1">论文中未发现 GitHub/GitLab 等代码仓库链接</p>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>未找到公开的源码地址</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>论文中未发现 GitHub/GitLab 等代码仓库链接</p>
             </div>
             <button
               onClick={handleResearch}
               disabled={searching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded disabled:opacity-50 transition-colors"
+              style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
             >
               {searching ? (
                 <>
-                  <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                  <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} />
                   搜索中...
                 </>
               ) : (
@@ -122,3 +132,5 @@ export function CodeTab({ paperId }: CodeTabProps) {
     </div>
   )
 }
+
+export default CodeTab

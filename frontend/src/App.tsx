@@ -1,42 +1,77 @@
 /**
- * 应用根组件
+ * 应用路由（数据路由 createBrowserRouter）
  *
- * 路由配置：
- *   /           → HomePage（首页，上传入口 + 论文库概览）
- *   /reader/:id → ReaderPage（论文精读页，PDF预览 + 解析结果）
- *   /library    → LibraryPage（论文库，筛选和搜索）
+ * 采用数据路由以启用 useBlocker（设置页「未保存离开」拦截）。
+ * 所有页面挂在 RootLayout 这一布局路由下，经 <Outlet/> 渲染。
  *
- * 布局：
- *   - 深色主题，bg-gray-950
- *   - 顶部导航栏（Logo + 导航链接）
- *   - 页面内容区
+ * 所有页面路由均使用 React.lazy() 实现代码分割，
+ * 首屏只加载当前路由对应的 chunk。
+ *
+ * 路由表：
+ *   /                       → HomePage（首页，上传入口 + 论文库概览）
+ *   /reader/:id             → ReaderPage（论文精读页）
+ *   /code/:id               → CodePage（代码分析）
+ *   /library                → LibraryPage（论文库）
+ *   /settings               → SettingsPage（设置）
+ *   /workspace[/:id]        → 工作区列表 / 详情
+ *   /workspace/:id/research → ResearchPage（深度研究）
+ *   *                       → NotFoundPage（404）
  */
 
-import { Routes, Route } from 'react-router-dom'
+import React, { Suspense } from 'react'
+import { createBrowserRouter, Outlet } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
-import { HomePage } from '@/pages/HomePage'
-import { ReaderPage } from '@/pages/ReaderPage'
-import { LibraryPage } from '@/pages/LibraryPage'
-import { SettingsPage } from '@/pages/SettingsPage'
-import { CodePage } from '@/pages/CodePage'
-import { WorkspacePage } from '@/pages/WorkspacePage'
-import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
-import { ResearchPage } from '@/pages/ResearchPage'
+import { ToastContainer } from '@/components/ToastContainer'
+import { PageErrorBoundary } from '@/components/PageErrorBoundary'
 
+const HomePage = React.lazy(() => import('@/pages/HomePage'))
+const ReaderPage = React.lazy(() => import('@/pages/ReaderPage'))
+const CodePage = React.lazy(() => import('@/pages/CodePage'))
+const LibraryPage = React.lazy(() => import('@/pages/LibraryPage'))
+const SettingsPage = React.lazy(() => import('@/pages/SettingsPage'))
+const WorkspacePage = React.lazy(() => import('@/pages/WorkspacePage'))
+const WorkspaceDetailPage = React.lazy(() => import('@/pages/WorkspaceDetailPage'))
+const ResearchPage = React.lazy(() => import('@/pages/ResearchPage'))
+const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'))
 
-export default function App() {
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div
+        className="w-8 h-8 border-2 rounded-full animate-spin"
+        style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
+      />
+    </div>
+  )
+}
+
+function RootLayout() {
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/reader/:id" element={<ReaderPage />} />
-        <Route path="/code/:id" element={<CodePage />} />
-        <Route path="/library" element={<LibraryPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/workspace" element={<WorkspacePage />} />
-        <Route path="/workspace/:id" element={<WorkspaceDetailPage />} />
-        <Route path="/workspace/:id/research" element={<ResearchPage />} />
-      </Routes>
+      <Suspense fallback={<LoadingFallback />}>
+        <Outlet />
+      </Suspense>
+      <ToastContainer />
     </Layout>
   )
 }
+
+export const router = createBrowserRouter(
+  [
+    {
+      element: <RootLayout />,
+      children: [
+        { path: '/', element: <PageErrorBoundary pageName="首页"><HomePage /></PageErrorBoundary> },
+        { path: '/reader/:id', element: <PageErrorBoundary pageName="论文精读"><ReaderPage /></PageErrorBoundary> },
+        { path: '/code/:id', element: <PageErrorBoundary pageName="代码分析"><CodePage /></PageErrorBoundary> },
+        { path: '/library', element: <PageErrorBoundary pageName="论文库"><LibraryPage /></PageErrorBoundary> },
+        { path: '/settings', element: <PageErrorBoundary pageName="设置"><SettingsPage /></PageErrorBoundary> },
+        { path: '/workspace', element: <PageErrorBoundary pageName="工作区"><WorkspacePage /></PageErrorBoundary> },
+        { path: '/workspace/:id', element: <PageErrorBoundary pageName="工作区详情"><WorkspaceDetailPage /></PageErrorBoundary> },
+        { path: '/workspace/:id/research', element: <PageErrorBoundary pageName="深度研究"><ResearchPage /></PageErrorBoundary> },
+        { path: '*', element: <NotFoundPage /> },
+      ],
+    },
+  ],
+  { future: { v7_relativeSplatPath: true } },
+)

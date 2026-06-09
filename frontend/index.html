@@ -4,8 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Easy Essay</title>
+    <script>
+      (function(){
+        try {
+          var k = localStorage.getItem('essay_theme');
+          if (!k) k = 'light';
+          if (k.startsWith('custom:')) {
+            var raw = localStorage.getItem('essay_custom_themes');
+            if (raw) {
+              var themes = JSON.parse(raw);
+              var id = k.slice(7);
+              var t = themes.find(function(x){return x.id===id});
+              if (t && t.colors) {
+                var c = t.colors;
+                var r = document.documentElement;
+                r.style.setProperty('--bg-base', c.bg_base);
+                r.style.setProperty('--bg-surface', c.bg_surface);
+                r.style.setProperty('--bg-elevated', c.bg_elevated);
+                r.style.setProperty('--border', c.border);
+                r.style.setProperty('--border-light', c.border_light);
+                r.style.setProperty('--text-primary', c.text_primary);
+                r.style.setProperty('--text-secondary', c.text_secondary);
+                r.style.setProperty('--text-muted', c.text_muted);
+                r.style.setProperty('--accent', c.accent);
+                r.setAttribute('data-theme','custom');
+                r.setAttribute('data-mode', (parseInt(c.bg_base.replace('#',''),16)>>16&255)*0.2126+(parseInt(c.bg_base.replace('#',''),16)>>8&255)*0.7152+(parseInt(c.bg_base.replace('#',''),16)&255)*0.0722 < 128 ? 'dark' : 'light');
+              }
+            }
+          } else {
+            document.documentElement.setAttribute('data-theme', k);
+          }
+        } catch(e){}
+      })();
+    </script>
   </head>
-  <body class="bg-gray-950 text-gray-100">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

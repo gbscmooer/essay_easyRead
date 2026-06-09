@@ -13,18 +13,16 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { RouterProvider } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import App from './App'
+import { router } from './App'
 import './styles/globals.css'
 
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter future={{ v7_relativeSplatPath: true }}>
-        <App />
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </ErrorBoundary>
   </React.StrictMode>,
 )

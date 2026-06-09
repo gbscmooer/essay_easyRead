@@ -7,7 +7,7 @@ Pydantic 模型，用于 FastAPI 的请求验证和响应序列化。
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper, FigureAnalysis
 
 
@@ -39,9 +39,12 @@ class PaperResponse(BaseModel):
     id: int
     filename: str
     title: Optional[str] = None
+    authors: Optional[str] = None       # 作者列表（逗号分隔），自动索引/解读填充
     venue: Optional[str] = None
     year: Optional[int] = None
+    category: Optional[str] = None      # arXiv 学科分类，如 "cs.LG"
     status: str  # pending | extracting | analyzing | done | failed | indexed
+    index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None
     code_url: Optional[str] = None
     code_status: str = "none"
@@ -168,14 +171,17 @@ class CodeSummaryResponse(BaseModel):
 
 class ResearchRunCreate(BaseModel):
     """创建深度研究任务的请求体"""
-    mode: str = "local"                                # "local" | "online"
-    paper_ids: Optional[list[int]] = None              # None = 工作区全部 level=1 论文
-    deep: int = 1                                      # 仅 online：扩展跳数（1=只展 L1 的 refs）
-    expand_top_k: int = 5                              # 仅 online：每篇 seed 最多取多少个 ref
-    expand_total_limit: int = 50                       # 单次 run 下载上限
-    rebuild: bool = False                              # True 时清空 ChromaDB & 图谱重建
-    similarity_threshold: float = 0.78                 # similar 边阈值
-    enable_shared_method: bool = False                 # 是否调用 AI 生成 shared-method 边
+    mode: str = Field("local", pattern=r"^(local|online)$")
+    paper_ids: Optional[list[int]] = None
+    # 是否把工作区内已存在的联网扩展论文（level>=2）纳入本次图谱。
+    # 关闭后只用工作区内部论文（level==1），不使用之前下载到本地的扩展论文。
+    include_expanded: bool = True
+    deep: int = Field(1, ge=1, le=5)
+    expand_top_k: int = Field(5, ge=1, le=50)
+    expand_total_limit: int = Field(50, ge=1, le=500)
+    rebuild: bool = False
+    similarity_threshold: float = Field(0.78, ge=0, le=1)
+    enable_shared_method: bool = False
 
 
 class ResearchRunResponse(BaseModel):
@@ -210,9 +216,9 @@ class ResearchGraphResponse(BaseModel):
 
 class RagQueryRequest(BaseModel):
     """RAG 跨论文问答请求"""
-    question: str
-    top_k: int = 5
-    paper_ids: Optional[list[int]] = None              # None = 全工作区
+    question: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(5, ge=1, le=20)
+    paper_ids: Optional[list[int]] = None
 
 
 class RagCitation(BaseModel):

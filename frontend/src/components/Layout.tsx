@@ -1,9 +1,12 @@
-import { useState, useCallback } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useState, useCallback, useRef } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
 import { VersionPopup } from './VersionPopup'
+import { ShortcutHelp } from './ShortcutHelp'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { hasUnsavedConfig } from '@/hooks/useConfig'
+import { useGlobalShortcuts, setHelpCallback } from '@/hooks/useKeyboardShortcuts'
 
 
 interface LayoutProps {
@@ -33,13 +36,34 @@ function useCurrentWorkspaceId(): number | null {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const paperId = useCurrentPaperId()
   const wsId = useCurrentWorkspaceId()
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [showVersion, setShowVersion] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
+  const pendingNavRef = useRef<string | null>(null)
+  const pendingNavStateRef = useRef<unknown>(null)
+
+  useGlobalShortcuts(navigate)
+
+  // Register ? shortcut to show help
+  const toggleShortcuts = useCallback(() => setShowShortcuts(v => !v), [])
+  setHelpCallback(toggleShortcuts)
 
   const toggleVersion = useCallback(() => setShowVersion(v => !v), [])
   const closeVersion = useCallback(() => setShowVersion(false), [])
+
+  // Unified handler: if on settings with unsaved config, show confirm dialog; otherwise navigate directly
+  const handleNavGuard = useCallback((target: string, e: React.MouseEvent, state?: unknown) => {
+    if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
+      e.preventDefault()
+      pendingNavRef.current = target
+      pendingNavStateRef.current = state ?? null
+      setShowUnsavedConfirm(true)
+    }
+  }, [location.pathname])
 
   return (
     <ThemeProvider>
@@ -53,7 +77,8 @@ export function Layout({ children }: LayoutProps) {
       }}>
         <button
           onClick={toggleVersion}
-          className={`font-semibold transition-colors cursor-pointer ${navCollapsed ? 'text-sm' : 'text-base'}`}
+          aria-label="Easy Essay 首页"
+          className={`font-semibold transition-colors cursor-pointer hover:opacity-80 ${navCollapsed ? 'text-sm' : 'text-base'}`}
           style={{ color: 'var(--text-primary)', background: 'none', border: 'none' }}
         >
           <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
@@ -65,13 +90,7 @@ export function Layout({ children }: LayoutProps) {
               <Link
                 key={item.path}
                 to={item.path}
-                onClick={(e) => {
-                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-                    if (!confirm('有未保存的配置更改，确定离开吗？')) {
-                      e.preventDefault()
-                    }
-                  }
-                }}
+                onClick={(e) => handleNavGuard(item.path, e)}
                 className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
                   location.pathname === item.path
                     ? 'font-medium'
@@ -91,6 +110,8 @@ export function Layout({ children }: LayoutProps) {
 
         <button
           onClick={() => setNavCollapsed(v => !v)}
+          aria-label={navCollapsed ? '展开导航栏' : '收起导航栏'}
+          aria-expanded={!navCollapsed}
           className="p-1.5 rounded-md transition-colors"
           style={{ color: 'var(--text-muted)' }}
           title={navCollapsed ? '展开导航栏' : '收起导航栏'}
@@ -113,11 +134,7 @@ export function Layout({ children }: LayoutProps) {
               <Link
                 to={`/reader/${paperId}`}
                 state={location.state}
-                onClick={(e) => {
-                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
-                  }
-                }}
+                onClick={(e) => handleNavGuard(`/reader/${paperId}`, e, location.state)}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${
                   location.pathname.startsWith('/reader')
                     ? 'font-medium'
@@ -134,11 +151,7 @@ export function Layout({ children }: LayoutProps) {
               <Link
                 to={`/code/${paperId}`}
                 state={location.state}
-                onClick={(e) => {
-                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
-                  }
-                }}
+                onClick={(e) => handleNavGuard(`/code/${paperId}`, e, location.state)}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${
                   location.pathname.startsWith('/code')
                     ? 'font-medium'
@@ -162,11 +175,7 @@ export function Layout({ children }: LayoutProps) {
             return (
               <Link
                 to={backTo}
-                onClick={(e) => {
-                  if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-                    if (!confirm('有未保存的配置更改，确定离开吗？')) e.preventDefault()
-                  }
-                }}
+                onClick={(e) => handleNavGuard(backTo, e)}
                 className="text-xs transition-colors"
                 style={{ color: 'var(--text-muted)' }}
               >
@@ -227,6 +236,32 @@ export function Layout({ children }: LayoutProps) {
 
       {/* 版本信息弹窗 */}
       {showVersion && <VersionPopup onClose={closeVersion} />}
+
+      {/* 快捷键帮助 */}
+      <ShortcutHelp open={showShortcuts} onClose={toggleShortcuts} />
+
+      {/* 未保存配置确认 */}
+      <ConfirmDialog
+        open={showUnsavedConfirm}
+        title="未保存的更改"
+        message="有未保存的配置更改，确定离开吗？"
+        variant="warning"
+        confirmLabel="离开"
+        cancelLabel="留下"
+        onConfirm={() => {
+          setShowUnsavedConfirm(false)
+          const target = pendingNavRef.current
+          const state = pendingNavStateRef.current
+          pendingNavRef.current = null
+          pendingNavStateRef.current = null
+          if (target) navigate(target, state ? { state } : undefined)
+        }}
+        onCancel={() => {
+          setShowUnsavedConfirm(false)
+          pendingNavRef.current = null
+          pendingNavStateRef.current = null
+        }}
+      />
     </div>
     </ThemeProvider>
   )

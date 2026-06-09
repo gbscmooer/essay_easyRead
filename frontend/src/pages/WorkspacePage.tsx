@@ -1,19 +1,23 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 
-export function WorkspacePage() {
+export default function WorkspacePage() {
   const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   const refresh = useCallback(() => {
     listWorkspaces()
       .then(setWorkspaces)
-      .catch(() => {})
+      .catch((e: unknown) => { const message = e instanceof Error ? e.message : '加载工作区列表失败'; toast({ type: 'error', message }) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -26,28 +30,36 @@ export function WorkspacePage() {
       const ws = await createWorkspace(name)
       setNewName('')
       navigate(`/workspace/${ws.id}`)
-    } catch {
-      // ignore
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '创建工作区失败'
+      toast({ type: 'error', message })
     } finally {
       setCreating(false)
     }
   }
 
-  const handleDelete = async (id: number, e: React.MouseEvent) => {
+  const handleDelete = (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm('确定删除此工作区？')) return
+    setDeleteTarget(id)
+  }
+
+  const confirmDelete = async () => {
+    if (deleteTarget === null) return
     try {
-      await deleteWorkspace(id)
+      await deleteWorkspace(deleteTarget)
       refresh()
-    } catch {
-      // ignore
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '删除工作区失败'
+      toast({ type: 'error', message })
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        <LoadingSpinner />
       </div>
     )
   }
@@ -75,7 +87,7 @@ export function WorkspacePage() {
           onClick={handleCreate}
           disabled={creating}
           className="px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-          style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
         >
           {creating ? '创建中...' : '新建工作区'}
         </button>
@@ -92,21 +104,14 @@ export function WorkspacePage() {
           {workspaces.map(ws => (
             <div
               key={ws.id}
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/workspace/${ws.id}`)}
-              className="rounded-xl p-4 cursor-pointer transition-all group"
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
+              className="rounded-xl p-4 cursor-pointer card-hover transition-all group"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
-              }}
-              onMouseEnter={e => {
-                const el = e.currentTarget
-                el.style.borderColor = 'var(--border-light)'
-                el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'
-              }}
-              onMouseLeave={e => {
-                const el = e.currentTarget
-                el.style.borderColor = 'var(--border)'
-                el.style.boxShadow = 'none'
               }}
             >
               <div className="flex items-center justify-between">
@@ -130,6 +135,14 @@ export function WorkspacePage() {
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="确认删除"
+        message="确定删除此工作区？"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

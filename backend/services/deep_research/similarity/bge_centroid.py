@@ -22,9 +22,12 @@ logger = logging.getLogger(__name__)
 class BgeCentroidProvider:
     name = "bge_centroid"
 
-    def __init__(self, **_):
-        # 当前默认实现没有配置项，所有未知 kwargs 静默吞掉以便平滑迁移
-        pass
+    def __init__(self, center: bool = True, **_):
+        # center: 计算余弦前先减去全局均值向量再归一化。
+        # BGE 向量不是零中心的（都挤在一个窄锥里），不中心化时任意两篇论文余弦
+        # 普遍落在 0.75~0.95，绝对阈值几乎失效（实测 45 篇里 0.78 保留 99% 边）。
+        # 中心化把分布拉开到可区分的范围，配合 graph_builder 的 kNN 稀疏化效果最佳。
+        self.center = center
 
     async def score_pairs(self, papers: list, *, ws_id: int) -> list[tuple[int, int, float]]:
         col = get_or_create(ws_id)
@@ -46,11 +49,20 @@ class BgeCentroidProvider:
                 logger.warning(f"bge_centroid: skip paper {p.id}: {ex}")
 
         ids = sorted(paper_vecs.keys())
+        if not ids:
+            return []
+
+        mat = np.stack([paper_vecs[i] for i in ids])  # (n, d)
+        # 中心化：减全局均值后再 L2 归一化，消除 BGE 余弦整体偏高的问题
+        if self.center and len(ids) >= 3:
+            mat = mat - mat.mean(axis=0)
+            mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
+
         out: list[tuple[int, int, float]] = []
         for i in range(len(ids)):
-            a = paper_vecs[ids[i]]
             for j in range(i + 1, len(ids)):
-                b = paper_vecs[ids[j]]
-                sim = float(np.dot(a, b))  # 两个单位向量的点积 = 余弦
-                out.append((ids[i], ids[j], sim))
+                sim = float(np.dot(mat[i], mat[j]))  # 单位向量点积 = 余弦
+                # 中心化后余弦可能为负（低于平均相似度），截断到 0 视作"不相关"
+                sim = max(0.0, sim)
+                out.append((ids[i], ids[j], round(sim, 4)))
         return out

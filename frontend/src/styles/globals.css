@@ -17,6 +17,16 @@
 :root {
   --color-primary: #3b82f6;
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* 代码区配色（VS Code 风格） */
+  --code-bg: #252526;
+  --code-sidebar-bg: #252526;
+  --code-text: #cccccc;
+  --code-text-muted: #6a737d;
+  --code-text-bright: #e8e8e8;
+  --code-selection: #094771;
+  --code-hover: #2a2d2e;
+  --code-border: #404040;
+  --code-folder: #dcb67a;
 }
 
 /* 纯黑 (pure) — 纯黑白，无彩色点缀 */
@@ -45,6 +55,16 @@
   --text-muted: #94a3b8;
   --accent: #1d4ed8;
   --accent-subtle: rgba(29, 78, 216, 0.06);
+  /* 代码区配色（浅色模式） */
+  --code-bg: #f6f8fa;
+  --code-sidebar-bg: #f6f8fa;
+  --code-text: #24292f;
+  --code-text-muted: #656d76;
+  --code-text-bright: #1b1f23;
+  --code-selection: #b6d7ff;
+  --code-hover: #e8e8e8;
+  --code-border: #d0d7de;
+  --code-folder: #9a6700;
 }
 
 /* 摩卡 (mocha) — Claude 风格温暖中性色调，浅橙点缀 */
@@ -59,6 +79,16 @@
   --text-muted: #a89888;
   --accent: #f0a050;
   --accent-subtle: rgba(240, 160, 80, 0.12);
+  /* 代码区配色（摩卡主题） */
+  --code-bg: #201c18;
+  --code-sidebar-bg: #201c18;
+  --code-text: #dcc8a8;
+  --code-text-muted: #a89888;
+  --code-text-bright: #faf0e4;
+  --code-selection: #4a3820;
+  --code-hover: #302a22;
+  --code-border: #4a4136;
+  --code-folder: #f0a050;
 }
 
 /* ============================================================
@@ -71,7 +101,8 @@ body {
 }
 
 /* ============================================================
- * 主题覆盖 — 让所有 Tailwind 灰色类跟随主题
+ * 主题覆盖 — 让 Tailwind 灰色/彩色类跟随主题变量
+ * 仅保留代码库实际使用的类，移除未使用的变体以减小 CSS 体积
  * ============================================================ */
 
 /* 背景色 */
@@ -80,69 +111,53 @@ body {
 [data-theme] .bg-gray-800 { background-color: var(--bg-elevated) !important; }
 [data-theme] .bg-gray-700 { background-color: var(--border) !important; }
 [data-theme] .bg-gray-600 { background-color: var(--border-light) !important; }
-[data-theme] .bg-gray-500 { background-color: var(--text-muted) !important; }
-
-[data-theme] .bg-gray-800\/30 { background-color: rgba(128, 128, 128, 0.1) !important; }
 [data-theme] .bg-gray-800\/50 { background-color: rgba(128, 128, 128, 0.15) !important; }
-[data-theme] .bg-gray-800\/60 { background-color: rgba(128, 128, 128, 0.2) !important; }
-[data-theme] .bg-gray-800\/80 { background-color: rgba(128, 128, 128, 0.35) !important; }
-[data-theme] .bg-gray-700\/80 { background-color: rgba(128, 128, 128, 0.3) !important; }
-[data-theme] .bg-gray-900\/50 { background-color: rgba(128, 128, 128, 0.12) !important; }
-[data-theme] .bg-gray-900\/80 { background-color: rgba(128, 128, 128, 0.2) !important; }
-[data-theme] .bg-gray-900\/90 { background-color: rgba(128, 128, 128, 0.25) !important; }
 
 /* 边框色 */
-[data-theme] .border-gray-900 { border-color: var(--border) !important; }
+[data-theme] .border-gray-900,
 [data-theme] .border-gray-800 { border-color: var(--border) !important; }
-[data-theme] .border-gray-800\/50 { border-color: rgba(128, 128, 128, 0.2) !important; }
-[data-theme] .border-gray-700 { border-color: var(--border-light) !important; }
-[data-theme] .border-gray-700\/50 { border-color: rgba(128, 128, 128, 0.25) !important; }
-[data-theme] .border-gray-600 { border-color: var(--border-light) !important; }
+[data-theme] .border-gray-700,
+[data-theme] .border-gray-600,
 [data-theme] .border-gray-500 { border-color: var(--border-light) !important; }
 [data-theme] .border-gray-400 { border-color: var(--text-muted) !important; }
 
 /* 文字色 */
-[data-theme] .text-gray-100 { color: var(--text-primary) !important; }
+[data-theme] .text-gray-100,
 [data-theme] .text-gray-200 { color: var(--text-primary) !important; }
-[data-theme] .text-gray-300 { color: var(--text-secondary) !important; }
+[data-theme] .text-gray-300,
 [data-theme] .text-gray-400 { color: var(--text-secondary) !important; }
-[data-theme] .text-gray-500 { color: var(--text-muted) !important; }
+[data-theme] .text-gray-500,
 [data-theme] .text-gray-600 { color: var(--text-muted) !important; }
-[data-theme] .text-gray-700 { color: var(--text-muted) !important; }
-
-/* 占位符色 */
-[data-theme] .placeholder-gray-500::placeholder { color: var(--text-muted) !important; }
 [data-theme] .placeholder-gray-600::placeholder { color: var(--text-muted) !important; }
 
-/* Hover 状态 */
-[data-theme] .hover\:border-gray-400:hover { border-color: var(--text-muted) !important; }
-[data-theme] .hover\:border-gray-500:hover { border-color: var(--text-muted) !important; }
+/* Hover 状态（仅保留实际使用的） */
 [data-theme] .hover\:border-gray-600:hover { border-color: var(--border-light) !important; }
-[data-theme] .hover\:bg-gray-600:hover { background-color: var(--border-light) !important; }
-[data-theme] .hover\:bg-gray-700:hover { background-color: var(--border) !important; }
-[data-theme] .hover\:bg-gray-700\/80:hover { background-color: rgba(128, 128, 128, 0.3) !important; }
-[data-theme] .hover\:bg-gray-800:hover { background-color: var(--bg-elevated) !important; }
-[data-theme] .hover\:bg-gray-800\/50:hover { background-color: rgba(128, 128, 128, 0.2) !important; }
-[data-theme] .hover\:bg-gray-900\/50:hover { background-color: rgba(128, 128, 128, 0.12) !important; }
 [data-theme] .hover\:text-gray-200:hover { color: var(--text-primary) !important; }
-[data-theme] .hover\:text-gray-300:hover { color: var(--text-secondary) !important; }
-[data-theme] .hover\:text-gray-400:hover { color: var(--text-secondary) !important; }
 
-/* 强调色跟随主题 — 仅文字和边框，不改按钮背景（保证对比度） */
-[data-theme] .text-blue-400 { color: var(--accent) !important; }
-[data-theme] .text-blue-300 { color: var(--accent) !important; opacity: 0.85; }
-[data-theme] .hover\:text-blue-400:hover { color: var(--accent) !important; }
-[data-theme] .bg-blue-500\/10 { background-color: var(--accent-subtle) !important; }
-[data-theme] .bg-blue-600\/20 { background-color: var(--accent-subtle) !important; }
-[data-theme] .border-blue-500 { border-color: var(--accent) !important; }
+/* 强调色跟随主题 */
+[data-theme] .text-blue-400,
+[data-theme] .text-blue-300 { color: var(--accent) !important; }
+[data-theme] .hover\:text-blue-400:hover,
+[data-theme] .hover\:text-blue-300:hover { color: var(--accent) !important; }
+[data-theme] .bg-blue-500\/10,
+[data-theme] .bg-blue-500\/5,
+[data-theme] .bg-blue-500\/20 { background-color: var(--accent-subtle) !important; }
+[data-theme] .bg-blue-500,
+[data-theme] .bg-blue-600,
+[data-theme] .bg-blue-400 { background-color: var(--accent) !important; }
+[data-theme] .hover\:bg-blue-500:hover,
+[data-theme] .hover\:bg-blue-600:hover { background-color: var(--accent) !important; opacity: 0.9; }
+[data-theme] .hover\:bg-blue-500\/5:hover { background-color: var(--accent-subtle) !important; }
+[data-theme] .border-blue-500,
+[data-theme] .border-blue-500\/20,
+[data-theme] .border-blue-500\/50 { border-color: var(--accent) !important; }
+[data-theme] .border-t-blue-500 { border-top-color: var(--accent) !important; }
 [data-theme] .hover\:border-blue-500:hover { border-color: var(--accent) !important; }
-[data-theme] .ring-blue-500 { --tw-ring-color: var(--accent) !important; }
-[data-theme] .focus\:border-blue-500:focus { border-color: var(--accent) !important; }
+[data-theme] .ring-blue-500\/60 { --tw-ring-color: var(--accent) !important; }
 [data-theme] .accent-blue-500 { accent-color: var(--accent) !important; }
 
 /* 其他 */
 [data-theme] .ring-offset-gray-900 { --tw-ring-offset-color: var(--bg-base) !important; }
-[data-theme] .divide-gray-800 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
 
 [data-theme] input, [data-theme] textarea, [data-theme] select {
   background-color: var(--bg-elevated);
@@ -187,6 +202,44 @@ body {
 }
 
 /* ============================================================
+ * 卡片 Hover 效果
+ * ============================================================ */
+.card-hover {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card-hover:hover {
+  border-color: var(--border-light) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================
+ * 下拉菜单进入动画
+ * ============================================================ */
+.dropdown-menu {
+  opacity: 0;
+  transform: translateY(-4px);
+  animation: dropdown-enter 0.15s ease forwards;
+}
+@keyframes dropdown-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+ * Toast 动画
+ * ============================================================ */
+@keyframes slide-in-y {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-in,
+.animate-slide-in-y {
+  animation: slide-in-y 0.25s ease-out;
+}
+
+/* ============================================================
  * Mermaid 主题覆盖
  * ============================================================ */
 .mermaid svg {
@@ -197,37 +250,26 @@ body {
 /* ============================================================
  * 状态色跟随主题（success / warning / error）
  * ============================================================ */
-[data-theme] .text-green-400,
-[data-theme] .text-green-500 { color: var(--success) !important; }
-[data-theme] .text-green-300 { color: var(--success) !important; opacity: 0.85; }
-[data-theme] .hover\:text-green-400:hover { color: var(--success) !important; }
+[data-theme] .text-green-400 { color: var(--success) !important; }
 [data-theme] .bg-green-500 { background-color: var(--success) !important; }
-[data-theme] .bg-green-600 { background-color: var(--success) !important; }
-[data-theme] .bg-green-500\/5 { background-color: var(--success-subtle) !important; }
-[data-theme] .bg-green-500\/10 { background-color: var(--success-subtle) !important; }
+[data-theme] .bg-green-500\/10,
 [data-theme] .bg-green-500\/20 { background-color: var(--success-subtle) !important; }
-[data-theme] .bg-green-400\/10 { background-color: var(--success-subtle) !important; }
-[data-theme] .border-green-500\/20 { border-color: var(--success) !important; }
-[data-theme] .border-green-500\/30 { border-color: var(--success) !important; }
 
-[data-theme] .text-yellow-400,
 [data-theme] .text-yellow-500 { color: var(--warning) !important; }
-[data-theme] .bg-yellow-500 { background-color: var(--warning) !important; }
-[data-theme] .bg-yellow-400\/10 { background-color: var(--warning-subtle) !important; }
-[data-theme] .bg-yellow-500\/10 { background-color: var(--warning-subtle) !important; }
+[data-theme] .text-amber-400,
+[data-theme] .text-amber-500 { color: var(--warning) !important; }
+[data-theme] .text-yellow-500\/80 { color: var(--warning) !important; opacity: 0.8; }
+[data-theme] .border-amber-500 { border-color: var(--warning) !important; }
+[data-theme] .hover\:bg-yellow-600:hover { background-color: var(--warning) !important; opacity: 0.9; }
 
 [data-theme] .text-red-400,
-[data-theme] .text-red-500 { color: var(--error) !important; }
-[data-theme] .text-red-300 { color: var(--error) !important; opacity: 0.85; }
-[data-theme] .bg-red-500 { background-color: var(--error) !important; }
+[data-theme] .text-red-300 { color: var(--error) !important; }
+[data-theme] .bg-red-500,
 [data-theme] .bg-red-600 { background-color: var(--error) !important; }
-[data-theme] .bg-red-500\/10 { background-color: var(--error-subtle) !important; }
-[data-theme] .bg-red-500\/20 { background-color: var(--error-subtle) !important; }
-[data-theme] .bg-red-400\/10 { background-color: var(--error-subtle) !important; }
+[data-theme] .bg-red-500\/10,
+[data-theme] .bg-red-500\/20,
 [data-theme] .bg-red-900\/20 { background-color: var(--error-subtle) !important; }
-[data-theme] .border-red-500\/30 { border-color: var(--error) !important; }
-[data-theme] .border-red-500\/50 { border-color: var(--error) !important; }
-[data-theme] .border-red-500 { border-color: var(--error) !important; }
+[data-theme] .hover\:bg-red-600:hover { background-color: var(--error) !important; opacity: 0.9; }
 
 /* ============================================================
  * 代码区 / 语法高亮：跟随主题明暗自动切换（变量驱动，替代 hljs 预设主题）
@@ -282,3 +324,36 @@ body {
 [data-mode="light"] .hljs-meta { color: #6e7781; }
 [data-mode="light"] .hljs-emphasis { font-style: italic; }
 [data-mode="light"] .hljs-strong { font-weight: bold; }
+
+/* ============================================================
+ * 专注模式 — 隐藏导航栏和终端面板
+ * ============================================================ */
+[data-focus-mode="true"] nav,
+[data-focus-mode="true"] [data-terminal-panel] {
+  display: none !important;
+}
+
+/* 二级导航栏：h-11 的 shrink-0 div（非 main、非 flex-1） */
+[data-focus-mode="true"] .h-11.shrink-0 {
+  display: none !important;
+}
+
+[data-focus-mode="true"] .flex.flex-col.h-screen {
+  height: 100vh !important;
+}
+
+[data-focus-mode="true"] main {
+  height: 100vh !important;
+  flex: 1 1 auto !important;
+}
+
+/* ============================================================
+ * Toast 动画
+ * ============================================================ */
+@keyframes slide-in-x {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in-x {
+  animation: slide-in-x 0.2s ease-out;
+}

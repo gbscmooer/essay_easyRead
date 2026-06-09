@@ -69,6 +69,27 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
             </div>
           )}
 
+          {typeof node.meta.importance === 'number' && (
+            <div>
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>影响力 (PageRank)</span>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--border)' }}>
+                  <div className="h-full rounded-full" style={{ width: `${Math.round(node.meta.importance * 100)}%`, backgroundColor: 'var(--accent)' }} />
+                </div>
+                <span className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                  {(node.meta.importance * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {node.meta.cluster_label && (
+            <div>
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>研究子方向</span>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{node.meta.cluster_label}</p>
+            </div>
+          )}
+
           {node.meta.paper_id && (
             <Link
               to={`/reader/${node.meta.paper_id}`}

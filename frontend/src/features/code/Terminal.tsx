@@ -103,7 +103,7 @@ export function Terminal({ cwd }: TerminalProps) {
         if (disposed) return
         if (event.data === 'pong') return
         if (event.data instanceof Blob) {
-          event.data.text().then(text => { if (!disposed && term) term.write(text) })
+          event.data.text().then(text => { if (!disposed && term) term.write(text) }).catch(() => {})
         } else {
           if (term) term.write(event.data)
         }

@@ -10,14 +10,15 @@
 
 from .base import SimilarityProvider
 from .bge_centroid import BgeCentroidProvider
+from .bibcoupling import BibCouplingProvider
+from .hybrid import HybridProvider
+from .facet_weighted import FacetWeightedProvider
 
 REGISTRY: dict[str, type] = {
     "bge_centroid": BgeCentroidProvider,
-    # TODO: 未来扩展示例
-    # "specter2":          SpecterProvider,       # AllenAI 科研 embedding
-    # "bibcoupling":       BibCouplingProvider,   # 共享引用 Jaccard
-    # "hybrid":            HybridProvider,        # specter2 + bibcoupling 融合
-    # "cross_encoder":     CrossEncoderProvider,  # 复用 BAAI/bge-reranker-v2-m3
+    "bibcoupling": BibCouplingProvider,
+    "hybrid": HybridProvider,
+    "facet_weighted": FacetWeightedProvider,
 }
 
 

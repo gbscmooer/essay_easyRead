@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { AnalysisResult, RelatedPaper } from '@/types'
-import { refreshRelatedPapers, importRelatedPapers } from '@/api/papers'
+import { refreshRelatedPapers, importRelatedPapers, exportBibtex } from '@/api/papers'
 import type { ImportPaperResult } from '@/api/papers'
 import { listWorkspaces } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 import type { WorkspaceItem } from '@/api/workspaces'
+import { TagManager } from '../TagManager'
 
 
 interface OverviewTabProps {
@@ -16,6 +18,7 @@ interface OverviewTabProps {
 export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps) {
   const [relatedPapers, setRelatedPapers] = useState<RelatedPaper[]>(result.related_papers || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [bibtexLoading, setBibtexLoading] = useState(false)
 
   // Import mode state
   const [importMode, setImportMode] = useState(false)
@@ -28,6 +31,16 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
   const [showWsSelector, setShowWsSelector] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [wsLoading, setWsLoading] = useState(false)
+  const wsModalRef = useRef<HTMLDivElement>(null)
+
+  // Focus first interactive element when workspace selector opens
+  useEffect(() => {
+    if (!showWsSelector || !wsModalRef.current) return
+    const first = wsModalRef.current.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    first?.focus()
+  }, [showWsSelector, wsLoading])
 
   useEffect(() => {
     setRelatedPapers(result.related_papers || [])
@@ -59,6 +72,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       setWorkspaces(wss)
     } catch {
       setWorkspaces([])
+      toast({ type: 'warning', message: '加载工作区列表失败' })
     } finally {
       setWsLoading(false)
     }
@@ -133,15 +147,15 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
     <div className="space-y-6">
       {/* Title + venue + year */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-100 mb-2">{result.title}</h1>
+        <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{result.title}</h1>
         <div className="flex items-center gap-2">
           {result.venue && (
-            <span className="px-2.5 py-0.5 text-xs font-medium bg-gray-700 text-gray-300 rounded-full">
+            <span className="px-2.5 py-0.5 text-xs font-medium rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
               {result.venue}
             </span>
           )}
           {result.year && (
-            <span className="px-2.5 py-0.5 text-xs font-medium bg-gray-700 text-gray-300 rounded-full">
+            <span className="px-2.5 py-0.5 text-xs font-medium rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
               {result.year}
             </span>
           )}
@@ -150,7 +164,44 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
       {/* Authors */}
       {result.authors && (
-        <p className="text-sm text-gray-400">{result.authors}</p>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.authors}</p>
+      )}
+
+      {/* Tags + Export */}
+      {paperId && (
+        <div className="flex items-center justify-between gap-3">
+          <TagManager paperId={paperId} />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={async () => {
+                setBibtexLoading(true)
+                try {
+                  const bib = await exportBibtex(paperId)
+                  const blob = new Blob([bib], { type: 'text/plain' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `${(result.title || 'paper').replace(/[^\w\s-]/g, '').trim() || 'paper'}.bib`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch (e: any) {
+                  toast({ type: 'error', message: e?.message || '导出 BibTeX 失败' })
+                } finally {
+                  setBibtexLoading(false)
+                }
+              }}
+              disabled={bibtexLoading}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+              title="导出 BibTeX"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              BibTeX
+            </button>
+          </div>
+        </div>
       )}
 
       {/* One-sentence contribution */}
@@ -163,18 +214,18 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Research problem */}
       {result.problem && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-2">研究问题</h2>
-          <p className="text-gray-300 text-sm leading-relaxed">{result.problem}</p>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>研究问题</h2>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.problem}</p>
         </section>
       )}
 
       {/* Key contributions */}
       {result.key_contributions && result.key_contributions.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">核心贡献</h2>
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>核心贡献</h2>
           <ol className="space-y-2">
             {result.key_contributions.map((item, idx) => (
-              <li key={idx} className="flex gap-3 text-sm text-gray-300">
+              <li key={idx} className="flex gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium">
                   {idx + 1}
                 </span>
@@ -188,27 +239,36 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Related papers */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-200">相关论文推荐</h2>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>相关论文推荐</h2>
           <div className="flex items-center gap-2">
             {importMode ? (
               <>
                 <button
                   onClick={selectAll}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-gray-200 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
+                  style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                 >
                   {selectedIndices.size === relatedPapers.length ? '取消全选' : '全选'}
                 </button>
                 <button
                   onClick={handleStartImport}
                   disabled={selectedIndices.size === 0 || isImporting}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs text-white bg-blue-600 hover:bg-blue-500 rounded transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
                 >
                   导入选中 ({selectedIndices.size})
                 </button>
                 <button
                   onClick={handleExitImportMode}
                   disabled={isImporting}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-gray-200 bg-gray-800 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
+                  style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                 >
                   取消
                 </button>
@@ -219,7 +279,10 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   <>
                     <button
                       onClick={handleEnterImportMode}
-                      className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-green-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
+                      style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--success)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -238,7 +301,10 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                           listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([])).finally(() => setWsLoading(false))
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-green-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
+                      style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--success)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -252,11 +318,14 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
+                    style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                   >
                     {isRefreshing ? (
                       <>
-                        <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                        <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
                         搜索中...
                       </>
                     ) : (
@@ -279,22 +348,16 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
             {relatedPapers.map((paper, idx) => (
               <div
                 key={idx}
-                className={`bg-gray-800/50 rounded-lg p-3 border transition-colors ${
-                  importMode && selectedIndices.has(idx)
-                    ? 'border-blue-500/60 bg-blue-500/5'
-                    : 'border-gray-700/50'
-                }`}
+                className="rounded-lg p-3 border transition-colors"
+                style={importMode && selectedIndices.has(idx) ? { backgroundColor: 'var(--accent-subtle)', borderColor: 'var(--accent)' } : { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}
               >
                 <div className="flex items-start gap-2.5">
                   {/* Checkbox (import mode only) */}
                   {importMode && !isImporting && !importResults && (
                     <button
                       onClick={() => toggleSelect(idx)}
-                      className={`flex-shrink-0 mt-0.5 w-4 h-4 rounded border transition-colors flex items-center justify-center ${
-                        selectedIndices.has(idx)
-                          ? 'bg-blue-500 border-blue-500'
-                          : 'border-gray-500 hover:border-gray-400'
-                      }`}
+                      className="flex-shrink-0 mt-0.5 w-4 h-4 rounded border transition-colors flex items-center justify-center"
+                      style={selectedIndices.has(idx) ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' } : { borderColor: 'var(--text-muted)' }}
                     >
                       {selectedIndices.has(idx) && (
                         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -304,7 +367,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                     </button>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-200 mb-1">
+                    <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
                       {paper.url && paper.url.match(/^https?:\/\//) ? (
                         <a href={paper.url} target="_blank" rel="noopener noreferrer"
                            className="hover:text-blue-400 transition-colors">
@@ -313,16 +376,16 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                       ) : paper.title}
                     </p>
                     {paper.authors && (
-                      <p className="text-xs text-gray-400 mb-1">{paper.authors}</p>
+                      <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{paper.authors}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-2 mb-1.5">
                       {paper.venue && (
-                        <span className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded">
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
                           {paper.venue}
                         </span>
                       )}
                       {paper.year > 0 && (
-                        <span className="text-xs text-gray-500">{paper.year}</span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.year}</span>
                       )}
                       {paper.citation_count > 0 && (
                         <span className="text-xs text-yellow-500/80">
@@ -349,7 +412,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                       )}
                     </div>
                     {paper.relevance && (
-                      <p className="text-xs text-gray-500 italic">{paper.relevance}</p>
+                      <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>{paper.relevance}</p>
                     )}
                   </div>
                 </div>
@@ -358,15 +421,15 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           </div>
         ) : relatedStatus === 'loading' && !isRefreshing ? (
           <div className="flex items-center justify-center gap-2 py-6">
-            <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
-            <span className="text-sm text-gray-400">主体分析已完成，正在后台搜索相关论文...</span>
+            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>主体分析已完成，正在后台搜索相关论文...</span>
           </div>
         ) : relatedStatus === 'failed' && !isRefreshing ? (
           <div
             className="text-center py-6 rounded-lg border"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
           >
-            <p className="text-sm mb-1" style={{ color: '#ef4444' }}>相关论文搜索超时或失败</p>
+            <p className="text-sm mb-1" style={{ color: 'var(--error)' }}>相关论文搜索超时或失败</p>
             <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
             {paperId && (
               <button
@@ -380,7 +443,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           </div>
         ) : (
           <div className="text-center py-6">
-            <p className="text-sm text-gray-500 mb-2">暂无相关论文推荐</p>
+            <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>暂无相关论文推荐</p>
             {paperId && (
               <button
                 onClick={handleRefresh}
@@ -395,20 +458,20 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
         {/* Import progress */}
         {isImporting && importProgress && (
-          <div className="mt-3 p-3 bg-gray-800/80 rounded-lg border border-gray-700/50">
+          <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
-              <span className="text-sm text-gray-300">
+              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 正在导入... {importProgress.done}/{importProgress.total}
               </span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-1.5">
+            <div className="w-full rounded-full h-1.5" style={{ backgroundColor: 'var(--bg-surface)' }}>
               <div
                 className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${(importProgress.done / importProgress.total) * 100}%` }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1.5">
+            <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
               正在通过 Semantic Scholar 查找 PDF 并下载，请耐心等待...
             </p>
           </div>
@@ -416,12 +479,12 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
         {/* Import results summary */}
         {importResults && !isImporting && (
-          <div className="mt-3 p-3 bg-gray-800/80 rounded-lg border border-gray-700/50">
+          <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-200">导入完成</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>导入完成</span>
               <button
                 onClick={handleExitImportMode}
-                className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                className="text-xs transition-colors" style={{ color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
               >
                 关闭
               </button>
@@ -444,8 +507,8 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Limitations */}
       {result.limitations && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-2">局限性</h2>
-          <p className="text-gray-400 text-sm leading-relaxed">{result.limitations}</p>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>局限性</h2>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.limitations}</p>
         </section>
       )}
 
@@ -457,24 +520,27 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           onClick={() => !isImporting && setShowWsSelector(false)}
         >
           <div
+            ref={wsModalRef}
+            role="dialog"
+            aria-modal="true"
             className="w-96 max-h-[70vh] rounded-xl border p-5 shadow-2xl flex flex-col"
             style={{ backgroundColor: 'var(--bg-elevated, #1a1a2e)', borderColor: 'var(--border, #333)' }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-base font-semibold text-gray-200 mb-1">选择工作区</h3>
-            <p className="text-xs text-gray-400 mb-4">
+            <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>选择工作区</h3>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
               将 {selectedIndices.size} 篇论文导入到以下工作区：
             </p>
 
             {wsLoading ? (
               <div className="flex items-center justify-center py-8 gap-2">
-                <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
-                <span className="text-sm text-gray-400">加载工作区...</span>
+                <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>加载工作区...</span>
               </div>
             ) : workspaces.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-sm text-gray-500 mb-2">暂无工作区</p>
-                <p className="text-xs text-gray-600">请先在「工作区」页面创建工作区</p>
+                <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>暂无工作区</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>请先在「工作区」页面创建工作区</p>
               </div>
             ) : (
               <div className="flex-1 overflow-auto space-y-2 max-h-60">
@@ -487,8 +553,8 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                     style={{ borderColor: 'var(--border, #333)' }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-200">{ws.name}</span>
-                      <span className="text-xs text-gray-500">{ws.paper_count} 篇论文</span>
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{ws.name}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{ws.paper_count} 篇论文</span>
                     </div>
                   </button>
                 ))}

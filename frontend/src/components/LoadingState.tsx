@@ -53,16 +53,16 @@ function getStepProgress(status: AnalysisStatus, receivedFields: number): number
   if (status === 'failed') return 0
   if (status === 'idle') return 0
 
-  // extracting: 0-10%
+  // 提取阶段：0-10%
   if (status === 'extracting') return 5
 
-  // generating: 5-95% based on fields received
+  // 生成阶段：5-95%，根据已接收字段数计算
   if (status === 'generating') {
     const fieldProgress = receivedFields / TOTAL_FIELDS
     return Math.round(5 + fieldProgress * 90)
   }
 
-  // analyzing: 10-95% based on fields received
+  // 分析阶段：10-95%，根据已接收字段数计算
   if (status === 'analyzing') {
     const fieldProgress = receivedFields / TOTAL_FIELDS
     return Math.round(10 + fieldProgress * 85)
@@ -99,7 +99,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
           className="h-full transition-all duration-500 ease-out"
           style={{
             width: `${progress}%`,
-            backgroundColor: status === 'failed' ? '#ef4444' : 'var(--accent)',
+            backgroundColor: status === 'failed' ? 'var(--error)' : 'var(--accent)',
           }}
         />
       </div>
@@ -128,17 +128,17 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 key={step.key}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
                 style={{
-                  backgroundColor: isCurrentStep ? 'var(--accent-subtle)' : isDone ? 'rgba(34,197,94,0.05)' : 'transparent',
-                  border: isCurrentStep ? '1px solid rgba(37,99,235,0.2)' : isDone ? '1px solid rgba(34,197,94,0.15)' : '1px solid transparent',
+                  backgroundColor: isCurrentStep ? 'var(--accent-subtle)' : isDone ? 'var(--success-subtle)' : 'transparent',
+                  border: isCurrentStep ? '1px solid var(--accent)' : isDone ? '1px solid var(--success)' : '1px solid transparent',
                 }}
               >
                 {/* 状态图标 */}
                 <div className="w-6 h-6 flex items-center justify-center rounded-full text-xs shrink-0" style={{
-                  backgroundColor: isDone ? '#22c55e' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
-                  color: isDone || isCurrentStep ? '#ffffff' : 'var(--text-muted)',
+                  backgroundColor: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
+                  color: isDone || isCurrentStep ? 'var(--text-primary)' : 'var(--text-muted)',
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
-                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" role="status"><span className="sr-only">\u52A0\u8F7D\u4E2D</span></div>
                   ) : '\u25CB'}
                 </div>
 
@@ -146,7 +146,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium" style={{
-                      color: isDone ? '#16a34a' : isCurrentStep ? 'var(--accent)' : 'var(--text-muted)',
+                      color: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--text-muted)',
                     }}>
                       {step.label}
                     </span>
@@ -190,7 +190,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                     key={field.key}
                     className="text-xs px-2 py-0.5 rounded-full transition-colors"
                     style={received
-                      ? { backgroundColor: 'rgba(34,197,94,0.1)', color: '#16a34a', border: '1px solid rgba(34,197,94,0.2)' }
+                      ? { backgroundColor: 'var(--success-subtle)', color: 'var(--success)', border: '1px solid var(--success)' }
                       : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
                     }
                   >
@@ -215,7 +215,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
         {/* 错误状态 */}
         {status === 'failed' && (
           <div className="text-center">
-            <p className="text-sm mb-2" style={{ color: '#dc2626' }}>解析失败</p>
+            <p className="text-sm mb-2" style={{ color: 'var(--error)' }}>解析失败</p>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>请在左侧点击「重试」按钮重新分析</p>
           </div>
         )}

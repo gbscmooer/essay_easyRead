@@ -10,12 +10,12 @@ import httpx
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, create_engine
 
 logger = logging.getLogger(__name__)
 
-from ..models.schemas import AnalysisResponse, StreamEvent
+from ..models.schemas import AnalysisResponse, PaperResponse, StreamEvent
 from ..config import settings
 from ..services.database import get_paper, get_analysis, update_paper_status
 from ..utils.streaming import format_sse
@@ -125,7 +125,7 @@ class AppConfig(BaseModel):
 
 
 @router.get("/config", response_model=AppConfig)
-async def get_config():
+async def get_config() -> AppConfig:
     """获取全部配置"""
     from ..services.ai_config import load_config
     config = load_config()
@@ -146,14 +146,14 @@ async def get_config():
 
 
 @router.get("/similarity/providers")
-async def list_similarity_providers():
+async def list_similarity_providers() -> dict:
     """暴露所有已注册的 similarity provider，供 Settings 下拉使用。"""
     from ..services.deep_research.similarity import list_providers
     return {"providers": list_providers()}
 
 
 @router.post("/config")
-async def update_config(req: AppConfig):
+async def update_config(req: AppConfig) -> dict:
     """保存全部配置"""
     from ..services.ai_config import save_config
     from ..services.ai_config import load_config as _load
@@ -181,7 +181,7 @@ async def update_config(req: AppConfig):
 # 解读提示词：内置只读
 # ============================================================
 @router.get("/builtin-analysis-prompt")
-async def get_builtin_analysis_prompt():
+async def get_builtin_analysis_prompt() -> dict:
     """返回内置（只读）解读系统提示词，供前端展示与「复制为副本」。"""
     from ..services.ai_analyzer import SYSTEM_PROMPT
     return {"content": SYSTEM_PROMPT}
@@ -206,13 +206,15 @@ async def _docker_image_present(image: str) -> bool:
         await proc.wait()
         return proc.returncode == 0
     except FileNotFoundError:
+        logger.debug("Docker command not found")
         return False
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Docker image inspect failed for {image}: {e}")
         return False
 
 
 @router.get("/grobid/status")
-async def grobid_status():
+async def grobid_status() -> dict:
     """查询 GROBID 服务情况：服务是否可达 + 镜像是否已下载 + 是否正在拉取。"""
     from ..services.ai_config import get_arxiv_expand_config
     from ..services.deep_research.grobid_parser import is_grobid_alive
@@ -221,7 +223,8 @@ async def grobid_status():
     alive = False
     try:
         alive = await is_grobid_alive(url)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"GROBID health check failed: {e}")
         alive = False
     image_present = await _docker_image_present(GROBID_IMAGE)
     return {
@@ -262,7 +265,7 @@ async def _run_grobid_pull():
 
 
 @router.post("/grobid/pull")
-async def grobid_pull():
+async def grobid_pull() -> dict:
     """后台下载 GROBID 镜像（docker pull）。幂等：已在拉取则返回当前状态。"""
     if not _grobid_pull["running"]:
         asyncio.create_task(_run_grobid_pull())
@@ -290,7 +293,7 @@ class TestConnectionResponse(BaseModel):
 
 
 @router.post("/test-connection", response_model=TestConnectionResponse)
-async def test_connection(req: TestConnectionRequest):
+async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
     """测试 AI 模型服务是否可达"""
     import time
 
@@ -299,7 +302,7 @@ async def test_connection(req: TestConnectionRequest):
     elif req.type == "embedding":
         return await _test_embedding_connection(req)
     else:
-        raise HTTPException(status_code=400, detail="type 必须是 translate / analysis / embedding")
+        raise HTTPException(status_code=400, detail={"detail": "type 必须是 translate / analysis / embedding", "code": "INVALID_FORMAT"})
 
 
 async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnectionResponse:
@@ -412,16 +415,16 @@ class TextActionResponse(BaseModel):
 
 
 @router.post("/text-action", response_model=TextActionResponse)
-async def text_action(req: TextActionRequest):
+async def text_action(req: TextActionRequest) -> TextActionResponse:
     """对选中文本进行翻译或 AI 总结"""
     from ..services.ai_analyzer import _create_client
     from ..services.ai_config import get_translate_config, get_analysis_config
 
     if not req.text.strip():
-        raise HTTPException(status_code=400, detail="文本不能为空")
+        raise HTTPException(status_code=400, detail={"detail": "文本不能为空", "code": "INVALID_FORMAT"})
 
     if req.action not in ("translate", "summarize"):
-        raise HTTPException(status_code=400, detail="action 必须是 translate 或 summarize")
+        raise HTTPException(status_code=400, detail={"detail": "action 必须是 translate 或 summarize", "code": "INVALID_FORMAT"})
 
     # 根据 action 使用不同配置
     if req.action == "translate":
@@ -438,7 +441,7 @@ async def text_action(req: TextActionRequest):
     max_tokens = cfg.get("max_tokens", 2048)
 
     if not api_key:
-        raise HTTPException(status_code=400, detail="请先在配置页面设置 API Key")
+        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
 
     try:
         client = _create_client(api_key, base_url)
@@ -456,7 +459,7 @@ async def text_action(req: TextActionRequest):
             await client.close()
     except Exception as e:
         logger.error(f"Text action failed: {e}")
-        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+        raise HTTPException(status_code=500, detail={"detail": f"处理失败: {str(e)}", "code": "INTERNAL_ERROR"})
 
 
 # ============================================================
@@ -477,7 +480,7 @@ class ImportRelatedPapersRequest(BaseModel):
 # POST /api/analysis/import-related-papers
 # ============================================================
 @router.post("/import-related-papers")
-async def import_related_papers(req: ImportRelatedPapersRequest):
+async def import_related_papers(req: ImportRelatedPapersRequest) -> dict:
     """批量导入相关论文到工作区。
 
     对每篇论文：
@@ -499,7 +502,7 @@ async def import_related_papers(req: ImportRelatedPapersRequest):
     with Session(engine) as session:
         ws = session.get(Workspace, req.workspace_id)
         if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
 
     for i, paper_item in enumerate(req.papers):
         title = paper_item.title.strip()
@@ -632,8 +635,8 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
             if url:
                 return url
             # findpapers 没找到，继续走下面的默认链
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"findpapers resolve_pdf_url failed for '{title}': {e}")
 
     # ---- 1. arXiv 精确标题搜索 ----
     try:
@@ -641,8 +644,8 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
         result = await search_by_title(title)
         if result and result.get("pdf_url"):
             return result["pdf_url"]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"arXiv search_by_title failed for '{title}': {e}")
 
     # ---- 2. OpenAlex 模糊搜索（可解析出 arXiv ID / PDF URL）----
     try:
@@ -670,13 +673,14 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
                         return pdf
         finally:
             await oa.aclose()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"OpenAlex search failed for '{title}': {e}")
 
     # ---- 3. Semantic Scholar 最后备选 ----
     try:
         from ..services.semantic_scholar import _rate_limited_get, S2_BASE
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to import Semantic Scholar module: {e}")
         return None
 
     if paper_item.doi:
@@ -688,8 +692,8 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
             oa_pdf = data.get("openAccessPdf") or {}
             if oa_pdf.get("url"):
                 return oa_pdf["url"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"S2 DOI lookup failed for '{paper_item.doi}': {e}")
 
     try:
         data = await _rate_limited_get(
@@ -702,8 +706,8 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
                 oa_pdf = hit.get("openAccessPdf") or {}
                 if oa_pdf.get("url"):
                     return oa_pdf["url"]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"S2 title search failed for '{title}': {e}")
 
     return None
 
@@ -712,7 +716,7 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
 # GET /api/analysis/{paper_id}
 # ============================================================
 @router.get("/{paper_id}", response_model=AnalysisResponse)
-async def get_analysis_result(paper_id: int):
+async def get_analysis_result(paper_id: int) -> AnalysisResponse:
     """获取论文的完整解析结果"""
     engine = _get_engine()
     try:
@@ -752,7 +756,7 @@ async def get_analysis_result(paper_id: int):
 # GET /api/analysis/{paper_id}/stream
 # ============================================================
 @router.get("/{paper_id}/stream")
-async def stream_analysis(paper_id: int):
+async def stream_analysis(paper_id: int) -> StreamingResponse:
     """SSE 流式解析端点"""
     engine = _get_engine()
 
@@ -871,7 +875,7 @@ async def stream_analysis(paper_id: int):
 # POST /api/analysis/{paper_id}/start
 # ============================================================
 @router.post("/{paper_id}/start")
-async def start_analysis(paper_id: int):
+async def start_analysis(paper_id: int) -> dict:
     """在后台启动论文分析（不依赖 SSE 连接）。
 
     幂等：若任务已在运行则直接返回当前进度。前端可先调用本接口启动，
@@ -912,7 +916,7 @@ async def start_analysis(paper_id: int):
 # GET /api/analysis/{paper_id}/progress
 # ============================================================
 @router.get("/{paper_id}/progress")
-async def get_analysis_progress(paper_id: int):
+async def get_analysis_progress(paper_id: int) -> dict:
     """查询后台分析进度（无需保持 SSE 连接）。"""
     engine = _get_engine()
     try:
@@ -940,7 +944,7 @@ async def get_analysis_progress(paper_id: int):
 # POST /api/analysis/{paper_id}/reparse
 # ============================================================
 @router.post("/{paper_id}/reparse")
-async def reparse_paper(paper_id: int):
+async def reparse_paper(paper_id: int) -> PaperResponse:
     """重新解析一篇论文"""
     engine = _get_engine()
     try:
@@ -964,7 +968,6 @@ async def reparse_paper(paper_id: int):
     with Session(engine) as session:
         paper = get_paper(session, paper_id)
 
-    from ..models.schemas import PaperResponse
     return PaperResponse(
         id=paper["id"],
         filename=paper["filename"],
@@ -984,7 +987,7 @@ async def reparse_paper(paper_id: int):
 # POST /api/analysis/{paper_id}/related-papers
 # ============================================================
 @router.post("/{paper_id}/related-papers")
-async def refresh_related_papers(paper_id: int):
+async def refresh_related_papers(paper_id: int) -> list:
     """刷新相关论文（根据设置使用 findpapers 或 Semantic Scholar）"""
     engine = _get_engine()
 
@@ -993,11 +996,11 @@ async def refresh_related_papers(paper_id: int):
         with Session(engine) as session:
             analysis = get_analysis(session, paper_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="分析结果不存在")
+        raise HTTPException(status_code=404, detail={"detail": "分析结果不存在", "code": "NOT_FOUND"})
 
     paper_title = analysis.get("title", "")
     if not paper_title:
-        raise HTTPException(status_code=400, detail="论文标题为空，无法搜索")
+        raise HTTPException(status_code=400, detail={"detail": "论文标题为空，无法搜索", "code": "INVALID_FORMAT"})
 
     from ..services.ai_config import get_analysis_config, get_findpapers_config
 

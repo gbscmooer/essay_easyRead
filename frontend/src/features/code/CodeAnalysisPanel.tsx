@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import mermaid from 'mermaid'
 import type { CodeAnalysisResult, DependencyEdge, PaperCodeMapping } from '@/types'
 import { getCodeFile } from '@/api/code'
 import { useThemeMode } from '@/theme/useTheme'
@@ -27,7 +26,7 @@ type TabKey = typeof tabs[number]['key']
 
 function DataFlowTab({ dataFlow }: { dataFlow: string | null }) {
   if (!dataFlow) {
-    return <div className="text-gray-500 text-sm text-center py-8">暂无数据流分析</div>
+    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无数据流分析</div>
   }
   return (
     <div className="prose prose-invert prose-sm max-w-none text-sm leading-relaxed">
@@ -74,9 +73,19 @@ function edgesToMermaid(edges: DependencyEdge[]): string {
   return lines.join('\n')
 }
 
+let mermaidModule: typeof import('mermaid') | null = null
 let mermaidMode: 'light' | 'dark' | null = null
-function ensureMermaid(mode: 'light' | 'dark') {
-  if (mermaidMode === mode) return
+
+async function getMermaidInstance() {
+  if (!mermaidModule) {
+    mermaidModule = await import('mermaid')
+  }
+  return mermaidModule.default
+}
+
+async function ensureMermaid(mode: 'light' | 'dark') {
+  const mermaid = await getMermaidInstance()
+  if (mermaidMode === mode) return mermaid
   const cs = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
   mermaid.initialize({
@@ -99,6 +108,7 @@ function ensureMermaid(mode: 'light' | 'dark') {
     },
   })
   mermaidMode = mode
+  return mermaid
 }
 
 function stripEventHandlers(svg: string): string {
@@ -138,12 +148,16 @@ function DependencyGraph({
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid(mode)
-    const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    mermaid.render(id, chart).then(
-      ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
-      (err) => { setError(err?.message || '渲染失败'); setSvg('') },
-    )
+    let cancelled = false
+    ensureMermaid(mode).then(mermaid => {
+      if (cancelled) return
+      const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      mermaid.render(id, chart).then(
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
+      )
+    })
+    return () => { cancelled = true }
   }, [chart, mode])
 
   useEffect(() => {
@@ -167,28 +181,31 @@ function DependencyGraph({
 
   if (error) {
     return (
-      <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
-        <p className="text-red-400 text-xs mb-2">依赖图渲染失败</p>
-        <pre className="text-gray-500 text-xs whitespace-pre-wrap">{chart}</pre>
+      <div className="rounded-lg p-4 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
+        <p className="text-xs mb-2" style={{ color: 'var(--error)' }}>依赖图渲染失败</p>
+        <pre className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-muted)' }}>{chart}</pre>
       </div>
     )
   }
 
   return (
     <div className="relative">
-      <div ref={containerRef} className="mermaid bg-gray-800/30 rounded-lg p-4 overflow-auto flex justify-center">
+      <div ref={containerRef} className="mermaid rounded-lg p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-elevated)' }}>
         {svg ? (
           <div dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
           <div className="flex items-center justify-center py-8">
-            <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
           </div>
         )}
       </div>
       {svg && onFullscreen && (
         <button
           onClick={onFullscreen}
-          className="absolute top-2 right-2 p-1.5 rounded bg-gray-800/80 hover:bg-gray-700/80 text-gray-400 hover:text-gray-200 transition-colors"
+          className="absolute top-2 right-2 p-1.5 rounded transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', opacity: 0.8, color: 'var(--text-secondary)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; (e.currentTarget as HTMLElement).style.opacity = '1' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; (e.currentTarget as HTMLElement).style.opacity = '0.8' }}
           title="全屏查看"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -222,12 +239,16 @@ function FullscreenGraph({
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid(mode)
-    const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    mermaid.render(id, chart).then(
-      ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
-      (err) => { setError(err?.message || '渲染失败'); setSvg('') },
-    )
+    let cancelled = false
+    ensureMermaid(mode).then(mermaid => {
+      if (cancelled) return
+      const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      mermaid.render(id, chart).then(
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
+      )
+    })
+    return () => { cancelled = true }
   }, [chart, mode])
 
   useEffect(() => {
@@ -264,15 +285,19 @@ function FullscreenGraph({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-[85vw] h-[80vh] bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
-          <span className="text-sm font-medium text-gray-200">依赖图</span>
+      <div className="relative w-[85vw] h-[80vh] rounded-xl shadow-2xl border flex flex-col overflow-hidden"
+        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-light)' }}>
+        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-light)' }}>
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>依赖图</span>
           <div className="flex items-center gap-2">
-            <button onClick={zoomOut} className="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors">缩小</button>
-            <span className="text-xs text-gray-400 w-10 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={zoomIn} className="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors">放大</button>
-            <button onClick={zoomReset} className="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors">重置</button>
-            <button onClick={onClose} className="ml-2 p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
+            <button onClick={zoomOut} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>缩小</button>
+            <span className="text-xs w-10 text-center" style={{ color: 'var(--text-secondary)' }}>{Math.round(zoom * 100)}%</span>
+            <button onClick={zoomIn} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>放大</button>
+            <button onClick={zoomReset} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>重置</button>
+            <button onClick={onClose} className="ml-2 p-1 rounded transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -287,7 +312,7 @@ function FullscreenGraph({
               <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
           ) : (
-            <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
           )}
         </div>
       </div>
@@ -299,7 +324,7 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
   const [showFullscreen, setShowFullscreen] = useState(false)
 
   if (!edges || edges.length === 0) {
-    return <div className="text-gray-500 text-sm text-center py-8">暂无依赖分析</div>
+    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无依赖分析</div>
   }
 
   const grouped = new Map<string, DependencyEdge[]>()
@@ -319,7 +344,7 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
 
       <div className="space-y-3">
         {Array.from(grouped.entries()).map(([source, deps]) => (
-          <div key={source} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+          <div key={source} className="rounded-lg p-3 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
             <button
               onClick={() => onFileClick?.(source)}
               className="text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors"
@@ -329,15 +354,15 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
             <div className="mt-1.5 space-y-1">
               {deps.map((dep, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-600">→</span>
+                  <span style={{ color: 'var(--text-muted)' }}>→</span>
                   <button
                     onClick={() => onFileClick?.(dep.target)}
-                    className="font-mono text-gray-400 hover:text-gray-200 transition-colors"
+                    className="font-mono transition-colors" style={{ color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                   >
                     {dep.target}
                   </button>
                   {dep.imports.length > 0 && (
-                    <span className="text-gray-600">
+                    <span style={{ color: 'var(--text-muted)' }}>
                       ({dep.imports.join(', ')})
                     </span>
                   )}
@@ -435,22 +460,22 @@ function PaperMappingTab({
   paperId?: number
 }) {
   if (!mappings || mappings.length === 0) {
-    return <div className="text-gray-500 text-sm text-center py-8">暂无论文-代码映射</div>
+    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无论文-代码映射</div>
   }
 
   return (
     <div className="space-y-3">
       {mappings.map((m, idx) => (
-        <div key={idx} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+        <div key={idx} className="rounded-lg p-3 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
           <div className="flex items-start gap-2 mb-2">
             <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium">
               {idx + 1}
             </span>
-            <span className="text-sm font-medium text-gray-200">{m.concept}</span>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.concept}</span>
           </div>
           <div className="pl-7 space-y-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">文件:</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>文件:</span>
               <button
                 onClick={() => onFileClick?.(m.file)}
                 className="text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors"
@@ -459,7 +484,7 @@ function PaperMappingTab({
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">函数:</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>函数:</span>
               {paperId != null && onFileClick ? (
                 <FunctionNameButton
                   funcName={m.function}
@@ -468,10 +493,10 @@ function PaperMappingTab({
                   onFileClick={onFileClick}
                 />
               ) : (
-                <span className="text-xs font-mono text-gray-300">{m.function}</span>
+                <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{m.function}</span>
               )}
             </div>
-            <p className="text-xs text-gray-400 leading-relaxed">{m.explanation}</p>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{m.explanation}</p>
           </div>
         </div>
       ))}
@@ -486,16 +511,15 @@ export function CodeAnalysisPanel({ analysis, isAnalyzing, paperId, onFileClick,
   return (
     <div className="flex flex-col h-full">
       {/* Tab 栏 */}
-      <div className="flex items-center gap-0 shrink-0 border-b border-gray-800">
+      <div className="flex items-center gap-0 shrink-0 border-b" style={{ borderColor: 'var(--border)' }}>
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-3 py-2 text-xs font-medium transition-colors relative ${
-              activeTab === tab.key
-                ? 'text-blue-400'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
+            className="px-3 py-2 text-xs font-medium transition-colors relative"
+              style={activeTab === tab.key ? { color: 'var(--accent)' } : { color: 'var(--text-muted)' }}
+              onMouseEnter={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             {tab.label}
             {activeTab === tab.key && (
@@ -509,8 +533,8 @@ export function CodeAnalysisPanel({ analysis, isAnalyzing, paperId, onFileClick,
       <div className="flex-1 overflow-auto p-4">
         {isAnalyzing && !analysis ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
-            <p className="text-sm text-gray-500">正在分析代码...</p>
+            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>正在分析代码...</p>
           </div>
         ) : (
           <>
