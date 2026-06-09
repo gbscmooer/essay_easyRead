@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Note } from '@/types'
 import { listNotes, createNote, updateNote, deleteNote } from '@/api/notes'
+import { toast } from '@/hooks/useToast'
 
 interface NotesPanelProps {
   paperId: number
@@ -16,8 +17,8 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
     try {
       const result = await listNotes(paperId)
       setNotes(result)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '加载笔记失败' })
     }
   }, [paperId])
 
@@ -29,8 +30,8 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       await createNote(paperId, newContent.trim())
       setNewContent('')
       fetchNotes()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '创建笔记失败' })
     }
   }
 
@@ -40,8 +41,8 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       await updateNote(noteId, editContent.trim())
       setEditingId(null)
       fetchNotes()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '更新笔记失败' })
     }
   }
 
@@ -49,8 +50,8 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
     try {
       await deleteNote(noteId)
       fetchNotes()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '删除笔记失败' })
     }
   }
 
