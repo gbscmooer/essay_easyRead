@@ -5,7 +5,7 @@
  * 清新学术风格：简洁 Tab 栏 + 清晰内容区。
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AnalysisResult, AnalysisStatus } from '@/types'
 import { LoadingState } from '@/components/LoadingState'
 import { OverviewTab } from './tabs/OverviewTab'
@@ -45,6 +45,27 @@ type TabKey = typeof tabs[number]['key']
 export function AnalysisPanel({ result, partialResult, status, progressMessage, progress, relatedStatus, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false)
+  const tabRefs = useRef<Map<TabKey, HTMLButtonElement>>(new Map())
+
+  const registerTabRef = useCallback((key: TabKey, el: HTMLButtonElement | null) => {
+    if (el) tabRefs.current.set(key, el)
+    else tabRefs.current.delete(key)
+  }, [])
+
+  const handleTabKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const idx = tabs.findIndex(t => t.key === activeTab)
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      const next = tabs[(idx + 1) % tabs.length]
+      setActiveTab(next.key)
+      tabRefs.current.get(next.key)?.focus()
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      const prev = tabs[(idx - 1 + tabs.length) % tabs.length]
+      setActiveTab(prev.key)
+      tabRefs.current.get(prev.key)?.focus()
+    }
+  }, [activeTab])
 
   // Keyboard shortcuts: 1-7 to switch tabs
   useEffect(() => {
@@ -100,14 +121,20 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   return (
     <div className="flex flex-col h-full">
       {/* Tab 栏 */}
-      <div className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={{
+      <div role="tablist" className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={{
         backgroundColor: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
       }}>
         {tabs.map((tab, i) => (
           <button
             key={tab.key}
+            ref={el => registerTabRef(tab.key, el)}
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            aria-controls={`panel-${tab.key}`}
+            tabIndex={activeTab === tab.key ? 0 : -1}
             onClick={() => setActiveTab(tab.key)}
+            onKeyDown={handleTabKeyDown}
             className="px-4 py-2.5 text-sm font-medium transition-colors relative"
             title={`${tab.label} (${i + 1})`}
             style={
@@ -127,6 +154,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
           <>
             <button
               onClick={() => setShowReanalyzeConfirm(true)}
+              aria-label="重新分析"
               className="px-3 py-1.5 mr-2 text-xs rounded-md transition-colors"
               style={{ color: 'var(--text-muted)' }}
               title="全部重新分析"
@@ -162,6 +190,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                   </div>
                   <div className="flex justify-end gap-2">
                     <button
+                      aria-label="取消重新分析"
                       onClick={() => setShowReanalyzeConfirm(false)}
                       className="px-3 py-1.5 text-xs rounded-md border transition-colors hover:opacity-80"
                       style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
@@ -169,6 +198,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                       取消
                     </button>
                     <button
+                      aria-label="确认重新分析"
                       onClick={() => { setShowReanalyzeConfirm(false); onReanalyze() }}
                       className="px-3 py-1.5 text-xs rounded-md transition-colors"
                       style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
@@ -184,7 +214,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-auto p-6">
+      <div role="tabpanel" id={`panel-${activeTab}`} className="flex-1 overflow-auto p-6">
         {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} relatedStatus={relatedStatus} />}
         {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'method' && <MethodTab result={result} />}

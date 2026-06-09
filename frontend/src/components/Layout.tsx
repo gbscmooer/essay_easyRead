@@ -77,7 +77,8 @@ export function Layout({ children }: LayoutProps) {
       }}>
         <button
           onClick={toggleVersion}
-          className={`font-semibold transition-colors cursor-pointer ${navCollapsed ? 'text-sm' : 'text-base'}`}
+          aria-label="Easy Essay 首页"
+          className={`font-semibold transition-colors cursor-pointer hover:opacity-80 ${navCollapsed ? 'text-sm' : 'text-base'}`}
           style={{ color: 'var(--text-primary)', background: 'none', border: 'none' }}
         >
           <span style={{ color: 'var(--accent)' }}>&#9670;</span> Easy Essay
@@ -109,6 +110,8 @@ export function Layout({ children }: LayoutProps) {
 
         <button
           onClick={() => setNavCollapsed(v => !v)}
+          aria-label={navCollapsed ? '展开导航栏' : '收起导航栏'}
+          aria-expanded={!navCollapsed}
           className="p-1.5 rounded-md transition-colors"
           style={{ color: 'var(--text-muted)' }}
           title={navCollapsed ? '展开导航栏' : '收起导航栏'}

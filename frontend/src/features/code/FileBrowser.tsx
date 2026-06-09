@@ -85,6 +85,7 @@ function TreeNode({
     const { icon, color } = getFileIcon(node.name)
     return (
       <button
+        role="treeitem"
         onClick={() => onSelect(node.path)}
         className="w-full text-left flex items-center gap-1.5 py-[2px] text-[13px] group transition-colors"
         style={{
@@ -127,6 +128,8 @@ function TreeNode({
   return (
     <div>
       <button
+        role="treeitem"
+        aria-expanded={expanded}
         onClick={() => setExpanded(v => !v)}
         className="w-full text-left flex items-center gap-1 py-[2px] text-[13px] transition-colors"
         style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8, color: 'var(--code-text)' }}
@@ -186,11 +189,11 @@ export function FileBrowser({ tree, selected, onSelect }: FileBrowserProps) {
   }
 
   return (
-    <div className="overflow-auto h-full py-1" style={{ backgroundColor: 'var(--code-bg)' }}>
+    <div role="tree" className="overflow-auto h-full py-1" style={{ backgroundColor: 'var(--code-bg)' }}>
       {/* 标题 */}
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--code-text)' }}>
         <span>资源管理器</span>
-        <button className="transition-colors" style={{ color: 'var(--code-text-muted)' }}
+        <button aria-label="新建文件" className="transition-colors" style={{ color: 'var(--code-text-muted)' }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--code-text-bright)' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--code-text-muted)' }}
         >

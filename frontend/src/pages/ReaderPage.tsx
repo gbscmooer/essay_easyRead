@@ -243,6 +243,8 @@ export default function ReaderPage() {
           }}>
             <button
               onClick={() => setSidebarOpen(v => !v)}
+              aria-label="切换侧边栏"
+              aria-expanded={sidebarOpen}
               className="p-1.5 rounded-md transition-colors"
               style={{ color: 'var(--text-muted)' }}
               title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
@@ -275,6 +277,8 @@ export default function ReaderPage() {
 
               <button
                 onClick={() => setPanelOpen(v => !v)}
+                aria-label="切换分析面板"
+                aria-expanded={panelOpen}
                 className="p-1.5 rounded-md transition-colors"
                 style={{ color: 'var(--text-muted)' }}
                 title={panelOpen ? '收起分析面板' : '展开分析面板'}
