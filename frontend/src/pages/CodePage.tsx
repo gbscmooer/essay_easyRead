@@ -8,6 +8,7 @@ import { FileBrowser } from '@/features/code/FileBrowser'
 import { CodeViewer } from '@/features/code/CodeViewer'
 import { CodeAnalysisPanel } from '@/features/code/CodeAnalysisPanel'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 
 export default function CodePage() {
@@ -141,7 +142,7 @@ export default function CodePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+        <LoadingSpinner size="lg" />
       </div>
     )
   }

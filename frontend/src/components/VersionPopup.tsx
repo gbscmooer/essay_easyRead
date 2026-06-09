@@ -8,6 +8,9 @@ const CURRENT_RELEASE = {
   changes: [
     '添加路由级ErrorBoundary，页面崩溃时显示友好错误提示并支持重试',
     '修复catch块类型安全，统一使用unknown类型替代any',
+    '统一加载状态组件：新增LoadingSpinner，替换所有页面内联spinner',
+    '替换原生confirm()为ConfirmDialog组件（工作区批量移除、单篇移除）',
+    '移除重复TestButton：SettingsPage改用独立组件，统一CSS变量样式',
   ],
 }
 

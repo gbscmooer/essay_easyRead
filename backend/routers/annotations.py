@@ -51,11 +51,7 @@ class AnnotationResponse(BaseModel):
 
 
 @router.get("/paper/{paper_id}", response_model=list[AnnotationResponse])
-<<<<<<< HEAD
-async def list_annotations(paper_id: int):
-=======
 async def list_annotations(paper_id: int) -> list[AnnotationResponse]:
->>>>>>> worktree-agent-af1e8d0021794f851
     engine = _get_engine()
     with Session(engine) as session:
         annotations = session.exec(
@@ -75,11 +71,7 @@ async def list_annotations(paper_id: int) -> list[AnnotationResponse]:
 
 
 @router.post("/paper/{paper_id}", response_model=AnnotationResponse)
-<<<<<<< HEAD
-async def create_annotation(paper_id: int, req: AnnotationCreate):
-=======
 async def create_annotation(paper_id: int, req: AnnotationCreate) -> AnnotationResponse:
->>>>>>> worktree-agent-af1e8d0021794f851
     engine = _get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
@@ -110,11 +102,7 @@ async def create_annotation(paper_id: int, req: AnnotationCreate) -> AnnotationR
 
 
 @router.delete("/group/{group_id}")
-<<<<<<< HEAD
-async def delete_annotation_group(group_id: str):
-=======
 async def delete_annotation_group(group_id: str) -> dict:
->>>>>>> worktree-agent-af1e8d0021794f851
     """Delete all annotations sharing the same group_id (created in one action)."""
     engine = _get_engine()
     with Session(engine) as session:
@@ -130,11 +118,7 @@ async def delete_annotation_group(group_id: str) -> dict:
 
 
 @router.delete("/{annotation_id}")
-<<<<<<< HEAD
-async def delete_annotation(annotation_id: int):
-=======
 async def delete_annotation(annotation_id: int) -> dict:
->>>>>>> worktree-agent-af1e8d0021794f851
     engine = _get_engine()
     with Session(engine) as session:
         annotation = session.get(Annotation, annotation_id)

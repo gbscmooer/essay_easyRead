@@ -8,24 +8,29 @@ import asyncio
 import logging
 import httpx
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-<<<<<<< HEAD
-from pydantic import BaseModel
-from sqlmodel import Session
-=======
 from pydantic import BaseModel, Field
 from sqlmodel import Session, create_engine
->>>>>>> worktree-agent-af1e8d0021794f851
 
 logger = logging.getLogger(__name__)
 
 from ..models.schemas import AnalysisResponse, PaperResponse, StreamEvent
 from ..config import settings
-from ..services.database import get_paper, get_analysis, get_engine, update_paper_status
+from ..services.database import get_paper, get_analysis, update_paper_status
 from ..utils.streaming import format_sse
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+
+_engine = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
+    return _engine
 
 
 # ============================================================
@@ -63,9 +68,7 @@ class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
-    similarity_threshold: float = 0.9  # 已弃用，相似边改用 kNN 稀疏化
-    knn_k: int = 8                      # 每篇论文最多保留 K 条最相似的边
-    link_distance: float = 50
+    similarity_threshold: float = 0.9
 
 class RerankerConfig(BaseModel):
     enabled: bool = True
@@ -76,21 +79,9 @@ class RerankerConfig(BaseModel):
     candidate_k: int = 30       # 向量检索召回数
     top_n: int = 5              # rerank 后送 LLM 的条数
 
-class FacetWeights(BaseModel):
-    """facet_weighted 各维度权重（保存时不强制归一化，provider 内部归一化）。"""
-    purpose: float = 0.5
-    method: float = 0.2
-    baseline: float = 0.15
-    dataset: float = 0.05
-
-class FacetWeightedConfig(BaseModel):
-    weights: FacetWeights = FacetWeights()
-    use_embedding: bool = True
-
 class SimilarityConfig(BaseModel):
     """论文级相似度 provider 配置。"""
     provider: str = "bge_centroid"
-    facet_weighted: FacetWeightedConfig = FacetWeightedConfig()
 
 class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
@@ -148,7 +139,7 @@ async def get_config() -> AppConfig:
         embedding=EmbeddingConfig(**config.get("embedding", {})),
         research=ResearchConfig(**config.get("research", {})),
         reranker=RerankerConfig(**config.get("reranker", {})),
-        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider", "facet_weighted")}),
+        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
         findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
     )
@@ -287,11 +278,12 @@ async def grobid_pull() -> dict:
 
 class TestConnectionRequest(BaseModel):
     """测试模型连通性请求"""
-    type: str = Field(..., pattern=r"^(translate|analysis|embedding)$")
-    api_key: Optional[str] = Field(None, max_length=500)
-    base_url: Optional[str] = Field(None, max_length=500)
-    model: Optional[str] = Field(None, max_length=100)
-    provider: Optional[str] = Field(None, max_length=50)
+    type: str  # "translate" | "analysis" | "embedding"
+    # 可选：前端直接传入当前表单配置，不传则用已保存的配置
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None  # embedding 专用
 
 
 class TestConnectionResponse(BaseModel):
@@ -415,8 +407,8 @@ async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnecti
 # ============================================================
 
 class TextActionRequest(BaseModel):
-    text: str = Field(..., max_length=5000)
-    action: str = Field(..., pattern=r"^(translate|summarize)$")
+    text: str
+    action: str  # "translate" | "summarize"
 
 class TextActionResponse(BaseModel):
     result: str
@@ -471,12 +463,12 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
 
 
 # ============================================================
-# 导入端点的 Pydantic 模型（提前定义，后续使用）
+# Pydantic models for import endpoint (defined early, used later)
 # ============================================================
 class ImportPaperItem(BaseModel):
-    title: str = Field(..., max_length=500)
-    doi: str = Field("", max_length=100)
-    url: str = Field("", max_length=1000)
+    title: str
+    doi: str = ""
+    url: str = ""
 
 
 class ImportRelatedPapersRequest(BaseModel):
@@ -503,7 +495,7 @@ async def import_related_papers(req: ImportRelatedPapersRequest) -> dict:
     from ..services.deep_research.pdf_downloader import download_pdf
     from sqlmodel import select
 
-    engine = get_engine()
+    engine = _get_engine()
     results = []
 
     # 验证工作区存在
@@ -720,15 +712,13 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
     return None
 
 
-
-
 # ============================================================
 # GET /api/analysis/{paper_id}
 # ============================================================
 @router.get("/{paper_id}", response_model=AnalysisResponse)
 async def get_analysis_result(paper_id: int) -> AnalysisResponse:
     """获取论文的完整解析结果"""
-    engine = get_engine()
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -768,7 +758,7 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
 @router.get("/{paper_id}/stream")
 async def stream_analysis(paper_id: int) -> StreamingResponse:
     """SSE 流式解析端点"""
-    engine = get_engine()
+    engine = _get_engine()
 
     # 获取论文状态
     try:
@@ -891,7 +881,7 @@ async def start_analysis(paper_id: int) -> dict:
     幂等：若任务已在运行则直接返回当前进度。前端可先调用本接口启动，
     再连接 /stream 获取实时进度；中途切换页面也不会中断分析。
     """
-    engine = get_engine()
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -928,7 +918,7 @@ async def start_analysis(paper_id: int) -> dict:
 @router.get("/{paper_id}/progress")
 async def get_analysis_progress(paper_id: int) -> dict:
     """查询后台分析进度（无需保持 SSE 连接）。"""
-    engine = get_engine()
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -956,7 +946,7 @@ async def get_analysis_progress(paper_id: int) -> dict:
 @router.post("/{paper_id}/reparse")
 async def reparse_paper(paper_id: int) -> PaperResponse:
     """重新解析一篇论文"""
-    engine = get_engine()
+    engine = _get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -999,7 +989,7 @@ async def reparse_paper(paper_id: int) -> PaperResponse:
 @router.post("/{paper_id}/related-papers")
 async def refresh_related_papers(paper_id: int) -> list:
     """刷新相关论文（根据设置使用 findpapers 或 Semantic Scholar）"""
-    engine = get_engine()
+    engine = _get_engine()
 
     # 获取已有分析结果
     try:
@@ -1048,60 +1038,3 @@ async def refresh_related_papers(paper_id: int) -> list:
         update_related_papers(session, paper_id, related)
 
     return related
-
-
-# ============================================================
-# GET /api/analysis/{paper_id}/bibtex
-# ============================================================
-@router.get("/{paper_id}/bibtex")
-async def export_bibtex(paper_id: int):
-    """导出论文解析结果为 BibTeX 格式"""
-    import re
-    from fastapi.responses import Response
-
-    engine = _get_engine()
-    try:
-        with Session(engine) as session:
-            paper = get_paper(session, paper_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"})
-
-    if paper["status"] != "done":
-        raise HTTPException(status_code=400, detail={"detail": "Paper analysis is not completed yet", "code": "NOT_READY"})
-
-    try:
-        with Session(engine) as session:
-            analysis = get_analysis(session, paper_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail={"detail": f"Analysis for paper {paper_id} not found", "code": "NOT_FOUND"})
-
-    title = analysis.get("title", "Unknown")
-    authors = analysis.get("authors", "")
-    venue = analysis.get("venue", "Unknown")
-    year = analysis.get("year", 0)
-
-    cite_key = re.sub(r"[^\w]", "", title.lower().split()[0] if title else "paper") + str(year)
-
-    entry_type = "inproceedings" if venue and venue not in ("Unknown", "") else "article"
-
-    lines = [f"@{entry_type}{{{cite_key},"]
-    lines.append(f"  title     = {{{title}}},")
-    if authors:
-        lines.append(f"  author    = {{{authors}}},")
-    if year:
-        lines.append(f"  year      = {{{year}}},")
-    if venue and venue != "Unknown":
-        if entry_type == "inproceedings":
-            lines.append(f"  booktitle = {{{venue}}},")
-        else:
-            lines.append(f"  journal   = {{{venue}}},")
-    lines.append("}")
-
-    bibtex = "\n".join(lines)
-    safe_title = re.sub(r"[^\w\s\-.]", "", title).strip() or "paper"
-
-    return Response(
-        content=bibtex,
-        media_type="text/plain",
-        headers={"Content-Disposition": f'attachment; filename="{safe_title}.bib"'},
-    )
