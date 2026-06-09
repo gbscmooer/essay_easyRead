@@ -4,12 +4,17 @@ Code 路由
 处理代码仓库的 clone、文件浏览和代码分析。
 """
 
+import asyncio
+import json
 import logging
+import os
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 
 from ..config import settings
+from ..models.paper import Paper as PaperModel
+from ..models.code_analysis import CodeAnalysis
 from ..models.schemas import StreamEvent, CodeAnalysisResponse, CodeSummaryResponse
 from ..utils.streaming import format_sse
 
@@ -33,41 +38,46 @@ def _get_engine():
 # ============================================================
 @router.post("/{paper_id}/extract-url")
 async def extract_url(paper_id: int) -> dict:
-    """重新从论文中提取代码仓库 URL"""
+    """重新从论文中提取代码仓库 URL（优先使用数据库中的 full_text，避免重复解析 PDF）"""
     engine = _get_engine()
 
-    from ..services.database import get_paper
-    try:
-        with Session(engine) as session:
-            paper = get_paper(session, paper_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
-
-    # 获取 PDF 文件路径
-    from ..models.paper import Paper as PaperModel
     with Session(engine) as session:
-        db_paper = session.get(PaperModel, paper_id)
-        if not db_paper:
+        paper = session.get(PaperModel, paper_id)
+        if not paper:
             raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
-        pdf_path = db_paper.pdf_path
 
-    # 提取 PDF 文本并用正则搜索代码 URL
-    from ..services.pdf_parser import extract_pdf_content
-    from ..services.ai_analyzer import extract_code_url
+        # 优先使用数据库中已有的 full_text，避免重新解析 PDF
+        if paper.full_text:
+            from ..services.ai_analyzer import extract_code_url
+            code_url = extract_code_url(paper.full_text)
+            if code_url:
+                paper.code_url = code_url
+                session.add(paper)
+                session.commit()
+                return {"code_url": code_url}
 
-    try:
-        content = extract_pdf_content(pdf_path)
-    except Exception as e:
-        logger.warning(f"PDF extraction failed for {paper_id}: {e}")
-        return {"code_url": None}
-    code_url = extract_code_url(content.full_text)
+        # 回退：解析 PDF
+        pdf_path = paper.pdf_path
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail={"detail": "PDF文件不存在", "code": "NOT_FOUND"})
 
-    # 更新数据库
-    from ..services.database import update_paper_code_url
-    with Session(engine) as session:
-        update_paper_code_url(session, paper_id, code_url)
+        from ..services.pdf_parser import extract_pdf_content
+        from ..services.ai_analyzer import extract_code_url
 
-    return {"code_url": code_url or None}
+        try:
+            content = await asyncio.to_thread(extract_pdf_content, pdf_path)
+        except Exception as e:
+            logger.warning(f"PDF extraction failed for {paper_id}: {e}")
+            return {"code_url": None}
+
+        code_url = extract_code_url(content.full_text)
+
+        if code_url:
+            paper.code_url = code_url
+            session.add(paper)
+            session.commit()
+
+        return {"code_url": code_url or None}
 
 
 # ============================================================
@@ -78,7 +88,6 @@ async def clone_repo(paper_id: int) -> dict:
     """Clone 论文的代码仓库"""
     engine = _get_engine()
 
-    # 获取论文信息
     from ..services.database import get_paper
     try:
         with Session(engine) as session:
@@ -86,15 +95,13 @@ async def clone_repo(paper_id: int) -> dict:
     except ValueError:
         raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
 
-    code_url = paper.code_url
+    code_url = paper.get("code_url")
     if not code_url:
         raise HTTPException(status_code=400, detail={"detail": "该论文未找到代码仓库 URL", "code": "NOT_FOUND"})
 
     # 更新状态为 cloning
-    from ..services.database import update_paper_status
     with Session(engine) as session:
-        from ..models.paper import Paper
-        db_paper = session.get(Paper, paper_id)
+        db_paper = session.get(PaperModel, paper_id)
         if db_paper:
             db_paper.code_status = "cloning"
             session.add(db_paper)
@@ -106,7 +113,7 @@ async def clone_repo(paper_id: int) -> dict:
 
         # 更新状态为 ready
         with Session(engine) as session:
-            db_paper = session.get(Paper, paper_id)
+            db_paper = session.get(PaperModel, paper_id)
             if db_paper:
                 db_paper.code_status = "ready"
                 db_paper.code_path = clone_path
@@ -118,7 +125,7 @@ async def clone_repo(paper_id: int) -> dict:
     except Exception as e:
         logger.error(f"Clone failed: {e}")
         with Session(engine) as session:
-            db_paper = session.get(Paper, paper_id)
+            db_paper = session.get(PaperModel, paper_id)
             if db_paper:
                 db_paper.code_status = "failed"
                 session.add(db_paper)
@@ -131,27 +138,34 @@ async def clone_repo(paper_id: int) -> dict:
 # ============================================================
 @router.get("/{paper_id}/tree")
 async def get_file_tree(paper_id: int) -> dict:
-    """获取代码仓库的文件树"""
+    """获取代码仓库的文件树（优先从 code_analyses 缓存读取）"""
     engine = _get_engine()
 
-    from ..services.database import get_paper
-    try:
-        with Session(engine) as session:
-            paper = get_paper(session, paper_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
+    with Session(engine) as session:
+        # 优先从 code_analyses 表读取已缓存的文件树
+        analysis = session.exec(
+            select(CodeAnalysis).where(CodeAnalysis.paper_id == paper_id)
+        ).first()
 
-    code_status = paper.code_status or "none"
-    if code_status != "ready":
-        raise HTTPException(status_code=400, detail={"detail": f"代码仓库状态: {code_status}", "code": "NOT_READY"})
+        if analysis and analysis.file_tree:
+            return {"file_tree": analysis.file_tree}
 
-    code_path = paper.code_path
-    if not code_path:
-        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
+        # 回退：从磁盘构建
+        paper = session.get(PaperModel, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
 
-    from ..services.code_analyzer import build_file_tree
-    tree = build_file_tree(code_path)
-    return tree
+        code_status = paper.code_status or "none"
+        if code_status != "ready":
+            raise HTTPException(status_code=400, detail={"detail": f"代码仓库状态: {code_status}", "code": "NOT_READY"})
+
+        code_path = paper.code_path
+        if not code_path or not os.path.exists(code_path):
+            raise HTTPException(status_code=404, detail={"detail": "代码目录不存在", "code": "NOT_FOUND"})
+
+        from ..services.code_analyzer import build_file_tree
+        tree = await asyncio.to_thread(build_file_tree, code_path)
+        return {"file_tree": tree}
 
 
 # ============================================================
@@ -169,7 +183,7 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
     except ValueError:
         raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
 
-    code_path = paper.code_path
+    code_path = paper.get("code_path")
     if not code_path:
         raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
 
@@ -201,11 +215,11 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
     except ValueError:
         raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
 
-    code_status = paper.code_status or "none"
+    code_status = paper.get("code_status", "none")
     if code_status != "ready":
         raise HTTPException(status_code=400, detail={"detail": "代码仓库未就绪", "code": "NOT_READY"})
 
-    code_path = paper.code_path
+    code_path = paper.get("code_path")
     if not code_path:
         raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
 
@@ -248,7 +262,7 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                 from ..services.code_analyzer import ai_analyze_data_flow
                 data_flow = await ai_analyze_data_flow(
                     file_contents,
-                    paper.title or "",
+                    paper.get("title", ""),
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],
                     ai_cfg["model"],
@@ -264,24 +278,17 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                 # 获取已有的 code_mapping
                 existing_mapping = []
                 analysis = None
-                existing_mapping = []
                 try:
                     with Session(engine) as session:
                         analysis = get_analysis(session, paper_id)
-<<<<<<< HEAD
-                        existing_mapping = analysis.code_mapping or []
-                except Exception:
-                    pass
-=======
                         existing_mapping = analysis.get("code_mapping", [])
                 except Exception as e:
                     logger.debug(f"Failed to load existing code_mapping for paper {paper_id}: {e}")
->>>>>>> worktree-agent-a598e72a4d81f8239
 
                 paper_code_mapping = await ai_analyze_paper_code_mapping(
                     file_contents,
-                    paper.title or "",
-                    (analysis.one_sentence or "") if analysis else "",
+                    paper.get("title", ""),
+                    analysis.get("one_sentence", "") if analysis else "",
                     existing_mapping,
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],
@@ -293,9 +300,7 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
         # 5. 保存结果
         yield format_sse(StreamEvent(event="status", data={"message": "正在保存分析结果..."}))
         try:
-            from ..models.code_analysis import CodeAnalysis
             with Session(engine) as session:
-                from sqlmodel import select
                 statement = select(CodeAnalysis).where(CodeAnalysis.paper_id == paper_id)
                 existing = session.exec(statement).first()
 
@@ -336,7 +341,6 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                     ai_cfg["model"],
                 )
                 with Session(engine) as session:
-                    from ..models.paper import Paper as PaperModel
                     db_paper = session.get(PaperModel, paper_id)
                     if db_paper:
                         db_paper.code_summary = summary
@@ -366,12 +370,10 @@ async def get_code_analysis(paper_id: int) -> CodeAnalysisResponse:
     """获取代码分析结果"""
     engine = _get_engine()
 
-    from ..models.code_analysis import CodeAnalysis
-    from sqlmodel import select
-
     with Session(engine) as session:
-        statement = select(CodeAnalysis).where(CodeAnalysis.paper_id == paper_id)
-        analysis = session.exec(statement).first()
+        analysis = session.exec(
+            select(CodeAnalysis).where(CodeAnalysis.paper_id == paper_id)
+        ).first()
 
     if not analysis:
         raise HTTPException(status_code=404, detail={"detail": "代码分析结果不存在", "code": "NOT_FOUND"})
@@ -404,7 +406,7 @@ async def get_code_summary(paper_id: int) -> CodeSummaryResponse:
         raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
 
     return CodeSummaryResponse(
-        code_url=paper.code_url,
-        code_status=paper.code_status or "none",
-        code_summary=paper.code_summary,
+        code_url=paper.get("code_url"),
+        code_status=paper.get("code_status", "none"),
+        code_summary=paper.get("code_summary"),
     )

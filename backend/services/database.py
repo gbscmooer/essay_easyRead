@@ -12,27 +12,7 @@ from sqlalchemy import func
 from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
-from ..models.research import ResearchRun, ResearchGraph
-from ..models.tag import Tag, PaperTag
-from ..models.note import Note
-from ..models.annotation import Annotation
-
-# ============================================================
-# Engine 单例 — 所有路由统一从此处获取引擎
-# ============================================================
-_shared_engine = None
-
-
-def get_engine():
-    """获取共享的数据库引擎单例。所有 router / service 统一使用此函数。"""
-    global _shared_engine
-    if _shared_engine is None:
-        from ..config import settings
-        _shared_engine = create_engine(
-            settings.resolved_database_url,
-            connect_args={"check_same_thread": False},
-        )
-    return _shared_engine
+from ..models.research import ResearchRun, ResearchGraph  # 确保 metadata 注册
 
 
 def _migrate_schema(engine) -> None:
@@ -78,10 +58,6 @@ def _migrate_schema(engine) -> None:
             ("level", "INTEGER DEFAULT 1"),
             ("parent_paper_id", "INTEGER"),
             ("external_id", "TEXT"),
-            ("authors", "TEXT"),
-            ("full_text", "TEXT"),
-            ("index_status", "TEXT DEFAULT 'none'"),
-            ("category", "TEXT"),
         ]
         for col_name, col_def in paper_migrations:
             if col_name not in existing_paper_cols:
@@ -122,25 +98,6 @@ def _migrate_schema(engine) -> None:
                 logger.info(f"Migration: backfilled level=2 for {cur.rowcount} expanded papers")
         except Exception as e:
             logger.warning(f"Migration backfill expanded.level failed: {e}")
-
-        # annotations 表迁移：group_id 字段
-        try:
-            result = conn.exec_driver_sql("PRAGMA table_info(annotations)")
-            existing_ann_cols = {row[1] for row in result.fetchall()}
-        except Exception:
-            existing_ann_cols = set()
-
-        ann_migrations = [
-            ("group_id", "TEXT"),
-        ]
-        for col_name, col_def in ann_migrations:
-            if col_name not in existing_ann_cols:
-                try:
-                    conn.exec_driver_sql(f"ALTER TABLE annotations ADD COLUMN {col_name} {col_def}")
-                    conn.commit()
-                    logger.info(f"Migration: added column {col_name} to annotations")
-                except Exception as e:
-                    logger.warning(f"Migration failed for {col_name}: {e}")
 
 
 def init_db(database_url: str) -> None:
@@ -296,29 +253,7 @@ def get_paper(session: Session, paper_id: int) -> Paper:
     paper = session.get(Paper, paper_id)
     if paper is None:
         raise ValueError(f"Paper {paper_id} not found")
-<<<<<<< HEAD
     return paper
-=======
-    return {
-        "id": paper.id,
-        "filename": paper.filename,
-        "pdf_path": paper.pdf_path,
-        "title": paper.title,
-        "authors": paper.authors,
-        "venue": paper.venue,
-        "year": paper.year,
-        "category": paper.category,
-        "status": paper.status,
-        "index_status": paper.index_status,
-        "error_message": paper.error_message,
-        "code_url": paper.code_url,
-        "code_status": paper.code_status,
-        "code_path": paper.code_path,
-        "code_summary": paper.code_summary,
-        "created_at": paper.created_at,
-        "updated_at": paper.updated_at,
-    }
->>>>>>> worktree-agent-a598e72a4d81f8239
 
 
 def get_analysis(session: Session, paper_id: int) -> AnalysisResult:
@@ -369,9 +304,8 @@ def update_related_papers(session: Session, paper_id: int, related_papers: list[
 def list_papers(
     session: Session,
     search: str = None,
-    category: str = None,
+    venue: str = None,
     year: int = None,
-    date_added: str = None,
     page: int = 1,
     per_page: int = 20,
     source: str = "uploaded",
@@ -380,18 +314,9 @@ def list_papers(
     列出论文，支持筛选和分页。
 
     Args:
-        category:   按 arXiv 学科方向（如 cs.LG）筛选
-        year:       按论文发表年份筛选
-        date_added: 按加入论文库的日期筛选（"YYYY-MM-DD"）
         source: "uploaded"（默认，仅用户上传）| "expanded"（深度研究扩展）| "all"（全部）
     """
-    # 显式选择列，排除 full_text（~300K/行）以减少内存和传输开销
-    statement = select(
-        Paper.id, Paper.filename, Paper.title, Paper.authors, Paper.venue,
-        Paper.year, Paper.category, Paper.status, Paper.index_status,
-        Paper.error_message, Paper.code_url, Paper.code_status, Paper.source,
-        Paper.level, Paper.created_at, Paper.updated_at,
-    )
+    statement = select(Paper)
 
     # source 过滤
     if source == "uploaded":
@@ -401,14 +326,11 @@ def list_papers(
     # source == "all" 不过滤
 
     if search:
-        # 大小写不敏感：统一 lower 后子串匹配
-        statement = statement.where(func.lower(col(Paper.title)).contains(search.lower()))
-    if category:
-        statement = statement.where(Paper.category == category)
+        statement = statement.where(col(Paper.title).contains(search))
+    if venue:
+        statement = statement.where(Paper.venue == venue)
     if year is not None:
         statement = statement.where(Paper.year == year)
-    if date_added:
-        statement = statement.where(func.date(Paper.created_at) == date_added)
 
     count_statement = select(func.count()).select_from(statement.subquery())
     total = session.exec(count_statement).one()
@@ -416,27 +338,24 @@ def list_papers(
     statement = statement.order_by(Paper.created_at.desc())
     statement = statement.offset((page - 1) * per_page).limit(per_page)
 
-    rows = session.exec(statement).all()
+    papers = session.exec(statement).all()
     result = [
         {
-            "id": row.id,
-            "filename": row.filename,
-            "title": row.title,
-            "authors": row.authors,
-            "venue": row.venue,
-            "year": row.year,
-            "category": row.category,
-            "status": row.status,
-            "index_status": row.index_status,
-            "error_message": row.error_message,
-            "code_url": row.code_url,
-            "code_status": row.code_status,
-            "source": row.source,
-            "level": row.level,
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
+            "id": p.id,
+            "filename": p.filename,
+            "title": p.title,
+            "venue": p.venue,
+            "year": p.year,
+            "status": p.status,
+            "error_message": p.error_message,
+            "code_url": p.code_url,
+            "code_status": p.code_status,
+            "source": p.source,
+            "level": p.level,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
         }
-        for row in rows
+        for p in papers
     ]
 
     return result, total
