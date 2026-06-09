@@ -44,7 +44,8 @@ def _s2_api_key() -> str:
     try:
         from .ai_config import get_research_config
         return get_research_config().get("api_key", "") or ""
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to read S2 API key from config: {e}")
         return ""
 
 
@@ -251,14 +252,14 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
         try:
             data = await _rate_limited_get(f"{S2_BASE}/paper/DOI:{doi}", params={"fields": "paperId"})
             return data.get("paperId")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"S2 DOI lookup failed for '{doi}': {e}")
     if arxiv_id:
         try:
             data = await _rate_limited_get(f"{S2_BASE}/paper/arXiv:{arxiv_id}", params={"fields": "paperId"})
             return data.get("paperId")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"S2 arXiv lookup failed for '{arxiv_id}': {e}")
     if title:
         try:
             data = await _rate_limited_get(f"{S2_BASE}/paper/search",
@@ -266,8 +267,8 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
             arr = data.get("data") or []
             if arr:
                 return arr[0].get("paperId")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"S2 title search failed for '{title}': {e}")
     return None
 
 

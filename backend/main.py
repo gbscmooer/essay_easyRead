@@ -4,6 +4,7 @@ FastAPI 应用入口
 配置中间件、挂载路由、启动事件。
 """
 
+import logging
 import os
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+logger = logging.getLogger(__name__)
+
 from .config import settings
 from .services.database import init_db
 from .routers.papers import router as papers_router
@@ -19,6 +22,9 @@ from .routers.analysis import router as analysis_router
 from .routers.code import router as code_router
 from .routers.workspaces import router as workspaces_router
 from .routers.research import router as research_router
+from .routers.tags import router as tags_router
+from .routers.notes import router as notes_router
+from .routers.annotations import router as annotations_router
 
 
 @asynccontextmanager
@@ -82,6 +88,9 @@ app.include_router(analysis_router)
 app.include_router(code_router)
 app.include_router(workspaces_router)
 app.include_router(research_router)
+app.include_router(tags_router)
+app.include_router(notes_router)
+app.include_router(annotations_router)
 
 
 @app.get("/")
@@ -132,13 +141,12 @@ async def terminal_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Terminal error: {e}")
+        logger.error(f"Terminal error: {e}")
     finally:
         try:
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WebSocket close failed: {e}")
 
 
 @app.post("/api/system/open-vscode")

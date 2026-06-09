@@ -99,8 +99,8 @@ def clear_cache(paper_id: int) -> None:
     """删除断点缓存（落库成功或显式重新解析时调用）。"""
     try:
         os.remove(_cache_path(paper_id))
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug(f"Cache file not found or already removed for paper {paper_id}: {e}")
 
 
 class AnalysisJob:
@@ -122,8 +122,8 @@ class AnalysisJob:
         for q in list(self.subscribers):
             try:
                 q.put_nowait(event)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to emit event to subscriber queue: {e}")
 
     def subscribe(self) -> asyncio.Queue:
         """新建订阅队列，先灌入已发生的全部事件（回放）。"""
@@ -155,7 +155,8 @@ def _json_safe(obj):
         if callable(fn):
             try:
                 return _json_safe(fn())
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to serialize object via {attr}: {e}")
                 break
     return str(obj)
 

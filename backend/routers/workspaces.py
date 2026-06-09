@@ -6,7 +6,7 @@
 
 import logging
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, create_engine, select
 from sqlalchemy import desc
 from datetime import datetime, timezone
@@ -57,7 +57,7 @@ class AddPaperRequest(BaseModel):
 # GET /api/workspaces
 # ============================================================
 @router.get("", response_model=list[WorkspaceResponse])
-async def list_workspaces():
+async def list_workspaces() -> list[WorkspaceResponse]:
     """获取所有工作区"""
     engine = _get_engine()
     with Session(engine) as session:
@@ -77,7 +77,7 @@ async def list_workspaces():
 # POST /api/workspaces
 # ============================================================
 @router.post("", response_model=WorkspaceResponse)
-async def create_workspace(req: WorkspaceCreate):
+async def create_workspace(req: WorkspaceCreate) -> WorkspaceResponse:
     """创建工作区"""
     engine = _get_engine()
     with Session(engine) as session:
@@ -95,13 +95,13 @@ async def create_workspace(req: WorkspaceCreate):
 # GET /api/workspaces/{workspace_id}
 # ============================================================
 @router.get("/{workspace_id}", response_model=WorkspaceDetailResponse)
-async def get_workspace(workspace_id: int):
+async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
     """获取工作区详情（含论文列表）"""
     engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
 
         # 获取关联的论文
         stmt = (
@@ -139,13 +139,13 @@ async def get_workspace(workspace_id: int):
 # PUT /api/workspaces/{workspace_id}
 # ============================================================
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)
-async def update_workspace(workspace_id: int, req: WorkspaceCreate):
+async def update_workspace(workspace_id: int, req: WorkspaceCreate) -> WorkspaceResponse:
     """更新工作区名称"""
     engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
         ws.name = req.name
         ws.updated_at = datetime.now(timezone.utc)
         session.add(ws)
@@ -163,13 +163,13 @@ async def update_workspace(workspace_id: int, req: WorkspaceCreate):
 # DELETE /api/workspaces/{workspace_id}
 # ============================================================
 @router.delete("/{workspace_id}")
-async def delete_workspace(workspace_id: int):
+async def delete_workspace(workspace_id: int) -> dict:
     """删除工作区"""
     engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
         # 删除关联记录
         stmt = select(WorkspacePaper).where(WorkspacePaper.workspace_id == workspace_id)
         for wp in session.exec(stmt).all():
@@ -183,16 +183,16 @@ async def delete_workspace(workspace_id: int):
 # POST /api/workspaces/{workspace_id}/papers
 # ============================================================
 @router.post("/{workspace_id}/papers")
-async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest):
+async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest) -> dict:
     """添加论文到工作区"""
     engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
         paper = session.get(Paper, req.paper_id)
         if not paper:
-            raise HTTPException(status_code=404, detail="论文不存在")
+            raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
         # 检查是否已存在
         existing = session.exec(
             select(WorkspacePaper)
@@ -200,7 +200,7 @@ async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest):
             .where(WorkspacePaper.paper_id == req.paper_id)
         ).first()
         if existing:
-            raise HTTPException(status_code=400, detail="论文已在工作区中")
+            raise HTTPException(status_code=400, detail={"detail": "论文已在工作区中", "code": "CONFLICT"})
         wp = WorkspacePaper(workspace_id=workspace_id, paper_id=req.paper_id)
         session.add(wp)
         ws.updated_at = datetime.now(timezone.utc)
@@ -213,7 +213,7 @@ async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest):
 # POST /api/workspaces/{workspace_id}/papers/{paper_id}/promote
 # ============================================================
 @router.post("/{workspace_id}/papers/{paper_id}/promote")
-async def promote_paper(workspace_id: int, paper_id: int):
+async def promote_paper(workspace_id: int, paper_id: int) -> dict:
     """把"深度研究发现"中的论文（L2+）提升为工作区正式论文（L1）。
 
     - level 设为 1
@@ -228,10 +228,10 @@ async def promote_paper(workspace_id: int, paper_id: int):
             .where(WorkspacePaper.paper_id == paper_id)
         ).first()
         if not wp:
-            raise HTTPException(status_code=404, detail="论文不在该工作区中")
+            raise HTTPException(status_code=404, detail={"detail": "论文不在该工作区中", "code": "NOT_FOUND"})
         paper = session.get(Paper, paper_id)
         if not paper:
-            raise HTTPException(status_code=404, detail="论文不存在")
+            raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
         paper.level = 1
         paper.source = "promoted"
         session.add(paper)
@@ -247,7 +247,7 @@ async def promote_paper(workspace_id: int, paper_id: int):
 # DELETE /api/workspaces/{workspace_id}/papers/{paper_id}
 # ============================================================
 @router.delete("/{workspace_id}/papers/{paper_id}")
-async def remove_paper_from_workspace(workspace_id: int, paper_id: int):
+async def remove_paper_from_workspace(workspace_id: int, paper_id: int) -> dict:
     """从工作区移除论文"""
     engine = _get_engine()
     with Session(engine) as session:
@@ -258,7 +258,7 @@ async def remove_paper_from_workspace(workspace_id: int, paper_id: int):
         )
         wp = session.exec(stmt).first()
         if not wp:
-            raise HTTPException(status_code=404, detail="论文不在该工作区中")
+            raise HTTPException(status_code=404, detail={"detail": "论文不在该工作区中", "code": "NOT_FOUND"})
         session.delete(wp)
         ws = session.get(Workspace, workspace_id)
         if ws:

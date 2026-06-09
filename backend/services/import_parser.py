@@ -6,8 +6,11 @@ JS/TS/C++ 使用增强正则解析。
 """
 
 import ast
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 
 
@@ -319,7 +322,8 @@ def parse_imports(file_path: str, content: str) -> FileImports:
     lang, parser = parser_info
     try:
         imports = parser(content)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Import parser failed for {file_path}: {e}")
         imports = []
 
     return FileImports(file_path=file_path, imports=imports)

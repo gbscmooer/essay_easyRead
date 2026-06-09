@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.14.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '后端错误处理标准化：消除所有静默异常吞没，统一添加日志记录',
+    'API 错误响应格式统一为 {detail, code} 结构',
+    '所有路由端点补充返回类型注解',
   ],
 }
 

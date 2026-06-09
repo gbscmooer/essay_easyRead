@@ -45,7 +45,7 @@ def _get_engine():
 # POST /api/papers/upload
 # ============================================================
 @router.post("/upload", response_model=PaperResponse)
-async def upload_paper(file: UploadFile = File(...)):
+async def upload_paper(file: UploadFile = File(...)) -> PaperResponse:
     """上传 PDF 文件并触发解析流程"""
     # 验证文件格式
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -110,7 +110,7 @@ async def get_papers_list(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     source: str = Query("uploaded", description="uploaded | expanded | all"),
-):
+) -> PaperListResponse:
     """获取论文列表，支持筛选和搜索"""
     engine = _get_engine()
     with Session(engine) as session:
@@ -142,7 +142,7 @@ async def get_papers_list(
 # GET /api/papers/{paper_id}
 # ============================================================
 @router.get("/{paper_id}", response_model=PaperResponse)
-async def get_paper_detail(paper_id: int):
+async def get_paper_detail(paper_id: int) -> PaperResponse:
     """获取单篇论文详情"""
     engine = _get_engine()
     try:
@@ -173,7 +173,7 @@ async def get_paper_detail(paper_id: int):
 # DELETE /api/papers/{paper_id}
 # ============================================================
 @router.delete("/{paper_id}")
-async def delete_paper_endpoint(paper_id: int):
+async def delete_paper_endpoint(paper_id: int) -> dict:
     """删除论文及其解析结果"""
     engine = _get_engine()
     try:
@@ -200,7 +200,7 @@ async def delete_paper_endpoint(paper_id: int):
 # POST /api/papers/{paper_id}/promote
 # ============================================================
 @router.post("/{paper_id}/promote")
-async def promote_paper(paper_id: int):
+async def promote_paper(paper_id: int) -> dict:
     """将深度研究扩展论文提升为普通用户论文（移入论文库）"""
     from datetime import datetime, timezone
     from sqlmodel import Session as S
@@ -227,7 +227,7 @@ async def promote_paper(paper_id: int):
 # GET /api/papers/{paper_id}/export
 # ============================================================
 @router.get("/{paper_id}/export")
-async def export_paper(paper_id: int):
+async def export_paper(paper_id: int) -> Response:
     """导出论文解析结果为 Markdown"""
     from ..services.database import get_analysis
 
@@ -271,7 +271,7 @@ async def export_paper(paper_id: int):
 # GET /api/papers/{paper_id}/pdf
 # ============================================================
 @router.get("/{paper_id}/pdf")
-async def get_paper_pdf(paper_id: int):
+async def get_paper_pdf(paper_id: int) -> FileResponse:
     """获取论文 PDF 文件"""
     engine = _get_engine()
     try:
