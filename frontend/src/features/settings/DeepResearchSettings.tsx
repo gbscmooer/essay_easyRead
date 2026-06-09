@@ -555,3 +555,21 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
     </div>
   )
 }
+
+/** 组合 6 个子组件的包装组件，供 ResearchSettingsDrawer 等外部使用 */
+export function DeepResearchSettings({ config, setConfig, simProviders }: {
+  config: any
+  setConfig: Dispatch<SetStateAction<any>>
+  simProviders?: string[]
+}) {
+  return (
+    <>
+      <EmbeddingSection config={config} setConfig={setConfig} />
+      <ResearchProviderSection config={config} setConfig={setConfig} />
+      <RerankerSection config={config} setConfig={setConfig} />
+      <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders || []} />
+      <ArxivExpandSection config={config} setConfig={setConfig} />
+      <FindpapersSection config={config} setConfig={setConfig} />
+    </>
+  )
+}
