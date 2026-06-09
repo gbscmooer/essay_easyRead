@@ -4,6 +4,7 @@ Code 路由
 处理代码仓库的 clone、文件浏览和代码分析。
 """
 
+import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -56,7 +57,7 @@ async def extract_url(paper_id: int):
     from ..services.ai_analyzer import extract_code_url
 
     try:
-        content = extract_pdf_content(pdf_path)
+        content = await asyncio.to_thread(extract_pdf_content, pdf_path)
     except Exception as e:
         logger.warning(f"PDF extraction failed for {paper_id}: {e}")
         return {"code_url": None}
@@ -150,7 +151,7 @@ async def get_file_tree(paper_id: int):
         raise HTTPException(status_code=400, detail="代码路径不存在")
 
     from ..services.code_analyzer import build_file_tree
-    tree = build_file_tree(code_path)
+    tree = await asyncio.to_thread(build_file_tree, code_path)
     return tree
 
 
@@ -176,9 +177,9 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
     from ..services.code_analyzer import read_file_content, read_notebook_content
     try:
         if path.endswith(".ipynb"):
-            cells = read_notebook_content(code_path, path)
+            cells = await asyncio.to_thread(read_notebook_content, code_path, path)
             return {"path": path, "content": None, "cells": cells}
-        content = read_file_content(code_path, path)
+        content = await asyncio.to_thread(read_file_content, code_path, path)
         return {"path": path, "content": content}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -234,6 +235,7 @@ async def analyze_code(paper_id: int):
                 if content and not content.startswith("["):
                     file_contents[f] = content
             except Exception:
+                logger.debug("Failed to read file %s, skipping", f)
                 continue
 
         # 4. AI 分析
@@ -269,7 +271,7 @@ async def analyze_code(paper_id: int):
                         analysis = get_analysis(session, paper_id)
                         existing_mapping = analysis.get("code_mapping", [])
                 except Exception:
-                    pass
+                    logger.debug("Failed to load existing code_mapping for paper %d", paper_id)
 
                 paper_code_mapping = await ai_analyze_paper_code_mapping(
                     file_contents,

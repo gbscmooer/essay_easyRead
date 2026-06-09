@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.13.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '修复异步端点中的阻塞 IO 操作，使用 asyncio.to_thread 释放事件循环',
+    '优化分析缓存写入频率，减少磁盘 IO 开销',
+    '限制事件回放缓冲上限为 200 条，降低内存占用',
+    '为静默异常捕获添加 debug 日志',
   ],
 }
 

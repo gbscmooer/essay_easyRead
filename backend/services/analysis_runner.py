@@ -108,6 +108,7 @@ class AnalysisJob:
 
     def __init__(self, paper_id: int):
         self.paper_id = paper_id
+        self._MAX_EVENTS = 200
         self.events: list[StreamEvent] = []          # 回放缓冲
         self.subscribers: set[asyncio.Queue] = set()  # 实时订阅队列
         self.done = False
@@ -119,11 +120,13 @@ class AnalysisJob:
     def emit(self, event: StreamEvent) -> None:
         """记录事件并广播给所有订阅者。"""
         self.events.append(event)
+        if len(self.events) > self._MAX_EVENTS:
+            self.events = self.events[-self._MAX_EVENTS:]
         for q in list(self.subscribers):
             try:
                 q.put_nowait(event)
             except Exception:
-                pass
+                logger.debug("Failed to emit event to subscriber queue")
 
     def subscribe(self) -> asyncio.Queue:
         """新建订阅队列，先灌入已发生的全部事件（回放）。"""
@@ -156,6 +159,7 @@ def _json_safe(obj):
             try:
                 return _json_safe(fn())
             except Exception:
+                logger.debug("Failed to serialize object via %s, falling back to str()", attr)
                 break
     return str(obj)
 
@@ -239,6 +243,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         if ai_done:
             emit_progress(85, "已从缓存恢复 AI 分析结果，跳过重新分析", "analyzing")
         else:
+            _fields_since_save = 0
             job.emit(StreamEvent(event="status", data={"status": "analyzing", "message": "正在调用 AI 分析..."}))
             from .ai_config import get_active_analysis_prompt
             received = 0
@@ -268,7 +273,13 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                     received += 1
                     pct = min(85, 10 + round(received / _TOTAL_FIELDS * 75))
                     emit_progress(pct, f"已解析 {received}/{_TOTAL_FIELDS} 个字段", "analyzing")
-                    # 增量持久化：每完成一个字段就写入缓存，供断点续传
+                    # 增量持久化：每 3 个字段写入缓存，供断点续传
+                    _fields_since_save += 1
+                    if _fields_since_save >= 3:
+                        save_cache(paper_id, result)
+                        _fields_since_save = 0
+                # 确保最后一批未写入的字段也持久化
+                if _fields_since_save > 0:
                     save_cache(paper_id, result)
 
         # ---- 3. 提取代码仓库 URL ----
