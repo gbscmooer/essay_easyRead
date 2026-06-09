@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.6'
+const APP_VERSION = '1.17.7'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '引擎单例彻底统一：notes和annotations也改用database.get_engine()',
+    '修复CodeViewer hooks顺序Bug：useCallback/useMemo移到early return之前',
+    '修复TerminalPanel按钮嵌套：标题栏button改为div+role=button',
   ],
 }
 

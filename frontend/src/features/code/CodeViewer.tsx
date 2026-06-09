@@ -315,32 +315,9 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
     }
   }, [scrollToLine])
 
-  if (!filePath) {
-    return (
-      <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-muted)' }}>
-        选择文件查看代码
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full text-red-400 text-sm">
-        {error}
-      </div>
-    )
-  }
-
+  // Hooks must be called before any early returns
   const lines = (content || '').split('\n')
-  const language = getLanguage(filePath)
+  const language = filePath ? getLanguage(filePath) : 'plaintext'
   const shouldVirtualize = lines.length > VIRTUALIZE_THRESHOLD
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -379,6 +356,30 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
     }
     return nums
   }, [startLine, endLine, highlightLine])
+
+  if (!filePath) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-muted)' }}>
+        选择文件查看代码
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full text-red-400 text-sm">
+        {error}
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }} onScroll={handleScroll}>

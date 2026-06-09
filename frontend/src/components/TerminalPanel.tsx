@@ -238,12 +238,15 @@ export function TerminalPanel() {
       style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', height: collapsed ? 32 : height }}
     >
       {/* 标题栏 */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         className="flex items-center justify-between px-3 h-8 shrink-0 cursor-pointer select-none w-full text-left"
         aria-expanded={!collapsed}
         onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}
         onClick={() => setCollapsed(v => !v)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCollapsed(v => !v) } }}
       >
         <div className="flex items-center gap-3">
           <svg
@@ -272,7 +275,7 @@ export function TerminalPanel() {
             </div>
           )}
         </div>
-      </button>
+      </div>
 
       {/* 拖拽条 */}
       {!collapsed && (
