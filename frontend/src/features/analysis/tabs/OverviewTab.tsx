@@ -256,7 +256,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   >
                     {isRefreshing ? (
                       <>
-                        <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                        <div className="w-3 h-3 border border-gray-500 border-t-blue-400 rounded-full animate-spin" role="status"><span className="sr-only">加载中</span></div>
                         搜索中...
                       </>
                     ) : (
@@ -358,7 +358,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           </div>
         ) : relatedStatus === 'loading' && !isRefreshing ? (
           <div className="flex items-center justify-center gap-2 py-6">
-            <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" role="status"><span className="sr-only">加载中</span></div>
             <span className="text-sm text-gray-400">主体分析已完成，正在后台搜索相关论文...</span>
           </div>
         ) : relatedStatus === 'failed' && !isRefreshing ? (
@@ -397,7 +397,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
         {isImporting && importProgress && (
           <div className="mt-3 p-3 bg-gray-800/80 rounded-lg border border-gray-700/50">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" role="status"><span className="sr-only">加载中</span></div>
               <span className="text-sm text-gray-300">
                 正在导入... {importProgress.done}/{importProgress.total}
               </span>
@@ -468,7 +468,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
             {wsLoading ? (
               <div className="flex items-center justify-center py-8 gap-2">
-                <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-gray-500 border-t-blue-400 rounded-full animate-spin" role="status"><span className="sr-only">加载中</span></div>
                 <span className="text-sm text-gray-400">加载工作区...</span>
               </div>
             ) : workspaces.length === 0 ? (

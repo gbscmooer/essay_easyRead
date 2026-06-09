@@ -236,8 +236,9 @@ export function TerminalPanel() {
       style={{ height: collapsed ? 32 : height }}
     >
       {/* 标题栏 */}
-      <div
-        className="flex items-center justify-between px-3 h-8 shrink-0 cursor-pointer select-none hover:bg-gray-900/50"
+      <button
+        className="flex items-center justify-between px-3 h-8 shrink-0 cursor-pointer select-none hover:bg-gray-900/50 w-full text-left"
+        aria-expanded={!collapsed}
         onClick={() => setCollapsed(v => !v)}
       >
         <div className="flex items-center gap-3">
@@ -267,7 +268,7 @@ export function TerminalPanel() {
             </div>
           )}
         </div>
-      </div>
+      </button>
 
       {/* 拖拽条 */}
       {!collapsed && (
