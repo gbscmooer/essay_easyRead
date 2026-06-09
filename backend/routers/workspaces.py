@@ -7,26 +7,18 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, create_engine, select
-from sqlalchemy import desc
+from sqlmodel import Session, select
+from sqlalchemy import desc, func as sqlfunc
 from datetime import datetime, timezone
 
 from ..models.workspace import Workspace, WorkspacePaper
 from ..models.paper import Paper
+from ..services.database import get_engine
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 class WorkspaceCreate(BaseModel):
@@ -59,15 +51,19 @@ class AddPaperRequest(BaseModel):
 @router.get("", response_model=list[WorkspaceResponse])
 async def list_workspaces():
     """获取所有工作区"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         workspaces = session.exec(select(Workspace).order_by(desc(Workspace.updated_at))).all()
+        # 批量查询所有工作区的论文数量（替代 N+1 逐个查询）
+        count_stmt = select(
+            WorkspacePaper.workspace_id,
+            sqlfunc.count().label('cnt'),
+        ).group_by(WorkspacePaper.workspace_id)
+        counts = {row[0]: row[1] for row in session.exec(count_stmt).all()}
         result = []
         for ws in workspaces:
-            count_statement = select(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
-            paper_count = len(session.exec(count_statement).all())
             result.append(WorkspaceResponse(
-                id=ws.id, name=ws.name, paper_count=paper_count,
+                id=ws.id, name=ws.name, paper_count=counts.get(ws.id, 0),
                 created_at=ws.created_at, updated_at=ws.updated_at,
             ))
         return result
@@ -79,7 +75,7 @@ async def list_workspaces():
 @router.post("", response_model=WorkspaceResponse)
 async def create_workspace(req: WorkspaceCreate):
     """创建工作区"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = Workspace(name=req.name)
         session.add(ws)
@@ -97,7 +93,7 @@ async def create_workspace(req: WorkspaceCreate):
 @router.get("/{workspace_id}", response_model=WorkspaceDetailResponse)
 async def get_workspace(workspace_id: int):
     """获取工作区详情（含论文列表）"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
@@ -141,7 +137,7 @@ async def get_workspace(workspace_id: int):
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(workspace_id: int, req: WorkspaceCreate):
     """更新工作区名称"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
@@ -165,7 +161,7 @@ async def update_workspace(workspace_id: int, req: WorkspaceCreate):
 @router.delete("/{workspace_id}")
 async def delete_workspace(workspace_id: int):
     """删除工作区"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
@@ -185,7 +181,7 @@ async def delete_workspace(workspace_id: int):
 @router.post("/{workspace_id}/papers")
 async def add_paper_to_workspace(workspace_id: int, req: AddPaperRequest):
     """添加论文到工作区"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, workspace_id)
         if not ws:
@@ -220,7 +216,7 @@ async def promote_paper(workspace_id: int, paper_id: int):
     - source 改为 'promoted'（保留 parent_paper_id 作为发现来源溯源）
     - 仍保留 status（pending / indexed / done）不变
     """
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         wp = session.exec(
             select(WorkspacePaper)
@@ -249,7 +245,7 @@ async def promote_paper(workspace_id: int, paper_id: int):
 @router.delete("/{workspace_id}/papers/{paper_id}")
 async def remove_paper_from_workspace(workspace_id: int, paper_id: int):
     """从工作区移除论文"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         stmt = (
             select(WorkspacePaper)
