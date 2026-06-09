@@ -8,6 +8,7 @@ SQLModel 模型，映射到 SQLite 的 papers 表。
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import Index
 
 
 class Paper(SQLModel, table=True):
@@ -20,6 +21,10 @@ class Paper(SQLModel, table=True):
     """
 
     __tablename__ = "papers"
+    __table_args__ = (
+        Index('ix_papers_source_created', 'source', 'created_at'),
+        Index('ix_papers_source_category_year', 'source', 'category', 'year'),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
 

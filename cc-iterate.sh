@@ -19,7 +19,7 @@ set -uo pipefail
 # ---------- 参数解析 ----------
 USER_PROMPT=""
 EPOCH=5
-TEST_CMD="npx tsc --noEmit"
+TEST_CMD="cd frontend && npx tsc --noEmit"
 LOG="overnight-$(date +%Y%m%d-%H%M%S).log"
 MODEL="sonnet"
 
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "选项:"
       echo "  -epoch N     迭代轮次（默认 5）"
-      echo "  -test CMD    验证命令（默认 npx tsc --noEmit）"
+      echo "  -test CMD    验证命令（默认 cd frontend && npx tsc --noEmit）"
       echo "  -model NAME  模型名称（默认 sonnet）"
       echo "  -h, --help   显示帮助"
       exit 0
@@ -57,7 +57,7 @@ DEFAULT_FLOW=$(cat <<'EOF'
 4. COMMIT— 确保改动完整且可提交。不要自行执行 git commit，由外层脚本统一处理。
 
 提交规范（每轮必须遵守）:
-- 提交前运行 npx tsc --noEmit 确保类型检查通过
+- 提交前运行 cd frontend && npx tsc --noEmit 确保类型检查通过
 - 若涉及前端改动，需同步更新 frontend/src/components/VersionPopup.tsx 中的 APP_VERSION 和 CURRENT_RELEASE
 - 同步更新 frontend/package.json 中的 version 字段
 - 版本号规则: X.Y.Z — bug/UI调整递进Z位，新功能递进Y位(Z清零)，重构递进X位(Y/Z清零)

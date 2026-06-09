@@ -17,6 +17,23 @@ from ..models.tag import Tag, PaperTag
 from ..models.note import Note
 from ..models.annotation import Annotation
 
+# ============================================================
+# Engine 单例 — 所有路由统一从此处获取引擎
+# ============================================================
+_shared_engine = None
+
+
+def get_engine():
+    """获取共享的数据库引擎单例。所有 router / service 统一使用此函数。"""
+    global _shared_engine
+    if _shared_engine is None:
+        from ..config import settings
+        _shared_engine = create_engine(
+            settings.resolved_database_url,
+            connect_args={"check_same_thread": False},
+        )
+    return _shared_engine
+
 
 def _migrate_schema(engine) -> None:
     """简易 schema 迁移：为已有表添加缺失的列"""
@@ -381,7 +398,13 @@ def list_papers(
         date_added: 按加入论文库的日期筛选（"YYYY-MM-DD"）
         source: "uploaded"（默认，仅用户上传）| "expanded"（深度研究扩展）| "all"（全部）
     """
-    statement = select(Paper)
+    # 显式选择列，排除 full_text（~300K/行）以减少内存和传输开销
+    statement = select(
+        Paper.id, Paper.filename, Paper.title, Paper.authors, Paper.venue,
+        Paper.year, Paper.category, Paper.status, Paper.index_status,
+        Paper.error_message, Paper.code_url, Paper.code_status, Paper.source,
+        Paper.level, Paper.created_at, Paper.updated_at,
+    )
 
     # source 过滤
     if source == "uploaded":
@@ -406,27 +429,27 @@ def list_papers(
     statement = statement.order_by(Paper.created_at.desc())
     statement = statement.offset((page - 1) * per_page).limit(per_page)
 
-    papers = session.exec(statement).all()
+    rows = session.exec(statement).all()
     result = [
         {
-            "id": p.id,
-            "filename": p.filename,
-            "title": p.title,
-            "authors": p.authors,
-            "venue": p.venue,
-            "year": p.year,
-            "category": p.category,
-            "status": p.status,
-            "index_status": p.index_status,
-            "error_message": p.error_message,
-            "code_url": p.code_url,
-            "code_status": p.code_status,
-            "source": p.source,
-            "level": p.level,
-            "created_at": p.created_at,
-            "updated_at": p.updated_at,
+            "id": row.id,
+            "filename": row.filename,
+            "title": row.title,
+            "authors": row.authors,
+            "venue": row.venue,
+            "year": row.year,
+            "category": row.category,
+            "status": row.status,
+            "index_status": row.index_status,
+            "error_message": row.error_message,
+            "code_url": row.code_url,
+            "code_status": row.code_status,
+            "source": row.source,
+            "level": row.level,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
         }
-        for p in papers
+        for row in rows
     ]
 
     return result, total

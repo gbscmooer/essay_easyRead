@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.12.4'
+const APP_VERSION = '1.13.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '修复合并冲突导致的 SettingsPage 和 WorkspaceDetailPage TypeScript 编译错误',
-    '恢复 SettingsPage PDF 缩放参数折叠面板功能',
-    '修复 WorkspaceDetailPage 论文列表重复 div 渲染问题',
-    '移除 ReaderPage 重复的 toast 导入',
+    '性能优化：统一后端引擎单例、添加数据库索引、消除N+1查询',
+    '性能优化：阻塞IO包装asyncio.to_thread、分析缓存写入频率优化',
+    '前端优化：PdfViewer虚拟化、Tab懒加载、FlowChart动态导入',
+    '前端优化：移除GraphCanvas轮询、拆分useConfig hooks、CodeViewer虚拟化',
+    '列表查询排除full_text大字段、AnalysisJob事件列表上限',
   ],
 }
 

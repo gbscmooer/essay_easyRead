@@ -7,25 +7,16 @@ Code 路由
 import logging
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, create_engine
+from sqlmodel import Session
 
 from ..config import settings
 from ..models.schemas import StreamEvent, CodeAnalysisResponse, CodeSummaryResponse
+from ..services.database import get_engine
 from ..utils.streaming import format_sse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/code", tags=["code"])
-
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 # ============================================================
@@ -34,7 +25,7 @@ def _get_engine():
 @router.post("/{paper_id}/extract-url")
 async def extract_url(paper_id: int):
     """重新从论文中提取代码仓库 URL"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..services.database import get_paper
     try:
@@ -76,7 +67,7 @@ async def extract_url(paper_id: int):
 @router.post("/{paper_id}/clone")
 async def clone_repo(paper_id: int):
     """Clone 论文的代码仓库"""
-    engine = _get_engine()
+    engine = get_engine()
 
     # 获取论文信息
     from ..services.database import get_paper
@@ -132,7 +123,7 @@ async def clone_repo(paper_id: int):
 @router.get("/{paper_id}/tree")
 async def get_file_tree(paper_id: int):
     """获取代码仓库的文件树"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..services.database import get_paper
     try:
@@ -160,7 +151,7 @@ async def get_file_tree(paper_id: int):
 @router.get("/{paper_id}/file")
 async def get_file_content(paper_id: int, path: str = Query(..., description="文件相对路径")):
     """获取代码文件内容"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..services.database import get_paper
     try:
@@ -192,7 +183,7 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
 @router.get("/{paper_id}/analyze")
 async def analyze_code(paper_id: int):
     """触发代码分析（SSE 流式）"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..services.database import get_paper
     try:
@@ -357,7 +348,7 @@ async def analyze_code(paper_id: int):
 @router.get("/{paper_id}/analysis", response_model=CodeAnalysisResponse)
 async def get_code_analysis(paper_id: int):
     """获取代码分析结果"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..models.code_analysis import CodeAnalysis
     from sqlmodel import select
@@ -387,7 +378,7 @@ async def get_code_analysis(paper_id: int):
 @router.get("/{paper_id}/summary", response_model=CodeSummaryResponse)
 async def get_code_summary(paper_id: int):
     """获取代码摘要（侧边栏用）"""
-    engine = _get_engine()
+    engine = get_engine()
 
     from ..services.database import get_paper
     try:
