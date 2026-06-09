@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getGrobidStatus, pullGrobidImage, type GrobidStatus } from '@/api/settings'
+import { toast } from '@/hooks/useToast'
 
 interface GrobidPanelProps {
   parser: 'grobid' | 'regex'
@@ -56,8 +57,8 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
     try {
       await pullGrobidImage()
       refresh()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '拉取 Grobid 镜像失败' })
     }
   }
 

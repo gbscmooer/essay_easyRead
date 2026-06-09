@@ -51,8 +51,9 @@ export default function WorkspaceDetailPage() {
       // 过滤掉已在工作区中的论文
       const existingIds = new Set(workspace?.papers.map(p => p.id) || [])
       setLibraryPapers(res.papers.filter(p => !existingIds.has(p.id)))
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '加载论文列表失败' })
+      setShowAddPaper(false)
     } finally {
       setLoadingPapers(false)
     }

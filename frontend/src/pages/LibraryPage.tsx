@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper, SearchResult } from '@/types'
 import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibrary } from '@/api/papers'
+import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
 import { Tooltip } from '@/components/Tooltip'
 
@@ -164,7 +165,9 @@ export default function LibraryPage() {
     try {
       await deletePaper(id)
       fetchPapers()
-    } catch {}
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '删除论文失败' })
+    }
   }, [fetchPapers])
 
   const handleSearch = useCallback((query: string) => {

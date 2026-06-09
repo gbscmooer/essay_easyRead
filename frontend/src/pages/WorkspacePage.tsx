@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 
 
 export default function WorkspacePage() {
@@ -13,7 +14,7 @@ export default function WorkspacePage() {
   const refresh = useCallback(() => {
     listWorkspaces()
       .then(setWorkspaces)
-      .catch(() => {})
+      .catch((e: any) => { toast({ type: 'error', message: e?.message || '加载工作区列表失败' }) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -26,8 +27,8 @@ export default function WorkspacePage() {
       const ws = await createWorkspace(name)
       setNewName('')
       navigate(`/workspace/${ws.id}`)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '创建工作区失败' })
     } finally {
       setCreating(false)
     }
@@ -39,8 +40,8 @@ export default function WorkspacePage() {
     try {
       await deleteWorkspace(id)
       refresh()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '删除工作区失败' })
     }
   }
 
