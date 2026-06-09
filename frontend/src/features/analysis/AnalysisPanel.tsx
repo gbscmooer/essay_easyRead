@@ -52,6 +52,20 @@ const tabs = [
 
 type TabKey = typeof tabs[number]['key']
 
+// Module-level stable style objects to avoid inline allocation on every render
+const TAB_BAR_STYLE: React.CSSProperties = {
+  backgroundColor: 'var(--bg-surface)',
+  borderBottom: '1px solid var(--border)',
+}
+const TAB_ACTIVE_STYLE: React.CSSProperties = { color: 'var(--accent)' }
+const TAB_INACTIVE_STYLE: React.CSSProperties = { color: 'var(--text-muted)' }
+const TAB_INDICATOR_STYLE: React.CSSProperties = { backgroundColor: 'var(--accent)' }
+const OVERLAY_STYLE: React.CSSProperties = { backgroundColor: 'rgba(0,0,0,0.45)' }
+const DIALOG_STYLE: React.CSSProperties = { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }
+const START_BTN_STYLE: React.CSSProperties = { backgroundColor: 'var(--accent)', color: '#ffffff' }
+const ICON_MUTED_STYLE: React.CSSProperties = { color: 'var(--text-muted)' }
+const SURFACE_CIRCLE_STYLE: React.CSSProperties = { backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }
+
 export function AnalysisPanel({ result, partialResult, status, progressMessage, progress, relatedStatus, onJumpToPage, paperId, onStartAnalysis, onReanalyze }: AnalysisPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false)
@@ -97,8 +111,8 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   if (status === 'idle' && !result) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={SURFACE_CIRCLE_STYLE}>
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={ICON_MUTED_STYLE}>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
             />
@@ -110,7 +124,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
           <button
             onClick={onStartAnalysis}
             className="px-6 py-2.5 text-sm font-medium rounded-lg transition-colors"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+            style={START_BTN_STYLE}
           >
             开始分析
           </button>
@@ -131,10 +145,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   return (
     <div className="flex flex-col h-full">
       {/* Tab 栏 */}
-      <div role="tablist" className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderBottom: '1px solid var(--border)',
-      }}>
+      <div role="tablist" className="flex items-center gap-0 sticky top-0 z-10 shrink-0" style={TAB_BAR_STYLE}>
         {tabs.map((tab, i) => (
           <button
             key={tab.key}
@@ -147,15 +158,11 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
             onKeyDown={handleTabKeyDown}
             className="px-4 py-2.5 text-sm font-medium transition-colors relative"
             title={`${tab.label} (${i + 1})`}
-            style={
-              activeTab === tab.key
-                ? { color: 'var(--accent)' }
-                : { color: 'var(--text-muted)' }
-            }
+            style={activeTab === tab.key ? TAB_ACTIVE_STYLE : TAB_INACTIVE_STYLE}
           >
             {tab.label}
             {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)', transition: 'left 0.2s ease' }} />
+              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style={TAB_INDICATOR_STYLE} />
             )}
           </button>
         ))}
@@ -166,7 +173,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
               onClick={() => setShowReanalyzeConfirm(true)}
               aria-label="重新分析"
               className="px-3 py-1.5 mr-2 text-xs rounded-md transition-colors"
-              style={{ color: 'var(--text-muted)' }}
+              style={ICON_MUTED_STYLE}
               title="全部重新分析"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -177,12 +184,12 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
             {showReanalyzeConfirm && (
               <div
                 className="fixed inset-0 z-[200] flex items-center justify-center"
-                style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+                style={OVERLAY_STYLE}
                 onMouseDown={() => setShowReanalyzeConfirm(false)}
               >
                 <div
                   className="w-80 rounded-xl border p-5 shadow-2xl"
-                  style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+                  style={DIALOG_STYLE}
                   onMouseDown={e => e.stopPropagation()}
                 >
                   <div className="flex items-start gap-3 mb-4">

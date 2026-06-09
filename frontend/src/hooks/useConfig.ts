@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { get } from '@/api/client'
 import { toast } from '@/hooks/useToast'
 import type { Theme } from '@/theme/themes'
@@ -102,6 +102,22 @@ export function useUIConfig(): UIConfig {
   }, [])
 
   return ui
+}
+
+
+/** Focused hook: only theme/font-related config fields */
+export function useThemeConfig() {
+  const { theme, font, custom_font, custom_themes } = useUIConfig()
+  return useMemo(() => ({ theme, font, custom_font, custom_themes }), [theme, font, custom_font, custom_themes])
+}
+
+
+/** Focused hook: only zoom/highlight config fields */
+export function useViewerConfig() {
+  const { highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step } = useUIConfig()
+  return useMemo(() => ({
+    highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step,
+  }), [highlight_duration, zoom_step, zoom_min, zoom_max, pinch_zoom_step])
 }
 
 

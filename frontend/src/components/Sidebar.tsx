@@ -3,6 +3,26 @@ import type { Paper } from '@/types'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 
+// Module-level stable style objects
+const SIDEBAR_STYLE: React.CSSProperties = {
+  backgroundColor: 'var(--bg-surface)',
+  borderRight: '1px solid var(--border)',
+}
+const SEARCH_CONTAINER_STYLE: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
+const SEARCH_INPUT_STYLE: React.CSSProperties = {
+  backgroundColor: 'var(--bg-surface)',
+  border: '1px solid var(--border)',
+  color: 'var(--text-primary)',
+}
+const ACTIVE_PAPER_STYLE: React.CSSProperties = {
+  borderLeft: '2px solid var(--accent)',
+  backgroundColor: 'var(--accent-subtle)',
+}
+const INACTIVE_PAPER_STYLE: React.CSSProperties = {
+  borderLeft: '2px solid transparent',
+  backgroundColor: 'transparent',
+}
+
 interface SidebarProps {
   papers: Paper[]
   activeId: number | null
@@ -33,11 +53,8 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
   }, [papers, search])
 
   return (
-    <div className="flex flex-col w-64 h-full" style={{
-      backgroundColor: 'var(--bg-surface)',
-      borderRight: '1px solid var(--border)',
-    }}>
-      <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+    <div className="flex flex-col w-64 h-full" style={SIDEBAR_STYLE}>
+      <div className="p-3" style={SEARCH_CONTAINER_STYLE}>
         <input
           type="text"
           placeholder="搜索论文..."
@@ -45,11 +62,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
           onChange={e => setSearch(e.target.value)}
           data-shortcut-search
           className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-primary)',
-          }}
+          style={SEARCH_INPUT_STYLE}
         />
       </div>
 
@@ -67,10 +80,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
               onClick={() => onSelect(paper.id)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
               className="group flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-colors"
-              style={{
-                borderLeft: activeId === paper.id ? '2px solid var(--accent)' : '2px solid transparent',
-                backgroundColor: activeId === paper.id ? 'var(--accent-subtle)' : 'transparent',
-              }}
+              style={activeId === paper.id ? ACTIVE_PAPER_STYLE : INACTIVE_PAPER_STYLE}
             >
               <span className="w-2 h-2 mt-1.5 rounded-full shrink-0" style={{ backgroundColor: statusDotColor(paper.status) }} />
               <div className="flex-1 min-w-0">

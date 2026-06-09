@@ -11,6 +11,7 @@ const CURRENT_RELEASE = {
     '前端优化：PdfViewer虚拟化、Tab懒加载、FlowChart动态导入',
     '前端优化：移除GraphCanvas轮询、拆分useConfig hooks、CodeViewer虚拟化',
     '列表查询排除full_text大字段、AnalysisJob事件列表上限',
+    'CodeViewer大文件行号虚拟化、高频组件提取稳定style对象',
   ],
 }
 
