@@ -12,7 +12,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session, create_engine
+from sqlmodel import Session
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ from ..config import settings
 from ..services.database import (
     create_paper,
     get_paper,
+    get_engine,
     list_papers,
     delete_paper,
     update_paper_status,
@@ -29,16 +30,6 @@ from ..services.pdf_parser import extract_pdf_content
 from ..utils.streaming import format_analysis_as_markdown
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
-
-# 数据库引擎单例
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 # ============================================================
@@ -77,7 +68,7 @@ async def upload_paper(file: UploadFile = File(...)):
         f.write(content)
 
     # 创建数据库记录
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         paper_id = create_paper(session, file.filename, pdf_path, len(content))
         paper = get_paper(session, paper_id)
@@ -112,7 +103,7 @@ async def get_papers_list(
     source: str = Query("uploaded", description="uploaded | expanded | all"),
 ):
     """获取论文列表，支持筛选和搜索"""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         papers, total = list_papers(session, search, venue, year, page, per_page, source)
 
@@ -144,7 +135,7 @@ async def get_papers_list(
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper_detail(paper_id: int):
     """获取单篇论文详情"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -175,7 +166,7 @@ async def get_paper_detail(paper_id: int):
 @router.delete("/{paper_id}")
 async def delete_paper_endpoint(paper_id: int):
     """删除论文及其解析结果"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             pdf_path, code_path = delete_paper(session, paper_id)
@@ -206,7 +197,7 @@ async def promote_paper(paper_id: int):
     from sqlmodel import Session as S
     from ..models.paper import Paper as PaperModel
 
-    engine = _get_engine()
+    engine = get_engine()
     with S(engine) as session:
         p = session.get(PaperModel, paper_id)
         if p is None:
@@ -231,7 +222,7 @@ async def export_paper(paper_id: int):
     """导出论文解析结果为 Markdown"""
     from ..services.database import get_analysis
 
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
@@ -273,7 +264,7 @@ async def export_paper(paper_id: int):
 @router.get("/{paper_id}/pdf")
 async def get_paper_pdf(paper_id: int):
     """获取论文 PDF 文件"""
-    engine = _get_engine()
+    engine = get_engine()
     try:
         with Session(engine) as session:
             paper = get_paper(session, paper_id)
