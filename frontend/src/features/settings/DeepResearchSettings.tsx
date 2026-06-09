@@ -558,8 +558,8 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
 
 /** 组合 6 个子组件的包装组件，供 ResearchSettingsDrawer 等外部使用 */
 export function DeepResearchSettings({ config, setConfig, simProviders }: {
-  config: any
-  setConfig: Dispatch<SetStateAction<any>>
+  config: AppConfig
+  setConfig: SetConfigFn
   simProviders?: string[]
 }) {
   return (

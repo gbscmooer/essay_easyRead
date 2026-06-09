@@ -7,7 +7,8 @@ import { getCodeFile, type NotebookCellData, type NotebookOutput } from '@/api/c
 import { useThemeMode } from '@/theme/useTheme'
 
 // highlight.js 语言按需加载映射
-const LANG_MAP: Record<string, () => Promise<{ default: any }>> = {
+import type { LanguageFn } from 'highlight.js'
+const LANG_MAP: Record<string, () => Promise<{ default: LanguageFn }>> = {
   python: () => import('highlight.js/lib/languages/python'),
   javascript: () => import('highlight.js/lib/languages/javascript'),
   typescript: () => import('highlight.js/lib/languages/typescript'),

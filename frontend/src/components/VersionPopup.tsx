@@ -1,16 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.2'
+const APP_VERSION = '1.17.3'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '统一引擎单例：5个router共用database.get_engine()，消除重复create_engine',
-    'catch类型安全：15处catch(e:any)改为unknown+instanceof类型守卫',
-    'confirm()替换：PaperList删除确认改用ConfirmDialog组件',
-    '阻塞IO异步化：delete_paper的文件删除包裹asyncio.to_thread',
-    '版本同步：package.json/VersionPopup版本号统一',
+    'DeepResearchSettings类型修复：config/setConfig从any改为AppConfig',
+    'CodeViewer类型修复：highlight.js动态导入从any改为LanguageFn',
   ],
 }
 
