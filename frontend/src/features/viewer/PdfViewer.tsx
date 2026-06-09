@@ -182,7 +182,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const resetZoom = useCallback(() => setScale(1.0), [])
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden relative">
+    <div
+      className="flex flex-col h-full rounded-lg overflow-hidden relative"
+      style={{ backgroundColor: 'var(--bg-surface)' }}
+    >
       {/* 文本选择弹窗 */}
       <SelectionPopup containerRef={scrollRef} />
 
@@ -190,7 +193,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       <div ref={scrollRef} className="flex-1 overflow-auto">
         {isLoading && (
           <div className="w-full h-full flex items-center justify-center">
-            <div className="w-8 h-8 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div
+              className="w-8 h-8 border-2 rounded-full animate-spin"
+              style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}
+            />
           </div>
         )}
         <Document
@@ -213,6 +219,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                     ? 'ring-2 ring-blue-500/60 ring-offset-2 ring-offset-gray-900 scale-[1.01]'
                     : ''
                 }`}
+                style={activePage === pageNum ? { '--tw-ring-offset-color': 'var(--bg-surface)' } as React.CSSProperties : undefined}
               >
                 <Page
                   pageNumber={pageNum}
@@ -222,12 +229,12 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                   className="shadow-xl"
                 />
                 {/* 页码标注 */}
-                <div className="absolute -left-12 top-0 text-xs text-gray-600 w-8 text-right select-none">
+                <div className="absolute -left-12 top-0 text-xs w-8 text-right select-none" style={{ color: 'var(--text-muted)' }}>
                   {pageNum}
                 </div>
                 {/* 跳转高亮光晕 */}
                 {activePage === pageNum && (
-                  <div className="absolute inset-0 pointer-events-none bg-blue-500/10 rounded" />
+                  <div className="absolute inset-0 pointer-events-none rounded" style={{ backgroundColor: 'var(--accent-subtle)' }} />
                 )}
               </div>
             ))}
@@ -236,25 +243,30 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       </div>
 
       {/* 底部控制栏 */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-900/90 border-t border-gray-800 backdrop-blur-sm">
+      <div
+        className="flex items-center justify-between px-4 py-2 backdrop-blur-sm border-t"
+        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', opacity: 0.95 }}
+      >
         {/* 翻页控制 */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => goToPage(Math.max(1, visiblePage - 1))}
             disabled={visiblePage <= 1}
-            className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="px-2 py-1 text-sm rounded hover:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
           >
             上一页
           </button>
 
-          <div className="flex items-center gap-1 text-sm text-gray-400">
+          <div className="flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <input
               type="text"
               value={pageInput}
               onChange={e => setPageInput(e.target.value)}
               onKeyDown={handlePageInputKeyDown}
               placeholder={String(visiblePage)}
-              className="w-10 text-center bg-gray-800 border border-gray-700 rounded text-gray-200 text-sm py-0.5 focus:outline-none focus:border-blue-500"
+              className="w-10 text-center rounded text-sm py-0.5 focus:outline-none"
+              style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)', color: 'var(--text-primary)' }}
             />
             <span>/ {numPages || '--'}</span>
           </div>
@@ -262,7 +274,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
           <button
             onClick={() => goToPage(Math.min(numPages, visiblePage + 1))}
             disabled={visiblePage >= numPages}
-            className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="px-2 py-1 text-sm rounded hover:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
           >
             下一页
           </button>
@@ -272,19 +285,22 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         <div className="flex items-center gap-2">
           <button
             onClick={zoomOut}
-            className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 transition-colors"
+            className="px-2 py-1 text-sm rounded hover:opacity-80 transition-colors"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
           >
             −
           </button>
           <button
             onClick={resetZoom}
-            className="px-2 py-1 text-xs text-gray-400 bg-gray-800 rounded hover:bg-gray-700 transition-colors min-w-[3rem] text-center"
+            className="px-2 py-1 text-xs rounded hover:opacity-80 transition-colors min-w-[3rem] text-center"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
           >
             {Math.round(scale * 100)}%
           </button>
           <button
             onClick={zoomIn}
-            className="px-2 py-1 text-sm text-gray-300 bg-gray-800 rounded hover:bg-gray-700 transition-colors"
+            className="px-2 py-1 text-sm rounded hover:opacity-80 transition-colors"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
           >
             +
           </button>

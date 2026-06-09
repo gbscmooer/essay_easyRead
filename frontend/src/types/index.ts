@@ -308,3 +308,37 @@ export interface EmbeddingConfig {
   batch_size: number
   device: string
 }
+
+
+// ============================================================
+// Annotations (PDF markup)
+// ============================================================
+
+export type AnnotationType = 'highlight' | 'underline' | 'strikethrough'
+
+export interface Annotation {
+  id: number
+  paper_id: number
+  page_number: number
+  x: number
+  y: number
+  width: number
+  height: number
+  annotation_type: AnnotationType
+  color: string
+  text: string
+  group_id: string | null
+  created_at: string
+}
+
+export interface AnnotationCreate {
+  page_number: number
+  x: number
+  y: number
+  width: number
+  height: number
+  annotation_type: AnnotationType
+  color: string
+  text: string
+  group_id?: string | null
+}
