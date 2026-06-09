@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { AnalysisResult, RelatedPaper } from '@/types'
 import { refreshRelatedPapers, importRelatedPapers } from '@/api/papers'
 import type { ImportPaperResult } from '@/api/papers'
@@ -28,6 +28,16 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
   const [showWsSelector, setShowWsSelector] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [wsLoading, setWsLoading] = useState(false)
+  const wsModalRef = useRef<HTMLDivElement>(null)
+
+  // Focus first interactive element when workspace selector opens
+  useEffect(() => {
+    if (!showWsSelector || !wsModalRef.current) return
+    const first = wsModalRef.current.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    first?.focus()
+  }, [showWsSelector, wsLoading])
 
   useEffect(() => {
     setRelatedPapers(result.related_papers || [])
@@ -457,6 +467,9 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           onClick={() => !isImporting && setShowWsSelector(false)}
         >
           <div
+            ref={wsModalRef}
+            role="dialog"
+            aria-modal="true"
             className="w-96 max-h-[70vh] rounded-xl border p-5 shadow-2xl flex flex-col"
             style={{ backgroundColor: 'var(--bg-elevated, #1a1a2e)', borderColor: 'var(--border, #333)' }}
             onClick={e => e.stopPropagation()}

@@ -179,6 +179,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('translate')}
+              aria-label="翻译"
               className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
             >
               翻译
@@ -186,6 +187,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('summarize')}
+              aria-label="总结"
               className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
             >
               总结
@@ -213,6 +215,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                 hidePopup()
                 navigate('/settings')
               }}
+              aria-label="设置"
               className="text-xs text-blue-400 hover:text-blue-300 underline"
             >
               前往配置页面 →
@@ -236,6 +239,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                       setTimeout(() => setCopied(false), 1500)
                     })
                   }}
+                  aria-label="复制结果"
                   className="text-gray-400 hover:text-gray-200 text-xs transition-colors"
                 >
                   {copied ? '已复制' : '复制'}
@@ -243,6 +247,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                 <button
                   onMouseDown={e => e.stopPropagation()}
                   onClick={hidePopup}
+                  aria-label="关闭"
                   className="text-gray-500 hover:text-gray-300 text-xs"
                 >
                   &times;

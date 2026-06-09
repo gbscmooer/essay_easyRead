@@ -91,6 +91,7 @@ export function PaperList({
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                aria-label="搜索论文"
                 className="w-full px-4 py-2 pl-10 text-sm rounded-lg focus:outline-none"
               />
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: 'var(--text-muted)' }}>
@@ -103,6 +104,7 @@ export function PaperList({
           <select
             value={venueFilter}
             onChange={e => handleFilterVenue(e.target.value)}
+            aria-label="按方向筛选"
             className="px-3 py-2 text-sm rounded-lg focus:outline-none"
           >
             <option value="">全部会议</option>
@@ -115,6 +117,7 @@ export function PaperList({
           <select
             value={yearFilter}
             onChange={e => handleFilterYear(e.target.value)}
+            aria-label="按年份筛选"
             className="px-3 py-2 text-sm rounded-lg focus:outline-none"
           >
             <option value="">全部年份</option>
@@ -175,6 +178,7 @@ export function PaperList({
                       e.stopPropagation()
                       onDelete(paper.id)
                     }}
+                    aria-label="删除论文"
                     className="opacity-0 group-hover:opacity-100 transition-all text-sm"
                     style={{ color: 'var(--text-muted)' }}
                     title="删除"
@@ -194,6 +198,7 @@ export function PaperList({
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
+            aria-label="上一页"
             className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
@@ -205,6 +210,7 @@ export function PaperList({
           <button
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
+            aria-label="下一页"
             className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >

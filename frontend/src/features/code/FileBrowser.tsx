@@ -85,6 +85,7 @@ function TreeNode({
     const { icon, color } = getFileIcon(node.name)
     return (
       <button
+        role="treeitem"
         onClick={() => onSelect(node.path)}
         className={`w-full text-left flex items-center gap-1.5 py-[2px] text-[13px] group transition-colors ${
           isSelected
@@ -120,6 +121,8 @@ function TreeNode({
   return (
     <div>
       <button
+        role="treeitem"
+        aria-expanded={expanded}
         onClick={() => setExpanded(v => !v)}
         className="w-full text-left flex items-center gap-1 py-[2px] text-[13px] text-[#cccccc] hover:bg-[#2a2d2e] transition-colors"
         style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8 }}
@@ -177,11 +180,11 @@ export function FileBrowser({ tree, selected, onSelect }: FileBrowserProps) {
   }
 
   return (
-    <div className="overflow-auto h-full py-1 bg-[#252526]">
+    <div role="tree" className="overflow-auto h-full py-1 bg-[#252526]">
       {/* 标题 */}
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] text-[#bbbbbb] uppercase tracking-wider font-medium">
         <span>资源管理器</span>
-        <button className="hover:text-white transition-colors">
+        <button aria-label="新建文件" className="hover:text-white transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
