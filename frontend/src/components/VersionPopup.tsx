@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.9.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '设置页组件拆分：AIModelSection / UIConfigSection / ProviderPresets / DeepResearchSettings 独立模块',
+    '配置类型统一到 features/settings/config.ts，支持 types/config.ts 全局重导出',
+    'Deep Research 设置区块通过 Suspense 延迟加载',
   ],
 }
 
