@@ -11,6 +11,7 @@ import type { Paper } from '@/types'
 import { UploadZone } from '@/features/upload/UploadZone'
 import { listPapers, uploadPaper } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 
 
 export function HomePage() {
@@ -23,7 +24,7 @@ export function HomePage() {
   useEffect(() => {
     listPapers({ page: 1, per_page: 6, source: 'uploaded' })
       .then(res => setRecentPapers(res.papers))
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载最近论文失败' }) })
     listWorkspaces()
       .then(ws => {
         const sorted = ws.sort((a, b) =>
@@ -31,7 +32,7 @@ export function HomePage() {
         )
         setRecentWorkspaces(sorted.slice(0, 6))
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载工作区失败' }) })
   }, [])
 
   const handleUpload = async (file: File) => {

@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { PdfViewer } from '@/features/viewer/PdfViewer'
 import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
+import { toast } from '@/hooks/useToast'
 
 
 const MIN_PANEL_PCT = 20
@@ -47,7 +48,7 @@ export function ReaderPage() {
   useEffect(() => {
     listPapers({ per_page: 100 })
       .then(res => setPapers(res.papers))
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
   }, [])
 
   // 拖拽逻辑
@@ -119,7 +120,7 @@ export function ReaderPage() {
         return remaining
       })
     } catch {
-      // ignore
+      toast({ type: 'error', message: '删除失败，请重试' })
     }
   }, [paperId, navigate])
 

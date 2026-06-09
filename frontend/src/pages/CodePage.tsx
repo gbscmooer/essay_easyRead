@@ -7,6 +7,7 @@ import type { Paper } from '@/types'
 import { FileBrowser } from '@/features/code/FileBrowser'
 import { CodeViewer } from '@/features/code/CodeViewer'
 import { CodeAnalysisPanel } from '@/features/code/CodeAnalysisPanel'
+import { toast } from '@/hooks/useToast'
 
 
 export function CodePage() {
@@ -49,8 +50,8 @@ export function CodePage() {
     setLoading(true)
     Promise.all([
       getPaper(paperId).then(setPaper),
-      getCodeTree(paperId).then(setFileTree).catch(() => {}),
-      getCodeAnalysis(paperId).then(setAnalysis).catch(() => {}),
+      getCodeTree(paperId).then(setFileTree).catch(() => { toast({ type: 'error', message: '加载文件树失败' }) }),
+      getCodeAnalysis(paperId).then(setAnalysis).catch(() => { toast({ type: 'error', message: '加载代码分析失败' }) }),
     ])
       .catch(() => setError('加载失败'))
       .finally(() => setLoading(false))
@@ -86,7 +87,7 @@ export function CodePage() {
       eventSource.addEventListener('done', () => {
         eventSource.close()
         setIsAnalyzing(false)
-        getCodeAnalysis(paperId).then(setAnalysis).catch(() => {})
+        getCodeAnalysis(paperId).then(setAnalysis).catch(() => { toast({ type: 'error', message: '加载代码分析失败' }) })
       })
 
       eventSource.addEventListener('error', () => {

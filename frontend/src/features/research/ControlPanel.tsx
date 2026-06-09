@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import { Tooltip } from '@/components/Tooltip'
 
 interface ControlPanelProps {
@@ -44,7 +45,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
         )
         setSelectedIds(usable)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载工作区论文失败' }) })
   }, [wsId])
 
   useEffect(() => {
@@ -53,7 +54,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled }: ControlPanelP
         const saved = cfg.research?.similarity_threshold
         if (typeof saved === 'number') setThreshold(saved)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'warning', message: '研究配置加载失败，使用默认值' }) })
   }, [])
 
   const isUsable = (status: string) =>

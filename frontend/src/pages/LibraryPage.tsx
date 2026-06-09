@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { listPapers, deletePaper, promoteExpandedPaper } from '@/api/papers'
 import { PaperList } from '@/features/library/PaperList'
+import { toast } from '@/hooks/useToast'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -103,7 +104,7 @@ export function LibraryPage() {
         setPapers(res.papers)
         setTotal(res.total)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
   }, [search, venue, year, page])
 
   const fetchExpandedPapers = useCallback(() => {
@@ -112,7 +113,7 @@ export function LibraryPage() {
         setExpandedPapers(res.papers)
         setExpandedTotal(res.total)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载扩展论文失败' }) })
   }, [])
 
   useEffect(() => { fetchPapers() }, [fetchPapers])
@@ -126,7 +127,9 @@ export function LibraryPage() {
     try {
       await deletePaper(id)
       fetchPapers()
-    } catch {}
+    } catch {
+      toast({ type: 'error', message: '删除论文失败' })
+    }
   }, [fetchPapers])
 
   const handleSearch = useCallback((query: string) => {

@@ -22,11 +22,13 @@ import { CodePage } from '@/pages/CodePage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
 import { ResearchPage } from '@/pages/ResearchPage'
+import { ToastContainer } from '@/components/ToastContainer'
 
 
 export default function App() {
   return (
     <Layout>
+      <ToastContainer />
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/reader/:id" element={<ReaderPage />} />

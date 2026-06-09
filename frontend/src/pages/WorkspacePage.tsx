@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 
 
 export function WorkspacePage() {
@@ -13,7 +14,7 @@ export function WorkspacePage() {
   const refresh = useCallback(() => {
     listWorkspaces()
       .then(setWorkspaces)
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载工作区失败' }) })
       .finally(() => setLoading(false))
   }, [])
 

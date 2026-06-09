@@ -3,6 +3,7 @@ import type { AnalysisResult, RelatedPaper } from '@/types'
 import { refreshRelatedPapers, importRelatedPapers } from '@/api/papers'
 import type { ImportPaperResult } from '@/api/papers'
 import { listWorkspaces } from '@/api/workspaces'
+import { toast } from '@/hooks/useToast'
 import type { WorkspaceItem } from '@/api/workspaces'
 
 
@@ -59,6 +60,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       setWorkspaces(wss)
     } catch {
       setWorkspaces([])
+      toast({ type: 'warning', message: '加载工作区列表失败' })
     } finally {
       setWsLoading(false)
     }

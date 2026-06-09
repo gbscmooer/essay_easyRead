@@ -9,6 +9,7 @@ import { GraphCanvas } from '@/features/research/GraphCanvas'
 import { NodeDetail } from '@/features/research/NodeDetail'
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
+import { toast } from '@/hooks/useToast'
 
 export function ResearchPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,10 +22,10 @@ export function ResearchPage() {
 
   // 1) 初始加载历史：图谱 + 最近 run
   useEffect(() => {
-    getGraph(wsId).then(setGraph).catch(() => {})
+    getGraph(wsId).then(setGraph).catch(() => { toast({ type: 'error', message: '加载图谱失败' }) })
     getLatestRun(wsId).then(r => {
       if (r && r.status === 'running') setRunId(r.id)
-    }).catch(() => {})
+    }).catch(() => { toast({ type: 'error', message: '加载研究记录失败' }) })
   }, [wsId])
 
   // 2) stream.graph 覆盖历史
@@ -46,7 +47,7 @@ export function ResearchPage() {
       const run = await createRun(wsId, body)
       setRunId(run.id)
     } catch (e: any) {
-      alert(e.message || '启动失败')
+      toast({ type: 'error', message: e.message || '启动失败' })
     }
   }
 
@@ -57,7 +58,7 @@ export function ResearchPage() {
       setGraph(null)
       setRunId(null)
     } catch (e: any) {
-      alert(e.message || '清空失败')
+      toast({ type: 'error', message: e.message || '清空失败' })
     }
   }
 

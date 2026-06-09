@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 import { ThemeEditor } from '@/features/settings/ThemeEditor'
 import { PromptEditor } from '@/features/settings/PromptEditor'
@@ -691,12 +692,12 @@ export function SettingsPage() {
         arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
         findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
       }))
-      .catch(() => {})
+      .catch(() => { toast({ type: 'warning', message: '配置加载失败，使用默认值' }) })
       .finally(() => setLoading(false))
 
     get<{ providers: string[] }>('/analysis/similarity/providers')
       .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'warning', message: '相似度提供者列表加载失败' }) })
   }, [])
 
   // 离开页面时清除预览（不保存则恢复原样）
