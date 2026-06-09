@@ -6,10 +6,17 @@ const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
+<<<<<<< HEAD
     '移除 GraphCanvas 300ms 轮询，改用 onZoomEnd 回调同步缩放状态',
     '拆分 useConfig hooks，新增 useThemeConfig/useViewerConfig 减少不必要重渲染',
     'CodeViewer 大文件（>2000行）行号虚拟化，避免全量 DOM 渲染',
     'AnalysisPanel/Sidebar 高频组件提取稳定 style 对象，减少内联分配',
+=======
+    '修复异步端点中的阻塞 IO 操作，使用 asyncio.to_thread 释放事件循环',
+    '优化分析缓存写入频率，减少磁盘 IO 开销',
+    '限制事件回放缓冲上限为 200 条，降低内存占用',
+    '为静默异常捕获添加 debug 日志',
+>>>>>>> worktree-agent-abca060aaeee278f5
   ],
 }
 

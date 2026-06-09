@@ -64,8 +64,11 @@ async def upload_paper(file: UploadFile = File(...)):
     filename = f"{file_id}.pdf"
     pdf_path = os.path.join(upload_dir, filename)
 
-    with open(pdf_path, "wb") as f:
-        f.write(content)
+    def _write_pdf():
+        with open(pdf_path, "wb") as f:
+            f.write(content)
+
+    await asyncio.to_thread(_write_pdf)
 
     # 创建数据库记录
     engine = get_engine()
