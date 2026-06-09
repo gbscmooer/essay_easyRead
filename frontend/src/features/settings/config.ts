@@ -1,8 +1,8 @@
 /**
  * 全局配置类型与默认值
  *
- * 从 SettingsPage 抽出，供「设置」页与「深度研究」设置抽屉共享，
- * 避免两处重复定义。与后端 backend/routers/analysis.py 的 AppConfig 一一对应。
+ * 从 SettingsPage 抽出，供设置页与深度研究设置共享，
+ * 避免重复定义。与后端 backend/routers/analysis.py 的 AppConfig 一一对应。
  */
 import type { Theme } from '@/theme/themes'
 
@@ -42,8 +42,6 @@ export interface ResearchConfig {
   email: string
   api_key: string
   similarity_threshold: number
-  knn_k: number
-  link_distance?: number
 }
 
 export interface RerankerConfig {
@@ -56,19 +54,8 @@ export interface RerankerConfig {
   top_n: number
 }
 
-export interface FacetWeights {
-  purpose: number
-  method: number
-  baseline: number
-  dataset: number
-}
-
 export interface SimilarityConfig {
   provider: string
-  facet_weighted?: {
-    weights: FacetWeights
-    use_embedding: boolean
-  }
 }
 
 export interface ArxivExpandConfig {
@@ -156,7 +143,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     email: '',
     api_key: '',
     similarity_threshold: 0.9,
-    knn_k: 8,
   },
   reranker: {
     enabled: true,
@@ -169,10 +155,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   similarity: {
     provider: 'bge_centroid',
-    facet_weighted: {
-      weights: { purpose: 0.5, method: 0.2, baseline: 0.15, dataset: 0.05 },
-      use_embedding: true,
-    },
   },
   arxiv_expand: {
     enabled: true,
