@@ -143,7 +143,7 @@ export default function WorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
       </div>
     )
   }
@@ -187,7 +187,10 @@ export default function WorkspaceDetailPage() {
             <h1
               className="text-xl font-bold cursor-pointer transition-colors"
               style={{ color: 'var(--text-primary)' }}
+              role="button"
+              tabIndex={0}
               onClick={() => setEditing(true)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
             >
               {workspace.name}
             </h1>
@@ -263,7 +266,7 @@ export default function WorkspaceDetailPage() {
           </div>
           {loadingPapers ? (
             <div className="flex justify-center py-4">
-              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
             </div>
           ) : libraryPapers.length === 0 ? (
             <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
@@ -421,7 +424,10 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
         borderStyle: isDiscovered ? 'dashed' : 'solid',
         boxShadow: selected ? '0 0 0 1px var(--accent)' : 'none',
       }}
+      role="button"
+      tabIndex={0}
       onClick={onNavigate}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate() } }}
       onMouseEnter={e => {
         if (!selected) e.currentTarget.style.borderColor = 'var(--border-light)'
         e.currentTarget.style.boxShadow = selected ? '0 0 0 1px var(--accent)' : '0 2px 8px rgba(0,0,0,0.08)'

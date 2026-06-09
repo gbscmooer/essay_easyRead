@@ -96,7 +96,10 @@ export default function HomePage() {
             {recentPapers.map(paper => (
               <div
                 key={paper.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(`/reader/${paper.id}`)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/reader/${paper.id}`) } }}
                 className="rounded-xl p-4 cursor-pointer transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
@@ -160,7 +163,10 @@ export default function HomePage() {
             {recentWorkspaces.map(ws => (
               <div
                 key={ws.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(`/workspace/${ws.id}`)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
                 className="rounded-xl p-4 cursor-pointer transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',

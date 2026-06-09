@@ -62,7 +62,10 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
           filtered.map(paper => (
             <div
               key={paper.id}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(paper.id)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
               className="group flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-colors"
               style={{
                 borderLeft: activeId === paper.id ? '2px solid var(--accent)' : '2px solid transparent',

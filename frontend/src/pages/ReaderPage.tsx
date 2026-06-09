@@ -26,6 +26,7 @@ export default function ReaderPage() {
   const autoAnalyzeRef = useRef((location.state as { autoAnalyze?: boolean })?.autoAnalyze ?? false)
 
   const [papers, setPapers] = useState<Paper[]>([])
+  const [papersLoading, setPapersLoading] = useState(true)
   const [activePage, setActivePage] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
@@ -50,9 +51,11 @@ export default function ReaderPage() {
   } = useAnalysis(paperId)
 
   useEffect(() => {
+    setPapersLoading(true)
     listPapers({ per_page: 100 })
       .then(res => setPapers(res.papers))
       .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
+      .finally(() => setPapersLoading(false))
   }, [])
 
   // Auto-start analysis for freshly uploaded papers
@@ -210,12 +213,23 @@ export default function ReaderPage() {
           transform transition-all duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-0'}
         `}>
+          {papersLoading && papers.length === 0 ? (
+            <div className="flex flex-col w-64 h-full items-center justify-center" style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderRight: '1px solid var(--border)',
+            }}>
+              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status">
+                <span className="sr-only">加载中</span>
+              </div>
+            </div>
+          ) : (
           <Sidebar
             papers={papers}
             activeId={paperId ?? null}
             onSelect={handleSelect}
             onDelete={handleDelete}
           />
+          )}
         </div>
       )}
 

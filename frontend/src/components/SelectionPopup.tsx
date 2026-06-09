@@ -409,7 +409,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         {/* 加载状态 */}
         {loading && (
           <div className="flex items-center gap-2 px-4 py-3">
-            <div className="w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" role="status"><span className="sr-only">加载中</span></div>
             <span className="text-xs text-gray-400">
               {action === 'translate' ? '正在翻译...' : '正在总结...'}
             </span>

@@ -43,7 +43,10 @@ function ExpandedPaperRow({
     <div
       className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-colors group"
       style={{ backgroundColor: 'var(--bg-base)' }}
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(paper.id)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
     >
       <div className="flex-1 min-w-0">
         <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>

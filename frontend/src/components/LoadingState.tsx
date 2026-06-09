@@ -138,7 +138,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                   color: isDone || isCurrentStep ? '#ffffff' : 'var(--text-muted)',
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
-                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" role="status"><span className="sr-only">\u52A0\u8F7D\u4E2D</span></div>
                   ) : '\u25CB'}
                 </div>
 

@@ -763,7 +763,10 @@ export default function SettingsPage() {
         <div
           className="w-6 h-6 border-2 rounded-full animate-spin"
           style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}
-        />
+          role="status"
+        >
+          <span className="sr-only">加载中</span>
+        </div>
       </div>
     )
   }

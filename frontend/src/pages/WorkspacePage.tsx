@@ -56,7 +56,7 @@ export default function WorkspacePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
       </div>
     )
   }
@@ -101,7 +101,10 @@ export default function WorkspacePage() {
           {workspaces.map(ws => (
             <div
               key={ws.id}
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/workspace/${ws.id}`)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
               className="rounded-xl p-4 cursor-pointer transition-all group"
               style={{
                 backgroundColor: 'var(--bg-surface)',
