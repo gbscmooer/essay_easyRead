@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 
 export default function WorkspacePage() {
@@ -10,6 +11,7 @@ export default function WorkspacePage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   const refresh = useCallback(() => {
     listWorkspaces()
@@ -34,14 +36,20 @@ export default function WorkspacePage() {
     }
   }
 
-  const handleDelete = async (id: number, e: React.MouseEvent) => {
+  const handleDelete = (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm('确定删除此工作区？')) return
+    setDeleteTarget(id)
+  }
+
+  const confirmDelete = async () => {
+    if (deleteTarget === null) return
     try {
-      await deleteWorkspace(id)
+      await deleteWorkspace(deleteTarget)
       refresh()
     } catch (e: any) {
       toast({ type: 'error', message: e?.message || '删除工作区失败' })
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -131,6 +139,14 @@ export default function WorkspacePage() {
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="确认删除"
+        message="确定删除此工作区？"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

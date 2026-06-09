@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
 import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
@@ -24,6 +25,7 @@ export default function ResearchPage() {
   const [linkDistance, setLinkDistance] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
   const [graphLoading, setGraphLoading] = useState(true)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const stream = useResearchStream(runId)
 
   // Leave confirmation when research is running
@@ -68,8 +70,12 @@ export default function ResearchPage() {
     }
   }
 
-  const onClear = async () => {
-    if (!confirm('确定清空该工作区的图谱和向量索引？这不会删除论文文件。')) return
+  const onClear = () => {
+    setShowClearConfirm(true)
+  }
+
+  const confirmClear = async () => {
+    setShowClearConfirm(false)
     try {
       await clearResearch(wsId)
       setGraph(null)
@@ -145,6 +151,16 @@ export default function ResearchPage() {
 
       {/* 研究设置抽屉（与设置页共用 DeepResearchSettings） */}
       <ResearchSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="确认清空"
+        message="确定清空该工作区的图谱和向量索引？这不会删除论文文件。"
+        variant="warning"
+        confirmLabel="清空"
+        onConfirm={confirmClear}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 }
