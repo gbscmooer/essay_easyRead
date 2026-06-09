@@ -29,6 +29,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [knnK, setKnnK] = useState(8)
+  const [includeExpanded, setIncludeExpanded] = useState(true)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
   const [expandedCount, setExpandedCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -92,6 +93,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
     onStart({
       mode,
       paper_ids: Array.from(selectedIds),
+      include_expanded: includeExpanded,
       expand_top_k: topK,
       deep,
       rebuild,
@@ -123,10 +125,13 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   // 开始按钮文字：区分本地/联网，并说明论文来源
   const startLabel = (() => {
     if (disabled) return '运行中...'
+    const withExpanded = includeExpanded && expandedCount > 0
     if (mode === 'local') {
-      return `开始研究（${selectedUsableCount} 篇）`
+      return withExpanded
+        ? `开始研究（${selectedUsableCount} 篇本地 + ${expandedCount} 篇已扩展）`
+        : `开始研究（${selectedUsableCount} 篇）`
     }
-    const expandedPart = expandedCount > 0
+    const expandedPart = withExpanded
       ? `+ ${expandedCount} 篇已扩展`
       : ''
     return expandedPart
@@ -137,7 +142,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   // 选择器按钮文字
   const pickerLabel = (() => {
     const base = `起始论文 ${selectedUsableCount}/${usableCount} 已选`
-    if (expandedCount > 0) return `${base}　· 另含 ${expandedCount} 篇扩展`
+    if (includeExpanded && expandedCount > 0) return `${base}　· 另含 ${expandedCount} 篇扩展`
     return base
   })()
 
@@ -233,7 +238,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
               <br />起始论文：研究的出发点，图谱从这些论文的引用关系展开。
               {expandedCount > 0 && (
                 <>
-                  <br />另有 {expandedCount} 篇上次联网扩展到的论文，会自动纳入本次图谱，无需手动勾选。
+                  <br />另有 {expandedCount} 篇上次联网扩展到的论文，是否纳入由「含已扩展论文」开关控制。
                 </>
               )}
             </>
@@ -252,6 +257,22 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
             {pickerLabel}
           </button>
         </Tooltip>
+
+        {/* 是否纳入已下载的联网扩展论文 */}
+        {expandedCount > 0 && (
+          <Tooltip content={`工作区里有 ${expandedCount} 篇之前联网扩展下载到本地的论文。勾选则一并纳入本次图谱与检索；取消勾选则只用工作区内部添加的论文，扩展论文不参与。`}>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-muted)' }}>
+              <input
+                type="checkbox"
+                checked={includeExpanded}
+                onChange={e => setIncludeExpanded(e.target.checked)}
+                disabled={disabled}
+                className="rounded accent-blue-500"
+              />
+              含已扩展论文（{expandedCount}）
+            </label>
+          </Tooltip>
+        )}
 
         {/* 重建索引 */}
         <Tooltip content="强制清空并重建该工作区的向量索引和图谱。仅在切换了向量模型（维度变化）或图谱出现异常数据时才需要。日常使用保持关闭即可（默认为增量更新）。">
@@ -319,7 +340,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
               </span>
               {expandedCount > 0 && (
                 <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                  · 另有 {expandedCount} 篇联网扩展到的论文自动纳入，无需勾选
+                  · 另有 {expandedCount} 篇联网扩展论文{includeExpanded ? '将一并纳入' : '已排除（仅用工作区内部论文）'}
                 </span>
               )}
             </div>

@@ -30,17 +30,25 @@ async def stage_collect(ws_id: int, params: dict) -> list[Paper]:
     - **加上**工作区内已存在的所有 L2+ 论文（之前研究下载的）
       这些论文不会再被 expand 重复下载，但要进入图谱和向量检索。
     - 如果 `paper_ids` 为空，回退为全部 L1 + 全部 L2+。
+
+    `include_expanded=False` 时只用工作区内部论文（level==1），
+    不纳入之前下载到本地的联网扩展论文（level>=2）。
     """
     pids = params.get("paper_ids")
+    include_expanded = params.get("include_expanded", True)
     with Session(_get_engine(), expire_on_commit=False) as s:
         base = (select(Paper).join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
                 .where(WorkspacePaper.workspace_id == ws_id)
                 .where(Paper.status.in_(["done", "indexed", "pending"])))
 
         if pids:
-            # L1 按 picker 勾选过滤；L2+ 全要
+            # L1 按 picker 勾选过滤；L2+ 默认全要，include_expanded=False 时排除
             picked_l1 = s.exec(base.where(Paper.id.in_(pids)).where(Paper.level == 1)).all()
+            if not include_expanded:
+                return list(picked_l1)
             l2_plus = s.exec(base.where(Paper.level >= 2)).all()
             return list(picked_l1) + list(l2_plus)
         else:
+            if not include_expanded:
+                return list(s.exec(base.where(Paper.level == 1)).all())
             return list(s.exec(base).all())

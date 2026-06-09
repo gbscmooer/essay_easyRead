@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.12.1'
+const APP_VERSION = '1.12.2'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-08',
+  date: '2026-06-09',
   changes: [
-    '首页论文状态新增「尚未解析」标识，区分于「处理中」',
-    '论文库元数据展示优化：年份、学科方向（标签）、会议分开呈现',
-    '修复重新索引时深度研究论文区块未同步刷新的问题',
+    '深度研究新增「含已扩展论文」开关，可选择是否纳入之前联网扩展的论文',
+    'embedding API 请求增加指数退避重试，避免瞬时网络抖动导致研究失败',
+    '修复后端重启后研究任务卡在「运行中」的问题（孤儿 run 自动检测）',
   ],
 }
 

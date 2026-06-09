@@ -58,16 +58,38 @@ async def _embed_local(texts, cfg):
     )
 
 
-async def _embed_openai_compatible(texts, cfg):
-    """OpenAI 兼容 API（OpenAI / SiliconFlow 等）"""
+async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
+    """OpenAI 兼容 API（OpenAI / SiliconFlow 等）。
+
+    对瞬时网络抖动（ConnectError/TimeoutException）和 5xx 做指数退避重试，
+    避免一次短暂断网就让整个深度研究 run 失败。
+    """
     if not cfg.get("api_key"):
         raise RuntimeError(f"{cfg['provider']} embedding 需要在配置中填写 api_key")
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(
-            f"{cfg['base_url'].rstrip('/')}/embeddings",
-            headers={"Authorization": f"Bearer {cfg['api_key']}"},
-            json={"model": cfg["model"], "input": texts},
-        )
-        r.raise_for_status()
-        data = r.json()["data"]
-        return [d["embedding"] for d in data]
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(
+                    f"{cfg['base_url'].rstrip('/')}/embeddings",
+                    headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                    json={"model": cfg["model"], "input": texts},
+                )
+                r.raise_for_status()
+                data = r.json()["data"]
+                return [d["embedding"] for d in data]
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
+            last_err = e
+        except httpx.HTTPStatusError as e:
+            # 4xx（鉴权/参数错误）不重试；仅 5xx 服务端错误重试
+            if e.response.status_code < 500:
+                raise
+            last_err = e
+        if attempt < max_retries - 1:
+            delay = 2 ** attempt  # 1s, 2s, 4s
+            logger.warning(
+                f"embedding 请求失败（{type(last_err).__name__}），{delay}s 后重试 "
+                f"({attempt + 1}/{max_retries})"
+            )
+            await asyncio.sleep(delay)
+    raise last_err  # type: ignore[misc]

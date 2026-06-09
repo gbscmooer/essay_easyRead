@@ -226,6 +226,7 @@ export type ResearchStage = 'collect' | 'expand' | 'chunk' | 'embed' | 'graph' |
 export interface ResearchRunCreate {
   mode: ResearchMode
   paper_ids?: number[] | null
+  include_expanded?: boolean     // 是否纳入已下载的联网扩展论文（level>=2），默认 true
   deep?: number                  // 仅 online：扩展跳数（默认 1）
   expand_top_k?: number
   expand_total_limit?: number

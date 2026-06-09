@@ -173,6 +173,9 @@ class ResearchRunCreate(BaseModel):
     """创建深度研究任务的请求体"""
     mode: str = Field("local", pattern=r"^(local|online)$")
     paper_ids: Optional[list[int]] = None
+    # 是否把工作区内已存在的联网扩展论文（level>=2）纳入本次图谱。
+    # 关闭后只用工作区内部论文（level==1），不使用之前下载到本地的扩展论文。
+    include_expanded: bool = True
     deep: int = Field(1, ge=1, le=5)
     expand_top_k: int = Field(5, ge=1, le=50)
     expand_total_limit: int = Field(50, ge=1, le=500)

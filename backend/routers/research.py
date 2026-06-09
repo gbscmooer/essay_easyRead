@@ -21,7 +21,7 @@ from ..models.schemas import (
 )
 from ..utils.streaming import format_sse
 from ..services.deep_research.pipeline import run_pipeline
-from ..services.deep_research.event_bus import get_event_bus
+from ..services.deep_research.event_bus import get_event_bus, has_event_bus
 from ..services.deep_research.vector_store import query_workspace, drop_workspace_collection
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,9 @@ async def create_run(ws_id: int, req: ResearchRunCreate):
         session.refresh(run)
         run_id = run.id
 
+    # 先建好事件总线再起任务：保证客户端连 /stream 时 bus 必然存在，
+    # 从而 has_event_bus()==False 可可靠判定为"孤儿 run"（见 stream_run）。
+    get_event_bus(run_id)
     # 异步启动 pipeline（不在 HTTP 请求内阻塞）
     asyncio.create_task(run_pipeline(run_id))
 
@@ -128,7 +131,22 @@ async def stream_run(run_id: int):
                       "stage": run_current_stage or ""}))
             return
 
-        # 2. 进行中 / 未开始：订阅 event_bus
+        # 2. 状态为 running/pending 但没有活跃 bus → 孤儿 run（pipeline 进程已不在，
+        #    多为后端重启/硬崩溃遗留）。直接落 failed 并补发 error，避免订阅空 bus 永久阻塞、
+        #    前端永久卡在"运行中"，同时解除 create_run 的 409 锁。
+        if not has_event_bus(run_id):
+            msg = run_error_message or "研究任务已中断（服务可能已重启），请重新运行"
+            with Session(engine) as s:
+                r = s.get(ResearchRun, run_id)
+                if r is not None and r.status in ("running", "pending"):
+                    r.status = "failed"
+                    r.error_message = msg
+                    s.commit()
+            yield format_sse(StreamEvent(event="error",
+                data={"message": msg, "stage": run_current_stage or ""}))
+            return
+
+        # 进行中：订阅 event_bus
         bus = get_event_bus(run_id)
         async for evt in bus.subscribe():
             yield format_sse(evt)

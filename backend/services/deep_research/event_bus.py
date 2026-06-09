@@ -45,5 +45,14 @@ def get_event_bus(run_id: int) -> EventBus:
     return _buses[run_id]
 
 
+def has_event_bus(run_id: int) -> bool:
+    """是否存在该 run 的活跃事件总线（即 pipeline 仍在本进程内运行）。
+
+    用于识别"孤儿 run"：DB 状态仍是 running/pending，但 pipeline 进程
+    已不在（后端重启 / 硬崩溃）。这类 run 没有活 bus，订阅会永久阻塞。
+    """
+    return run_id in _buses
+
+
 def drop_event_bus(run_id: int):
     _buses.pop(run_id, None)
