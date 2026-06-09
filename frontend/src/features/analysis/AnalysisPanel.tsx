@@ -5,15 +5,25 @@
  * 清新学术风格：简洁 Tab 栏 + 清晰内容区。
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import type { AnalysisResult, AnalysisStatus } from '@/types'
 import { LoadingState } from '@/components/LoadingState'
 import { OverviewTab } from './tabs/OverviewTab'
 import { OutlineTab } from './tabs/OutlineTab'
 import { MethodTab } from './tabs/MethodTab'
-import { ExperimentsTab } from './tabs/ExperimentsTab'
-import { CodeTab } from './tabs/CodeTab'
-import { InterviewTab } from './tabs/InterviewTab'
+
+// Lazy-loaded tabs: only bundle when user actually clicks them
+const ExperimentsTab = React.lazy(() => import('./tabs/ExperimentsTab'))
+const CodeTab = React.lazy(() => import('./tabs/CodeTab'))
+const InterviewTab = React.lazy(() => import('./tabs/InterviewTab'))
+
+function TabLoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+    </div>
+  )
+}
 import { NotesPanel } from './NotesPanel'
 
 
@@ -218,9 +228,21 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
         {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} relatedStatus={relatedStatus} />}
         {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
         {activeTab === 'method' && <MethodTab result={result} />}
-        {activeTab === 'experiments' && <ExperimentsTab result={result} onJumpToPage={onJumpToPage} />}
-        {activeTab === 'code' && <CodeTab paperId={paperId} />}
-        {activeTab === 'interview' && <InterviewTab result={result} />}
+        {activeTab === 'experiments' && (
+          <Suspense fallback={<TabLoadingSpinner />}>
+            <ExperimentsTab result={result} onJumpToPage={onJumpToPage} />
+          </Suspense>
+        )}
+        {activeTab === 'code' && (
+          <Suspense fallback={<TabLoadingSpinner />}>
+            <CodeTab paperId={paperId} />
+          </Suspense>
+        )}
+        {activeTab === 'interview' && (
+          <Suspense fallback={<TabLoadingSpinner />}>
+            <InterviewTab result={result} />
+          </Suspense>
+        )}
         {activeTab === 'notes' && paperId && <NotesPanel paperId={paperId} />}
       </div>
     </div>

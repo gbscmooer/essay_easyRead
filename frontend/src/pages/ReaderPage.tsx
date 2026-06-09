@@ -51,7 +51,7 @@ export default function ReaderPage() {
 
   useEffect(() => {
     setPapersLoading(true)
-    listPapers({ per_page: 100 })
+    listPapers({ per_page: 30 })
       .then(res => setPapers(res.papers))
       .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
       .finally(() => setPapersLoading(false))

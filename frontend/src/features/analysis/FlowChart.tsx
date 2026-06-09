@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import mermaid from 'mermaid'
 
 
 /** 仅剥离事件处理器，保留 SVG 全部结构（包括 foreignObject 文字） */
@@ -15,10 +14,14 @@ interface FlowChartProps {
 }
 
 let mermaidInitialized = false
+let mermaidModule: typeof import('mermaid') | null = null
 
-function initMermaid() {
+async function getMermaid() {
+  if (!mermaidModule) {
+    mermaidModule = await import('mermaid')
+  }
   if (!mermaidInitialized) {
-    mermaid.initialize({
+    mermaidModule.default.initialize({
       startOnLoad: false,
       theme: 'dark',
       themeVariables: {
@@ -38,6 +41,7 @@ function initMermaid() {
     })
     mermaidInitialized = true
   }
+  return mermaidModule.default
 }
 
 /**
@@ -87,31 +91,40 @@ export function FlowChart({ chart }: FlowChartProps) {
   useEffect(() => {
     if (!chart || !containerRef.current) return
 
-    initMermaid()
+    let cancelled = false
 
-    const sanitized = sanitizeMermaid(chart)
-    const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    ;(async () => {
+      const mermaid = await getMermaid()
+      if (cancelled) return
 
-    mermaid.render(id, sanitized).then(
-      ({ svg: renderedSvg }) => {
-        setSvg(renderedSvg)
-        setError(null)
-      },
-      (err) => {
+      const sanitized = sanitizeMermaid(chart)
+      const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+      try {
+        const { svg: renderedSvg } = await mermaid.render(id, sanitized)
+        if (!cancelled) {
+          setSvg(renderedSvg)
+          setError(null)
+        }
+      } catch (err: any) {
         // 如果清洗后仍然失败，尝试最简化的图表
-        const fallback = 'graph TD\n    A[Input] --> B[Process]\n    B --> C[Output]'
-        mermaid.render(id + '-fallback', fallback).then(
-          ({ svg: fallbackSvg }) => {
+        try {
+          const fallback = 'graph TD\n    A[Input] --> B[Process]\n    B --> C[Output]'
+          const { svg: fallbackSvg } = await mermaid.render(id + '-fallback', fallback)
+          if (!cancelled) {
             setSvg(fallbackSvg)
             setError(null)
-          },
-          () => {
+          }
+        } catch {
+          if (!cancelled) {
             setError(err?.message || '流程图语法错误')
             setSvg('')
           }
-        )
+        }
       }
-    )
+    })()
+
+    return () => { cancelled = true }
   }, [chart])
 
   if (error) {

@@ -151,3 +151,5 @@ export function InterviewTab({ result }: InterviewTabProps) {
     </div>
   )
 }
+
+export default InterviewTab
