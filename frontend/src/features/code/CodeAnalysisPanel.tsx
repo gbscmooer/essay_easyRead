@@ -115,8 +115,8 @@ async function ensureMermaid(mode: 'light' | 'dark') {
 function sanitizeSvg(svg: string): string {
   return DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true },
-    ADD_TAGS: ['use'],
-    ADD_ATTR: ['xlink:href'],
+    ADD_TAGS: ['use', 'foreignObject', 'style'],
+    ADD_ATTR: ['xlink:href', 'style', 'transform', 'data-id', 'data-index'],
   })
 }
 
