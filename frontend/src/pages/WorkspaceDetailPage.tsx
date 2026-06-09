@@ -4,6 +4,8 @@ import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWork
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 
 export default function WorkspaceDetailPage() {
@@ -20,6 +22,8 @@ export default function WorkspaceDetailPage() {
   const [loadingPapers, setLoadingPapers] = useState(false)
   const [selectedDiscovered, setSelectedDiscovered] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
+  const [batchRemoveConfirm, setBatchRemoveConfirm] = useState(false)
+  const [singleRemoveConfirm, setSingleRemoveConfirm] = useState<(() => void) | null>(null)
 
   const refresh = useCallback(() => {
     if (!workspaceId) return
@@ -120,9 +124,13 @@ export default function WorkspaceDetailPage() {
     }
   }
 
-  const handleBatchRemove = async () => {
+  const handleBatchRemove = () => {
     if (selectedDiscovered.size === 0) return
-    if (!confirm(`确定从工作区移除选中的 ${selectedDiscovered.size} 篇论文？`)) return
+    setBatchRemoveConfirm(true)
+  }
+
+  const confirmBatchRemove = async () => {
+    setBatchRemoveConfirm(false)
     setBatchLoading(true)
     try {
       const ids = Array.from(selectedDiscovered)
@@ -143,7 +151,7 @@ export default function WorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}  role="status"><span className="sr-only">加载中</span></div>
+        <LoadingSpinner />
       </div>
     )
   }
@@ -272,7 +280,7 @@ export default function WorkspaceDetailPage() {
           </div>
           {loadingPapers ? (
             <div className="flex justify-center py-4">
-              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}  role="status"><span className="sr-only">加载中</span></div>
+              <LoadingSpinner size="sm" />
             </div>
           ) : libraryPapers.length === 0 ? (
             <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
@@ -323,6 +331,7 @@ export default function WorkspaceDetailPage() {
                   variant="local"
                   onNavigate={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
                   onRemove={() => handleRemovePaper(paper.id)}
+                  onRequestRemove={() => setSingleRemoveConfirm(() => () => handleRemovePaper(paper.id))}
                 />
               ))}
             </div>
@@ -396,6 +405,7 @@ export default function WorkspaceDetailPage() {
                     onNavigate={() => navigate(`/reader/${paper.id}`, { state: { from: `/workspace/${workspaceId}` } })}
                     onRemove={() => handleRemovePaper(paper.id)}
                     onPromote={() => handlePromote(paper.id)}
+                    onRequestRemove={() => setSingleRemoveConfirm(() => () => handleRemovePaper(paper.id))}
                   />
                 ))}
               </div>
@@ -403,6 +413,24 @@ export default function WorkspaceDetailPage() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={batchRemoveConfirm}
+        title="批量移除"
+        message={`确定从工作区移除选中的 ${selectedDiscovered.size} 篇论文？`}
+        variant="danger"
+        onConfirm={confirmBatchRemove}
+        onCancel={() => setBatchRemoveConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={singleRemoveConfirm !== null}
+        title="确认移除"
+        message="确定从工作区移除此论文？"
+        variant="danger"
+        onConfirm={() => { singleRemoveConfirm?.(); setSingleRemoveConfirm(null) }}
+        onCancel={() => setSingleRemoveConfirm(null)}
+      />
     </div>
   )
 }
@@ -417,9 +445,10 @@ interface PaperCardProps {
   onNavigate: () => void
   onRemove: () => void
   onPromote?: () => void
+  onRequestRemove: () => void
 }
 
-function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNavigate, onRemove, onPromote }: PaperCardProps) {
+function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNavigate, onPromote, onRequestRemove }: PaperCardProps) {
   const isDiscovered = variant === 'discovered'
   return (
     <div
@@ -529,7 +558,7 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
           <button
             onClick={(e) => {
               e.stopPropagation()
-              if (confirm('确定从工作区移除此论文？')) onRemove()
+              onRequestRemove()
             }}
             className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2 py-1 text-xs transition-all"
             style={{ color: 'var(--text-muted)' }}

@@ -12,6 +12,7 @@ import { UploadZone } from '@/features/upload/UploadZone'
 import { listPapers, uploadPaperWithProgress } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 
 export default function HomePage() {
@@ -75,7 +76,7 @@ export default function HomePage() {
       {/* 加载状态 */}
       {loading && (
         <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+          <LoadingSpinner />
         </div>
       )}
 

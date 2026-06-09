@@ -13,6 +13,7 @@ import { ResearchSettingsDrawer } from '@/features/research/ResearchSettingsDraw
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 export default function ResearchPage() {
   const { id } = useParams<{ id: string }>()
@@ -128,7 +129,7 @@ export default function ResearchPage() {
           </div>
           {graphLoading ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <LoadingSpinner size="lg" />
             </div>
           ) : (
             <GraphCanvas

@@ -58,13 +58,8 @@ export function TestButton({
           }
         }}
         disabled={testing}
-        className={`px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
-          result === null
-            ? 'border-gray-600 text-gray-400 hover:border-gray-500 hover:text-gray-300'
-            : result.ok
-              ? 'border-green-500/50 text-green-400 bg-green-500/10'
-              : 'border-red-500/50 text-red-400 bg-red-500/10 cursor-pointer'
-        }`}
+        className="px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50"
+          style={result === null ? { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' } : result.ok ? { borderColor: 'var(--success)', color: 'var(--success)', backgroundColor: 'var(--success-subtle)' } : { borderColor: 'var(--error)', color: 'var(--error)', backgroundColor: 'var(--error-subtle)', cursor: 'pointer' }}
       >
         {testing ? (
           <span className="flex items-center gap-1.5">
@@ -98,7 +93,7 @@ export function TestButton({
             }}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-red-400">连接失败</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--error)' }}>连接失败</span>
               <button
                 onClick={() => setShowError(false)}
                 className="text-xs hover:opacity-80"
