@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { getPaper } from '@/api/papers'
 import { extractCodeUrl } from '@/api/code'
+import { toast } from '@/hooks/useToast'
 
 
 interface CodeTabProps {
@@ -15,7 +16,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
 
   useEffect(() => {
     if (paperId) {
-      getPaper(paperId).then(setPaper).catch(() => {})
+      getPaper(paperId).then(setPaper).catch((e: any) => { toast({ type: 'error', message: e?.message || '加载论文信息失败' }) })
     }
   }, [paperId])
 
@@ -26,8 +27,8 @@ export function CodeTab({ paperId }: CodeTabProps) {
       await extractCodeUrl(paperId)
       const updated = await getPaper(paperId)
       setPaper(updated)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '提取代码 URL 失败' })
     } finally {
       setSearching(false)
     }

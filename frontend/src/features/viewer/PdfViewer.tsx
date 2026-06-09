@@ -4,6 +4,7 @@ import { SelectionPopup } from '@/components/SelectionPopup'
 import { AnnotationLayer } from './AnnotationLayer'
 import { useUIConfig } from '@/hooks/useConfig'
 import { listAnnotations, createAnnotation, deleteAnnotation, deleteAnnotationGroup } from '@/api/annotations'
+import { toast } from '@/hooks/useToast'
 import type { Annotation, AnnotationType } from '@/types'
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css'
 import 'react-pdf/dist/esm/Page/TextLayer.css'
@@ -79,8 +80,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         group_id: data.groupId,
       })
       setAnnotations(prev => [...prev, ann])
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '创建标注失败' })
     }
   }, [paperId])
 
@@ -98,8 +99,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
         await deleteAnnotation(id)
         setAnnotations(prev => prev.filter(a => a.id !== id))
       }
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '删除标注失败' })
     }
   }, [annotations])
 
