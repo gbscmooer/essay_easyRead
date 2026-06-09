@@ -33,4 +33,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-pdf': ['react-pdf'],
+          'vendor-mermaid': ['mermaid'],
+          'vendor-charts': ['recharts'],
+          'vendor-graph': ['react-force-graph-2d'],
+          'vendor-hljs': ['highlight.js'],
+        },
+      },
+    },
+  },
 })

@@ -10,6 +10,7 @@ import { NodeDetail } from '@/features/research/NodeDetail'
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 
+export default ResearchPage
 export function ResearchPage() {
   const { id } = useParams<{ id: string }>()
   const wsId = Number(id)

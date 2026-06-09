@@ -13,6 +13,7 @@ import { listPapers, uploadPaper } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
 
 
+export default HomePage
 export function HomePage() {
   const navigate = useNavigate()
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])

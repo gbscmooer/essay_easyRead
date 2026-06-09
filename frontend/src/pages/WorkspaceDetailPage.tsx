@@ -5,6 +5,7 @@ import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
 
 
+export default WorkspaceDetailPage
 export function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
