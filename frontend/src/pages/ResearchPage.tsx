@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
 import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
@@ -17,6 +18,7 @@ export function ResearchPage() {
   const [graph, setGraph] = useState<ResearchGraph | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'shared-method']))
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const stream = useResearchStream(runId)
 
   // 1) 初始加载历史：图谱 + 最近 run
@@ -50,8 +52,12 @@ export function ResearchPage() {
     }
   }
 
-  const onClear = async () => {
-    if (!confirm('确定清空该工作区的图谱和向量索引？这不会删除论文文件。')) return
+  const onClear = () => {
+    setShowClearConfirm(true)
+  }
+
+  const confirmClear = async () => {
+    setShowClearConfirm(false)
     try {
       await clearResearch(wsId)
       setGraph(null)
@@ -102,6 +108,16 @@ export function ResearchPage() {
 
       {/* 节点详情抽屉 */}
       <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="确认清空"
+        message="确定清空该工作区的图谱和向量索引？这不会删除论文文件。"
+        variant="warning"
+        confirmLabel="清空"
+        onConfirm={confirmClear}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 }

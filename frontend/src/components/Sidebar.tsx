@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { Paper } from '@/types'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 
 interface SidebarProps {
@@ -21,6 +22,7 @@ function statusDotColor(status: Paper['status']): string {
 
 export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) {
   const [search, setSearch] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   const filtered = useMemo(() => {
     if (!search.trim()) return papers
@@ -81,7 +83,7 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
               <button
                 onClick={e => {
                   e.stopPropagation()
-                  onDelete(paper.id)
+                  setDeleteTarget(paper.id)
                 }}
                 className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
                 style={{ color: 'var(--text-muted)' }}
@@ -93,6 +95,15 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
           ))
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="确认删除"
+        message="确定删除这篇论文？删除后不可恢复。"
+        variant="danger"
+        onConfirm={() => { if (deleteTarget !== null) onDelete(deleteTarget); setDeleteTarget(null) }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }
