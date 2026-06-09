@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -223,6 +223,10 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 }
 
 
+const VIRTUALIZE_THRESHOLD = 2000
+const LINE_HEIGHT = 20 // matches leading-5
+const VIRTUAL_BUFFER = 50
+
 export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps) {
   const [content, setContent] = useState<string | null>(null)
   const [apiCells, setApiCells] = useState<NotebookCellData[] | null>(null)
@@ -230,8 +234,11 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   const [error, setError] = useState<string | null>(null)
   const codeRef = useRef<HTMLElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const lineBoxRef = useRef<HTMLDivElement>(null)
   const [highlightLine, setHighlightLine] = useState<number | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(0)
   const mode = useThemeMode()
   const proseClass = mode === 'dark' ? 'prose prose-invert' : 'prose'
 
@@ -319,9 +326,47 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   const lines = (content || '').split('\n')
   const language = getLanguage(filePath)
+  const shouldVirtualize = lines.length > VIRTUALIZE_THRESHOLD
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!shouldVirtualize) return
+    const el = e.currentTarget
+    setScrollTop(el.scrollTop)
+    if (containerHeight !== el.clientHeight) {
+      setContainerHeight(el.clientHeight)
+    }
+  }, [shouldVirtualize, containerHeight])
+
+  // Virtualized line range
+  const startLine = shouldVirtualize
+    ? Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - VIRTUAL_BUFFER)
+    : 0
+  const endLine = shouldVirtualize
+    ? Math.min(lines.length, startLine + Math.ceil((containerHeight || 600) / LINE_HEIGHT) + VIRTUAL_BUFFER * 2)
+    : lines.length
+
+  const lineNumbers = useMemo(() => {
+    const nums: React.ReactNode[] = []
+    for (let i = startLine; i < endLine; i++) {
+      nums.push(
+        <div
+          key={i}
+          id={`line-${i + 1}`}
+          className="text-xs leading-5 px-2"
+          style={highlightLine === i + 1
+            ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }
+            : { color: 'var(--text-muted)' }
+          }
+        >
+          {i + 1}
+        </div>
+      )
+    }
+    return nums
+  }, [startLine, endLine, highlightLine])
 
   return (
-    <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
+    <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }} onScroll={handleScroll}>
       {/* 文件路径 */}
       <div className="sticky top-0 z-10 px-4 py-2 bg-gray-900/90 border-b border-gray-800 backdrop-blur-sm">
         <span className="text-xs text-gray-400 font-mono">{filePath}</span>
@@ -339,18 +384,14 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
         /* 普通代码渲染 */
         <div className="flex">
           {/* 行号 */}
-          <div className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r border-gray-800/50">
-            {lines.map((_, i) => (
-              <div
-                key={i}
-                id={`line-${i + 1}`}
-                className={`text-xs leading-5 px-2 ${
-                  highlightLine === i + 1 ? 'text-blue-400 bg-blue-500/15' : 'text-gray-600'
-                }`}
-              >
-                {i + 1}
-              </div>
-            ))}
+          <div ref={lineBoxRef} className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r border-gray-800/50">
+            {shouldVirtualize && startLine > 0 && (
+              <div style={{ height: startLine * LINE_HEIGHT }} />
+            )}
+            {lineNumbers}
+            {shouldVirtualize && endLine < lines.length && (
+              <div style={{ height: (lines.length - endLine) * LINE_HEIGHT }} />
+            )}
           </div>
 
           {/* 代码 */}

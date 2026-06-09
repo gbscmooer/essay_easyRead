@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.13.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-07',
+  date: '2026-06-09',
   changes: [
-    '统一 GROBID 镜像版本提示为 0.9.0-crf，修正回退日志/文档中过时的 0.8.1 指引',
+    '移除 GraphCanvas 300ms 轮询，改用 onZoomEnd 回调同步缩放状态',
+    '拆分 useConfig hooks，新增 useThemeConfig/useViewerConfig 减少不必要重渲染',
+    'CodeViewer 大文件（>2000行）行号虚拟化，避免全量 DOM 渲染',
+    'AnalysisPanel/Sidebar 高频组件提取稳定 style 对象，减少内联分配',
   ],
 }
 

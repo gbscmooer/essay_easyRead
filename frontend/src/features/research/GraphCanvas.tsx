@@ -156,16 +156,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode }: GraphCanvasProp
     setTimeout(() => setZoomLevel(fgRef.current?.zoom?.() ?? 1), 450)
   }, [])
 
-  // 兜底：监听 ForceGraph2D 内部的 zoom 事件同步本地状态（用于按钮上 % 显示）
-  useEffect(() => {
-    const t = setInterval(() => {
-      const z = fgRef.current?.zoom?.()
-      if (typeof z === 'number' && Math.abs(z - zoomLevel) > 0.01) {
-        setZoomLevel(z)
-      }
-    }, 300)
-    return () => clearInterval(t)
-  }, [zoomLevel])
+  // Zoom level synced via onZoomEnd callback — no polling needed
 
   if (!graph || graph.nodes.length === 0) {
     return (
