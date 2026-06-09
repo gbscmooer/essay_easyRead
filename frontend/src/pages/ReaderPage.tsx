@@ -161,8 +161,12 @@ export default function ReaderPage() {
     }
   }, [])
 
-  const handleOutlineJump = useCallback((page: number) => {
-    pdfViewerRef.current?.jumpToPage(page)
+  const handleOutlineJump = useCallback((page: number, section?: string) => {
+    if (section) {
+      pdfViewerRef.current?.jumpToSection(page, section)
+    } else {
+      pdfViewerRef.current?.jumpToPage(page)
+    }
     setActivePage(page)
     if (activeTimerRef.current) clearTimeout(activeTimerRef.current)
     activeTimerRef.current = setTimeout(() => setActivePage(null), uiConfig.highlight_duration)

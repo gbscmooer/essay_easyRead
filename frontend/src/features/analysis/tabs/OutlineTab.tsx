@@ -3,7 +3,7 @@ import type { AnalysisResult } from '@/types'
 
 interface OutlineTabProps {
   result: AnalysisResult
-  onJumpToPage?: (page: number) => void
+  onJumpToPage?: (page: number, section?: string) => void
 }
 
 export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
@@ -39,7 +39,7 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
                 <div className="absolute left-1.5 top-2.5 w-3 h-3 rounded-full z-10" style={{ backgroundColor: 'var(--accent)', border: '2px solid var(--bg-base)' }} />
 
                 <button
-                  onClick={() => pageNum && onJumpToPage?.(pageNum)}
+                  onClick={() => pageNum && onJumpToPage?.(pageNum, item.section)}
                   disabled={!clickable}
                   className="w-full text-left rounded-lg p-3 border transition-colors"
                   style={clickable ? { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' } : { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)', cursor: 'default' }}
