@@ -728,13 +728,13 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    if paper["status"] == "failed":
+    if paper.status == "failed":
         raise HTTPException(
             status_code=400,
-            detail={"detail": paper.get("error_message", "Analysis failed"), "code": "PARSING_FAILED"},
+            detail={"detail": paper.error_message or "Analysis failed", "code": "PARSING_FAILED"},
         )
 
-    if paper["status"] != "done":
+    if paper.status != "done":
         raise HTTPException(
             status_code=400,
             detail={"detail": "Paper analysis is not completed yet", "code": "NOT_READY"},
@@ -749,7 +749,24 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
             detail={"detail": f"Analysis for paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    return AnalysisResponse(**analysis)
+    return AnalysisResponse(
+        paper_id=analysis.paper_id,
+        title=analysis.title,
+        authors=analysis.authors or "",
+        venue=analysis.venue,
+        year=analysis.year,
+        one_sentence=analysis.one_sentence,
+        problem=analysis.problem,
+        key_contributions=analysis.key_contributions,
+        outline=analysis.outline or [],
+        method=analysis.method,
+        experiments=analysis.experiments,
+        code_mapping=analysis.code_mapping,
+        interview_qa=analysis.interview_qa,
+        limitations=analysis.limitations,
+        related_papers=analysis.related_papers,
+        mermaid_chart=analysis.mermaid_chart,
+    )
 
 
 # ============================================================
@@ -779,7 +796,7 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
         """
 
         # 根据论文状态决定行为
-        if paper["status"] == "done":
+        if paper.status == "done":
             # 已完成：直接发送已存储的结果
             try:
                 with Session(engine) as session:
@@ -795,8 +812,8 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
                 "code_mapping", "interview_qa", "limitations", "related_papers",
             ]
             for field_name in fields_order:
-                if field_name in analysis:
-                    value = analysis[field_name]
+                value = getattr(analysis, field_name, None)
+                if value is not None:
                     # method 中的 mermaid_chart 需要单独处理
                     if field_name == "method" and isinstance(value, dict):
                         value = dict(value)
@@ -822,15 +839,15 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
             yield format_sse(StreamEvent(event="done", data={"message": "解析完成"}))
             return
 
-        if paper["status"] == "failed":
+        if paper.status == "failed":
             yield format_sse(StreamEvent(
                 event="error",
-                data={"message": paper.get("error_message", "Analysis failed")},
+                data={"message": paper.error_message or "Analysis failed"},
             ))
             return
 
         # 状态为 pending/extracting/analyzing：订阅后台分析任务
-        pdf_path = paper.get("pdf_path")
+        pdf_path = paper.pdf_path
         if not pdf_path:
             # 需要从数据库获取完整的 paper 记录
             from ..models.paper import Paper as PaperModel
@@ -891,10 +908,10 @@ async def start_analysis(paper_id: int) -> dict:
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    if paper["status"] == "done":
+    if paper.status == "done":
         return {"status": "done", "percent": 100, "message": "已完成"}
 
-    pdf_path = paper.get("pdf_path")
+    pdf_path = paper.pdf_path
     if not pdf_path:
         from ..models.paper import Paper as PaperModel
         with Session(engine) as session:
@@ -928,15 +945,15 @@ async def get_analysis_progress(paper_id: int) -> dict:
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    if paper["status"] == "done":
+    if paper.status == "done":
         return {"status": "done", "percent": 100, "message": "已完成", "running": False}
-    if paper["status"] == "failed":
-        return {"status": "failed", "percent": 0, "message": paper.get("error_message", "分析失败"), "running": False}
+    if paper.status == "failed":
+        return {"status": "failed", "percent": 0, "message": paper.error_message or "分析失败", "running": False}
 
     from ..services.analysis_runner import get_job
     job = get_job(paper_id)
     if job is None:
-        return {"status": paper["status"], "percent": 0, "message": "", "running": False}
+        return {"status": paper.status, "percent": 0, "message": "", "running": False}
     return {"status": job.status, "percent": job.percent, "message": job.message, "running": not job.done}
 
 
@@ -969,17 +986,17 @@ async def reparse_paper(paper_id: int) -> PaperResponse:
         paper = get_paper(session, paper_id)
 
     return PaperResponse(
-        id=paper["id"],
-        filename=paper["filename"],
-        title=paper["title"],
-        venue=paper["venue"],
-        year=paper["year"],
-        status=paper["status"],
-        error_message=paper["error_message"],
-        code_url=paper.get("code_url"),
-        code_status=paper.get("code_status", "none"),
-        created_at=paper["created_at"],
-        updated_at=paper["updated_at"],
+        id=paper.id,
+        filename=paper.filename,
+        title=paper.title,
+        venue=paper.venue,
+        year=paper.year,
+        status=paper.status,
+        error_message=paper.error_message,
+        code_url=paper.code_url,
+        code_status=paper.code_status or "none",
+        created_at=paper.created_at,
+        updated_at=paper.updated_at,
     )
 
 
@@ -998,7 +1015,7 @@ async def refresh_related_papers(paper_id: int) -> list:
     except ValueError:
         raise HTTPException(status_code=404, detail={"detail": "分析结果不存在", "code": "NOT_FOUND"})
 
-    paper_title = analysis.get("title", "")
+    paper_title = analysis.title or ""
     if not paper_title:
         raise HTTPException(status_code=400, detail={"detail": "论文标题为空，无法搜索", "code": "INVALID_FORMAT"})
 
@@ -1022,7 +1039,7 @@ async def refresh_related_papers(paper_id: int) -> list:
             from ..services.semantic_scholar import generate_relevance_descriptions
             related = await generate_relevance_descriptions(
                 paper_title,
-                analysis.get("one_sentence", ""),
+                analysis.one_sentence or "",
                 related,
                 ai_cfg["api_key"],
                 ai_cfg["base_url"],

@@ -1,16 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.14.0'
+const APP_VERSION = '1.15.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '添加路由级ErrorBoundary，页面崩溃时显示友好错误提示并支持重试',
-    '修复catch块类型安全，统一使用unknown类型替代any',
-    '统一加载状态组件：新增LoadingSpinner，替换所有页面内联spinner',
-    '替换原生confirm()为ConfirmDialog组件（工作区批量移除、单篇移除）',
-    '移除重复TestButton：SettingsPage改用独立组件，统一CSS变量样式',
+    'database.py返回类型化模型（Paper/AnalysisResult），替代dict',
+    '修复tags路由N+1查询：list_tags/update_tag/get_paper_tags改为批量查询',
+    'annotations表group_id字段添加索引',
   ],
 }
 
