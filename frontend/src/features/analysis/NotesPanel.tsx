@@ -17,8 +17,9 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
     try {
       const result = await listNotes(paperId)
       setNotes(result)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '加载笔记失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '加载笔记失败'
+      toast({ type: 'error', message })
     }
   }, [paperId])
 
@@ -30,8 +31,9 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       await createNote(paperId, newContent.trim())
       setNewContent('')
       fetchNotes()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '创建笔记失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '创建笔记失败'
+      toast({ type: 'error', message })
     }
   }
 
@@ -41,8 +43,9 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       await updateNote(noteId, editContent.trim())
       setEditingId(null)
       fetchNotes()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '更新笔记失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '更新笔记失败'
+      toast({ type: 'error', message })
     }
   }
 
@@ -50,8 +53,9 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
     try {
       await deleteNote(noteId)
       fetchNotes()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '删除笔记失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '删除笔记失败'
+      toast({ type: 'error', message })
     }
   }
 

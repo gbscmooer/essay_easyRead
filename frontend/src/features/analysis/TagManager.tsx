@@ -19,8 +19,9 @@ export function TagManager({ paperId }: TagManagerProps) {
       const [all, paper] = await Promise.all([listTags(), getPaperTags(paperId)])
       setAllTags(all)
       setPaperTags(paper)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '加载标签失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '加载标签失败'
+      toast({ type: 'error', message })
     }
   }, [paperId])
 
@@ -57,8 +58,9 @@ export function TagManager({ paperId }: TagManagerProps) {
       await addPaperTag(paperId, tagId)
       fetchTags()
       setShowDropdown(false)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '添加标签失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '添加标签失败'
+      toast({ type: 'error', message })
     }
   }
 
@@ -66,8 +68,9 @@ export function TagManager({ paperId }: TagManagerProps) {
     try {
       await removePaperTag(paperId, tagId)
       fetchTags()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '移除标签失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '移除标签失败'
+      toast({ type: 'error', message })
     }
   }
 
@@ -79,8 +82,9 @@ export function TagManager({ paperId }: TagManagerProps) {
       setNewTagName('')
       fetchTags()
       setShowDropdown(false)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '创建标签失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '创建标签失败'
+      toast({ type: 'error', message })
     }
   }
 

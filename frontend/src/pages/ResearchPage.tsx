@@ -65,8 +65,9 @@ export default function ResearchPage() {
     try {
       const run = await createRun(wsId, body)
       setRunId(run.id)
-    } catch (e: any) {
-      toast({ type: 'error', message: e.message || '启动失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '启动失败'
+      toast({ type: 'error', message })
     }
   }
 
@@ -80,8 +81,9 @@ export default function ResearchPage() {
       await clearResearch(wsId)
       setGraph(null)
       setRunId(null)
-    } catch (e: any) {
-      toast({ type: 'error', message: e.message || '清空失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '清空失败'
+      toast({ type: 'error', message })
     }
   }
 
