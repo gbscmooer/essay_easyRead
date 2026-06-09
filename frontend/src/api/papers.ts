@@ -262,3 +262,15 @@ export async function smartSearch(
   if (opts.perPage) params.set('per_page', String(opts.perPage))
   return get<SearchResponse>(`/papers/smart-search?${params.toString()}`)
 }
+
+
+/** 获取论文 PDF 标题位置（用于大纲精确定位） */
+export interface HeadingPosition {
+  page: number
+  y_percent: number
+  text: string
+}
+
+export async function getHeadings(paperId: number): Promise<HeadingPosition[]> {
+  return get<HeadingPosition[]>(`/papers/${paperId}/headings`)
+}

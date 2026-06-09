@@ -16,10 +16,17 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString()
 
 
+interface HeadingPos {
+  page: number
+  y_percent: number
+  text: string
+}
+
 interface PdfViewerProps {
   pdfUrl: string
   paperId?: number
   activePage?: number | null
+  headings?: HeadingPos[]
   onPageChange: (page: number) => void
 }
 
@@ -29,7 +36,7 @@ export interface PdfViewerHandle {
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function PdfViewer(
-  { pdfUrl, paperId, activePage, onPageChange },
+  { pdfUrl, paperId, activePage, headings, onPageChange },
   ref,
 ) {
   const uiConfig = useUIConfig()
@@ -144,52 +151,60 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       }
     },
     jumpToSection: (page: number, searchText: string) => {
-      if (page < 1 || page > numPages || !searchText) return
+      if (page < 1 || page > numPages) return
 
       // 先跳到目标页
       scrollToPage(page)
 
-      // 等待 TextLayer 渲染完成后搜索并高亮
+      // 策略1: 使用后端提取的标题坐标精确定位
+      const pageHeadings = headings?.filter(h => h.page === page) || []
+      if (pageHeadings.length > 0) {
+        const targetHeading = pageHeadings[0] // 取该页第一个标题
+        const scrollToHeading = () => {
+          const pageEl = pageRefs.current.get(page)
+          if (!pageEl) return
+          const container = scrollRef.current
+          if (!container) return
+          const pageHeight = pageEl.offsetHeight
+          const targetY = targetHeading.y_percent * pageHeight
+          const containerRect = container.getBoundingClientRect()
+          const pageRect = pageEl.getBoundingClientRect()
+          const offset = pageRect.top - containerRect.top + container.scrollTop + targetY - 120
+          container.scrollTo({ top: offset, behavior: 'smooth' })
+        }
+        // 等待页面渲染
+        setTimeout(scrollToHeading, 500)
+        return
+      }
+
+      // 策略2: 回退到 TextLayer 文字匹配
       const tryFind = (attempts: number) => {
         const pageEl = pageRefs.current.get(page)
         if (!pageEl) return
-
         const textLayer = pageEl.querySelector('.react-pdf__Page__textContent')
         if (!textLayer) {
           if (attempts < 15) setTimeout(() => tryFind(attempts + 1), 200)
           return
         }
+        if (!searchText) return
 
         const spans = Array.from(textLayer.querySelectorAll('span'))
         const normalizedSearch = searchText.toLowerCase().trim()
-
-        // 策略1: 精确匹配（忽略大小写和多余空格）
-        let matchSpan = spans.find(s => {
-          const text = (s.textContent || '').toLowerCase().trim()
-          return text === normalizedSearch
-        })
-
-        // 策略2: 包含匹配
+        let matchSpan = spans.find(s => (s.textContent || '').toLowerCase().trim() === normalizedSearch)
         if (!matchSpan) {
           matchSpan = spans.find(s => {
             const text = (s.textContent || '').toLowerCase().trim()
             return text.includes(normalizedSearch) || normalizedSearch.includes(text)
           })
         }
-
-        // 策略3: 首词匹配（至少第一个词相同）
         if (!matchSpan) {
           const firstWord = normalizedSearch.split(/\s+/)[0]
           if (firstWord && firstWord.length > 2) {
-            matchSpan = spans.find(s => {
-              const text = (s.textContent || '').toLowerCase().trim()
-              return text.startsWith(firstWord)
-            })
+            matchSpan = spans.find(s => (s.textContent || '').toLowerCase().trim().startsWith(firstWord))
           }
         }
 
         if (matchSpan) {
-          // 滚动到匹配位置
           const container = scrollRef.current
           if (container) {
             const containerRect = container.getBoundingClientRect()
@@ -197,52 +212,30 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
             const offset = spanRect.top - containerRect.top + container.scrollTop - 120
             container.scrollTo({ top: offset, behavior: 'smooth' })
           }
-
-          // 高亮匹配文字
-          if (sectionHighlightTimerRef.current) {
-            clearTimeout(sectionHighlightTimerRef.current)
-          }
-          // 清除之前的高亮
+          // 高亮
+          if (sectionHighlightTimerRef.current) clearTimeout(sectionHighlightTimerRef.current)
           textLayer.querySelectorAll('.section-highlight').forEach(el => {
             const parent = el.parentNode
-            if (parent) {
-              parent.replaceChild(document.createTextNode(el.textContent || ''), el)
-              parent.normalize()
-            }
+            if (parent) { parent.replaceChild(document.createTextNode(el.textContent || ''), el); parent.normalize() }
           })
-
-          // 添加黄色高亮背景
           const mark = document.createElement('mark')
           mark.className = 'section-highlight'
           mark.style.cssText = 'background: rgba(250, 204, 21, 0.4); color: inherit; border-radius: 2px; padding: 1px 0; transition: opacity 0.5s ease;'
           matchSpan.style.position = 'relative'
           matchSpan.insertBefore(mark, matchSpan.firstChild)
-          // 把文字节点移到 mark 内
-          while (mark.nextSibling) {
-            mark.appendChild(mark.nextSibling)
-          }
-
-          // 5 秒后淡出并移除高亮
+          while (mark.nextSibling) mark.appendChild(mark.nextSibling)
           sectionHighlightTimerRef.current = setTimeout(() => {
             mark.style.opacity = '0'
             setTimeout(() => {
               const parent = mark.parentNode
-              if (parent) {
-                while (mark.firstChild) {
-                  parent.insertBefore(mark.firstChild, mark)
-                }
-                parent.removeChild(mark)
-                parent.normalize()
-              }
+              if (parent) { while (mark.firstChild) parent.insertBefore(mark.firstChild, mark); parent.removeChild(mark); parent.normalize() }
             }, 500)
           }, 5000)
         }
       }
-
-      // 延迟等待页面和 TextLayer 渲染
       setTimeout(() => tryFind(0), 600)
     },
-  }), [numPages, scrollToPage])
+  }), [numPages, scrollToPage, headings])
 
   useEffect(() => {
     const container = scrollRef.current

@@ -503,6 +503,31 @@ async def get_paper_pdf(paper_id: int) -> FileResponse:
 
 
 # ============================================================
+# GET /api/papers/{paper_id}/headings
+# ============================================================
+@router.get("/{paper_id}/headings")
+async def get_paper_headings(paper_id: int) -> list[dict]:
+    """获取论文 PDF 标题位置（用于大纲精确定位）"""
+    engine = get_engine()
+    try:
+        with Session(engine) as session:
+            paper = get_paper(session, paper_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
+        )
+
+    pdf_path = paper.pdf_path
+    if not pdf_path or not os.path.exists(pdf_path):
+        return []
+
+    from ..services.pdf_parser import _extract_headings
+    headings = _extract_headings(pdf_path)
+    return [{"page": h.page, "y_percent": h.y_percent, "text": h.text} for h in headings]
+
+
+# ============================================================
 # GET /api/papers
 # ============================================================
 # 获取论文列表，支持筛选和搜索。

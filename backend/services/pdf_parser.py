@@ -41,6 +41,14 @@ class PDFEmptyError(PDFExtractionError):
 
 
 @dataclass
+@dataclass
+class HeadingPosition:
+    """PDF 标题位置"""
+    page: int        # 页码（1-based）
+    y_percent: float # 标题在页面中的垂直位置（0.0~1.0）
+    text: str        # 标题文字
+
+
 class PDFContent:
     """
     PDF 提取结果
@@ -51,6 +59,7 @@ class PDFContent:
         total_pages: 总页数
         metadata: PDF 元信息（作者、标题等，可能为空）
         truncated: 是否因超长而被截断
+        headings: 标题位置列表（用于大纲精确定位）
     """
 
     full_text: str
@@ -58,6 +67,7 @@ class PDFContent:
     total_pages: int
     metadata: dict
     truncated: bool = False
+    headings: list[HeadingPosition] | None = None
 
 
 def _truncate_text(page_texts: list[str], max_chars: int) -> tuple[str, bool]:
@@ -99,6 +109,92 @@ def _truncate_text(page_texts: list[str], max_chars: int) -> tuple[str, bool]:
             continue
 
     return "".join(keep_parts), True
+
+
+def _extract_headings(pdf_path: str) -> list[HeadingPosition]:
+    """用 PyMuPDF 提取 PDF 标题位置（字号显著大于正文的文字块）"""
+    try:
+        import fitz
+        from collections import Counter
+
+        doc = fitz.open(pdf_path)
+        headings: list[HeadingPosition] = []
+
+        try:
+            # 第一遍：统计所有字号，找出正文字号（出现最多的）
+            font_sizes: Counter[float] = Counter()
+            for page in doc:
+                blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+                for block in blocks:
+                    if block.get("type") != 0:
+                        continue
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            size = round(span["size"], 1)
+                            text = span["text"].strip()
+                            if text and len(text) > 1:
+                                font_sizes[size] += len(text)
+
+            if not font_sizes:
+                return []
+
+            body_size = font_sizes.most_common(1)[0][0]
+
+            # 第二遍：提取字号 > body_size * 1.15 的文字块作为标题
+            for page_num, page in enumerate(doc):
+                page_height = page.rect.height
+                if page_height <= 0:
+                    continue
+                blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+                for block in blocks:
+                    if block.get("type") != 0:
+                        continue
+                    block_lines = []
+                    block_y = None
+                    max_size = 0
+                    is_bold = False
+                    for line in block.get("lines", []):
+                        line_text_parts = []
+                        for span in line.get("spans", []):
+                            text = span["text"].strip()
+                            if text:
+                                line_text_parts.append(text)
+                                if span["size"] > max_size:
+                                    max_size = round(span["size"], 1)
+                                if "bold" in span.get("font", "").lower():
+                                    is_bold = True
+                            if block_y is None and span.get("origin"):
+                                block_y = span["origin"][1]
+                        if line_text_parts:
+                            block_lines.append(" ".join(line_text_parts))
+
+                    block_text = " ".join(block_lines).strip()
+                    if not block_text or len(block_text) < 2:
+                        continue
+
+                    # 标题判定：字号显著大于正文，或者是加粗的大字
+                    is_heading = (
+                        max_size > body_size * 1.15
+                        or (is_bold and max_size >= body_size * 1.05)
+                    )
+                    # 排除太长的文字块（超过 200 字符一般不是标题）
+                    if is_heading and len(block_text) <= 200 and block_y is not None:
+                        y_percent = block_y / page_height
+                        # 只取页面上半部分的标题（y < 50%）
+                        if y_percent < 0.5:
+                            headings.append(HeadingPosition(
+                                page=page_num + 1,  # 1-based
+                                y_percent=round(y_percent, 4),
+                                text=block_text[:100],
+                            ))
+
+            return headings
+        finally:
+            doc.close()
+
+    except Exception as e:
+        logger.debug(f"Heading extraction failed: {e}")
+        return []
 
 
 def _extract_with_pymupdf(pdf_path: str) -> tuple[list[str], dict] | None:
@@ -217,10 +313,14 @@ def extract_pdf_content(pdf_path: str) -> PDFContent:
 
     full_text, truncated = _truncate_text(page_texts, MAX_CHARS)
 
+    # 提取标题坐标（用于大纲精确定位）
+    headings = _extract_headings(pdf_path)
+
     return PDFContent(
         full_text=full_text,
         page_texts=page_texts,
         total_pages=len(page_texts),
         metadata=metadata,
         truncated=truncated,
+        headings=headings if headings else None,
     )

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import type { Paper } from '@/types'
-import { listPapers, deletePaper } from '@/api/papers'
+import { listPapers, deletePaper, getHeadings, type HeadingPosition } from '@/api/papers'
 import { useAnalysis } from '@/hooks/useAnalysis'
 import { toast } from '@/hooks/useToast'
 import { useUIConfig } from '@/hooks/useConfig'
@@ -36,6 +36,7 @@ export default function ReaderPage() {
   const pdfViewerRef = useRef<PdfViewerHandle>(null)
   const onPageChangeNoop = useCallback(() => {}, [])
   const activeTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [headings, setHeadings] = useState<HeadingPosition[]>([])
 
   const {
     analysis,
@@ -64,6 +65,12 @@ export default function ReaderPage() {
       startAnalysis()
     }
   }, [status, paperId, startAnalysis])
+
+  // 加载 PDF 标题坐标（用于大纲精确定位）
+  useEffect(() => {
+    if (!paperId) { setHeadings([]); return }
+    getHeadings(paperId).then(setHeadings).catch(() => setHeadings([]))
+  }, [paperId])
 
   // Focus mode: toggle data attribute + browser fullscreen
   useEffect(() => {
@@ -306,6 +313,7 @@ export default function ReaderPage() {
               pdfUrl={pdfUrl}
               paperId={paperId}
               activePage={activePage}
+              headings={headings}
               onPageChange={onPageChangeNoop}
             />
           )}
