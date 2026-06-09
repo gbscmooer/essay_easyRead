@@ -25,6 +25,25 @@ export function TagManager({ paperId }: TagManagerProps) {
 
   useEffect(() => { fetchTags() }, [fetchTags])
 
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    if (!showDropdown) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest('[data-tag-dropdown]')) return
+      setShowDropdown(false)
+    }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowDropdown(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [showDropdown])
+
   const handleAdd = async (tagId: number) => {
     try {
       await addPaperTag(paperId, tagId)
@@ -90,6 +109,7 @@ export function TagManager({ paperId }: TagManagerProps) {
 
       {showDropdown && (
         <div
+          data-tag-dropdown
           className="absolute z-50 mt-2 w-56 rounded-lg border shadow-lg p-2"
           style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
         >

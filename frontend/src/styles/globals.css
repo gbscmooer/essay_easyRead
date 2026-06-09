@@ -230,12 +230,13 @@ body {
 /* ============================================================
  * Toast 动画
  * ============================================================ */
-@keyframes slide-in {
+@keyframes slide-in-y {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.animate-slide-in {
-  animation: slide-in 0.25s ease-out;
+.animate-slide-in,
+.animate-slide-in-y {
+  animation: slide-in-y 0.25s ease-out;
 }
 
 /* ============================================================
@@ -283,6 +284,20 @@ body {
 [data-theme] .hover\:bg-red-500:hover { background-color: var(--error) !important; opacity: 0.9; }
 [data-theme] .hover\:bg-red-600:hover { background-color: var(--error) !important; opacity: 0.9; }
 [data-theme] .hover\:bg-yellow-600:hover { background-color: var(--warning) !important; opacity: 0.9; }
+
+/* ============================================================
+ * 补充覆盖：缺失的 Tailwind 类变体
+ * ============================================================ */
+[data-theme] .text-blue-500 { color: var(--accent) !important; }
+[data-theme] .text-blue-400\/70 { color: var(--accent) !important; opacity: 0.7; }
+[data-theme] .hover\:text-blue-200:hover { color: var(--accent) !important; opacity: 0.85; }
+[data-theme] .hover\:bg-blue-600:hover { background-color: var(--accent) !important; opacity: 0.9; }
+[data-theme] .bg-blue-500 { background-color: var(--accent) !important; }
+[data-theme] .bg-blue-500\/5 { background-color: var(--accent-subtle) !important; }
+[data-theme] .border-blue-500\/60 { border-color: var(--accent) !important; opacity: 0.6; }
+[data-theme] .text-amber-400 { color: var(--warning) !important; }
+[data-theme] .border-amber-500 { border-color: var(--warning) !important; }
+[data-theme] .text-yellow-500\/80 { color: var(--warning) !important; opacity: 0.8; }
 
 /* ============================================================
  * 代码区 / 语法高亮：跟随主题明暗自动切换（变量驱动，替代 hljs 预设主题）
@@ -363,10 +378,10 @@ body {
 /* ============================================================
  * Toast 动画
  * ============================================================ */
-@keyframes slide-in {
+@keyframes slide-in-x {
   from { opacity: 0; transform: translateX(100%); }
   to { opacity: 1; transform: translateX(0); }
 }
-.animate-slide-in {
-  animation: slide-in 0.2s ease-out;
+.animate-slide-in-x {
+  animation: slide-in-x 0.2s ease-out;
 }

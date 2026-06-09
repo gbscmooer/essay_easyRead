@@ -23,6 +23,7 @@ export default function ResearchPage() {
   const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'shared-method']))
   const [linkDistance, setLinkDistance] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
+  const [graphLoading, setGraphLoading] = useState(true)
   const stream = useResearchStream(runId)
 
   // Leave confirmation when research is running
@@ -38,7 +39,7 @@ export default function ResearchPage() {
 
   // 1) 初始加载历史：图谱 + 最近 run
   useEffect(() => {
-    getGraph(wsId).then(setGraph).catch(() => {})
+    getGraph(wsId).then(setGraph).catch(() => {}).finally(() => setGraphLoading(false))
     getLatestRun(wsId).then(r => {
       if (r && r.status === 'running') setRunId(r.id)
     }).catch(() => {})
@@ -100,7 +101,7 @@ export default function ResearchPage() {
       )}
 
       {/* 边类型过滤 + 图谱 + RAG */}
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
         <div className="flex-1 flex flex-col gap-2 min-w-0">
           <div className="flex items-center justify-between">
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
@@ -119,13 +120,19 @@ export default function ResearchPage() {
               </button>
             </div>
           </div>
-          <GraphCanvas
-            graph={graph}
-            edgeFilter={edgeFilter}
-            onSelectNode={(n) => { setSelectedNode(n); if (n) setSelectedEdge(null) }}
-            onSelectEdge={(e) => { setSelectedEdge(e); if (e) setSelectedNode(null) }}
-            linkDistance={linkDistance}
-          />
+          {graphLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+            </div>
+          ) : (
+            <GraphCanvas
+              graph={graph}
+              edgeFilter={edgeFilter}
+              onSelectNode={(n) => { setSelectedNode(n); if (n) setSelectedEdge(null) }}
+              onSelectEdge={(e) => { setSelectedEdge(e); if (e) setSelectedNode(null) }}
+              linkDistance={linkDistance}
+            />
+          )}
         </div>
         <RagQueryBox wsId={wsId} />
       </div>

@@ -29,7 +29,7 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
   }
 
   return (
-    <div className="w-80 shrink-0 flex flex-col rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+    <div className="w-full md:w-80 shrink-0 flex flex-col rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
       {/* 标题 */}
       <div className="px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
         <h3 className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>跨论文问答</h3>

@@ -5,6 +5,7 @@ import type { ImportPaperResult } from '@/api/papers'
 import { listWorkspaces } from '@/api/workspaces'
 import type { WorkspaceItem } from '@/api/workspaces'
 import { TagManager } from '../TagManager'
+import { toast } from '@/hooks/useToast'
 
 
 interface OverviewTabProps {
@@ -172,8 +173,8 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   a.download = `${(result.title || 'paper').replace(/[^\w\s-]/g, '').trim() || 'paper'}.bib`
                   a.click()
                   URL.revokeObjectURL(url)
-                } catch {
-                  // ignore
+                } catch (e: any) {
+                  toast({ type: 'error', message: e?.message || '导出 BibTeX 失败' })
                 } finally {
                   setBibtexLoading(false)
                 }

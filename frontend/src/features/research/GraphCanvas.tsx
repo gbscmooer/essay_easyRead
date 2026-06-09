@@ -36,12 +36,18 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [zoomLevel, setZoomLevel] = useState(1)
   const labelColorRef = useRef<string>('rgba(230,230,230,0.92)')
+  const strokeColorRef = useRef<string>('rgba(255,255,255,0.9)')
+  const expandedStrokeColorRef = useRef<string>('rgba(245,158,11,0.95)')
 
-  // Cache the CSS variable value for canvas label color (avoid reading per-frame)
+  // Cache CSS variable values for canvas drawing (avoid reading per-frame)
   useEffect(() => {
     const style = getComputedStyle(document.documentElement)
     const c = style.getPropertyValue('--text-primary').trim()
     if (c) labelColorRef.current = c
+    const border = style.getPropertyValue('--border-light').trim()
+    if (border) strokeColorRef.current = border
+    const warning = style.getPropertyValue('--warning').trim()
+    if (warning) expandedStrokeColorRef.current = warning
   }, [])
 
   // 监听容器尺寸 → 显式传给 ForceGraph2D（否则它默认用 window 尺寸，flex 布局下会渲染失败）
@@ -184,7 +190,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     ctx.fillStyle = nodeColor(node)
     ctx.fill()
     // 边框：上传=白，扩展=琥珀；importance 高则描边更粗，进一步突出关键论文
-    ctx.strokeStyle = node.meta?.source === 'expanded' ? 'rgba(245,158,11,0.95)' : 'rgba(255,255,255,0.9)'
+    ctx.strokeStyle = node.meta?.source === 'expanded' ? expandedStrokeColorRef.current : strokeColorRef.current
     ctx.lineWidth = (importance > 0.6 ? 2.5 : 1.5) / globalScale
     ctx.stroke()
 

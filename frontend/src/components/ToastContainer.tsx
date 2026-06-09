@@ -37,8 +37,9 @@ export function ToastContainer() {
             </p>
             <button
               onClick={() => dismiss(t.id)}
-              className="text-xs shrink-0 mt-px opacity-60 hover:opacity-100 transition-opacity"
+              className="text-xs shrink-0 p-1.5 rounded opacity-60 hover:opacity-100 hover:bg-white/10 transition-all"
               style={{ color: 'var(--text-muted)' }}
+              aria-label="关闭"
             >
               ✕
             </button>

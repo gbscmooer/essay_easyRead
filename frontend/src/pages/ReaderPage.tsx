@@ -88,6 +88,16 @@ export default function ReaderPage() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [focusMode])
 
+  // Escape 退出专注模式
+  useEffect(() => {
+    if (!focusMode) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFocusMode(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [focusMode])
+
   // 拖拽逻辑
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -96,16 +106,33 @@ export default function ReaderPage() {
     document.body.style.userSelect = 'none'
   }, [])
 
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault()
+    draggingRef.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!draggingRef.current || !containerRef.current) return
+    const calcPct = (clientX: number) => {
+      if (!containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
-      const x = e.clientX - rect.left
+      const x = clientX - rect.left
       const pct = ((rect.width - x) / rect.width) * 100
       setPanelPct(Math.min(MAX_PANEL_PCT, Math.max(MIN_PANEL_PCT, pct)))
     }
 
-    const handleMouseUp = () => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      calcPct(e.clientX)
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!draggingRef.current) return
+      calcPct(e.touches[0].clientX)
+    }
+
+    const handleUp = () => {
       if (draggingRef.current) {
         draggingRef.current = false
         document.body.style.cursor = ''
@@ -114,10 +141,14 @@ export default function ReaderPage() {
     }
 
     document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener('mouseup', handleUp)
+    document.addEventListener('touchmove', handleTouchMove, { passive: false })
+    document.addEventListener('touchend', handleUp)
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('mouseup', handleUp)
+      document.removeEventListener('touchmove', handleTouchMove)
+      document.removeEventListener('touchend', handleUp)
     }
   }, [])
 
@@ -263,6 +294,7 @@ export default function ReaderPage() {
       {panelOpen && !focusMode && (
         <div
           onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
           className="w-1 shrink-0 cursor-col-resize transition-colors relative group z-10"
           style={{ backgroundColor: 'var(--border)' }}
         >

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 import { ThemeEditor } from '@/features/settings/ThemeEditor'
 import { PromptEditor } from '@/features/settings/PromptEditor'
@@ -717,7 +718,7 @@ export default function SettingsPage() {
         arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
         findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
       }))
-      .catch(() => {})
+      .catch((e: any) => { toast({ type: 'error', message: e?.message || '加载配置失败' }) })
       .finally(() => setLoading(false))
 
     get<{ providers: string[] }>('/analysis/similarity/providers')
@@ -749,8 +750,8 @@ export default function SettingsPage() {
       refreshConfig()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '保存配置失败' })
     } finally {
       setSaving(false)
     }

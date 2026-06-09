@@ -1,14 +1,23 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.12.2'
+const APP_VERSION = '1.12.3'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '深度研究新增「含已扩展论文」开关，可选择是否纳入之前联网扩展的论文',
-    'embedding API 请求增加指数退避重试，避免瞬时网络抖动导致研究失败',
-    '修复后端重启后研究任务卡在「运行中」的问题（孤儿 run 自动检测）',
+    'PaperList 删除操作添加确认对话框，防止误删',
+    'SettingsPage 保存/加载失败增加 toast 错误提示',
+    '补全 globals.css 缺失的 Tailwind 颜色类覆盖，修复浅色主题显示',
+    'GraphCanvas 节点描边改用 CSS 变量，适配浅色主题',
+    'HomePage 添加加载 spinner 和上传成功提示',
+    'ResearchPage 图谱加载 spinner + 移动端纵向布局',
+    'TagManager 下拉菜单支持点击外部/Esc 关闭',
+    'ReaderPage 支持 Esc 退出专注模式 + 拖拽分割条触摸支持',
+    'BibTeX 导出失败增加错误提示',
+    'RagQueryBox 响应式宽度适配',
+    'Toast 关闭按钮增大 + aria-label 无障碍优化',
+    'Tooltip 添加淡入/淡出过渡动画',
   ],
 }
 

@@ -361,6 +361,7 @@ export function PaperList({
                   <button
                     onClick={e => {
                       e.stopPropagation()
+                      if (!confirm('确定删除这篇论文？删除后不可恢复。')) return
                       onDelete(paper.id)
                     }}
                     className="opacity-0 group-hover:opacity-100 transition-all text-sm"

@@ -21,19 +21,22 @@ export default function HomePage() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    listPapers({ page: 1, per_page: 6, source: 'uploaded' })
-      .then(res => setRecentPapers(res.papers))
-      .catch(() => {})
-    listWorkspaces()
-      .then(ws => {
-        const sorted = ws.sort((a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-        setRecentWorkspaces(sorted.slice(0, 6))
-      })
-      .catch(() => {})
+    Promise.all([
+      listPapers({ page: 1, per_page: 6, source: 'uploaded' })
+        .then(res => setRecentPapers(res.papers))
+        .catch(() => {}),
+      listWorkspaces()
+        .then(ws => {
+          const sorted = ws.sort((a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          )
+          setRecentWorkspaces(sorted.slice(0, 6))
+        })
+        .catch(() => {})
+    ]).finally(() => setLoading(false))
   }, [])
 
   const handleUpload = async (file: File) => {
@@ -42,6 +45,7 @@ export default function HomePage() {
     setUploadError(null)
     try {
       const paper = await uploadPaperWithProgress(file, setUploadProgress)
+      toast({ type: 'success', message: '上传成功，正在自动分析...' })
       navigate(`/reader/${paper.id}`, { state: { autoAnalyze: true } })
     } catch {
       setUploadError('上传失败，请检查文件格式后重试')
@@ -68,8 +72,15 @@ export default function HomePage() {
         )}
       </div>
 
+      {/* 加载状态 */}
+      {loading && (
+        <div className="flex items-center justify-center py-16">
+          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        </div>
+      )}
+
       {/* 最近论文 */}
-      {recentPapers.length > 0 && (
+      {!loading && recentPapers.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>最近解析</h2>
