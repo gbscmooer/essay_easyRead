@@ -9,7 +9,6 @@ import { Sidebar } from '@/components/Sidebar'
 import { PdfViewer } from '@/features/viewer/PdfViewer'
 import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
-import { toast } from '@/hooks/useToast'
 
 
 const MIN_PANEL_PCT = 20

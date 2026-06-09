@@ -279,7 +279,6 @@ export default function WorkspaceDetailPage() {
           ) : (
             <div className="max-h-60 overflow-auto space-y-2">
               {libraryPapers.map(paper => (
-                <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }}>
                 <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{paper.title || paper.filename}</p>
@@ -532,8 +531,10 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
               e.stopPropagation()
               if (confirm('确定从工作区移除此论文？')) onRemove()
             }}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all"
-            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs transition-all" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--error)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2 py-1 text-xs transition-all"
+            style={{ color: 'var(--text-muted)' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--error)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             移除
           </button>

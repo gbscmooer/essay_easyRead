@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { post, get } from '@/api/client'
-import { toast } from '@/hooks/useToast'
+
 import { refreshConfig, setUIPreview, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 import { ThemeEditor } from '@/features/settings/ThemeEditor'
 import { PromptEditor } from '@/features/settings/PromptEditor'
@@ -598,6 +598,167 @@ function UIConfigSection({
           onClick={() => setShowAdvanced(v => !v)}
           className="flex items-center gap-1 text-xs transition-colors"
           style={{ color: 'var(--text-muted)' }}
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          PDF 缩放参数
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-3 space-y-3 pl-2 border-l" style={{ borderColor: 'var(--border)' }}>
+            {/* Zoom Step */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>每次缩放步进</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_step * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={50}
+                step={5}
+                value={Math.round(config.zoom_step * 100)}
+                onChange={e => onChange({ ...config, zoom_step: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
+              />
+            </div>
+
+            {/* Zoom Min */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最小缩放倍率</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_min * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={100}
+                step={10}
+                value={Math.round(config.zoom_min * 100)}
+                onChange={e => onChange({ ...config, zoom_min: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
+              />
+            </div>
+
+            {/* Zoom Max */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最大缩放倍率</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_max * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={100}
+                max={500}
+                step={50}
+                value={Math.round(config.zoom_max * 100)}
+                onChange={e => onChange({ ...config, zoom_max: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
+              />
+            </div>
+
+            {/* Pinch Zoom Step */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>触控板捏合灵敏度</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.pinch_zoom_step * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={Math.round(config.pinch_zoom_step * 100)}
+                onChange={e => onChange({ ...config, pinch_zoom_step: parseInt(e.target.value) / 100 })}
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
+              />
+              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                <span>低 (1%)</span>
+                <span>默认 2%</span>
+                <span>高 (10%)</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+export default function SettingsPage() {
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [simProviders, setSimProviders] = useState<string[]>(['bge_centroid'])
+
+  useEffect(() => {
+    get<AppConfig>('/analysis/config')
+      .then(cfg => setConfig({
+        ...DEFAULT_CONFIG,
+        ...cfg,
+        embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
+        translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
+        analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
+        analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
+        ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
+        research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
+        reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
+        similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
+        arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
+        findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
+      }))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+
+    get<{ providers: string[] }>('/analysis/similarity/providers')
+      .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
+      .catch(() => {})
+  }, [])
+
+  // 离开页面时清除预览（不保存则恢复原样）
+  useEffect(() => {
+    return () => { clearUIPreview() }
+  }, [])
+
+  // 浏览器关闭/刷新提示
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedConfig()) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await post('/analysis/config', config)
+      refreshConfig()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
         <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}  role="status"><span className="sr-only">加载中</span></div>
       </div>
     )

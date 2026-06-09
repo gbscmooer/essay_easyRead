@@ -1,23 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.12.3'
+const APP_VERSION = '1.12.4'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    'PaperList 删除操作添加确认对话框，防止误删',
-    'SettingsPage 保存/加载失败增加 toast 错误提示',
-    '补全 globals.css 缺失的 Tailwind 颜色类覆盖，修复浅色主题显示',
-    'GraphCanvas 节点描边改用 CSS 变量，适配浅色主题',
-    'HomePage 添加加载 spinner 和上传成功提示',
-    'ResearchPage 图谱加载 spinner + 移动端纵向布局',
-    'TagManager 下拉菜单支持点击外部/Esc 关闭',
-    'ReaderPage 支持 Esc 退出专注模式 + 拖拽分割条触摸支持',
-    'BibTeX 导出失败增加错误提示',
-    'RagQueryBox 响应式宽度适配',
-    'Toast 关闭按钮增大 + aria-label 无障碍优化',
-    'Tooltip 添加淡入/淡出过渡动画',
+    '修复合并冲突导致的 SettingsPage 和 WorkspaceDetailPage TypeScript 编译错误',
+    '恢复 SettingsPage PDF 缩放参数折叠面板功能',
+    '修复 WorkspaceDetailPage 论文列表重复 div 渲染问题',
+    '移除 ReaderPage 重复的 toast 导入',
   ],
 }
 
