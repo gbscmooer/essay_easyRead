@@ -116,20 +116,20 @@ export function FlowChart({ chart }: FlowChartProps) {
 
   if (error) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4 overflow-auto">
-        <p className="text-red-400 text-sm mb-2">流程图渲染失败</p>
-        <pre className="text-gray-400 text-xs whitespace-pre-wrap">{chart}</pre>
+      <div className="rounded-lg p-4 overflow-auto" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+        <p className="text-sm mb-2" style={{ color: 'var(--error)' }}>流程图渲染失败</p>
+        <pre className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{chart}</pre>
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} className="mermaid bg-gray-800 rounded-lg p-4 overflow-auto flex justify-center">
+    <div ref={containerRef} className="mermaid rounded-lg p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-elevated)' }}>
       {svg ? (
         <div dangerouslySetInnerHTML={{ __html: stripEventHandlers(svg) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
-          <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
         </div>
       )}
     </div>

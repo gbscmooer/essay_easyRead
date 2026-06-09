@@ -143,7 +143,7 @@ export default function WorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}  role="status"><span className="sr-only">加载中</span></div>
       </div>
     )
   }
@@ -155,6 +155,8 @@ export default function WorkspaceDetailPage() {
         to="/workspace"
         className="inline-flex items-center gap-1.5 text-sm transition-colors mb-4"
         style={{ color: 'var(--text-muted)' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -189,6 +191,8 @@ export default function WorkspaceDetailPage() {
               style={{ color: 'var(--text-primary)' }}
               role="button"
               tabIndex={0}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
               onClick={() => setEditing(true)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
             >
@@ -198,6 +202,8 @@ export default function WorkspaceDetailPage() {
               onClick={() => setEditing(true)}
               className="text-xs transition-colors"
               style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
             >
               重命名
             </button>
@@ -259,14 +265,14 @@ export default function WorkspaceDetailPage() {
 
       {/* 添加论文面板 */}
       {showAddPaper && (
-        <div className="mb-6 rounded-lg p-4" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="mb-6 rounded-lg p-4" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>选择论文添加到工作区</h3>
-            <button onClick={() => setShowAddPaper(false)} className="text-xs transition-colors" style={{ color: 'var(--text-muted)' }}>关闭</button>
+            <button onClick={() => setShowAddPaper(false)} className="text-xs" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}>关闭</button>
           </div>
           {loadingPapers ? (
             <div className="flex justify-center py-4">
-              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }}  role="status"><span className="sr-only">加载中</span></div>
             </div>
           ) : libraryPapers.length === 0 ? (
             <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
@@ -274,6 +280,7 @@ export default function WorkspaceDetailPage() {
             <div className="max-h-60 overflow-auto space-y-2">
               {libraryPapers.map(paper => (
                 <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }}>
+                <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{paper.title || paper.filename}</p>
                     {paper.venue && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</p>}
@@ -469,7 +476,7 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
               paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
               paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
               paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
-              'bg-gray-700 text-gray-400'
+              'var(--bg-surface)'
             }`}>
               {paper.status === 'done' ? '已解析' :
                paper.status === 'indexed' ? '未解析·已索引' :
@@ -499,7 +506,10 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
                 to={`/code/${paper.id}`}
                 state={{ from: `/workspace/${workspaceId}` }}
                 onClick={e => e.stopPropagation()}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                className="text-xs transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
               >
                 源码分析
               </Link>
@@ -523,6 +533,7 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
               if (confirm('确定从工作区移除此论文？')) onRemove()
             }}
             className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all"
+            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs transition-all" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--error)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             移除
           </button>

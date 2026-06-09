@@ -99,7 +99,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
           className="h-full transition-all duration-500 ease-out"
           style={{
             width: `${progress}%`,
-            backgroundColor: status === 'failed' ? '#ef4444' : 'var(--accent)',
+            backgroundColor: status === 'failed' ? 'var(--error)' : 'var(--accent)',
           }}
         />
       </div>
@@ -128,14 +128,14 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 key={step.key}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
                 style={{
-                  backgroundColor: isCurrentStep ? 'var(--accent-subtle)' : isDone ? 'rgba(34,197,94,0.05)' : 'transparent',
-                  border: isCurrentStep ? '1px solid rgba(37,99,235,0.2)' : isDone ? '1px solid rgba(34,197,94,0.15)' : '1px solid transparent',
+                  backgroundColor: isCurrentStep ? 'var(--accent-subtle)' : isDone ? 'var(--success-subtle)' : 'transparent',
+                  border: isCurrentStep ? '1px solid var(--accent)' : isDone ? '1px solid var(--success)' : '1px solid transparent',
                 }}
               >
                 {/* 状态图标 */}
                 <div className="w-6 h-6 flex items-center justify-center rounded-full text-xs shrink-0" style={{
-                  backgroundColor: isDone ? '#22c55e' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
-                  color: isDone || isCurrentStep ? '#ffffff' : 'var(--text-muted)',
+                  backgroundColor: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
+                  color: isDone || isCurrentStep ? 'var(--text-primary)' : 'var(--text-muted)',
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
                     <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" role="status"><span className="sr-only">\u52A0\u8F7D\u4E2D</span></div>
@@ -146,7 +146,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium" style={{
-                      color: isDone ? '#16a34a' : isCurrentStep ? 'var(--accent)' : 'var(--text-muted)',
+                      color: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--text-muted)',
                     }}>
                       {step.label}
                     </span>

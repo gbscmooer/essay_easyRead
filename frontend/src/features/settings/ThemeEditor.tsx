@@ -79,7 +79,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
 
   return (
     <div>
-      <label className="block text-xs text-gray-500 mb-2">配色风格</label>
+      <label className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>配色风格</label>
 
       {/* 主题卡片网格 */}
       <div className="grid grid-cols-3 gap-2">

@@ -38,7 +38,7 @@ interface MethodTabProps {
 export function MethodTab({ result }: MethodTabProps) {
   const { method, mermaid_chart } = result
   if (!method) {
-    return <div className="text-gray-500 text-sm text-center py-8">暂无方法论分析</div>
+    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无方法论分析</div>
   }
   const pipelineSteps = method.pipeline
     ? method.pipeline.split('\n').filter(s => s.trim())
@@ -49,15 +49,15 @@ export function MethodTab({ result }: MethodTabProps) {
       {/* 方法总览 */}
       {method.overview && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-2">方法总览</h2>
-          <p className="text-gray-300 text-sm leading-relaxed">{method.overview}</p>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>方法总览</h2>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{method.overview}</p>
         </section>
       )}
 
       {/* Mermaid 流程图 */}
       {mermaid_chart && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">流程图</h2>
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>流程图</h2>
           <FlowChart chart={mermaid_chart} />
         </section>
       )}
@@ -65,19 +65,19 @@ export function MethodTab({ result }: MethodTabProps) {
       {/* Pipeline 详细步骤 */}
       {pipelineSteps.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">Pipeline 步骤</h2>
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Pipeline 步骤</h2>
           <div className="relative pl-6">
             {/* 竖线 */}
-            <div className="absolute left-2 top-2 bottom-2 w-px bg-gray-700" />
+            <div className="absolute left-2 top-2 bottom-2 w-px" style={{ backgroundColor: 'var(--border-light)' }} />
 
             <div className="space-y-4">
               {pipelineSteps.map((step, idx) => (
                 <div key={idx} className="relative flex items-start gap-3">
                   {/* 节点 */}
-                  <div className="absolute -left-4 top-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-gray-900 z-10" />
+                  <div className="absolute -left-4 top-1 w-3 h-3 rounded-full z-10" style={{ backgroundColor: 'var(--accent)', border: '2px solid var(--bg-base)' }} />
                   <div className="ml-2">
-                    <span className="text-xs text-gray-500 block mb-0.5">步骤 {idx + 1}</span>
-                    <p className="text-sm text-gray-300">{step}</p>
+                    <span className="text-xs block mb-0.5" style={{ color: 'var(--text-muted)' }}>步骤 {idx + 1}</span>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{step}</p>
                   </div>
                 </div>
               ))}
@@ -89,25 +89,25 @@ export function MethodTab({ result }: MethodTabProps) {
       {/* 关键模块表格 */}
       {method.key_modules && method.key_modules.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold text-gray-200 mb-3">关键模块</h2>
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>关键模块</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">模块名</th>
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">作用</th>
-                  <th className="text-left py-2 px-3 text-gray-400 font-medium">创新点</th>
+                <tr className="border-b" style={{ borderColor: 'var(--border-light)' }}>
+                  <th className="text-left py-2 px-3 font-medium" style={{ color: 'var(--text-secondary)' }}>模块名</th>
+                  <th className="text-left py-2 px-3 font-medium" style={{ color: 'var(--text-secondary)' }}>作用</th>
+                  <th className="text-left py-2 px-3 font-medium" style={{ color: 'var(--text-secondary)' }}>创新点</th>
                 </tr>
               </thead>
               <tbody>
                 {method.key_modules.map((mod, idx) => (
                   <tr
                     key={idx}
-                    className={idx % 2 === 0 ? 'bg-gray-800/50' : ''}
+                    style={idx % 2 === 0 ? { backgroundColor: 'var(--bg-elevated)' } : undefined}
                   >
                     <td className="py-2 px-3 text-blue-400 font-medium">{mod.name}</td>
-                    <td className="py-2 px-3 text-gray-300">{mod.role}</td>
-                    <td className="py-2 px-3 text-gray-300">{mod.innovation}</td>
+                    <td className="py-2 px-3" style={{ color: 'var(--text-secondary)' }}>{mod.role}</td>
+                    <td className="py-2 px-3" style={{ color: 'var(--text-secondary)' }}>{mod.innovation}</td>
                   </tr>
                 ))}
               </tbody>
