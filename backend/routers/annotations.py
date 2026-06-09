@@ -1,26 +1,17 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, select
 from datetime import datetime, timezone
 from typing import Optional
 
 from ..models.annotation import Annotation
 from ..models.paper import Paper
-from ..config import settings
+from ..services.database import get_engine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 class AnnotationCreate(BaseModel):
@@ -52,7 +43,7 @@ class AnnotationResponse(BaseModel):
 
 @router.get("/paper/{paper_id}", response_model=list[AnnotationResponse])
 async def list_annotations(paper_id: int) -> list[AnnotationResponse]:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         annotations = session.exec(
             select(Annotation)
@@ -72,7 +63,7 @@ async def list_annotations(paper_id: int) -> list[AnnotationResponse]:
 
 @router.post("/paper/{paper_id}", response_model=AnnotationResponse)
 async def create_annotation(paper_id: int, req: AnnotationCreate) -> AnnotationResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
         if not paper:
@@ -104,7 +95,7 @@ async def create_annotation(paper_id: int, req: AnnotationCreate) -> AnnotationR
 @router.delete("/group/{group_id}")
 async def delete_annotation_group(group_id: str) -> dict:
     """Delete all annotations sharing the same group_id (created in one action)."""
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         annotations = session.exec(
             select(Annotation).where(Annotation.group_id == group_id)
@@ -119,7 +110,7 @@ async def delete_annotation_group(group_id: str) -> dict:
 
 @router.delete("/{annotation_id}")
 async def delete_annotation(annotation_id: int) -> dict:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         annotation = session.get(Annotation, annotation_id)
         if not annotation:

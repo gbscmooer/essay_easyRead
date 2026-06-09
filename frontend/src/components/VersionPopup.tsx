@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.5'
+const APP_VERSION = '1.17.6'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '消除N+1查询：smart_search批量预取AnalysisResult、tags改用JOIN',
+    '引擎单例彻底统一：notes和annotations也改用database.get_engine()',
   ],
 }
 

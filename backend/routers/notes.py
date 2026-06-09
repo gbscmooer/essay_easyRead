@@ -1,26 +1,17 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, select
 from datetime import datetime, timezone
 from typing import Optional
 
 from ..models.note import Note
 from ..models.paper import Paper
-from ..config import settings
+from ..services.database import get_engine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
 
 
 class NoteCreate(BaseModel):
@@ -47,7 +38,7 @@ class NoteResponse(BaseModel):
 
 @router.get("/paper/{paper_id}", response_model=list[NoteResponse])
 async def list_notes(paper_id: int, note_type: Optional[str] = None) -> list[NoteResponse]:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         stmt = select(Note).where(Note.paper_id == paper_id)
         if note_type:
@@ -65,7 +56,7 @@ async def list_notes(paper_id: int, note_type: Optional[str] = None) -> list[Not
 
 @router.post("/paper/{paper_id}", response_model=NoteResponse)
 async def create_note(paper_id: int, req: NoteCreate) -> NoteResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
         if not paper:
@@ -89,7 +80,7 @@ async def create_note(paper_id: int, req: NoteCreate) -> NoteResponse:
 
 @router.put("/{note_id}", response_model=NoteResponse)
 async def update_note(note_id: int, req: NoteUpdate) -> NoteResponse:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
@@ -108,7 +99,7 @@ async def update_note(note_id: int, req: NoteUpdate) -> NoteResponse:
 
 @router.delete("/{note_id}")
 async def delete_note(note_id: int) -> dict:
-    engine = _get_engine()
+    engine = get_engine()
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
