@@ -264,7 +264,6 @@ body {
 .animate-slide-in-y {
   animation: slide-in-y 0.25s ease-out;
 }
-}
 
 /* ============================================================
  * Mermaid 主题覆盖
