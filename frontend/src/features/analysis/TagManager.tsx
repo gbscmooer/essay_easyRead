@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Tag } from '@/types'
 import { listTags, getPaperTags, addPaperTag, removePaperTag, createTag } from '@/api/tags'
 import { toast } from '@/hooks/useToast'
@@ -12,6 +12,7 @@ export function TagManager({ paperId }: TagManagerProps) {
   const [paperTags, setPaperTags] = useState<Tag[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [newTagName, setNewTagName] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const fetchTags = useCallback(async () => {
     try {
@@ -25,6 +26,13 @@ export function TagManager({ paperId }: TagManagerProps) {
 
   useEffect(() => { fetchTags() }, [fetchTags])
 
+
+  // Auto-focus input when dropdown opens
+  useEffect(() => {
+    if (showDropdown && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [showDropdown])
   // 点击外部关闭下拉菜单
   useEffect(() => {
     if (!showDropdown) return
@@ -100,6 +108,8 @@ export function TagManager({ paperId }: TagManagerProps) {
         ))}
         <button
           onClick={() => setShowDropdown(v => !v)}
+          aria-expanded={showDropdown}
+          aria-haspopup="true"
           className="text-xs px-2 py-0.5 rounded-full transition-colors"
           style={{ color: 'var(--text-muted)', border: '1px dashed var(--border)' }}
         >

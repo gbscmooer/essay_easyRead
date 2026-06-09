@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface Props {
   open: boolean
@@ -33,6 +33,9 @@ function KeyBadge({ k }: { k: string }) {
 }
 
 export function ShortcutHelp({ open, onClose }: Props) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
@@ -41,6 +44,29 @@ export function ShortcutHelp({ open, onClose }: Props) {
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
+
+  // Focus close button on open + trap Tab
+  useEffect(() => {
+    if (!open) return
+    closeRef.current?.focus()
+
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !dialogRef.current) return
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    document.addEventListener('keydown', handleTab)
+    return () => document.removeEventListener('keydown', handleTab)
+  }, [open])
 
   if (!open) return null
 
@@ -51,13 +77,18 @@ export function ShortcutHelp({ open, onClose }: Props) {
     >
       <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcut-help-title"
         className="relative rounded-xl shadow-2xl border p-6 w-[400px] max-h-[80vh] overflow-auto"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>键盘快捷键</h2>
+          <h2 id="shortcut-help-title" className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>键盘快捷键</h2>
           <button
+            ref={closeRef}
             onClick={onClose}
             className="text-sm opacity-60 hover:opacity-100 transition-opacity"
             style={{ color: 'var(--text-muted)' }}

@@ -69,7 +69,7 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
         <button
           onClick={handleCreate}
           disabled={!newContent.trim()}
-          className="self-end px-3 py-2 text-sm rounded-lg transition-colors disabled:opacity-40"
+          className="self-end px-3 py-2 text-sm rounded-lg transition-colors disabled:opacity-40 hover:opacity-90"
           style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
         >
           添加
@@ -98,14 +98,14 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setEditingId(null)}
-                  className="text-xs px-2 py-1 rounded border transition-colors"
+                  className="text-xs px-2 py-1 rounded border transition-colors hover:opacity-80"
                   style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
                 >
                   取消
                 </button>
                 <button
                   onClick={() => handleUpdate(note.id)}
-                  className="text-xs px-2 py-1 rounded transition-colors"
+                  className="text-xs px-2 py-1 rounded transition-colors hover:opacity-90"
                   style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
                 >
                   保存
@@ -122,14 +122,14 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setEditingId(note.id); setEditContent(note.content) }}
-                    className="text-[10px] transition-colors"
+                    className="text-[10px] transition-colors hover:opacity-80"
                     style={{ color: 'var(--text-muted)' }}
                   >
                     编辑
                   </button>
                   <button
                     onClick={() => handleDelete(note.id)}
-                    className="text-[10px] transition-colors"
+                    className="text-[10px] transition-colors hover:opacity-80"
                     style={{ color: 'var(--error)' }}
                   >
                     删除
