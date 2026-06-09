@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.16.0'
+const APP_VERSION = '1.17.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    'code.py文件树缓存：优先从数据库读取，避免每次请求递归遍历',
-    'code.py PDF提取优化：优先使用paper.full_text，避免重复解析',
-    'React.memo列表组件：PaperList/Sidebar/InterviewTab提取命名组件',
-    'SSE批量更新：50ms窗口内多次field事件合并为一次setState',
-    'LibraryPage搜索防抖：300ms延迟避免频繁请求',
+    '修复合并冲突回归：恢复smart_search端点、自动索引触发、category/date筛选',
+    '修复code.py 11处属性访问Bug：analysis.code_mapping等模型字段改为属性访问',
+    '恢复数据库自动迁移：authors/category/index_status列建表',
+    '保留v1.16优化：full_text缓存、文件树缓存、build_file_tree异步化',
+    '修复smart_search未定义引擎+缺select导入的NameError',
   ],
 }
 
