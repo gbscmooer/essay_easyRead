@@ -723,7 +723,7 @@ export default function SettingsPage() {
 
     get<{ providers: string[] }>('/analysis/similarity/providers')
       .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'warning', message: '相似度提供者列表加载失败' }) })
   }, [])
 
   // 离开页面时清除预览（不保存则恢复原样）

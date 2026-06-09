@@ -27,7 +27,7 @@ export default function HomePage() {
     Promise.all([
       listPapers({ page: 1, per_page: 6, source: 'uploaded' })
         .then(res => setRecentPapers(res.papers))
-        .catch(() => {}),
+        .catch(() => { toast({ type: 'error', message: '加载最近论文失败' }) }),
       listWorkspaces()
         .then(ws => {
           const sorted = ws.sort((a, b) =>
@@ -35,7 +35,7 @@ export default function HomePage() {
           )
           setRecentWorkspaces(sorted.slice(0, 6))
         })
-        .catch(() => {})
+        .catch(() => { toast({ type: 'error', message: '加载工作区失败' }) }),
     ]).finally(() => setLoading(false))
   }, [])
 

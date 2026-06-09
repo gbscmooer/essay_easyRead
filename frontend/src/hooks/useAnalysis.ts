@@ -80,7 +80,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
         getAnalysis(initialPaperId).then(result => {
           if (!cancelled) setAnalysis(result)
         }).catch(() => {
-          // 解析结果获取失败，SSE 会自动尝试
+          toast({ type: 'error', message: '加载分析结果失败' })
         })
       } else if (p.status === 'failed') {
         // 失败状态也连接，以便显示错误
@@ -93,7 +93,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
         setShouldConnect(false)
       }
     }).catch(() => {
-      // 论文加载失败
+      toast({ type: 'error', message: '加载论文信息失败' })
     })
 
     return () => { cancelled = true }
@@ -105,7 +105,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
       getAnalysis(activePaperId).then(result => {
         setAnalysis(result)
       }).catch(() => {
-        // 获取失败，partialResult 已有数据
+        toast({ type: 'error', message: '加载完整分析失败' })
       })
     }
   }, [streamStatus, activePaperId])

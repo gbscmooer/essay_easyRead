@@ -125,7 +125,7 @@ export default function LibraryPage() {
         setPapers(res.papers)
         setTotal(res.total)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
   }, [category, year, dateAdded, page])
 
   // 智能搜索：搜索词非空时调 smart-search（元数据 + 解读内容 + 可选全局正文）
@@ -151,7 +151,7 @@ export default function LibraryPage() {
         setExpandedPapers(res.papers)
         setExpandedTotal(res.total)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载扩展论文失败' }) })
   }, [])
 
   useEffect(() => { fetchPapers() }, [fetchPapers])

@@ -9,6 +9,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { PdfViewer } from '@/features/viewer/PdfViewer'
 import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
+import { toast } from '@/hooks/useToast'
 
 
 const MIN_PANEL_PCT = 20
@@ -51,7 +52,7 @@ export default function ReaderPage() {
   useEffect(() => {
     listPapers({ per_page: 100 })
       .then(res => setPapers(res.papers))
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
   }, [])
 
   // Auto-start analysis for freshly uploaded papers

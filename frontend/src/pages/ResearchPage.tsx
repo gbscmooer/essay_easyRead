@@ -41,10 +41,10 @@ export default function ResearchPage() {
 
   // 1) 初始加载历史：图谱 + 最近 run
   useEffect(() => {
-    getGraph(wsId).then(setGraph).catch(() => {}).finally(() => setGraphLoading(false))
+    getGraph(wsId).then(setGraph).catch(() => { toast({ type: 'error', message: '加载图谱失败' }) }).finally(() => setGraphLoading(false))
     getLatestRun(wsId).then(r => {
       if (r && r.status === 'running') setRunId(r.id)
-    }).catch(() => {})
+    }).catch(() => { toast({ type: 'error', message: '加载研究记录失败' }) })
   }, [wsId])
 
   // 2) stream.graph 覆盖历史

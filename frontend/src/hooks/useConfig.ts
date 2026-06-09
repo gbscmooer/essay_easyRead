@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { get } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import type { Theme } from '@/theme/themes'
 import { DEFAULT_THEME_ID } from '@/theme/themes'
 
@@ -73,6 +74,7 @@ async function fetchConfig(): Promise<AppConfig> {
     })
     .catch(() => {
       fetchPromise = null
+      toast({ type: 'warning', message: '配置加载失败，使用默认值' })
       return { translate: { temperature: 0, max_tokens: 0 }, analysis: { temperature: 0, max_tokens: 0 }, ui: DEFAULT_UI }
     })
 

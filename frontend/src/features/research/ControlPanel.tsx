@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get, post } from '@/api/client'
+import { toast } from '@/hooks/useToast'
 import { Tooltip } from '@/components/Tooltip'
 
 interface ControlPanelProps {
@@ -48,7 +49,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
         )
         setSelectedIds(usable)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'error', message: '加载工作区论文失败' }) })
   }, [wsId])
 
   useEffect(() => {
@@ -59,7 +60,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
         const savedDist = cfg.research?.link_distance
         if (typeof savedDist === 'number') onLinkDistanceChange(savedDist)
       })
-      .catch(() => {})
+      .catch(() => { toast({ type: 'warning', message: '研究配置加载失败，使用默认值' }) })
   }, [])
 
   const isUsable = (status: string) =>
