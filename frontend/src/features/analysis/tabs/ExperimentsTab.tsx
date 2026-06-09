@@ -356,3 +356,5 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
     </div>
   )
 }
+
+export default ExperimentsTab

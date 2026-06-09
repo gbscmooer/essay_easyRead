@@ -45,7 +45,7 @@ export function ReaderPage() {
   } = useAnalysis(paperId)
 
   useEffect(() => {
-    listPapers({ per_page: 100 })
+    listPapers({ per_page: 30 })
       .then(res => setPapers(res.papers))
       .catch(() => {})
   }, [])

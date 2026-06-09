@@ -122,3 +122,5 @@ export function CodeTab({ paperId }: CodeTabProps) {
     </div>
   )
 }
+
+export default CodeTab

@@ -32,6 +32,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const [pageInput, setPageInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [visiblePage, setVisiblePage] = useState(1)
+  const [visibleRange, setVisibleRange] = useState({ start: 1, end: 3 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const isScrollingRef = useRef(false)
@@ -101,13 +102,32 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
   useEffect(() => { visiblePageRef.current = visiblePage }, [visiblePage])
 
-  // IntersectionObserver 跟踪当前可见页（仅非滚动时）
+  // IntersectionObserver 跟踪当前可见页 + 更新虚拟化窗口
   useEffect(() => {
     const container = scrollRef.current
     if (!container || numPages === 0) return
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // 更新可见页面范围（始终执行，不依赖 isScrolling）
+        const visiblePages: number[] = []
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const pn = Number(entry.target.getAttribute('data-page'))
+            if (pn) visiblePages.push(pn)
+          }
+        }
+        if (visiblePages.length > 0) {
+          const minVis = Math.min(...visiblePages)
+          const maxVis = Math.max(...visiblePages)
+          const buffer = 2
+          setVisibleRange({
+            start: Math.max(1, minVis - buffer),
+            end: Math.min(numPages, maxVis + buffer),
+          })
+        }
+
+        // 更新当前最可见页（仅非滚动时）
         if (isScrollingRef.current) return
 
         let maxRatio = 0
@@ -132,6 +152,21 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     pageRefs.current.forEach((el) => observer.observe(el))
     return () => observer.disconnect()
   }, [numPages])
+
+  // 当页面跳转时，扩展可见范围确保目标页被渲染
+  useEffect(() => {
+    setVisibleRange(prev => {
+      if (activePage && activePage >= 1 && activePage <= numPages) {
+        if (activePage < prev.start || activePage > prev.end) {
+          return {
+            start: Math.max(1, activePage - 2),
+            end: Math.min(numPages, activePage + 2),
+          }
+        }
+      }
+      return prev
+    })
+  }, [activePage, numPages])
 
   // 两指捏合缩放（触控板 pinch 触发 ctrlKey+wheel）
   useEffect(() => {
@@ -200,7 +235,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
           loading={null}
         >
           <div className="flex flex-col items-center gap-4 py-4">
-            {Array.from({ length: numPages }, (_, i) => i + 1).map(pageNum => (
+            {Array.from({ length: numPages }, (_, i) => i + 1)
+              .filter(pageNum => pageNum >= visibleRange.start && pageNum <= visibleRange.end)
+              .map(pageNum => (
               <div
                 key={pageNum}
                 data-page={pageNum}
