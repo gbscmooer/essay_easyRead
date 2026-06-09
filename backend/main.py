@@ -4,6 +4,7 @@ FastAPI 应用入口
 配置中间件、挂载路由、启动事件。
 """
 
+import logging
 import os
 import shutil
 import subprocess
@@ -11,6 +12,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 from .config import settings
 from .services.database import init_db
@@ -143,13 +146,12 @@ async def terminal_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Terminal error: {e}")
+        logger.error(f"Terminal error: {e}")
     finally:
         try:
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WebSocket close failed: {e}")
 
 
 @app.post("/api/system/open-vscode")

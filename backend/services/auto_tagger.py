@@ -63,7 +63,7 @@ async def auto_tag_paper(
         if client:
             try:
                 await client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to close auto_tagger client: {e}")
 
     return []

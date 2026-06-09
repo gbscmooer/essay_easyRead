@@ -39,7 +39,9 @@ class StreamLogHandler(logging.Handler):
                     except asyncio.QueueFull:
                         pass
         except Exception:
-            pass
+            # 不能在 logging handler 内使用 logger（会无限递归），
+            # 使用标准框架方法处理异常
+            self.handleError(record)
 
 
 def setup_log_streaming():

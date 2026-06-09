@@ -46,7 +46,7 @@ class NoteResponse(BaseModel):
 
 
 @router.get("/paper/{paper_id}", response_model=list[NoteResponse])
-async def list_notes(paper_id: int, note_type: Optional[str] = None):
+async def list_notes(paper_id: int, note_type: Optional[str] = None) -> list[NoteResponse]:
     engine = _get_engine()
     with Session(engine) as session:
         stmt = select(Note).where(Note.paper_id == paper_id)
@@ -64,7 +64,7 @@ async def list_notes(paper_id: int, note_type: Optional[str] = None):
 
 
 @router.post("/paper/{paper_id}", response_model=NoteResponse)
-async def create_note(paper_id: int, req: NoteCreate):
+async def create_note(paper_id: int, req: NoteCreate) -> NoteResponse:
     engine = _get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
@@ -88,7 +88,7 @@ async def create_note(paper_id: int, req: NoteCreate):
 
 
 @router.put("/{note_id}", response_model=NoteResponse)
-async def update_note(note_id: int, req: NoteUpdate):
+async def update_note(note_id: int, req: NoteUpdate) -> NoteResponse:
     engine = _get_engine()
     with Session(engine) as session:
         note = session.get(Note, note_id)
@@ -107,7 +107,7 @@ async def update_note(note_id: int, req: NoteUpdate):
 
 
 @router.delete("/{note_id}")
-async def delete_note(note_id: int):
+async def delete_note(note_id: int) -> dict:
     engine = _get_engine()
     with Session(engine) as session:
         note = session.get(Note, note_id)

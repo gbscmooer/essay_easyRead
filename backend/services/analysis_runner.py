@@ -21,11 +21,25 @@ import logging
 import os
 from typing import Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, create_engine
 
+from ..config import settings
 from ..models.schemas import StreamEvent
 
 logger = logging.getLogger(__name__)
+
+
+_engine = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            settings.resolved_database_url,
+            connect_args={"check_same_thread": False},
+        )
+    return _engine
 
 
 # 用于进度百分比计算的字段（按典型到达顺序），与前端 LoadingState 对齐
@@ -85,8 +99,8 @@ def clear_cache(paper_id: int) -> None:
     """删除断点缓存（落库成功或显式重新解析时调用）。"""
     try:
         os.remove(_cache_path(paper_id))
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug(f"Cache file not found or already removed for paper {paper_id}: {e}")
 
 
 class AnalysisJob:
@@ -94,7 +108,6 @@ class AnalysisJob:
 
     def __init__(self, paper_id: int):
         self.paper_id = paper_id
-        self._MAX_EVENTS = 200
         self.events: list[StreamEvent] = []          # 回放缓冲
         self.subscribers: set[asyncio.Queue] = set()  # 实时订阅队列
         self.done = False
@@ -106,13 +119,11 @@ class AnalysisJob:
     def emit(self, event: StreamEvent) -> None:
         """记录事件并广播给所有订阅者。"""
         self.events.append(event)
-        if len(self.events) > self._MAX_EVENTS:
-            self.events = self.events[-self._MAX_EVENTS:]
         for q in list(self.subscribers):
             try:
                 q.put_nowait(event)
-            except Exception:
-                logger.debug("Failed to emit event to subscriber queue")
+            except Exception as e:
+                logger.debug(f"Failed to emit event to subscriber queue: {e}")
 
     def subscribe(self) -> asyncio.Queue:
         """新建订阅队列，先灌入已发生的全部事件（回放）。"""
@@ -144,8 +155,8 @@ def _json_safe(obj):
         if callable(fn):
             try:
                 return _json_safe(fn())
-            except Exception:
-                logger.debug("Failed to serialize object via %s, falling back to str()", attr)
+            except Exception as e:
+                logger.debug(f"Failed to serialize object via {attr}: {e}")
                 break
     return str(obj)
 
@@ -172,11 +183,10 @@ def ensure_job(paper_id: int, pdf_path: str) -> AnalysisJob:
 async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
     """后台执行完整分析流程，向 job 发射 SSE 事件。"""
     paper_id = job.paper_id
-    from .database import get_engine
-    engine = get_engine()
+    engine = _get_engine()
 
     from .database import (
-        update_paper_status,
+        update_paper_status, update_paper_metadata,
         save_analysis_result, update_paper_code_url, update_related_papers,
     )
 
@@ -230,7 +240,6 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         if ai_done:
             emit_progress(85, "已从缓存恢复 AI 分析结果，跳过重新分析", "analyzing")
         else:
-            _fields_since_save = 0
             job.emit(StreamEvent(event="status", data={"status": "analyzing", "message": "正在调用 AI 分析..."}))
             from .ai_config import get_active_analysis_prompt
             received = 0
@@ -260,13 +269,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                     received += 1
                     pct = min(85, 10 + round(received / _TOTAL_FIELDS * 75))
                     emit_progress(pct, f"已解析 {received}/{_TOTAL_FIELDS} 个字段", "analyzing")
-                    # 增量持久化：每 3 个字段写入缓存，供断点续传
-                    _fields_since_save += 1
-                    if _fields_since_save >= 3:
-                        save_cache(paper_id, result)
-                        _fields_since_save = 0
-                # 确保最后一批未写入的字段也持久化
-                if _fields_since_save > 0:
+                    # 增量持久化：每完成一个字段就写入缓存，供断点续传
                     save_cache(paper_id, result)
 
         # ---- 3. 提取代码仓库 URL ----
@@ -292,9 +295,12 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         result = _json_safe(result)
 
         with Session(engine) as session:
-            # 注意：不再由 LLM 解读结果回写 Paper 的 title/venue/year。
-            # 论文库索引（Paper 元数据）统一以 GROBID 自动索引为唯一来源，
-            # 解读结果只存进 AnalysisResult 供阅读页展示。
+            update_paper_metadata(
+                session, paper_id,
+                result.get("title", ""),
+                result.get("venue", "Unknown"),
+                result.get("year", 0),
+            )
             save_analysis_result(session, paper_id, result)
             if code_url:
                 update_paper_code_url(session, paper_id, code_url)
@@ -304,40 +310,6 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         clear_cache(paper_id)
         # main_done：通知前端立即渲染全部主体字段（不等待相关论文）
         job.emit(StreamEvent(event="main_done", data={"message": "主体分析完成"}))
-
-        # ---- 4.5 LLM 自动分类标签 ----
-        try:
-            from .auto_tagger import auto_tag_paper
-            from ..models.tag import Tag, PaperTag
-            from sqlmodel import select as _sel
-
-            tag_result = await auto_tag_paper(
-                title=result.get("title", ""),
-                one_sentence=result.get("one_sentence", ""),
-                method_overview=(result.get("method") or {}).get("overview", ""),
-                venue=result.get("venue", ""),
-                api_key=ai_cfg["api_key"],
-                base_url=ai_cfg["base_url"],
-                model=ai_cfg["model"],
-            )
-            if tag_result:
-                with Session(engine) as session:
-                    for tag_name in tag_result:
-                        tag = session.exec(_sel(Tag).where(Tag.name == tag_name)).first()
-                        if not tag:
-                            tag = Tag(name=tag_name)
-                            session.add(tag)
-                            session.commit()
-                            session.refresh(tag)
-                        existing = session.exec(
-                            _sel(PaperTag).where(PaperTag.paper_id == paper_id, PaperTag.tag_id == tag.id)
-                        ).first()
-                        if not existing:
-                            session.add(PaperTag(paper_id=paper_id, tag_id=tag.id))
-                    session.commit()
-                job.emit(StreamEvent(event="tags", data={"tags": tag_result}))
-        except Exception as e:
-            logger.warning(f"Auto-tagging skipped: {e}")
 
         # ---- 5. 相关论文搜索（最佳努力；超时/失败仅影响此模块）----
         if related_done and result.get("related_papers"):

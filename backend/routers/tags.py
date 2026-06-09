@@ -39,7 +39,7 @@ class PaperTagRequest(BaseModel):
 
 
 @router.get("", response_model=list[TagResponse])
-async def list_tags():
+async def list_tags() -> list[TagResponse]:
     engine = _get_engine()
     with Session(engine) as session:
         tags = session.exec(select(Tag).order_by(Tag.name)).all()
@@ -55,7 +55,7 @@ async def list_tags():
 
 
 @router.post("", response_model=TagResponse)
-async def create_tag(req: TagCreate):
+async def create_tag(req: TagCreate) -> TagResponse:
     engine = _get_engine()
     with Session(engine) as session:
         existing = session.exec(select(Tag).where(Tag.name == req.name)).first()
@@ -69,7 +69,7 @@ async def create_tag(req: TagCreate):
 
 
 @router.delete("/{tag_id}")
-async def delete_tag(tag_id: int):
+async def delete_tag(tag_id: int) -> dict:
     engine = _get_engine()
     with Session(engine) as session:
         tag = session.get(Tag, tag_id)
@@ -84,7 +84,7 @@ async def delete_tag(tag_id: int):
 
 
 @router.put("/{tag_id}", response_model=TagResponse)
-async def update_tag(tag_id: int, req: TagCreate):
+async def update_tag(tag_id: int, req: TagCreate) -> TagResponse:
     engine = _get_engine()
     with Session(engine) as session:
         tag = session.get(Tag, tag_id)
@@ -103,7 +103,7 @@ async def update_tag(tag_id: int, req: TagCreate):
 
 
 @router.get("/paper/{paper_id}", response_model=list[TagResponse])
-async def get_paper_tags(paper_id: int):
+async def get_paper_tags(paper_id: int) -> list[TagResponse]:
     engine = _get_engine()
     with Session(engine) as session:
         pts = session.exec(select(PaperTag).where(PaperTag.paper_id == paper_id)).all()
@@ -116,7 +116,7 @@ async def get_paper_tags(paper_id: int):
 
 
 @router.post("/paper/{paper_id}")
-async def add_paper_tag(paper_id: int, req: PaperTagRequest):
+async def add_paper_tag(paper_id: int, req: PaperTagRequest) -> dict:
     engine = _get_engine()
     with Session(engine) as session:
         paper = session.get(Paper, paper_id)
@@ -137,7 +137,7 @@ async def add_paper_tag(paper_id: int, req: PaperTagRequest):
 
 
 @router.delete("/paper/{paper_id}/{tag_id}")
-async def remove_paper_tag(paper_id: int, tag_id: int):
+async def remove_paper_tag(paper_id: int, tag_id: int) -> dict:
     engine = _get_engine()
     with Session(engine) as session:
         pt = session.exec(
@@ -150,7 +150,7 @@ async def remove_paper_tag(paper_id: int, tag_id: int):
 
 
 @router.get("/papers/{tag_id}", response_model=list[dict])
-async def get_papers_by_tag(tag_id: int):
+async def get_papers_by_tag(tag_id: int) -> list[dict]:
     engine = _get_engine()
     with Session(engine) as session:
         pts = session.exec(select(PaperTag).where(PaperTag.tag_id == tag_id)).all()

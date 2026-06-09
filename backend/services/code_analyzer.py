@@ -199,8 +199,8 @@ def read_file_content(repo_path: str, rel_path: str, max_lines: int = 500) -> st
             chunk = f.read(8192)
             if b"\x00" in chunk:
                 return "[二进制文件，无法显示]"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to read binary check for {full_path}: {e}")
 
     try:
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:
@@ -305,8 +305,8 @@ def _detect_package_root(repo_path: str) -> str:
                     candidate = os.path.join(repo_path, m.group(1))
                     if os.path.isdir(candidate):
                         return candidate
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to parse {cfg_path} for package_dir: {e}")
 
     # 2. 查找包含 __init__.py 的最顶层目录
     for entry in sorted(os.listdir(repo_path)):
@@ -515,7 +515,8 @@ def analyze_imports(repo_path: str, files: list[str]) -> tuple[list[dict], list[
         try:
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read(100000)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to read {full_path} for import analysis: {e}")
             continue
 
         file_imports = parse_imports(rel_path, content)

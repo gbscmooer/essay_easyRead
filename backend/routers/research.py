@@ -8,7 +8,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, create_engine, select
 
 from ..config import settings
 from ..models.research import ResearchRun, ResearchGraph
@@ -19,20 +19,28 @@ from ..models.schemas import (
     ResearchRunCreate, ResearchRunResponse, ResearchGraphResponse,
     RagQueryRequest, RagQueryResponse,
 )
-from ..services.database import get_engine
 from ..utils.streaming import format_sse
 from ..services.deep_research.pipeline import run_pipeline
-from ..services.deep_research.event_bus import get_event_bus, has_event_bus
+from ..services.deep_research.event_bus import get_event_bus
 from ..services.deep_research.vector_store import query_workspace, drop_workspace_collection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
+_engine = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
+    return _engine
+
 
 @router.post("/workspaces/{ws_id}/runs", response_model=ResearchRunResponse)
-async def create_run(ws_id: int, req: ResearchRunCreate):
-    engine = get_engine()
+async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
+    engine = _get_engine()
     with Session(engine) as session:
         ws = session.get(Workspace, ws_id)
         if not ws:
@@ -68,9 +76,6 @@ async def create_run(ws_id: int, req: ResearchRunCreate):
         session.refresh(run)
         run_id = run.id
 
-    # 先建好事件总线再起任务：保证客户端连 /stream 时 bus 必然存在，
-    # 从而 has_event_bus()==False 可可靠判定为"孤儿 run"（见 stream_run）。
-    get_event_bus(run_id)
     # 异步启动 pipeline（不在 HTTP 请求内阻塞）
     asyncio.create_task(run_pipeline(run_id))
 
@@ -80,8 +85,8 @@ async def create_run(ws_id: int, req: ResearchRunCreate):
 
 
 @router.get("/runs/{run_id}", response_model=ResearchRunResponse)
-async def get_run(run_id: int):
-    engine = get_engine()
+async def get_run(run_id: int) -> ResearchRunResponse:
+    engine = _get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
         if not run:
@@ -90,8 +95,8 @@ async def get_run(run_id: int):
 
 
 @router.get("/runs/{run_id}/stream")
-async def stream_run(run_id: int):
-    engine = get_engine()
+async def stream_run(run_id: int) -> StreamingResponse:
+    engine = _get_engine()
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
         if not run:
@@ -123,22 +128,7 @@ async def stream_run(run_id: int):
                       "stage": run_current_stage or ""}))
             return
 
-        # 2. 状态为 running/pending 但没有活跃 bus → 孤儿 run（pipeline 进程已不在，
-        #    多为后端重启/硬崩溃遗留）。直接落 failed 并补发 error，避免订阅空 bus 永久阻塞、
-        #    前端永久卡在"运行中"，同时解除 create_run 的 409 锁。
-        if not has_event_bus(run_id):
-            msg = run_error_message or "研究任务已中断（服务可能已重启），请重新运行"
-            with Session(engine) as s:
-                r = s.get(ResearchRun, run_id)
-                if r is not None and r.status in ("running", "pending"):
-                    r.status = "failed"
-                    r.error_message = msg
-                    s.commit()
-            yield format_sse(StreamEvent(event="error",
-                data={"message": msg, "stage": run_current_stage or ""}))
-            return
-
-        # 进行中：订阅 event_bus
+        # 2. 进行中 / 未开始：订阅 event_bus
         bus = get_event_bus(run_id)
         async for evt in bus.subscribe():
             yield format_sse(evt)
@@ -151,8 +141,8 @@ async def stream_run(run_id: int):
 
 
 @router.get("/workspaces/{ws_id}/graph", response_model=ResearchGraphResponse)
-async def get_graph(ws_id: int):
-    engine = get_engine()
+async def get_graph(ws_id: int) -> ResearchGraphResponse:
+    engine = _get_engine()
     with Session(engine) as session:
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
         if not g:
@@ -164,8 +154,8 @@ async def get_graph(ws_id: int):
 
 
 @router.get("/workspaces/{ws_id}/latest-run", response_model=ResearchRunResponse)
-async def latest_run(ws_id: int):
-    engine = get_engine()
+async def latest_run(ws_id: int) -> ResearchRunResponse:
+    engine = _get_engine()
     with Session(engine) as session:
         run = session.exec(
             select(ResearchRun).where(ResearchRun.workspace_id == ws_id)
@@ -177,7 +167,7 @@ async def latest_run(ws_id: int):
 
 
 @router.post("/workspaces/{ws_id}/query", response_model=RagQueryResponse)
-async def query(ws_id: int, req: RagQueryRequest):
+async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     from ..services.deep_research.embedder import embed_query
     from ..services.deep_research.vector_store import query_workspace as ws_query
     from ..services.deep_research.reranker import rerank
@@ -242,9 +232,9 @@ async def query(ws_id: int, req: RagQueryRequest):
 
 
 @router.delete("/workspaces/{ws_id}")
-async def clear_research(ws_id: int):
+async def clear_research(ws_id: int) -> dict:
     """清空该工作区的图谱与向量索引（不删除 expanded 论文文件）"""
-    engine = get_engine()
+    engine = _get_engine()
     with Session(engine) as session:
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
         if g:
