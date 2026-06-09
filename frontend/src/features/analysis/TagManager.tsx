@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Tag } from '@/types'
 import { listTags, getPaperTags, addPaperTag, removePaperTag, createTag } from '@/api/tags'
+import { toast } from '@/hooks/useToast'
 
 interface TagManagerProps {
   paperId: number
@@ -17,8 +18,8 @@ export function TagManager({ paperId }: TagManagerProps) {
       const [all, paper] = await Promise.all([listTags(), getPaperTags(paperId)])
       setAllTags(all)
       setPaperTags(paper)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '加载标签失败' })
     }
   }, [paperId])
 
@@ -29,8 +30,8 @@ export function TagManager({ paperId }: TagManagerProps) {
       await addPaperTag(paperId, tagId)
       fetchTags()
       setShowDropdown(false)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '添加标签失败' })
     }
   }
 
@@ -38,8 +39,8 @@ export function TagManager({ paperId }: TagManagerProps) {
     try {
       await removePaperTag(paperId, tagId)
       fetchTags()
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '移除标签失败' })
     }
   }
 
@@ -51,8 +52,8 @@ export function TagManager({ paperId }: TagManagerProps) {
       setNewTagName('')
       fetchTags()
       setShowDropdown(false)
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast({ type: 'error', message: e?.message || '创建标签失败' })
     }
   }
 
