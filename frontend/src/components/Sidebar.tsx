@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import type { Paper } from '@/types'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 
@@ -40,7 +40,7 @@ function statusDotColor(status: Paper['status']): string {
   }
 }
 
-export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) {
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
@@ -122,4 +122,4 @@ export function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) 
       />
     </div>
   )
-}
+})

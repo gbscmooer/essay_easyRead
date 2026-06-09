@@ -4,7 +4,7 @@
  * 论文库列表，清新学术风格，支持筛选和搜索。
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import type { Paper, SearchResult } from '@/types'
 import { Tooltip } from '@/components/Tooltip'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -84,7 +84,7 @@ function statusLabel(status: Paper['status']): { text: string; bgColor: string; 
   }
 }
 
-export function PaperList({
+export const PaperList = memo(function PaperList({
   papers,
   total,
   onSelect,
@@ -414,4 +414,4 @@ export function PaperList({
       />
     </div>
   )
-}
+})

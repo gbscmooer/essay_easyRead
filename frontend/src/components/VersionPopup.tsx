@@ -1,13 +1,12 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.3'
+const APP_VERSION = '1.17.4'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    'DeepResearchSettings类型修复：config/setConfig从any改为AppConfig',
-    'CodeViewer类型修复：highlight.js动态导入从any改为LanguageFn',
+    'React.memo优化：PaperList和Sidebar组件添加memo避免无谓重渲染',
   ],
 }
 
