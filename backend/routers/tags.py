@@ -2,7 +2,10 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, create_engine, select
+<<<<<<< HEAD
 from sqlalchemy import func
+=======
+>>>>>>> worktree-agent-a598e72a4d81f8239
 from datetime import datetime, timezone
 
 from ..models.tag import Tag, PaperTag
@@ -44,6 +47,7 @@ async def list_tags() -> list[TagResponse]:
     engine = _get_engine()
     with Session(engine) as session:
         tags = session.exec(select(Tag).order_by(Tag.name)).all()
+<<<<<<< HEAD
         # Batch query: get all counts in one GROUP BY instead of N queries
         count_stmt = select(PaperTag.tag_id, func.count().label('cnt')).group_by(PaperTag.tag_id)
         counts = {row[0]: row[1] for row in session.exec(count_stmt).all()}
@@ -51,6 +55,15 @@ async def list_tags() -> list[TagResponse]:
         for tag in tags:
             result.append(TagResponse(
                 id=tag.id, name=tag.name, color=tag.color, paper_count=counts.get(tag.id, 0),
+=======
+        result = []
+        for tag in tags:
+            count = len(session.exec(
+                select(PaperTag).where(PaperTag.tag_id == tag.id)
+            ).all())
+            result.append(TagResponse(
+                id=tag.id, name=tag.name, color=tag.color, paper_count=count,
+>>>>>>> worktree-agent-a598e72a4d81f8239
             ))
         return result
 
@@ -99,9 +112,13 @@ async def update_tag(tag_id: int, req: TagCreate) -> TagResponse:
         session.add(tag)
         session.commit()
         session.refresh(tag)
+<<<<<<< HEAD
         # Single count query instead of fetching all rows
         count_stmt = select(func.count()).where(PaperTag.tag_id == tag_id)
         count = session.exec(count_stmt).one()
+=======
+        count = len(session.exec(select(PaperTag).where(PaperTag.tag_id == tag_id)).all())
+>>>>>>> worktree-agent-a598e72a4d81f8239
         return TagResponse(id=tag.id, name=tag.name, color=tag.color, paper_count=count)
 
 
@@ -109,6 +126,7 @@ async def update_tag(tag_id: int, req: TagCreate) -> TagResponse:
 async def get_paper_tags(paper_id: int) -> list[TagResponse]:
     engine = _get_engine()
     with Session(engine) as session:
+<<<<<<< HEAD
         # Single JOIN query instead of N+1 (fetch PaperTags + Tags in one shot)
         stmt = (
             select(Tag)
@@ -118,6 +136,15 @@ async def get_paper_tags(paper_id: int) -> list[TagResponse]:
         )
         tags = session.exec(stmt).all()
         return [TagResponse(id=t.id, name=t.name, color=t.color) for t in tags]
+=======
+        pts = session.exec(select(PaperTag).where(PaperTag.paper_id == paper_id)).all()
+        result = []
+        for pt in pts:
+            tag = session.get(Tag, pt.tag_id)
+            if tag:
+                result.append(TagResponse(id=tag.id, name=tag.name, color=tag.color))
+        return result
+>>>>>>> worktree-agent-a598e72a4d81f8239
 
 
 @router.post("/paper/{paper_id}")

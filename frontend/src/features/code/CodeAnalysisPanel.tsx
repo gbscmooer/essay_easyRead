@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import mermaid from 'mermaid'
 import type { CodeAnalysisResult, DependencyEdge, PaperCodeMapping } from '@/types'
 import { getCodeFile } from '@/api/code'
 import { useThemeMode } from '@/theme/useTheme'
@@ -74,9 +73,19 @@ function edgesToMermaid(edges: DependencyEdge[]): string {
   return lines.join('\n')
 }
 
+let mermaidModule: typeof import('mermaid') | null = null
 let mermaidMode: 'light' | 'dark' | null = null
-function ensureMermaid(mode: 'light' | 'dark') {
-  if (mermaidMode === mode) return
+
+async function getMermaidInstance() {
+  if (!mermaidModule) {
+    mermaidModule = await import('mermaid')
+  }
+  return mermaidModule.default
+}
+
+async function ensureMermaid(mode: 'light' | 'dark') {
+  const mermaid = await getMermaidInstance()
+  if (mermaidMode === mode) return mermaid
   const cs = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
   mermaid.initialize({
@@ -99,6 +108,7 @@ function ensureMermaid(mode: 'light' | 'dark') {
     },
   })
   mermaidMode = mode
+  return mermaid
 }
 
 function stripEventHandlers(svg: string): string {
@@ -138,12 +148,16 @@ function DependencyGraph({
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid(mode)
-    const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    mermaid.render(id, chart).then(
-      ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
-      (err) => { setError(err?.message || '渲染失败'); setSvg('') },
-    )
+    let cancelled = false
+    ensureMermaid(mode).then(mermaid => {
+      if (cancelled) return
+      const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      mermaid.render(id, chart).then(
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
+      )
+    })
+    return () => { cancelled = true }
   }, [chart, mode])
 
   useEffect(() => {
@@ -225,12 +239,16 @@ function FullscreenGraph({
 
   useEffect(() => {
     if (!chart) return
-    ensureMermaid(mode)
-    const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    mermaid.render(id, chart).then(
-      ({ svg: rendered }) => { setSvg(stripEventHandlers(rendered)); setError(null) },
-      (err) => { setError(err?.message || '渲染失败'); setSvg('') },
-    )
+    let cancelled = false
+    ensureMermaid(mode).then(mermaid => {
+      if (cancelled) return
+      const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      mermaid.render(id, chart).then(
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
+      )
+    })
+    return () => { cancelled = true }
   }, [chart, mode])
 
   useEffect(() => {

@@ -9,6 +9,10 @@ const CURRENT_RELEASE = {
     'database.py返回类型化模型（Paper/AnalysisResult），替代dict',
     '修复tags路由N+1查询：list_tags/update_tag/get_paper_tags改为批量查询',
     'annotations表group_id字段添加索引',
+    'highlight.js语言按需加载，减少初始bundle体积',
+    'CodeAnalysisPanel的mermaid改为动态导入，CodePage体积减少约47KB',
+    'CSS主题覆盖规则精简，移除未使用的冗余选择器',
+    'Vite构建启用CSS代码分割（cssCodeSplit）',
   ],
 }
 

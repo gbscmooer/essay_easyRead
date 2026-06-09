@@ -1,35 +1,39 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import hljs from 'highlight.js/lib/core'
-import python from 'highlight.js/lib/languages/python'
-import javascript from 'highlight.js/lib/languages/javascript'
-import typescript from 'highlight.js/lib/languages/typescript'
-import cpp from 'highlight.js/lib/languages/cpp'
-import java from 'highlight.js/lib/languages/java'
-import bash from 'highlight.js/lib/languages/bash'
-import json from 'highlight.js/lib/languages/json'
-import yaml from 'highlight.js/lib/languages/yaml'
-import markdownLang from 'highlight.js/lib/languages/markdown'
-import xml from 'highlight.js/lib/languages/xml'
-import css from 'highlight.js/lib/languages/css'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { getCodeFile, type NotebookCellData, type NotebookOutput } from '@/api/code'
 import { useThemeMode } from '@/theme/useTheme'
 
-// 注册常用语言
-hljs.registerLanguage('python', python)
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('typescript', typescript)
-hljs.registerLanguage('cpp', cpp)
-hljs.registerLanguage('java', java)
-hljs.registerLanguage('bash', bash)
-hljs.registerLanguage('json', json)
-hljs.registerLanguage('yaml', yaml)
-hljs.registerLanguage('markdown', markdownLang)
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('html', xml)
-hljs.registerLanguage('css', css)
+// highlight.js 语言按需加载映射
+const LANG_MAP: Record<string, () => Promise<{ default: any }>> = {
+  python: () => import('highlight.js/lib/languages/python'),
+  javascript: () => import('highlight.js/lib/languages/javascript'),
+  typescript: () => import('highlight.js/lib/languages/typescript'),
+  cpp: () => import('highlight.js/lib/languages/cpp'),
+  java: () => import('highlight.js/lib/languages/java'),
+  bash: () => import('highlight.js/lib/languages/bash'),
+  json: () => import('highlight.js/lib/languages/json'),
+  yaml: () => import('highlight.js/lib/languages/yaml'),
+  markdown: () => import('highlight.js/lib/languages/markdown'),
+  xml: () => import('highlight.js/lib/languages/xml'),
+  html: () => import('highlight.js/lib/languages/xml'),
+  css: () => import('highlight.js/lib/languages/css'),
+}
+
+// 已加载语言缓存，避免重复 import
+const loadedLangs = new Set<string>()
+
+async function ensureLanguage(lang: string) {
+  if (loadedLangs.has(lang)) return
+  const loader = LANG_MAP[lang]
+  if (loader) {
+    const mod = await loader()
+    hljs.registerLanguage(lang, mod.default)
+    loadedLangs.add(lang)
+  }
+}
 
 
 interface CodeViewerProps {
@@ -169,12 +173,18 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 
   useEffect(() => {
     if (cell.cell_type === 'code' && codeRef.current) {
-      codeRef.current.removeAttribute('data-highlighted')
-      try {
-        hljs.highlightElement(codeRef.current)
-      } catch {
-        // ignore
-      }
+      const el = codeRef.current
+      // 获取语言类名并按需加载
+      const langClass = Array.from(el.classList).find(c => c.startsWith('language-'))
+      const lang = langClass ? langClass.replace('language-', '') : 'python'
+      ensureLanguage(lang).then(() => {
+        el.removeAttribute('data-highlighted')
+        try {
+          hljs.highlightElement(el)
+        } catch {
+          // ignore
+        }
+      })
     }
   }, [cell.cell_type, source])
 
@@ -274,12 +284,16 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   useEffect(() => {
     if (codeRef.current && content && filePath && !isMarkdown(filePath) && !isNotebook(filePath)) {
-      codeRef.current.removeAttribute('data-highlighted')
-      try {
-        hljs.highlightElement(codeRef.current)
-      } catch {
-        // ignore
-      }
+      const lang = getLanguage(filePath)
+      ensureLanguage(lang).then(() => {
+        if (!codeRef.current) return
+        codeRef.current.removeAttribute('data-highlighted')
+        try {
+          hljs.highlightElement(codeRef.current)
+        } catch {
+          // ignore
+        }
+      })
     }
   }, [content, filePath])
 
