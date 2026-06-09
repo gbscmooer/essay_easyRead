@@ -93,20 +93,10 @@ export function WorkspacePage() {
             <div
               key={ws.id}
               onClick={() => navigate(`/workspace/${ws.id}`)}
-              className="rounded-xl p-4 cursor-pointer transition-all group"
+              className="rounded-xl p-4 cursor-pointer card-hover group"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
-              }}
-              onMouseEnter={e => {
-                const el = e.currentTarget
-                el.style.borderColor = 'var(--border-light)'
-                el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'
-              }}
-              onMouseLeave={e => {
-                const el = e.currentTarget
-                el.style.borderColor = 'var(--border)'
-                el.style.boxShadow = 'none'
               }}
             >
               <div className="flex items-center justify-between">

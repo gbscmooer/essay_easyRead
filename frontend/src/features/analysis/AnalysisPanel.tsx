@@ -99,7 +99,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
           >
             {tab.label}
             {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)', transition: 'left 0.2s ease' }} />
             )}
           </button>
         ))}

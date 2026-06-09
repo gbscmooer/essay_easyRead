@@ -187,6 +187,32 @@ body {
 }
 
 /* ============================================================
+ * 卡片 Hover 效果
+ * ============================================================ */
+.card-hover {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card-hover:hover {
+  border-color: var(--border-light) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================
+ * 下拉菜单进入动画
+ * ============================================================ */
+.dropdown-menu {
+  opacity: 0;
+  transform: translateY(-4px);
+  animation: dropdown-enter 0.15s ease forwards;
+}
+@keyframes dropdown-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
  * Mermaid 主题覆盖
  * ============================================================ */
 .mermaid svg {

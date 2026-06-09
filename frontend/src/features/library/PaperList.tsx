@@ -139,20 +139,10 @@ export function PaperList({
               <div
                 key={paper.id}
                 onClick={() => onSelect(paper.id)}
-                className="flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all group"
+                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover group"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = 'var(--border-light)'
-                  el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = 'var(--border)'
-                  el.style.boxShadow = 'none'
                 }}
               >
                 <div className="flex-1 min-w-0 mr-4">
