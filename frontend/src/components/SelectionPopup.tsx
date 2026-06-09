@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { textAction } from '@/api/textAction'
 import type { AnnotationType } from '@/types'
+import { toast } from '@/hooks/useToast'
 
 
 interface SelectionPopupProps {
@@ -446,6 +447,8 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
                     navigator.clipboard.writeText(result).then(() => {
                       setCopied(true)
                       setTimeout(() => setCopied(false), 1500)
+                    }).catch(() => {
+                      toast({ type: 'error', message: '复制到剪贴板失败' })
                     })
                   }}
                   className="text-gray-400 hover:text-gray-200 text-xs transition-colors"
