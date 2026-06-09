@@ -31,20 +31,21 @@ function nextLogId(): string {
 
 function LogLine({ entry }: { entry: LogEntry }) {
   const levelColor = {
-    DEBUG: 'text-gray-600',
-    INFO: 'text-gray-400',
-    WARNING: 'text-yellow-500',
-    WARN: 'text-yellow-500',
-    ERROR: 'text-red-400',
-    CRITICAL: 'text-red-500',
-  }[entry.level] || 'text-gray-400'
+    DEBUG: 'var(--text-muted)',
+    INFO: 'var(--text-secondary)',
+    WARNING: 'var(--warning)',
+    WARN: 'var(--warning)',
+    ERROR: 'var(--error)',
+    CRITICAL: 'var(--error)',
+  }[entry.level] || 'var(--text-secondary)'
 
   return (
-    <div className="flex gap-2 px-3 py-0.5 hover:bg-gray-800/50 text-xs font-mono leading-5">
-      <span className="text-gray-600 shrink-0">{entry.time}</span>
-      <span className={`${levelColor} shrink-0 w-14`}>{entry.level}</span>
-      <span className="text-gray-500 shrink-0 w-16">[{entry.source}]</span>
-      <span className="text-gray-300 break-all">{entry.message}</span>
+    <div className="flex gap-2 px-3 py-0.5 text-xs font-mono leading-5"
+      style={{}} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}>
+      <span className="shrink-0" style={{ color: 'var(--text-muted)' }}>{entry.time}</span>
+      <span className="shrink-0 w-14" style={{ color: levelColor }}>{entry.level}</span>
+      <span className="shrink-0 w-16" style={{ color: 'var(--text-muted)' }}>[{entry.source}]</span>
+      <span className="break-all" style={{ color: 'var(--text-secondary)' }}>{entry.message}</span>
     </div>
   )
 }
@@ -89,7 +90,7 @@ function BackendTab() {
       }}
     >
       {logs.length === 0 ? (
-        <div className="p-4 text-gray-600 text-xs text-center">等待日志...</div>
+        <div className="p-4 text-xs text-center" style={{ color: 'var(--text-muted)' }}>等待日志...</div>
       ) : (
         logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
       )}
@@ -129,7 +130,7 @@ function FrontendTab() {
       }}
     >
       {logs.length === 0 ? (
-        <div className="p-4 text-gray-600 text-xs text-center">暂无前端日志</div>
+        <div className="p-4 text-xs text-center" style={{ color: 'var(--text-muted)' }}>暂无前端日志</div>
       ) : (
         logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
       )}
@@ -141,7 +142,7 @@ function FrontendTab() {
 
 function BashTab() {
   return (
-    <Suspense fallback={<div className="p-4 text-gray-600 text-xs text-center">加载终端...</div>}>
+    <Suspense fallback={<div className="p-4 text-xs text-center" style={{ color: 'var(--text-muted)' }}>加载终端...</div>}>
       <RealTerminal />
     </Suspense>
   )
@@ -232,34 +233,36 @@ export function TerminalPanel() {
 
   return (
     <div
-      className="flex flex-col bg-gray-950 border-t border-gray-800"
-      style={{ height: collapsed ? 32 : height }}
+      className="flex flex-col border-t"
+      style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', height: collapsed ? 32 : height }}
     >
       {/* 标题栏 */}
       <div
-        className="flex items-center justify-between px-3 h-8 shrink-0 cursor-pointer select-none hover:bg-gray-900/50"
+        className="flex items-center justify-between px-3 h-8 shrink-0 cursor-pointer select-none"
+        onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}
+        onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}
         onClick={() => setCollapsed(v => !v)}
       >
         <div className="flex items-center gap-3">
           <svg
-            className={`w-3 h-3 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+            className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+            style={{ color: 'var(--text-muted)' }}
             fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-          <span className="text-xs text-gray-500 font-medium">终端</span>
-          <span className="text-[10px] text-gray-600">v{APP_VERSION}</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>终端</span>
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>v{APP_VERSION}</span>
           {!collapsed && (
             <div className="flex items-center gap-1">
               {tabs.map(tab => (
                 <button
                   key={tab.key}
                   onClick={(e) => { e.stopPropagation(); setActiveTab(tab.key) }}
-                  className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                    activeTab === tab.key
-                      ? 'bg-gray-800 text-gray-200'
-                      : 'text-gray-500 hover:text-gray-300'
-                  }`}
+                  className="px-2 py-0.5 text-xs rounded transition-colors"
+                    style={activeTab === tab.key ? { backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' } : { color: 'var(--text-muted)' }}
+                    onMouseEnter={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                    onMouseLeave={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
                 >
                   {tab.label}
                 </button>

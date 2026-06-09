@@ -89,7 +89,7 @@ export function WorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -99,7 +99,10 @@ export function WorkspaceDetailPage() {
       {/* 返回按钮 */}
       <Link
         to="/workspace"
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors mb-4"
+        className="inline-flex items-center gap-1.5 text-sm transition-colors mb-4"
+        style={{ color: 'var(--text-muted)' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -116,29 +119,39 @@ export function WorkspaceDetailPage() {
               value={editName}
               onChange={e => setEditName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleRename()}
-              className="flex-1 px-3 py-1.5 text-lg bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500"
+              className="flex-1 px-3 py-1.5 text-lg rounded-lg focus:outline-none"
+              style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               autoFocus
             />
             <button onClick={handleRename} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500">保存</button>
-            <button onClick={() => { setEditing(false); setEditName(workspace.name) }} className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200">取消</button>
+            <button onClick={() => { setEditing(false); setEditName(workspace.name) }} className="px-3 py-1.5 text-sm"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}>取消</button>
           </div>
         ) : (
           <div className="flex items-center gap-3">
             <h1
-              className="text-xl font-bold text-gray-100 cursor-pointer hover:text-blue-400 transition-colors"
+              className="text-xl font-bold cursor-pointer transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
               onClick={() => setEditing(true)}
             >
               {workspace.name}
             </h1>
             <button
               onClick={() => setEditing(true)}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-xs transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
             >
               重命名
             </button>
           </div>
         )}
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
           {l1Papers.length} 篇本地论文
           {discoveredPapers.length > 0 && ` · ${discoveredPapers.length} 篇深度研究发现`}
         </p>
@@ -148,7 +161,10 @@ export function WorkspaceDetailPage() {
       <div className="flex items-center gap-3 mb-4">
         <button
           onClick={handleShowAddPaper}
-          className="px-4 py-2 text-sm bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-gray-600 hover:text-gray-200 transition-colors shrink-0"
+          className="px-4 py-2 text-sm rounded-lg transition-colors shrink-0"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-muted)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-light)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
         >
           + 从论文库添加
         </button>
@@ -189,24 +205,24 @@ export function WorkspaceDetailPage() {
 
       {/* 添加论文面板 */}
       {showAddPaper && (
-        <div className="mb-6 bg-gray-800/50 border border-gray-700/50 rounded-lg p-4">
+        <div className="mb-6 rounded-lg p-4" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-gray-300">选择论文添加到工作区</h3>
-            <button onClick={() => setShowAddPaper(false)} className="text-xs text-gray-500 hover:text-gray-300">关闭</button>
+            <h3 className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>选择论文添加到工作区</h3>
+            <button onClick={() => setShowAddPaper(false)} className="text-xs" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}>关闭</button>
           </div>
           {loadingPapers ? (
             <div className="flex justify-center py-4">
-              <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
             </div>
           ) : libraryPapers.length === 0 ? (
-            <p className="text-xs text-gray-500 text-center py-4">没有可添加的论文</p>
+            <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
           ) : (
             <div className="max-h-60 overflow-auto space-y-2">
               {libraryPapers.map(paper => (
-                <div key={paper.id} className="flex items-center justify-between px-3 py-2 bg-gray-900/50 rounded hover:bg-gray-800 transition-colors">
+                <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm text-gray-300 truncate">{paper.title || paper.filename}</p>
-                    {paper.venue && <p className="text-xs text-gray-500">{paper.venue} {paper.year || ''}</p>}
+                    <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{paper.title || paper.filename}</p>
+                    {paper.venue && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</p>}
                   </div>
                   <button
                     onClick={() => handleAddPaper(paper.id)}
@@ -224,8 +240,8 @@ export function WorkspaceDetailPage() {
       {/* 本地论文 (L1) */}
       {l1Papers.length === 0 && discoveredPapers.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-500">工作区暂无论文</p>
-          <p className="text-xs text-gray-600 mt-1">点击"从论文库添加"将论文加入工作区</p>
+          <p style={{ color: 'var(--text-muted)' }}>工作区暂无论文</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>点击"从论文库添加"将论文加入工作区</p>
         </div>
       ) : (
         <>
@@ -314,7 +330,7 @@ function PaperCard({ paper, workspaceId, variant, onNavigate, onRemove, onPromot
               paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
               paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
               paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
-              'bg-gray-700 text-gray-400'
+              'var(--bg-surface)'
             }`}>
               {paper.status === 'done' ? '已解析' :
                paper.status === 'indexed' ? '未解析·已索引' :
@@ -344,7 +360,10 @@ function PaperCard({ paper, workspaceId, variant, onNavigate, onRemove, onPromot
                 to={`/code/${paper.id}`}
                 state={{ from: `/workspace/${workspaceId}` }}
                 onClick={e => e.stopPropagation()}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                className="text-xs transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
               >
                 源码分析
               </Link>
@@ -364,7 +383,7 @@ function PaperCard({ paper, workspaceId, variant, onNavigate, onRemove, onPromot
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onRemove() }}
-            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-gray-500 hover:text-red-400 transition-all"
+            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs transition-all" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--error)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             移除
           </button>

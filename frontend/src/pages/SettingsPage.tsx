@@ -63,13 +63,8 @@ function TestButton({
           }
         }}
         disabled={testing}
-        className={`px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
-          result === null
-            ? 'border-gray-600 text-gray-400 hover:border-gray-500 hover:text-gray-300'
-            : result.ok
-              ? 'border-green-500/50 text-green-400 bg-green-500/10'
-              : 'border-red-500/50 text-red-400 bg-red-500/10 cursor-pointer'
-        }`}
+        className="px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50"
+          style={result === null ? { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' } : result.ok ? { borderColor: 'var(--success)', color: 'var(--success)', backgroundColor: 'var(--success-subtle)' } : { borderColor: 'var(--error)', color: 'var(--error)', backgroundColor: 'var(--error-subtle)', cursor: 'pointer' }}
       >
         {testing ? (
           <span className="flex items-center gap-1.5">
@@ -327,13 +322,12 @@ function ConfigSection({
   const keyMissing = !config.api_key.trim()
 
   return (
-    <div className={`bg-gray-900 rounded-xl border p-5 space-y-4 ${
-      keyMissing ? 'border-red-500/50' : 'border-gray-800'
-    }`}>
+    <div className="rounded-xl border p-5 space-y-4"
+      style={{ backgroundColor: 'var(--bg-surface)', borderColor: keyMissing ? 'var(--error)' : 'var(--border)' }}>
       <div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-gray-100">{title}</h2>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
             {keyMissing && (
               <span className="text-xs text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
                 未配置 API Key
@@ -347,12 +341,12 @@ function ConfigSection({
             model={config.model}
           />
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{description}</p>
       </div>
 
       {/* 快捷选择 */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1.5">服务商预设</label>
+        <label className="block text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>服务商预设</label>
         <div className="flex flex-wrap gap-2">
           {PROVIDER_PRESETS.map(preset => (
             <button
@@ -364,11 +358,8 @@ function ConfigSection({
                 }
                 onChange({ ...config, ...updates })
               }}
-              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                config.base_url === preset.base_url
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-              }`}
+              className="px-3 py-1 text-xs rounded-full border transition-colors"
+              style={config.base_url === preset.base_url ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' } : { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' }}
             >
               {preset.label}
             </button>
@@ -378,34 +369,35 @@ function ConfigSection({
 
       {/* Base URL */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Base URL</label>
         <input
           type="text"
           value={config.base_url}
           onChange={e => onChange({ ...config, base_url: e.target.value })}
           placeholder="https://api.openai.com/v1"
-          className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
         />
       </div>
 
       {/* API Key */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">API Key</label>
+        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Key</label>
         <div className="relative">
           <input
             type={showKey ? 'text' : 'password'}
             value={config.api_key}
             onChange={e => onChange({ ...config, api_key: e.target.value })}
             placeholder="sk-..."
-            className={`w-full px-3 py-2 pr-10 text-sm bg-gray-800 border rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none transition-colors font-mono ${
-              keyMissing
-                ? 'border-red-500/50 focus:border-red-500'
-                : 'border-gray-700 focus:border-blue-500'
-            }`}
+            className="w-full px-3 py-2 pr-10 text-sm rounded-lg focus:outline-none transition-colors font-mono"
+            style={{ backgroundColor: 'var(--bg-elevated)', border: `1px solid ${keyMissing ? 'var(--error)' : 'var(--border-light)'}`, color: 'var(--text-primary)' }}
           />
           <button
             onClick={() => setShowKey(v => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs"
+            style={{ color: 'var(--text-muted)' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             {showKey ? '隐藏' : '显示'}
           </button>
@@ -414,13 +406,14 @@ function ConfigSection({
 
       {/* Model */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">模型名称</label>
+        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>模型名称</label>
         <input
           type="text"
           value={config.model}
           onChange={e => onChange({ ...config, model: e.target.value })}
           placeholder="gpt-4o-mini"
-          className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
         />
       </div>
 
@@ -428,7 +421,10 @@ function ConfigSection({
       <div>
         <button
           onClick={() => setShowAdvanced(v => !v)}
-          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400 transition-colors"
+          className="flex items-center gap-1 text-xs transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
         >
           <svg
             className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
@@ -440,12 +436,12 @@ function ConfigSection({
         </button>
 
         {showAdvanced && (
-          <div className="mt-3 space-y-3 pl-2 border-l border-gray-800">
+          <div className="mt-3 space-y-3 pl-2 border-l" style={{ borderColor: 'var(--border)' }}>
             {/* Temperature */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">Temperature</label>
-                <span className="text-xs text-gray-600">{config.temperature}</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Temperature</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{config.temperature}</span>
               </div>
               <input
                 type="range"
@@ -454,9 +450,10 @@ function ConfigSection({
                 step={0.05}
                 value={config.temperature}
                 onChange={e => onChange({ ...config, temperature: parseFloat(e.target.value) })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
-              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                 <span>精确 (0)</span>
                 <span>平衡 (1)</span>
                 <span>随机 (2)</span>
@@ -466,8 +463,8 @@ function ConfigSection({
             {/* Max Tokens */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">最大输出 Token 数</label>
-                <span className="text-xs text-gray-600">{config.max_tokens}</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最大输出 Token 数</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{config.max_tokens}</span>
               </div>
               <input
                 type="range"
@@ -476,9 +473,10 @@ function ConfigSection({
                 step={512}
                 value={config.max_tokens}
                 onChange={e => onChange({ ...config, max_tokens: parseInt(e.target.value) })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
-              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                 <span>512</span>
                 <span>默认 {defaultMaxTokens}</span>
                 <span>32768</span>
@@ -510,10 +508,10 @@ function UIConfigSection({
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
       <div>
-        <h2 className="text-base font-semibold text-gray-100">界面设置</h2>
-        <p className="text-xs text-gray-500 mt-0.5">主题、字体和交互行为参数</p>
+        <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>界面设置</h2>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>主题、字体和交互行为参数</p>
       </div>
 
       {/* 主题选择 + 自定义编辑器 */}
@@ -521,17 +519,14 @@ function UIConfigSection({
 
       {/* 字体选择 */}
       <div>
-        <label className="block text-xs text-gray-500 mb-2">界面字体</label>
+        <label className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>界面字体</label>
         <div className="space-y-1.5">
           {FONTS.map(font => (
             <button
               key={font.key}
               onClick={() => { onChange({ ...config, font: font.key }); setUIPreview({ font: font.key }) }}
-              className={`w-full text-left px-3 py-1.5 text-sm rounded border transition-colors ${
-                config.font === font.key
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-gray-700 text-gray-400 hover:border-gray-600'
-              }`}
+              className="w-full text-left px-3 py-1.5 text-sm rounded border transition-colors"
+              style={config.font === font.key ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' } : { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' }}
             >
               {font.label}
             </button>
@@ -543,17 +538,18 @@ function UIConfigSection({
             value={config.custom_font}
             onChange={e => { onChange({ ...config, custom_font: e.target.value }); setUIPreview({ custom_font: e.target.value }) }}
             placeholder="输入字体名称，如 PingFang SC"
-            className="mt-2 w-full px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+            className="mt-2 w-full px-3 py-1.5 text-sm rounded focus:outline-none"
+            style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
           />
         )}
-        <p className="text-[10px] text-gray-600 mt-1">仅作用于界面文字，不影响源码展示</p>
+        <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>仅作用于界面文字，不影响源码展示</p>
       </div>
 
       {/* 大纲跳转高亮时长 */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">大纲跳转高亮时长</label>
-          <span className="text-xs text-gray-600">{(config.highlight_duration / 1000).toFixed(1)}s</span>
+          <label className="text-xs" style={{ color: 'var(--text-muted)' }}>大纲跳转高亮时长</label>
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{(config.highlight_duration / 1000).toFixed(1)}s</span>
         </div>
         <input
           type="range"
@@ -562,9 +558,10 @@ function UIConfigSection({
           step={500}
           value={config.highlight_duration}
           onChange={e => onChange({ ...config, highlight_duration: parseInt(e.target.value) })}
-          className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
         />
-        <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+        <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
           <span>0.5s</span>
           <span>默认 3s</span>
           <span>10s</span>
@@ -575,7 +572,10 @@ function UIConfigSection({
       <div>
         <button
           onClick={() => setShowAdvanced(v => !v)}
-          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400 transition-colors"
+          className="flex items-center gap-1 text-xs transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
         >
           <svg
             className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
@@ -587,12 +587,12 @@ function UIConfigSection({
         </button>
 
         {showAdvanced && (
-          <div className="mt-3 space-y-3 pl-2 border-l border-gray-800">
+          <div className="mt-3 space-y-3 pl-2 border-l" style={{ borderColor: 'var(--border)' }}>
             {/* Zoom Step */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">每次缩放步进</label>
-                <span className="text-xs text-gray-600">{Math.round(config.zoom_step * 100)}%</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>每次缩放步进</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_step * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -601,15 +601,16 @@ function UIConfigSection({
                 step={5}
                 value={Math.round(config.zoom_step * 100)}
                 onChange={e => onChange({ ...config, zoom_step: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
 
             {/* Zoom Min */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">最小缩放倍率</label>
-                <span className="text-xs text-gray-600">{Math.round(config.zoom_min * 100)}%</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最小缩放倍率</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_min * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -618,15 +619,16 @@ function UIConfigSection({
                 step={10}
                 value={Math.round(config.zoom_min * 100)}
                 onChange={e => onChange({ ...config, zoom_min: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
 
             {/* Zoom Max */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">最大缩放倍率</label>
-                <span className="text-xs text-gray-600">{Math.round(config.zoom_max * 100)}%</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最大缩放倍率</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.zoom_max * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -635,15 +637,16 @@ function UIConfigSection({
                 step={50}
                 value={Math.round(config.zoom_max * 100)}
                 onChange={e => onChange({ ...config, zoom_max: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
 
             {/* Pinch Zoom Step */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">触控板捏合灵敏度</label>
-                <span className="text-xs text-gray-600">{Math.round(config.pinch_zoom_step * 100)}%</span>
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>触控板捏合灵敏度</label>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(config.pinch_zoom_step * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -652,9 +655,10 @@ function UIConfigSection({
                 step={1}
                 value={Math.round(config.pinch_zoom_step * 100)}
                 onChange={e => onChange({ ...config, pinch_zoom_step: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                style={{ backgroundColor: 'var(--border)' }}
               />
-              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                 <span>低 (1%)</span>
                 <span>默认 2%</span>
                 <span>高 (10%)</span>
@@ -733,7 +737,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -745,7 +749,7 @@ export function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-100">设置</h1>
+        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>设置</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
           配置模型参数和界面行为。点击"高级参数"可调整 temperature、token 上限等。
         </p>
@@ -796,11 +800,11 @@ export function SettingsPage() {
       />
 
       {/* Embedding 配置 */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">Embedding 模型</h2>
-            <p className="text-xs text-gray-500 mt-0.5">用于深度研究的向量嵌入模型。本地模式首次运行需下载模型（~2GB）。</p>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Embedding 模型</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>用于深度研究的向量嵌入模型。本地模式首次运行需下载模型（~2GB）。</p>
           </div>
           <TestButton
             type="embedding"
@@ -813,7 +817,7 @@ export function SettingsPage() {
 
         {/* Provider 选择 */}
         <div>
-          <label className="block text-xs text-gray-500 mb-2">Provider</label>
+          <label className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Provider</label>
           <div className="flex gap-2">
             {([
               { key: 'local' as const, label: '本地 (BGE-M3)' },
@@ -833,7 +837,7 @@ export function SettingsPage() {
                 className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                   config.embedding.provider === p.key
                     ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                    : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    : { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' }
                 }`}
               >
                 {p.label}
@@ -844,13 +848,14 @@ export function SettingsPage() {
 
         {/* 模型名 */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">模型名称</label>
+          <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>模型名称</label>
           <input
             type="text"
             value={config.embedding.model}
             onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, model: e.target.value } }))}
             placeholder={config.embedding.provider === 'local' ? 'BAAI/bge-m3' : config.embedding.provider === 'siliconflow' ? 'BAAI/bge-m3' : 'text-embedding-3-small'}
-            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
           />
         </div>
 
@@ -858,45 +863,47 @@ export function SettingsPage() {
         {(config.embedding.provider === 'openai' || config.embedding.provider === 'siliconflow') && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Base URL</label>
               <input
                 type="text"
                 value={config.embedding.base_url}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, base_url: e.target.value } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">API Key</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Key</label>
               <input
                 type="password"
                 value={config.embedding.api_key}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, api_key: e.target.value } }))}
                 placeholder="sk-..."
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors font-mono"
+                style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               />
             </div>
           </>
         )}
 
         {config.embedding.provider === 'local' && (
-          <p className="text-[10px] text-gray-600">
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
             本地模式使用 sentence-transformers 加载模型，首次运行会自动下载。切换 provider 后建议重建索引以避免向量维度不匹配。
           </p>
         )}
       </div>
 
       {/* 深度研究 Provider */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div>
-          <h2 className="text-base font-semibold text-gray-100">深度研究 — 论文扩展源</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>深度研究 — 论文扩展源</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
             决定"联网扩展"阶段从哪里抓取参考文献。本地模式表示不联网，只用工作区内已上传的论文构建图谱。
           </p>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-2">Provider</label>
+          <label className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Provider</label>
           <div className="flex gap-2 flex-wrap">
             {([
               { key: 'openalex' as const, label: 'OpenAlex（推荐）' },
@@ -912,7 +919,7 @@ export function SettingsPage() {
                 className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                   config.research.provider === p.key
                     ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                    : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    : { borderColor: 'var(--border-light)', color: 'var(--text-secondary)' }
                 }`}
               >
                 {p.label}
@@ -924,7 +931,7 @@ export function SettingsPage() {
         {config.research.provider === 'openalex' && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
                 邮箱（可选 · polite pool）
               </label>
               <input
@@ -935,9 +942,10 @@ export function SettingsPage() {
                   research: { ...prev.research, email: e.target.value },
                 }))}
                 placeholder="you@example.com"
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
                 填入邮箱可进入 OpenAlex polite pool，获得更稳定的速率配额。不填也能用。
               </p>
             </div>
@@ -947,7 +955,7 @@ export function SettingsPage() {
         {config.research.provider === 'semantic_scholar' && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
                 API Key（强烈建议填写）
               </label>
               <input
@@ -958,9 +966,10 @@ export function SettingsPage() {
                   research: { ...prev.research, api_key: e.target.value },
                 }))}
                 placeholder="留空使用公共配额（容易 429）"
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors font-mono"
+                style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
                 申请地址：
                 <a
                   href="https://www.semanticscholar.org/product/api"
@@ -977,21 +986,21 @@ export function SettingsPage() {
         )}
 
         {config.research.provider === 'local' && (
-          <p className="text-[10px] text-gray-600">
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
             本地模式下，"联网扩展"阶段会被直接跳过；图谱仅基于工作区已上传的论文构建。
           </p>
         )}
 
         {/* 相似度阈值 */}
-        <div className="pt-2 border-t border-gray-800">
+        <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between mb-1">
             <div>
-              <span className="text-xs font-medium text-gray-300">默认相似度阈值</span>
-              <p className="text-[10px] text-gray-500 mt-0.5">
+              <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>默认相似度阈值</span>
+              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                 两篇论文向量余弦相似度超过此值时图谱连一条「相似」边。值越大边越少越精炼。可在每次开始研究时临时调整。
               </p>
             </div>
-            <span className="text-xs font-mono text-gray-300 ml-4 shrink-0">
+            <span className="text-xs font-mono ml-4 shrink-0" style={{ color: 'var(--text-secondary)' }}>
               {config.research.similarity_threshold.toFixed(2)}
             </span>
           </div>
@@ -1007,7 +1016,7 @@ export function SettingsPage() {
             }))}
             className="w-full h-1 accent-blue-500"
           />
-          <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+          <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
             <span>0.50 宽松</span>
             <span>0.95 严格</span>
           </div>
@@ -1015,15 +1024,15 @@ export function SettingsPage() {
       </div>
 
       {/* 重排序模型 */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">重排序模型（Reranker）</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>重排序模型（Reranker）</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
               在 RAG 跨论文问答时使用。向量检索召回 candidate_k 条候选，再由重排序模型按语义重排，最终取 top_n 喂给 LLM。提升答非所问的概率。
             </p>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
             <input
               type="checkbox"
               checked={config.reranker.enabled}
@@ -1037,64 +1046,69 @@ export function SettingsPage() {
         {config.reranker.enabled && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">模型</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>模型</label>
               <input
                 type="text"
                 value={config.reranker.model}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, model: e.target.value } }))}
                 placeholder="BAAI/bge-reranker-v2-m3"
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
               />
-              <p className="text-[10px] text-gray-600 mt-1">默认 BAAI/bge-reranker-v2-m3（硅基流动）</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>默认 BAAI/bge-reranker-v2-m3（硅基流动）</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Base URL</label>
                 <input
                   type="text"
                   value={config.reranker.base_url}
                   onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, base_url: e.target.value } }))}
                   placeholder="留空 = 继承 embedding 的 base_url"
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">API Key</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>API Key</label>
                 <input
                   type="password"
                   value={config.reranker.api_key}
                   onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, api_key: e.target.value } }))}
                   placeholder="留空 = 继承 embedding 的 api_key"
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors font-mono"
+                style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">candidate_k（召回数）</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>candidate_k（召回数）</label>
                 <input
                   type="number"
                   min={5}
                   max={200}
                   value={config.reranker.candidate_k}
                   onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, candidate_k: Number(e.target.value) || 30 } }))}
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
-                <p className="text-[10px] text-gray-600 mt-1">向量检索的初筛数量，越大重排越充分但越慢</p>
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>向量检索的初筛数量，越大重排越充分但越慢</p>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">top_n（送 LLM）</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>top_n（送 LLM）</label>
                 <input
                   type="number"
                   min={1}
                   max={20}
                   value={config.reranker.top_n}
                   onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, top_n: Number(e.target.value) || 5 } }))}
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
-                <p className="text-[10px] text-gray-600 mt-1">重排序后保留的最终 chunk 数</p>
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>重排序后保留的最终 chunk 数</p>
               </div>
             </div>
           </>
@@ -1102,53 +1116,54 @@ export function SettingsPage() {
       </div>
 
       {/* 论文级相似度 Provider */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div>
-          <h2 className="text-base font-semibold text-gray-100">论文级相似度计算（Similarity Provider）</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在 <code className="px-1 rounded bg-gray-800">backend/services/deep_research/similarity/</code> 自行新增 provider 并在 REGISTRY 注册。
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>论文级相似度计算（Similarity Provider）</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在 <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>backend/services/deep_research/similarity/</code> 自行新增 provider 并在 REGISTRY 注册。
           </p>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Provider</label>
+          <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Provider</label>
           <select
             value={config.similarity.provider}
             onChange={e => setConfig(prev => ({ ...prev, similarity: { ...prev.similarity, provider: e.target.value } }))}
-            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
           >
             {simProviders.map(p => (
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <p className="text-[10px] text-gray-600 mt-1">
-            当前默认 <code className="px-1 rounded bg-gray-800">bge_centroid</code>：复用 BGE chunk 向量取归一化均值后算余弦。
+          <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            当前默认 <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>bge_centroid</code>：复用 BGE chunk 向量取归一化均值后算余弦。
             适合粗略相似度；细分方向区分有限。
           </p>
-          <div className="mt-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/50">
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              <span className="text-gray-300 font-medium">未来可扩展（已在 base.py 列出 TODO）：</span><br />
-              ·  <span className="text-gray-300">specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
-              ·  <span className="text-gray-300">bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
-              ·  <span className="text-gray-300">hybrid</span> —— 多信号融合<br />
-              ·  <span className="text-gray-300">cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
+          <div className="mt-3 px-3 py-2 rounded-lg border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              <span className="font-medium" style={{ color: 'var(--text-secondary)' }}>未来可扩展（已在 base.py 列出 TODO）：</span><br />
+              ·  <span style={{ color: 'var(--text-secondary)' }}>specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
+              ·  <span style={{ color: 'var(--text-secondary)' }}>bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
+              ·  <span style={{ color: 'var(--text-secondary)' }}>hybrid</span> —— 多信号融合<br />
+              ·  <span style={{ color: 'var(--text-secondary)' }}>cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
             </p>
           </div>
         </div>
       </div>
 
       {/* arXiv 引用列表扩展 */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">arXiv 引用列表扩展</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              联网模式下，从 L1 论文 PDF 文本解析 <code className="px-1 rounded bg-gray-800">[N]</code> 引用块，
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>arXiv 引用列表扩展</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              联网模式下，从 L1 论文 PDF 文本解析 <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>[N]</code> 引用块，
               提取 arXiv ID（正则优先，可选 LLM 兜底），从 arXiv 下载 PDF。
               与 OpenAlex/S2 扩展互补。
             </p>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+          <label className="flex items-center gap-2 text-xs cursor-pointer shrink-0 ml-4" style={{ color: 'var(--text-secondary)' }}>
             <input
               type="checkbox"
               checked={config.arxiv_expand.enabled}
@@ -1170,21 +1185,22 @@ export function SettingsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Top-K（按引用数取前 K 篇）</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Top-K（按引用数取前 K 篇）</label>
                 <input
                   type="number"
                   min={1}
                   max={50}
                   value={config.arxiv_expand.top_k}
                   onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, top_k: Number(e.target.value) || 5 } }))}
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
-                <p className="text-[10px] text-gray-600 mt-1">从候选论文中取前 K 篇（引用列表越靠前越重要）</p>
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>从候选论文中取前 K 篇（引用列表越靠前越重要）</p>
               </div>
             </div>
 
             <div className="flex items-start gap-4">
-              <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+              <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
                 <input
                   type="checkbox"
                   checked={config.arxiv_expand.use_llm_title}
@@ -1195,7 +1211,7 @@ export function SettingsPage() {
               </label>
               {config.arxiv_expand.use_llm_title && (
                 <div className="flex-1">
-                  <label className="block text-xs text-gray-500 mb-1">
+                  <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
                     每篇 seed 最多 LLM+arXiv 搜索次数
                   </label>
                   <input
@@ -1204,9 +1220,10 @@ export function SettingsPage() {
                     max={50}
                     value={config.arxiv_expand.max_llm_refs}
                     onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, max_llm_refs: Number(e.target.value) || 15 } }))}
-                    className="w-48 px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-48 px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+                    style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                   />
-                  <p className="text-[10px] text-gray-600 mt-1">
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
                     对无 arXiv ID 的引用，调用解读模型提取标题再搜索（消耗 Token）。
                     每次 arXiv 搜索间隔 3 秒，过多会显著增加运行时间。
                   </p>
@@ -1218,17 +1235,17 @@ export function SettingsPage() {
       </div>
 
       {/* findpapers 多源学术搜索 */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+      <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">findpapers 多源搜索</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>findpapers 多源搜索</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
               启用后使用 findpapers 库（arXiv、CrossRef、OpenAlex、PubMed 等 8 源并行搜索 + 自动去重）
               替代 Semantic Scholar 进行相关论文推荐和 PDF 下载。
-              需要 <code className="px-1 rounded bg-gray-800">pip install findpapers</code>。
+              需要 <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>pip install findpapers</code>。
             </p>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+          <label className="flex items-center gap-2 text-xs cursor-pointer shrink-0 ml-4" style={{ color: 'var(--text-secondary)' }}>
             <input
               type="checkbox"
               checked={config.findpapers.enabled}
@@ -1242,7 +1259,7 @@ export function SettingsPage() {
         {config.findpapers.enabled && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">启用的数据库</label>
+              <label className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>启用的数据库</label>
               <div className="flex flex-wrap gap-2">
                 {[
                   { key: 'arxiv', label: 'arXiv', free: true },
@@ -1253,7 +1270,7 @@ export function SettingsPage() {
                   { key: 'scopus', label: 'Scopus', free: false },
                   { key: 'wos', label: 'Web of Science', free: false },
                 ].map(db => (
-                  <label key={db.key} className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+                  <label key={db.key} className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
                     <input
                       type="checkbox"
                       checked={config.findpapers.databases.includes(db.key)}
@@ -1274,14 +1291,15 @@ export function SettingsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">搜索结果数量上限</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>搜索结果数量上限</label>
                 <input
                   type="number"
                   min={1}
                   max={50}
                   value={config.findpapers.max_results}
                   onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, max_results: Number(e.target.value) || 10 } }))}
-                  className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none transition-colors"
+          style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>

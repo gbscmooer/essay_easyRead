@@ -113,7 +113,7 @@ function NotebookRenderer({ cells }: { cells: NotebookCell[] }) {
 function NotebookOutputView({ output }: { output: NotebookOutput }) {
   if (output.output_type === 'stream') {
     return (
-      <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+      <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
         {output.text || ''}
       </pre>
     )
@@ -127,21 +127,21 @@ function NotebookOutputView({ output }: { output: NotebookOutput }) {
         ? data[imageKey]
         : `data:${imageKey};base64,${data[imageKey]}`
       return (
-        <div className="p-4 bg-gray-900/50">
+        <div className="p-4" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5 }}>
           <img src={src} alt="notebook output" className="max-w-full mx-auto" />
         </div>
       )
     }
     if (data['text/plain']) {
       return (
-        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+        <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
           {data['text/plain']}
         </pre>
       )
     }
     if (output.text) {
       return (
-        <pre className="p-4 overflow-x-auto bg-gray-900/50 text-sm text-gray-300 whitespace-pre-wrap">
+        <pre className="p-4 overflow-x-auto text-sm whitespace-pre-wrap" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.5, color: 'var(--text-secondary)' }}>
           {output.text}
         </pre>
       )
@@ -180,8 +180,8 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 
   if (cell.cell_type === 'markdown') {
     return (
-      <div className="border border-gray-700/50 rounded-lg overflow-hidden">
-        <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700/50">
+      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+        <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', borderColor: 'var(--border-light)', opacity: 0.5 }}>
           Markdown
         </div>
         <div className={`p-4 ${proseClass} prose-sm max-w-none`}>
@@ -196,8 +196,8 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
     const hasOutput = cell.outputs && cell.outputs.length > 0
 
     return (
-      <div className="border border-gray-700/50 rounded-lg overflow-hidden">
-        <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-400/70 border-b border-gray-700/50">
+      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+        <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)', borderColor: 'var(--border-light)' }}>
           In {execLabel}
         </div>
         <pre className="p-4 overflow-x-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
@@ -207,7 +207,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
         </pre>
         {hasOutput && (
           <>
-            <div className="px-3 py-1 bg-green-900/20 text-xs text-green-400/70 border-t border-b border-gray-700/50">
+            <div className="px-3 py-1 text-xs border-t border-b" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)', borderColor: 'var(--border-light)' }}>
               Out {execLabel}
             </div>
             {cell.outputs!.map((output, oIdx) => (
@@ -295,7 +295,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
 
   if (!filePath) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-muted)' }}>
         选择文件查看代码
       </div>
     )
@@ -304,7 +304,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -323,8 +323,8 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   return (
     <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }}>
       {/* 文件路径 */}
-      <div className="sticky top-0 z-10 px-4 py-2 bg-gray-900/90 border-b border-gray-800 backdrop-blur-sm">
-        <span className="text-xs text-gray-400 font-mono">{filePath}</span>
+      <div className="sticky top-0 z-10 px-4 py-2 border-b backdrop-blur-sm" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.9, borderColor: 'var(--border)' }}>
+        <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{filePath}</span>
       </div>
 
       {/* Jupyter Notebook 渲染 */}
@@ -339,14 +339,15 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
         /* 普通代码渲染 */
         <div className="flex">
           {/* 行号 */}
-          <div className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r border-gray-800/50">
+          <div className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r" style={{ borderColor: 'var(--border)' }}>
             {lines.map((_, i) => (
               <div
                 key={i}
                 id={`line-${i + 1}`}
                 className={`text-xs leading-5 px-2 ${
-                  highlightLine === i + 1 ? 'text-blue-400 bg-blue-500/15' : 'text-gray-600'
+                  highlightLine === i + 1 ? '' : ''
                 }`}
+                style={highlightLine === i + 1 ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' } : { color: 'var(--text-muted)' }}
               >
                 {i + 1}
               </div>

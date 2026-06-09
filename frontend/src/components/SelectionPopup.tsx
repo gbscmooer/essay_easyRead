@@ -158,7 +158,10 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
       }}
     >
       <div
-        className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl overflow-hidden cursor-move select-none hover:border-gray-500 transition-colors"
+        className="rounded-lg shadow-2xl overflow-hidden cursor-move select-none transition-colors"
+        style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-muted)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-light)' }}
         onMouseDown={(e) => {
           e.preventDefault()
           const popup = popupRef.current
@@ -179,14 +182,20 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('translate')}
-              className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
             >
               翻译
             </button>
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('summarize')}
-              className="px-3 py-1.5 text-xs font-medium text-gray-200 bg-gray-700 hover:bg-blue-600 rounded transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
             >
               总结
             </button>
@@ -196,8 +205,8 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
         {/* 加载状态 */}
         {loading && (
           <div className="flex items-center gap-2 px-4 py-3">
-            <div className="w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
-            <span className="text-xs text-gray-400">
+            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {action === 'translate' ? '正在翻译...' : '正在总结...'}
             </span>
           </div>
@@ -223,8 +232,8 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
         {/* 结果展示 */}
         {result && (
           <div className="max-w-sm">
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-700">
-              <span className="text-xs text-gray-400">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b" style={{ borderColor: 'var(--border-light)' }}>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {action === 'translate' ? '翻译结果' : '总结'}
               </span>
               <div className="flex items-center gap-2">
@@ -236,45 +245,49 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
                       setTimeout(() => setCopied(false), 1500)
                     })
                   }}
-                  className="text-gray-400 hover:text-gray-200 text-xs transition-colors"
+                  className="text-xs transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                 >
                   {copied ? '已复制' : '复制'}
                 </button>
                 <button
                   onMouseDown={e => e.stopPropagation()}
                   onClick={hidePopup}
-                  className="text-gray-500 hover:text-gray-300 text-xs"
+                  className="text-xs"
+                  style={{ color: 'var(--text-muted)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
                 >
                   &times;
                 </button>
               </div>
             </div>
             <div className="px-3 py-2 max-h-48 overflow-auto" onMouseDown={e => e.stopPropagation()}>
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>
                 {result}
               </p>
             </div>
             {/* 操作按钮 */}
-            <div className="flex items-center gap-1 px-3 py-1.5 border-t border-gray-700">
+            <div className="flex items-center gap-1 px-3 py-1.5 border-t" style={{ borderColor: 'var(--border-light)' }}>
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('translate')}
-                className={`px-2 py-1 text-xs rounded transition-colors ${
-                  action === 'translate'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                }`}
+                className="px-2 py-1 text-xs rounded transition-colors"
+                style={action === 'translate' ? { backgroundColor: 'var(--accent)', color: 'var(--bg-base)' } : { color: 'var(--text-secondary)' }}
+                onMouseEnter={e => { if (action !== 'translate') { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' } }}
+                onMouseLeave={e => { if (action !== 'translate') { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' } }}
               >
                 翻译
               </button>
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('summarize')}
-                className={`px-2 py-1 text-xs rounded transition-colors ${
-                  action === 'summarize'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                }`}
+                className="px-2 py-1 text-xs rounded transition-colors"
+                style={action === 'summarize' ? { backgroundColor: 'var(--accent)', color: 'var(--bg-base)' } : { color: 'var(--text-secondary)' }}
+                onMouseEnter={e => { if (action !== 'summarize') { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' } }}
+                onMouseLeave={e => { if (action !== 'summarize') { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' } }}
               >
                 总结
               </button>
@@ -285,7 +298,7 @@ export function SelectionPopup({ containerRef }: SelectionPopupProps) {
 
       {/* 小三角箭头 */}
       <div className="flex justify-center">
-        <div className="w-2 h-2 bg-gray-800 border-b border-r border-gray-600 transform rotate-45 -mt-1" />
+        <div className="w-2 h-2 transform rotate-45 -mt-1" style={{ backgroundColor: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-light)', borderRight: '1px solid var(--border-light)' }} />
       </div>
     </div>
   )
