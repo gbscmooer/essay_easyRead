@@ -56,7 +56,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <div className="max-w-4xl mx-auto px-6 py-8">
       {/* Hero 区域 */}
       <div className="text-center mb-14">
         <h1 className="text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
@@ -100,21 +100,11 @@ export default function HomePage() {
                 tabIndex={0}
                 onClick={() => navigate(`/reader/${paper.id}`)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/reader/${paper.id}`) } }}
-                className="rounded-xl p-4 cursor-pointer transition-all"
+                className="rounded-xl p-4 cursor-pointer card-hover transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   boxShadow: 'var(--shadow-card)',
                   border: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-elevated)'
-                  el.style.borderColor = 'var(--border-light)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-card)'
-                  el.style.borderColor = 'var(--border)'
                 }}
               >
                 <h3 className="text-sm font-medium mb-2 line-clamp-2 leading-snug" style={{ color: 'var(--text-primary)' }}>
@@ -167,21 +157,11 @@ export default function HomePage() {
                 tabIndex={0}
                 onClick={() => navigate(`/workspace/${ws.id}`)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
-                className="rounded-xl p-4 cursor-pointer transition-all"
+                className="rounded-xl p-4 cursor-pointer card-hover transition-all"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   boxShadow: 'var(--shadow-card)',
                   border: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-elevated)'
-                  el.style.borderColor = 'var(--border-light)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.boxShadow = 'var(--shadow-card)'
-                  el.style.borderColor = 'var(--border)'
                 }}
               >
                 <h3 className="text-sm font-medium mb-2 truncate" style={{ color: 'var(--text-primary)' }}>
