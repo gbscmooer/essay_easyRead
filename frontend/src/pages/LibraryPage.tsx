@@ -84,6 +84,7 @@ function ExpandedPaperRow({
   )
 }
 
+export default LibraryPage
 export function LibraryPage() {
   const navigate = useNavigate()
   const [papers, setPapers] = useState<Paper[]>([])

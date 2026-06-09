@@ -9,6 +9,7 @@ import { CodeViewer } from '@/features/code/CodeViewer'
 import { CodeAnalysisPanel } from '@/features/code/CodeAnalysisPanel'
 
 
+export default CodePage
 export function CodePage() {
   const { id } = useParams<{ id: string }>()
   const paperId = Number(id)

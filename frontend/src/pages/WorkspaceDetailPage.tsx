@@ -6,6 +6,7 @@ import type { Paper } from '@/types'
 import { toast } from '@/hooks/useToast'
 
 
+export default WorkspaceDetailPage
 export function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()

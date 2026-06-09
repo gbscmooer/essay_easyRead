@@ -4,6 +4,9 @@
  * 采用数据路由以启用 useBlocker（设置页「未保存离开」拦截）。
  * 所有页面挂在 RootLayout 这一布局路由下，经 <Outlet/> 渲染。
  *
+ * 所有页面路由均使用 React.lazy() 实现代码分割，
+ * 首屏只加载当前路由对应的 chunk。
+ *
  * 路由表：
  *   /                       → HomePage（首页，上传入口 + 论文库概览）
  *   /reader/:id             → ReaderPage（论文精读页）
@@ -15,24 +18,38 @@
  *   *                       → NotFoundPage（404）
  */
 
+import React, { Suspense } from 'react'
 import { createBrowserRouter, Outlet } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ToastContainer } from '@/components/ToastContainer'
-import { HomePage } from '@/pages/HomePage'
-import { ReaderPage } from '@/pages/ReaderPage'
-import { LibraryPage } from '@/pages/LibraryPage'
-import { SettingsPage } from '@/pages/SettingsPage'
-import { CodePage } from '@/pages/CodePage'
-import { WorkspacePage } from '@/pages/WorkspacePage'
-import { WorkspaceDetailPage } from '@/pages/WorkspaceDetailPage'
-import { ResearchPage } from '@/pages/ResearchPage'
-import { NotFoundPage } from '@/pages/NotFoundPage'
 
+const HomePage = React.lazy(() => import('@/pages/HomePage'))
+const ReaderPage = React.lazy(() => import('@/pages/ReaderPage'))
+const CodePage = React.lazy(() => import('@/pages/CodePage'))
+const LibraryPage = React.lazy(() => import('@/pages/LibraryPage'))
+const SettingsPage = React.lazy(() => import('@/pages/SettingsPage'))
+const WorkspacePage = React.lazy(() => import('@/pages/WorkspacePage'))
+const WorkspaceDetailPage = React.lazy(() => import('@/pages/WorkspaceDetailPage'))
+const ResearchPage = React.lazy(() => import('@/pages/ResearchPage'))
+const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'))
+
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div
+        className="w-8 h-8 border-2 rounded-full animate-spin"
+        style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
+      />
+    </div>
+  )
+}
 
 function RootLayout() {
   return (
     <Layout>
-      <Outlet />
+      <Suspense fallback={<LoadingFallback />}>
+        <Outlet />
+      </Suspense>
       <ToastContainer />
     </Layout>
   )
