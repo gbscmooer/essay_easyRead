@@ -379,8 +379,7 @@ function UIConfigSection({
 }
 
 
-export default SettingsPage
-export function SettingsPage() {
+export default function SettingsPage() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)

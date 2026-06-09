@@ -14,8 +14,7 @@ import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 
 
-export default HomePage
-export function HomePage() {
+export default function HomePage() {
   const navigate = useNavigate()
   const [recentPapers, setRecentPapers] = useState<Paper[]>([])
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceItem[]>([])

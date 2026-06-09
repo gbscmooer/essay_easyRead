@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
 
 
-export default WorkspacePage
-export function WorkspacePage() {
+export default function WorkspacePage() {
   const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [loading, setLoading] = useState(true)

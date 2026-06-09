@@ -13,8 +13,7 @@ import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 import { toast } from '@/hooks/useToast'
 
-export default ResearchPage
-export function ResearchPage() {
+export default function ResearchPage() {
   const { id } = useParams<{ id: string }>()
   const wsId = Number(id)
   const [runId, setRunId] = useState<number | null>(null)

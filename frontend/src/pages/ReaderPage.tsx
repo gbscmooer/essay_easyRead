@@ -16,8 +16,7 @@ const MAX_PANEL_PCT = 60
 const DEFAULT_PANEL_PCT = 35
 
 
-export default ReaderPage
-export function ReaderPage() {
+export default function ReaderPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
