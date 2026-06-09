@@ -22,6 +22,7 @@ import React, { Suspense } from 'react'
 import { createBrowserRouter, Outlet } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ToastContainer } from '@/components/ToastContainer'
+import { PageErrorBoundary } from '@/components/PageErrorBoundary'
 
 const HomePage = React.lazy(() => import('@/pages/HomePage'))
 const ReaderPage = React.lazy(() => import('@/pages/ReaderPage'))
@@ -60,14 +61,14 @@ export const router = createBrowserRouter(
     {
       element: <RootLayout />,
       children: [
-        { path: '/', element: <HomePage /> },
-        { path: '/reader/:id', element: <ReaderPage /> },
-        { path: '/code/:id', element: <CodePage /> },
-        { path: '/library', element: <LibraryPage /> },
-        { path: '/settings', element: <SettingsPage /> },
-        { path: '/workspace', element: <WorkspacePage /> },
-        { path: '/workspace/:id', element: <WorkspaceDetailPage /> },
-        { path: '/workspace/:id/research', element: <ResearchPage /> },
+        { path: '/', element: <PageErrorBoundary pageName="首页"><HomePage /></PageErrorBoundary> },
+        { path: '/reader/:id', element: <PageErrorBoundary pageName="论文精读"><ReaderPage /></PageErrorBoundary> },
+        { path: '/code/:id', element: <PageErrorBoundary pageName="代码分析"><CodePage /></PageErrorBoundary> },
+        { path: '/library', element: <PageErrorBoundary pageName="论文库"><LibraryPage /></PageErrorBoundary> },
+        { path: '/settings', element: <PageErrorBoundary pageName="设置"><SettingsPage /></PageErrorBoundary> },
+        { path: '/workspace', element: <PageErrorBoundary pageName="工作区"><WorkspacePage /></PageErrorBoundary> },
+        { path: '/workspace/:id', element: <PageErrorBoundary pageName="工作区详情"><WorkspaceDetailPage /></PageErrorBoundary> },
+        { path: '/workspace/:id/research', element: <PageErrorBoundary pageName="深度研究"><ResearchPage /></PageErrorBoundary> },
         { path: '*', element: <NotFoundPage /> },
       ],
     },

@@ -46,8 +46,9 @@ function TestButton({
         provider: provider ?? '',
       })
       setResult(res)
-    } catch (e: any) {
-      setResult({ ok: false, message: e?.message || '请求失败', latency_ms: null })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '请求失败'
+      setResult({ ok: false, message, latency_ms: null })
     } finally {
       setTesting(false)
     }

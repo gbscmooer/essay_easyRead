@@ -1,17 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.13.0'
+const APP_VERSION = '1.14.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '性能优化：统一后端引擎单例、添加数据库索引、消除N+1查询',
-    '性能优化：阻塞IO包装asyncio.to_thread、分析缓存写入频率优化',
-    '前端优化：PdfViewer虚拟化、Tab懒加载、FlowChart动态导入',
-    '前端优化：移除GraphCanvas轮询、拆分useConfig hooks、CodeViewer虚拟化',
-    '列表查询排除full_text大字段、AnalysisJob事件列表上限',
-    'CodeViewer大文件行号虚拟化、高频组件提取稳定style对象',
+    '添加路由级ErrorBoundary，页面崩溃时显示友好错误提示并支持重试',
+    '修复catch块类型安全，统一使用unknown类型替代any',
   ],
 }
 

@@ -16,7 +16,7 @@ export default function WorkspacePage() {
   const refresh = useCallback(() => {
     listWorkspaces()
       .then(setWorkspaces)
-      .catch((e: any) => { toast({ type: 'error', message: e?.message || '加载工作区列表失败' }) })
+      .catch((e: unknown) => { const message = e instanceof Error ? e.message : '加载工作区列表失败'; toast({ type: 'error', message }) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -29,8 +29,9 @@ export default function WorkspacePage() {
       const ws = await createWorkspace(name)
       setNewName('')
       navigate(`/workspace/${ws.id}`)
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '创建工作区失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '创建工作区失败'
+      toast({ type: 'error', message })
     } finally {
       setCreating(false)
     }
@@ -46,8 +47,9 @@ export default function WorkspacePage() {
     try {
       await deleteWorkspace(deleteTarget)
       refresh()
-    } catch (e: any) {
-      toast({ type: 'error', message: e?.message || '删除工作区失败' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '删除工作区失败'
+      toast({ type: 'error', message })
     } finally {
       setDeleteTarget(null)
     }
