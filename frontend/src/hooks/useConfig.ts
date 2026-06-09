@@ -92,7 +92,7 @@ export function useUIConfig(): UIConfig {
         const saved = cfg.ui || DEFAULT_UI
         persistThemeToStorage(saved)
         setUI({ ...saved, ...previewOverrides })
-      })
+      }).catch(() => {})
     }
     update()
     listeners.add(update)
