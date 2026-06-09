@@ -149,11 +149,15 @@ async def remove_paper_tag(paper_id: int, tag_id: int) -> dict:
 async def get_papers_by_tag(tag_id: int) -> list[dict]:
     engine = get_engine()
     with Session(engine) as session:
-        pts = session.exec(select(PaperTag).where(PaperTag.tag_id == tag_id)).all()
+        # 单次 JOIN 查询代替 N+1
+        stmt = (
+            select(Paper)
+            .join(PaperTag, PaperTag.paper_id == Paper.id)
+            .where(PaperTag.tag_id == tag_id)
+            .order_by(Paper.created_at.desc())
+        )
         result = []
-        for pt in pts:
-            paper = session.get(Paper, pt.paper_id)
-            if paper:
+        for paper in session.exec(stmt).all():
                 result.append({
                     "id": paper.id,
                     "filename": paper.filename,

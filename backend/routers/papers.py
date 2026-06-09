@@ -207,6 +207,14 @@ async def smart_search(
             stmt = stmt.where(_func.date(PaperModel.created_at) == date_added)
         papers = session.exec(stmt).all()
 
+        # 预取所有匹配论文的 AnalysisResult（消除 N+1）
+        if papers:
+            paper_ids = [p.id for p in papers]
+            ar_rows = session.exec(select(AR).where(AR.paper_id.in_(paper_ids))).all()
+            ar_map: dict[int, AR] = {ar.paper_id: ar for ar in ar_rows}
+        else:
+            ar_map = {}
+
         for p in papers:
             matched: list[dict] = []
             # 元数据
@@ -224,9 +232,9 @@ async def smart_search(
             if p.year and ql in str(p.year):
                 matched.append({"field": "year", "snippet": str(p.year)})
 
-            # 解读内容（加异常保护，避免单篇论文 JSON 异常导致整个搜索崩溃）
+            # 解读内容（从预取的 ar_map 中查找，避免 N+1 查询）
             try:
-                ar = session.exec(select(AR).where(AR.paper_id == p.id)).first()
+                ar = ar_map.get(p.id)
                 if ar:
                     matched.extend(_match_content_fields(ar, ql))
             except Exception as ex:

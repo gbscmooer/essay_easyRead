@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.4'
+const APP_VERSION = '1.17.5'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    'React.memo优化：PaperList和Sidebar组件添加memo避免无谓重渲染',
+    '消除N+1查询：smart_search批量预取AnalysisResult、tags改用JOIN',
   ],
 }
 
