@@ -1,5 +1,5 @@
 import type { Tag } from '@/types'
-import { get, post, del } from './client'
+import { get, post, put, del } from './client'
 
 export async function listTags(): Promise<Tag[]> {
   return get<Tag[]>('/tags')
@@ -14,13 +14,7 @@ export async function deleteTag(tagId: number): Promise<void> {
 }
 
 export async function updateTag(tagId: number, name: string, color: string): Promise<Tag> {
-  const res = await fetch(`/api/tags/${tagId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, color }),
-  })
-  if (!res.ok) throw new Error('Failed to update tag')
-  return res.json()
+  return put<Tag>(`/tags/${tagId}`, { name, color })
 }
 
 export async function getPaperTags(paperId: number): Promise<Tag[]> {

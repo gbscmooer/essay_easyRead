@@ -1,5 +1,5 @@
 import type { Note } from '@/types'
-import { get, post, del } from './client'
+import { get, post, put, del } from './client'
 
 export async function listNotes(paperId: number, noteType?: string): Promise<Note[]> {
   const qs = noteType ? `?note_type=${noteType}` : ''
@@ -22,13 +22,7 @@ export async function createNote(
 }
 
 export async function updateNote(noteId: number, content: string): Promise<Note> {
-  const res = await fetch(`/api/notes/${noteId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  })
-  if (!res.ok) throw new Error('Failed to update note')
-  return res.json()
+  return put<Note>(`/notes/${noteId}`, { content })
 }
 
 export async function deleteNote(noteId: number): Promise<void> {

@@ -79,6 +79,12 @@ export default function CodePage() {
         setCloneStatus(null)
       }
 
+      // Close any existing EventSource before creating new one
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+
       // 开始分析
       const eventSource = new EventSource(getCodeAnalysisSSEUrl(paperId))
       eventSourceRef.current = eventSource

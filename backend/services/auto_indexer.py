@@ -17,6 +17,7 @@ from sqlmodel import Session, create_engine, select
 
 from ..config import settings
 from ..models.paper import Paper
+from .database import get_engine
 from .ai_config import get_arxiv_expand_config
 from .pdf_parser import _extract_with_pymupdf, _extract_with_pypdf
 from .deep_research.grobid_parser import is_grobid_alive, parse_header
@@ -52,14 +53,8 @@ def _valid_year(y) -> bool:
     from datetime import datetime, timezone
     return isinstance(y, int) and _MIN_VALID_YEAR <= y <= datetime.now(timezone.utc).year + 1
 
-_engine = None
-
-
 def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(settings.resolved_database_url, connect_args={"check_same_thread": False})
-    return _engine
+    return get_engine()
 
 
 def _extract(pdf_path: str) -> tuple[str, dict, str]:

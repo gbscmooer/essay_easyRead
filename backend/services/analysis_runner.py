@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Optional
 
 from sqlmodel import Session, create_engine
@@ -103,6 +104,10 @@ def clear_cache(paper_id: int) -> None:
         logger.debug(f"Cache file not found or already removed for paper {paper_id}: {e}")
 
 
+# TTL for completed jobs: delete after 1 hour
+_JOB_TTL_SECONDS = 3600
+
+
 class AnalysisJob:
     """单篇论文的后台分析任务状态。"""
 
@@ -115,6 +120,7 @@ class AnalysisJob:
         self.percent = 0
         self.status = "pending"
         self.message = ""
+        self.completed_at: Optional[float] = None
 
     def emit(self, event: StreamEvent) -> None:
         """记录事件并广播给所有订阅者。"""
@@ -168,8 +174,22 @@ def get_job(paper_id: int) -> Optional[AnalysisJob]:
     return _jobs.get(paper_id)
 
 
+def _cleanup_expired_jobs() -> None:
+    """Delete completed jobs older than _JOB_TTL_SECONDS."""
+    now = time.monotonic()
+    expired = [
+        pid for pid, j in _jobs.items()
+        if j.done and j.completed_at and (now - j.completed_at) > _JOB_TTL_SECONDS
+    ]
+    for pid in expired:
+        del _jobs[pid]
+        logger.debug(f"TTL cleanup: removed expired job for paper {pid}")
+
+
 def ensure_job(paper_id: int, pdf_path: str) -> AnalysisJob:
     """获取正在运行的任务；若不存在或已结束，则启动一个新的后台任务。"""
+    _cleanup_expired_jobs()
+
     job = _jobs.get(paper_id)
     if job is not None and not job.done:
         return job
@@ -373,3 +393,4 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         job.emit(StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"}))
     finally:
         job.done = True
+        job.completed_at = time.monotonic()

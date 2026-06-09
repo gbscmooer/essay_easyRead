@@ -45,14 +45,28 @@ async def upload_paper(file: UploadFile = File(...)) -> PaperResponse:
             detail={"detail": "Only PDF files are accepted", "code": "INVALID_FORMAT"},
         )
 
-    # 读取文件内容
-    content = await file.read()
+    # 分块读取文件内容 + 逐块校验大小
+    CHUNK_SIZE = 1024 * 1024  # 1MB
+    chunks: list[bytes] = []
+    total_size = 0
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > settings.max_file_size:
+            raise HTTPException(
+                status_code=400,
+                detail={"detail": "File too large, max 50MB", "code": "FILE_TOO_LARGE"},
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
-    # 验证文件大小
-    if len(content) > settings.max_file_size:
+    # Magic bytes 验证: PDF 文件必须以 %PDF- 开头
+    if not content.startswith(b"%PDF-"):
         raise HTTPException(
             status_code=400,
-            detail={"detail": "File too large, max 50MB", "code": "FILE_TOO_LARGE"},
+            detail={"detail": "Invalid PDF file: missing PDF magic bytes", "code": "INVALID_FORMAT"},
         )
 
     # 确保上传目录存在
@@ -114,6 +128,10 @@ async def get_papers_list(
     source: str = Query("uploaded", description="uploaded | expanded | all"),
 ) -> PaperListResponse:
     """获取论文列表，支持筛选和搜索"""
+    # Validate date_added format
+    if date_added and not re.match(r"^\d{4}-\d{2}-\d{2}$", date_added):
+        raise HTTPException(status_code=400, detail={"detail": "date_added must be YYYY-MM-DD", "code": "INVALID_FORMAT"})
+
     engine = get_engine()
     with Session(engine) as session:
         papers, total = list_papers(

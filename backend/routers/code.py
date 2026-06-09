@@ -185,6 +185,12 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
 
     from ..services.code_analyzer import read_file_content, read_notebook_content
     try:
+        # Path traversal guard: resolved path must stay within code_path
+        resolved = os.path.realpath(os.path.join(code_path, path))
+        repo_real = os.path.realpath(code_path)
+        if os.path.commonpath([resolved, repo_real]) != repo_real:
+            raise HTTPException(status_code=400, detail={"detail": "不安全的文件路径", "code": "INVALID_FORMAT"})
+
         if path.endswith(".ipynb"):
             cells = read_notebook_content(code_path, path)
             return {"path": path, "content": None, "cells": cells}

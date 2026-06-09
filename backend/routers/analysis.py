@@ -115,9 +115,9 @@ class AppConfig(BaseModel):
 
 @router.get("/config", response_model=AppConfig)
 async def get_config() -> AppConfig:
-    """获取全部配置"""
-    from ..services.ai_config import load_config
-    config = load_config()
+    """获取全部配置（API 密钥被掩码）"""
+    from ..services.ai_config import load_config, mask_config
+    config = mask_config(load_config())
     _AE_FIELDS = set(ArxivExpandConfig.model_fields.keys())
     _FP_FIELDS = set(FindpapersConfig.model_fields.keys())
     return AppConfig(

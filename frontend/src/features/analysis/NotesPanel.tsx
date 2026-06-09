@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Note } from '@/types'
 import { listNotes, createNote, updateNote, deleteNote } from '@/api/notes'
 import { toast } from '@/hooks/useToast'
@@ -12,12 +12,16 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
   const [newContent, setNewContent] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
+  const mountedRef = useRef(true)
+
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
   const fetchNotes = useCallback(async () => {
     try {
       const result = await listNotes(paperId)
-      setNotes(result)
+      if (mountedRef.current) setNotes(result)
     } catch (e: unknown) {
+      if (!mountedRef.current) return
       const message = e instanceof Error ? e.message : '加载笔记失败'
       toast({ type: 'error', message })
     }

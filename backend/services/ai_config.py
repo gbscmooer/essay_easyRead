@@ -6,7 +6,9 @@ AI 配置服务
 
 import os
 import json
+import copy
 import logging
+import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -118,6 +120,24 @@ def _ensure_dir():
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 
+def _mask_api_key(key: str) -> str:
+    """掩码 API 密钥，仅显示最后 4 个字符"""
+    if not key:
+        return ""
+    if len(key) <= 4:
+        return "*" * len(key)
+    return "***" + key[-4:]
+
+
+def mask_config(config: dict) -> dict:
+    """返回配置深拷贝，所有 api_key 字段被掩码"""
+    masked = copy.deepcopy(config)
+    for section in masked.values():
+        if isinstance(section, dict) and "api_key" in section:
+            section["api_key"] = _mask_api_key(section["api_key"])
+    return masked
+
+
 def load_config() -> dict:
     """加载配置"""
     if not os.path.exists(CONFIG_PATH):
@@ -142,11 +162,21 @@ def _deep_copy_default() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """保存 AI 配置"""
+    """保存 AI 配置（原子写入：先写临时文件，再 os.replace 原子替换）"""
     _ensure_dir()
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
-    logger.info("AI config saved")
+    dir_name = os.path.dirname(CONFIG_PATH)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp", prefix="ai_config_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, CONFIG_PATH)
+        logger.info("AI config saved")
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get_translate_config() -> dict:

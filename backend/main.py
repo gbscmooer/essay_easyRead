@@ -15,6 +15,10 @@ from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from .config import settings
 from .services.database import init_db
 from .routers.papers import router as papers_router
@@ -71,20 +75,24 @@ async def lifespan(app: FastAPI):
 
 
 # 创建 FastAPI 实例
+limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+
 app = FastAPI(
     title="Essay Read API",
     description="AI-powered academic paper reading and analysis platform",
     version="1.8.1",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # 挂载路由
@@ -127,16 +135,28 @@ def _is_localhost(websocket: WebSocket) -> bool:
 def _is_safe_cwd(path: str) -> bool:
     real = os.path.realpath(path)
     project_root = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
-    return real.startswith(project_root + os.sep) or real == project_root
+    try:
+        return os.path.commonpath([real, project_root]) == project_root
+    except ValueError:
+        return False
+
+
+# Terminal WebSocket connection limit
+_terminal_connections: set = set()
+_MAX_TERMINAL_CONNECTIONS = 3
 
 
 @app.websocket("/api/terminal/ws")
 async def terminal_websocket(websocket: WebSocket):
-    """WebSocket 端点：真实 PTY 终端（仅限 localhost）"""
+    """WebSocket 端点：真实 PTY 终端（仅限 localhost，最多 3 个并发连接）"""
     if not _is_localhost(websocket):
         await websocket.close(code=4003, reason="Terminal access restricted to localhost")
         return
+    if len(_terminal_connections) >= _MAX_TERMINAL_CONNECTIONS:
+        await websocket.close(code=4029, reason="Too many terminal connections")
+        return
     await websocket.accept()
+    _terminal_connections.add(websocket)
     cwd = websocket.query_params.get("cwd") or os.getcwd()
     if not _is_safe_cwd(cwd):
         cwd = os.getcwd()
@@ -148,6 +168,7 @@ async def terminal_websocket(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Terminal error: {e}")
     finally:
+        _terminal_connections.discard(websocket)
         try:
             await websocket.close()
         except Exception as e:
@@ -166,7 +187,10 @@ async def open_vscode(request: Request, req: dict):
 
     real_path = os.path.realpath(path)
     project_root = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
-    if not real_path.startswith(project_root + os.sep) and real_path != project_root:
+    try:
+        if os.path.commonpath([real_path, project_root]) != project_root:
+            return {"error": "路径不在项目目录内"}
+    except ValueError:
         return {"error": "路径不在项目目录内"}
 
     code_cmd = shutil.which("code")
@@ -182,5 +206,6 @@ async def open_vscode(request: Request, req: dict):
         subprocess.Popen([code_cmd, real_path], start_new_session=True)
         return {"message": f"已打开 VSCode: {real_path}"}
     except Exception as e:
-        return {"error": f"打开失败: {str(e)}"}
+        logger.error(f"Failed to open VSCode: {e}")
+        return {"error": "打开失败"}
 

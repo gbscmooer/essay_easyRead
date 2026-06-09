@@ -5,7 +5,7 @@
  * 清新学术风格：简洁的 Hero 区域 + 论文卡片网格。
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper } from '@/types'
 import { UploadZone } from '@/features/upload/UploadZone'
@@ -23,8 +23,11 @@ export default function HomePage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    const controller = new AbortController()
+    abortRef.current = controller
     Promise.all([
       listPapers({ page: 1, per_page: 6, source: 'uploaded' })
         .then(res => setRecentPapers(res.papers))
@@ -37,7 +40,9 @@ export default function HomePage() {
           setRecentWorkspaces(sorted.slice(0, 6))
         })
         .catch(() => { toast({ type: 'error', message: '加载工作区失败' }) }),
-    ]).finally(() => setLoading(false))
+    ]).finally(() => { if (!controller.signal.aborted) setLoading(false) })
+
+    return () => { controller.abort() }
   }, [])
 
   const handleUpload = async (file: File) => {

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from ..models.annotation import Annotation
 from ..models.paper import Paper
@@ -20,7 +20,7 @@ class AnnotationCreate(BaseModel):
     y: float = Field(..., ge=0, le=1)
     width: float = Field(..., ge=0, le=1)
     height: float = Field(..., ge=0, le=1)
-    annotation_type: str = Field("highlight", max_length=20)
+    annotation_type: Literal["highlight", "underline", "note", "comment"] = Field("highlight")
     color: str = Field("#fde047", pattern=r"^#[0-9a-fA-F]{6}$")
     text: str = Field("", max_length=5000)
     group_id: Optional[str] = Field(None, max_length=64)

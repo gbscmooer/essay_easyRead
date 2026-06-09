@@ -92,6 +92,24 @@ async function upload<T>(path: string, file: File): Promise<T> {
 
 
 /**
+ * 发送 PUT 请求（JSON body）
+ *
+ * @param path API 路径
+ * @param body 请求体（会被 JSON 序列化）
+ * @returns 解析后的 JSON 响应
+ */
+async function put<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) await parseError(res)
+  return res.json() as Promise<T>
+}
+
+
+/**
  * 发送 DELETE 请求
  *
  * @param path API 路径
@@ -145,4 +163,4 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: numb
 }
 
 
-export { get, post, upload, del, uploadWithProgress }
+export { get, post, put, upload, del, uploadWithProgress }

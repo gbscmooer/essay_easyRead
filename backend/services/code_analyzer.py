@@ -8,7 +8,9 @@ import os
 import json
 import asyncio
 import logging
+import re
 import subprocess
+import ipaddress
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
@@ -47,6 +49,28 @@ def get_code_download_dir() -> str:
     return base
 
 
+def validate_url_not_internal(url: str) -> None:
+    """Block URLs that resolve to private/internal IP ranges (SSRF protection)."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL 缺少主机名")
+
+    # Block localhost variants
+    if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError("不允许访问本地地址")
+
+    # Try to parse as IP address
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"不允许访问内部 IP 地址: {hostname}")
+    except ValueError:
+        # Not a raw IP — that's fine for hostnames like github.com
+        pass
+
+
 async def clone_repository(url: str, paper_id: int) -> str:
     """
     Clone 代码仓库到本地。
@@ -70,9 +94,10 @@ async def clone_repository(url: str, paper_id: int) -> str:
     # 安全校验：防止 git 参数注入
     if "--" in url:
         raise ValueError("URL 包含非法字符")
-    import re
-    if not re.match(r"https://(?:github\.com|gitlab\.com|bitbucket\.org)/[\w.\-]+/[\w.\-]+(?:\.git)?$", url):
+    if not re.match(r"https://(?:github\.com|gitlab\.com|bitbucket\.org|gitee\.com)/[\w.\-]+/[\w.\-]+(?:\.git)?$", url):
         raise ValueError(f"不支持的仓库地址: {url}")
+
+    validate_url_not_internal(url)
 
     target_dir = os.path.join(get_code_download_dir(), str(paper_id))
 

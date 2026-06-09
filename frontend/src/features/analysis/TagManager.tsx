@@ -13,13 +13,19 @@ export function TagManager({ paperId }: TagManagerProps) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [newTagName, setNewTagName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
   const fetchTags = useCallback(async () => {
     try {
       const [all, paper] = await Promise.all([listTags(), getPaperTags(paperId)])
-      setAllTags(all)
-      setPaperTags(paper)
+      if (mountedRef.current) {
+        setAllTags(all)
+        setPaperTags(paper)
+      }
     } catch (e: unknown) {
+      if (!mountedRef.current) return
       const message = e instanceof Error ? e.message : '加载标签失败'
       toast({ type: 'error', message })
     }

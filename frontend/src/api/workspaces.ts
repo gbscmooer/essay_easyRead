@@ -1,4 +1,4 @@
-import { get, post, del } from './client'
+import { get, post, put, del } from './client'
 
 
 export interface WorkspaceItem {
@@ -47,13 +47,7 @@ export async function getWorkspace(id: number): Promise<WorkspaceDetail> {
 }
 
 export async function updateWorkspace(id: number, name: string): Promise<WorkspaceItem> {
-  const res = await fetch(`/api/workspaces/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-  if (!res.ok) throw new Error('更新失败')
-  return res.json()
+  return put<WorkspaceItem>(`/workspaces/${id}`, { name })
 }
 
 export async function deleteWorkspace(id: number): Promise<void> {

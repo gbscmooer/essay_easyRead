@@ -4,10 +4,20 @@
 SQLite + SQLModel 的数据库初始化和 CRUD 操作。
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import Session, create_engine, SQLModel, select, col
-from sqlalchemy import func
+from sqlalchemy import func, event
+
+# Column name validation pattern: only safe identifiers
+_SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_column_name(name: str) -> None:
+    """Validate column name to prevent SQL injection via f-string."""
+    if not _SAFE_COLUMN_RE.match(name):
+        raise ValueError(f"Invalid column name: {name}")
 
 from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
@@ -23,6 +33,14 @@ from ..models.annotation import Annotation
 _shared_engine = None
 
 
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    """Set WAL journal mode and busy_timeout on every new connection."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
+
+
 def get_engine():
     """获取共享的数据库引擎单例。所有 router / service 统一使用此函数。"""
     global _shared_engine
@@ -32,6 +50,7 @@ def get_engine():
             settings.resolved_database_url,
             connect_args={"check_same_thread": False},
         )
+        event.listen(_shared_engine, "connect", _set_sqlite_pragma)
     return _shared_engine
 
 
@@ -54,6 +73,7 @@ def _migrate_schema(engine) -> None:
             ("authors", "TEXT DEFAULT ''"),
         ]
         for col_name, col_def in analysis_migrations:
+            _validate_column_name(col_name)
             if col_name not in existing_cols:
                 try:
                     conn.exec_driver_sql(f"ALTER TABLE analysis_results ADD COLUMN {col_name} {col_def}")
@@ -84,6 +104,7 @@ def _migrate_schema(engine) -> None:
             ("category", "TEXT"),
         ]
         for col_name, col_def in paper_migrations:
+            _validate_column_name(col_name)
             if col_name not in existing_paper_cols:
                 try:
                     conn.exec_driver_sql(f"ALTER TABLE papers ADD COLUMN {col_name} {col_def}")
@@ -103,6 +124,7 @@ def _migrate_schema(engine) -> None:
             ("node_metrics", "JSON DEFAULT '[]'"),
         ]
         for col_name, col_def in code_migrations:
+            _validate_column_name(col_name)
             if col_name not in existing_code_cols:
                 try:
                     conn.exec_driver_sql(f"ALTER TABLE code_analyses ADD COLUMN {col_name} {col_def}")
@@ -134,6 +156,7 @@ def _migrate_schema(engine) -> None:
             ("group_id", "TEXT"),
         ]
         for col_name, col_def in ann_migrations:
+            _validate_column_name(col_name)
             if col_name not in existing_ann_cols:
                 try:
                     conn.exec_driver_sql(f"ALTER TABLE annotations ADD COLUMN {col_name} {col_def}")

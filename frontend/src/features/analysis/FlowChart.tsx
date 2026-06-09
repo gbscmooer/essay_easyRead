@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import DOMPurify from 'dompurify'
 
 
-/** 仅剥离事件处理器，保留 SVG 全部结构（包括 foreignObject 文字） */
-function stripEventHandlers(svg: string): string {
-  return svg
-    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
-    .replace(/\bon\w+\s*=\s*\{[^}]*\}/gi, '')
+function sanitizeSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true },
+    ADD_TAGS: ['use'],
+    ADD_ATTR: ['xlink:href'],
+  })
 }
 
 
@@ -139,7 +141,7 @@ export function FlowChart({ chart }: FlowChartProps) {
   return (
     <div ref={containerRef} className="mermaid rounded-lg p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-elevated)' }}>
       {svg ? (
-        <div dangerouslySetInnerHTML={{ __html: stripEventHandlers(svg) }} />
+        <div dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
           <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />

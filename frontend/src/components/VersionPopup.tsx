@@ -1,13 +1,19 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.17.7'
+const APP_VERSION = '1.18.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    '修复CodeViewer hooks顺序Bug：useCallback/useMemo移到early return之前',
-    '修复TerminalPanel按钮嵌套：标题栏button改为div+role=button',
+    'XSS 防护：Mermaid SVG 渲染使用 DOMPurify 消毒',
+    'SSRF 防护：git clone URL 白名单增加 Gitee，屏蔽内网 IP',
+    '路径遍历修复：代码文件读取和终端 CWD 校验改用 os.path.commonpath',
+    '上传安全：PDF 分块读取 + magic bytes 校验',
+    '速率限制：全局 120 次/分钟 API 限流',
+    '数据库优化：SQLite WAL 模式 + busy_timeout',
+    '前端健壮性：AbortController / mounted ref / EventSource 泄漏修复',
+    '安全加固：收紧 CORS、绑定 127.0.0.1、Docker 非 root 用户',
   ],
 }
 

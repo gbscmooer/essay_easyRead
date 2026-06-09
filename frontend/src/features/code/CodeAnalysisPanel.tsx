@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import DOMPurify from 'dompurify'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { CodeAnalysisResult, DependencyEdge, PaperCodeMapping } from '@/types'
@@ -111,10 +112,12 @@ async function ensureMermaid(mode: 'light' | 'dark') {
   return mermaid
 }
 
-function stripEventHandlers(svg: string): string {
-  return svg
-    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
-    .replace(/\bon\w+\s*=\s*\{[^}]*\}/gi, '')
+function sanitizeSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true },
+    ADD_TAGS: ['use'],
+    ADD_ATTR: ['xlink:href'],
+  })
 }
 
 
@@ -153,7 +156,7 @@ function DependencyGraph({
       if (cancelled) return
       const id = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       mermaid.render(id, chart).then(
-        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(sanitizeSvg(rendered)); setError(null) } },
         (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
       )
     })
@@ -244,7 +247,7 @@ function FullscreenGraph({
       if (cancelled) return
       const id = `dep-fs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       mermaid.render(id, chart).then(
-        ({ svg: rendered }) => { if (!cancelled) { setSvg(stripEventHandlers(rendered)); setError(null) } },
+        ({ svg: rendered }) => { if (!cancelled) { setSvg(sanitizeSvg(rendered)); setError(null) } },
         (err) => { if (!cancelled) { setError(err?.message || '渲染失败'); setSvg('') } },
       )
     })

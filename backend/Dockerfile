@@ -11,15 +11,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . ./backend/
 
-RUN mkdir -p /app/data /app/uploads /app/code_downloads
+RUN mkdir -p /app/data /app/uploads /app/code_downloads && \
+    addgroup --system appgroup && \
+    adduser --system --ingroup appgroup appuser && \
+    chown -R appuser:appgroup /app
 
 ENV MIMO_API_KEY=""
 ENV DATABASE_URL="sqlite:///./data/essay_read.db"
 ENV UPLOAD_DIR="./uploads"
-ENV HOST="0.0.0.0"
+ENV HOST="127.0.0.1"
 ENV PORT="8000"
 ENV FRONTEND_ORIGIN="http://localhost"
 
 EXPOSE 8000
+
+USER appuser
 
 CMD ["python", "-m", "backend"]

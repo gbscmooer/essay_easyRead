@@ -14,6 +14,12 @@ export function useResearchStream(runId: number | null) {
   const [graph, setGraph] = useState<GraphReady | null>(null)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
+  const isUnmounted = useRef(false)
+
+  useEffect(() => {
+    isUnmounted.current = false
+    return () => { isUnmounted.current = true }
+  }, [])
 
   useEffect(() => {
     if (runId === null) return
@@ -23,28 +29,35 @@ export function useResearchStream(runId: number | null) {
     setStatus('running'); setError(null)
 
     es.addEventListener('status', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setMsg(JSON.parse(e.data).message || '') } catch { /* noop */ }
     })
     es.addEventListener('stage_start', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setStage(JSON.parse(e.data).stage as ResearchStage) } catch { /* noop */ }
     })
     es.addEventListener('stage_done', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try {
         const data = JSON.parse(e.data)
         setMsg(`${data.stage} 完成`)
       } catch { /* noop */ }
     })
     es.addEventListener('paper_added', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setPapersAdded(prev => [...prev, JSON.parse(e.data) as PaperAdded]) } catch { /* noop */ }
     })
     es.addEventListener('embed_progress', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setEmbed(JSON.parse(e.data) as EmbedProgress) } catch { /* noop */ }
     })
     es.addEventListener('graph_ready', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setGraph(JSON.parse(e.data) as GraphReady) } catch { /* noop */ }
     })
-    es.addEventListener('done', () => { setStatus('done'); es.close() })
+    es.addEventListener('done', () => { if (!isUnmounted.current) setStatus('done'); es.close() })
     es.addEventListener('error', (e: MessageEvent) => {
+      if (isUnmounted.current) return
       try { setError(JSON.parse(e.data).message || '失败') } catch { setError('连接错误') }
       setStatus('failed'); es.close()
     })

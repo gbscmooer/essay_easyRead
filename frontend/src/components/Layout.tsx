@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
@@ -50,7 +50,10 @@ export function Layout({ children }: LayoutProps) {
 
   // Register ? shortcut to show help
   const toggleShortcuts = useCallback(() => setShowShortcuts(v => !v), [])
-  setHelpCallback(toggleShortcuts)
+  useEffect(() => {
+    setHelpCallback(toggleShortcuts)
+    return () => { setHelpCallback(null) }
+  }, [toggleShortcuts])
 
   const toggleVersion = useCallback(() => setShowVersion(v => !v), [])
   const closeVersion = useCallback(() => setShowVersion(false), [])

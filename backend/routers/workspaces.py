@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from datetime import datetime, timezone
 
 from ..models.workspace import Workspace, WorkspacePaper
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 
 
 class WorkspaceCreate(BaseModel):
-    name: str = "未命名工作区"
+    name: str = Field("未命名工作区", max_length=200)
 
 
 class WorkspaceResponse(BaseModel):
@@ -55,8 +55,8 @@ async def list_workspaces() -> list[WorkspaceResponse]:
         workspaces = session.exec(select(Workspace).order_by(desc(Workspace.updated_at))).all()
         result = []
         for ws in workspaces:
-            count_statement = select(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
-            paper_count = len(session.exec(count_statement).all())
+            count_statement = select(func.count()).select_from(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
+            paper_count = session.exec(count_statement).one()
             result.append(WorkspaceResponse(
                 id=ws.id, name=ws.name, paper_count=paper_count,
                 created_at=ws.created_at, updated_at=ws.updated_at,
@@ -142,8 +142,8 @@ async def update_workspace(workspace_id: int, req: WorkspaceCreate) -> Workspace
         session.add(ws)
         session.commit()
         session.refresh(ws)
-        count_statement = select(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
-        paper_count = len(session.exec(count_statement).all())
+        count_statement = select(func.count()).select_from(WorkspacePaper).where(WorkspacePaper.workspace_id == ws.id)
+        paper_count = session.exec(count_statement).one()
         return WorkspaceResponse(
             id=ws.id, name=ws.name, paper_count=paper_count,
             created_at=ws.created_at, updated_at=ws.updated_at,
