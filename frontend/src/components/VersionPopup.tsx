@@ -1,18 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.15.0'
+const APP_VERSION = '1.16.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-09',
   changes: [
-    'database.py返回类型化模型（Paper/AnalysisResult），替代dict',
-    '修复tags路由N+1查询：list_tags/update_tag/get_paper_tags改为批量查询',
-    'annotations表group_id字段添加索引',
-    'highlight.js语言按需加载，减少初始bundle体积',
-    'CodeAnalysisPanel的mermaid改为动态导入，CodePage体积减少约47KB',
-    'CSS主题覆盖规则精简，移除未使用的冗余选择器',
-    'Vite构建启用CSS代码分割（cssCodeSplit）',
+    'code.py文件树缓存：优先从数据库读取，避免每次请求递归遍历',
+    'code.py PDF提取优化：优先使用paper.full_text，避免重复解析',
+    'React.memo列表组件：PaperList/Sidebar/InterviewTab提取命名组件',
+    'SSE批量更新：50ms窗口内多次field事件合并为一次setState',
+    'LibraryPage搜索防抖：300ms延迟避免频繁请求',
   ],
 }
 
