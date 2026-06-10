@@ -41,7 +41,6 @@ class PDFEmptyError(PDFExtractionError):
 
 
 @dataclass
-@dataclass
 class HeadingPosition:
     """PDF 标题位置"""
     page: int        # 页码（1-based）
@@ -49,6 +48,7 @@ class HeadingPosition:
     text: str        # 标题文字
 
 
+@dataclass
 class PDFContent:
     """
     PDF 提取结果

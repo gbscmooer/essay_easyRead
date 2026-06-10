@@ -34,7 +34,7 @@ interface AnalysisPanelProps {
   progressMessage: string
   progress?: number
   relatedStatus?: 'idle' | 'loading' | 'ok' | 'failed'
-  onJumpToPage?: (page: number) => void
+  onJumpToPage?: (page: number, section?: string) => void
   paperId?: number
   onStartAnalysis?: () => void
   onReanalyze?: () => void

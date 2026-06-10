@@ -159,7 +159,16 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       // 策略1: 使用后端提取的标题坐标精确定位
       const pageHeadings = headings?.filter(h => h.page === page) || []
       if (pageHeadings.length > 0) {
-        const targetHeading = pageHeadings[0] // 取该页第一个标题
+        // 按文字匹配找到最佳标题，回退到该页第一个标题
+        const normalizedSearch = searchText ? searchText.toLowerCase().trim() : ''
+        let targetHeading = pageHeadings[0]
+        if (normalizedSearch) {
+          const match = pageHeadings.find(h => {
+            const ht = h.text.toLowerCase().trim()
+            return ht === normalizedSearch || ht.includes(normalizedSearch) || normalizedSearch.includes(ht)
+          })
+          if (match) targetHeading = match
+        }
         const scrollToHeading = () => {
           const pageEl = pageRefs.current.get(page)
           if (!pageEl) return

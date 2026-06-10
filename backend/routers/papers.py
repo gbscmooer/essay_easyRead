@@ -523,7 +523,7 @@ async def get_paper_headings(paper_id: int) -> list[dict]:
         return []
 
     from ..services.pdf_parser import _extract_headings
-    headings = _extract_headings(pdf_path)
+    headings = await asyncio.to_thread(_extract_headings, pdf_path)
     return [{"page": h.page, "y_percent": h.y_percent, "text": h.text} for h in headings]
 
 
