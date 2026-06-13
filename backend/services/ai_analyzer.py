@@ -26,6 +26,9 @@ TRANSIENT_MARKERS = ["rate limit", "timeout", "overloaded", "capacity"]
 
 def _is_transient_error(exc: Exception) -> bool:
     """判断是否为瞬态错误（可重试）"""
+    # LLM 输出的 JSON 格式不稳定，重试大概率成功
+    if isinstance(exc, (json.JSONDecodeError, ValueError)):
+        return True
     msg = str(exc).lower()
     # HTTP 状态码
     for code in TRANSIENT_STATUS_CODES:
@@ -244,6 +247,60 @@ def _sanitize_content(text: str) -> str:
     return text
 
 
+def _repair_json(text: str) -> str | None:
+    """尝试修复 LLM 输出的不完整 / 格式错误的 JSON。
+
+    常见问题：
+    1. 字符串值内含未转义的换行符 → 替换为 \\n
+    2. 字符串值内含未转义的双引号 → 尝试转义
+    3. 末尾截断导致括号不闭合 → 尝试截断到最后一个完整字段
+    """
+    if not text:
+        return None
+    # 1) 替换字符串值内的裸换行符为 \n 转义
+    #    思路：在双引号内的 literal \n/\r 替换为转义序列
+    fixed = []
+    in_str = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == '\\' and in_str and i + 1 < len(text):
+            fixed.append(ch)
+            fixed.append(text[i + 1])
+            i += 2
+            continue
+        if ch == '"':
+            in_str = not in_str
+        if in_str and ch in ('\n', '\r'):
+            fixed.append('\\n')
+            i += 1
+            continue
+        fixed.append(ch)
+        i += 1
+    repaired = ''.join(fixed)
+    # 2) 尝试直接 parse
+    try:
+        json.loads(repaired)
+        return repaired
+    except json.JSONDecodeError:
+        pass
+    # 3) 尝试截断到最后一个 } 并补全
+    last_brace = repaired.rfind('}')
+    if last_brace > 0:
+        candidate = repaired[:last_brace + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _is_openai_format(base_url: str) -> bool:
+    """判断是否使用 OpenAI 兼容格式（url 中不含 'anthropic' 则视为 OpenAI 兼容）"""
+    return "anthropic" not in base_url.lower()
+
+
 def _create_client(api_key: str, base_url: str):
     """
     创建 Anthropic 客户端。
@@ -266,6 +323,12 @@ def _create_client(api_key: str, base_url: str):
     )
 
 
+def _create_openai_client(api_key: str, base_url: str):
+    """创建 OpenAI 兼容客户端（DeepSeek / OpenAI / 其他兼容服务）"""
+    from openai import AsyncOpenAI
+    return AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+
 def _extract_text(message) -> str:
     """从 Anthropic 响应中提取第一个文本 block 的内容。
 
@@ -278,26 +341,158 @@ def _extract_text(message) -> str:
     return ""
 
 
+# ============================================================
+# 图谱速读（轻量解读）—— 只抽知识图谱所需的 facet + 简短总结
+# ============================================================
+
+DIGEST_SYSTEM_PROMPT = """你是论文速读助手。请只为"知识图谱"抽取最关键的结构化信息，不要做完整精读。
+严格输出 JSON（不要任何额外文字、不要 markdown 代码块），字段如下：
+{
+  "summary": "2-3 句中文总结，说清这篇论文做了什么",
+  "one_sentence": "一句话核心贡献",
+  "problem": "它解决的核心问题 / 针对现有方法的什么局限",
+  "key_contributions": ["贡献点1", "贡献点2"],
+  "method": "方法/思路概述（1-3 句，说清技术路线）",
+  "datasets": ["论文里明确出现的数据集名称"],
+  "baselines": ["论文里明确对比的基线方法名称"]
+}
+要求：datasets/baselines 只填论文中明确出现的专有名称（如 ImageNet、ResNet-50），没有就给空数组；
+所有描述用中文，专有名词保留英文原名。"""
+
+
+async def _complete_once(client, use_openai: bool, model: str, system: str, user: str,
+                         *, max_tokens: int, temperature: float) -> str:
+    """非流式单次补全，返回纯文本（速读用，无需增量解析）。"""
+    if use_openai:
+        resp = await client.chat.completions.create(
+            model=model, max_tokens=max_tokens, temperature=temperature,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        )
+        return (resp.choices[0].message.content or "") if resp.choices else ""
+    resp = await client.messages.create(
+        model=model, max_tokens=max_tokens, temperature=temperature,
+        system=system, messages=[{"role": "user", "content": user}],
+    )
+    return _extract_text(resp)
+
+
+def _normalize_digest(data: dict, model: str) -> dict:
+    from datetime import datetime, timezone
+
+    def _s(x) -> str:
+        return str(x).strip() if x is not None else ""
+
+    def _lst(x) -> list[str]:
+        if isinstance(x, list):
+            return [_s(i) for i in x if _s(i)]
+        return [_s(x)] if _s(x) else []
+
+    return {
+        "summary": _s(data.get("summary")),
+        "one_sentence": _s(data.get("one_sentence")),
+        "problem": _s(data.get("problem")),
+        "key_contributions": _lst(data.get("key_contributions")),
+        "method": _s(data.get("method")),
+        "datasets": _lst(data.get("datasets")),
+        "baselines": _lst(data.get("baselines")),
+        "model": model,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def generate_graph_digest(pdf_text: str, api_key: str, base_url: str, model: str,
+                                *, title: str = "", temperature: float = 0.1,
+                                max_tokens: int = 1500) -> dict:
+    """图谱速读：一次非流式 LLM 调用，只抽知识图谱需要的 facet + 一段简短总结。
+
+    与全量精读（analyze_paper_stream）的区别：输入截断（头 8000 + 尾 1500 字符，摘要/引言/
+    方法多在前部、结论/实验在尾部），输出只有 7 个小字段，不生成大纲/逐图分析/代码映射/
+    面试问答——token 成本约为全量精读的 1/5~1/10。返回 _normalize_digest 后的 dict。
+    """
+    text = _sanitize_content(pdf_text or "")
+    head, tail = 8000, 1500
+    if len(text) > head + tail:
+        text = text[:head] + "\n...(中间略)...\n" + text[-tail:]
+    user = (f"论文标题: {title}\n\n" if title else "") + f"论文文本（可能已截断）:\n{text}"
+
+    use_openai = _is_openai_format(base_url)
+    delays = _build_retry_delays()
+    last_err: Exception | None = None
+    for attempt in range(MAX_RETRIES + 1):
+        client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
+        try:
+            raw = await _complete_once(client, use_openai, model, DIGEST_SYSTEM_PROMPT, user,
+                                       max_tokens=max_tokens, temperature=temperature)
+            payload = _extract_json_value(raw) or raw
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                repaired = _repair_json(payload)
+                if repaired is None:
+                    raise
+                logger.warning("digest JSON 修复成功（原始输出有格式问题）")
+                data = json.loads(repaired)
+            if not isinstance(data, dict):
+                raise ValueError("digest 返回不是 JSON 对象")
+            return _normalize_digest(data, model)
+        except Exception as e:
+            last_err = e
+            if _is_transient_error(e) and attempt < MAX_RETRIES:
+                logger.warning(f"digest transient error (attempt {attempt + 1}): {e}, retrying...")
+                await asyncio.sleep(delays[attempt])
+                continue
+            logger.error(f"generate_graph_digest failed: {e}")
+            raise
+        finally:
+            await client.close()
+    raise last_err  # pragma: no cover
+
+
+async def _get_text_stream(
+    client, use_openai: bool,
+    model: str, system: str, user_content: str,
+    temperature: float, max_tokens: int,
+) -> AsyncGenerator[str, None]:
+    """统一文本流抽象：Anthropic 和 OpenAI 格式均输出纯文本 chunk"""
+    if use_openai:
+        stream = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+    else:
+        async with client.messages.stream(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+            temperature=temperature,
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+
+
 async def analyze_paper_stream(
     pdf_text: str, api_key: str, base_url: str, model: str,
     temperature: float = 0.1, max_tokens: int = 16384,
     system_prompt: str | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
-    真流式调用 AI 分析论文（Anthropic SDK）。
+    真流式调用 AI 分析论文，自动适配 Anthropic 格式和 OpenAI 兼容格式。
 
-    使用 Anthropic SDK 的 messages.stream() API，
+    根据 base_url 自动判断格式：含 'anthropic' 用 Anthropic SDK，否则用 OpenAI 兼容 SDK。
     每收到一个 chunk 就尝试增量解析 JSON，已完成的字段立即 yield。
 
     借鉴 DeepTutor 的重试机制：对瞬态错误进行指数退避重试。
-
-    Args:
-        pdf_text: 论文全文文本
-        api_key: MiMo API Key
-        base_url: API 基础 URL（Anthropic 格式端点）
-        model: 模型名称
-        temperature: 生成温度
-        max_tokens: 最大输出 token 数
 
     Yields:
         StreamEvent: 流式事件，包含进度状态和解析字段
@@ -307,34 +502,28 @@ async def analyze_paper_stream(
     system = system_prompt or SYSTEM_PROMPT
     pdf_text = _sanitize_content(pdf_text)
     delays = _build_retry_delays()
+    use_openai = _is_openai_format(base_url)
 
     for attempt in range(MAX_RETRIES + 1):
-        client = _create_client(api_key, base_url)
+        client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
         try:
             accumulated = ""
             yielded_fields: set[str] = set()
 
-            async with client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": pdf_text}],
-                temperature=temperature,
-            ) as stream:
-                async for text_chunk in stream.text_stream:
-                    accumulated += text_chunk
+            async for text_chunk in _get_text_stream(client, use_openai, model, system, pdf_text, temperature, max_tokens):
+                accumulated += text_chunk
 
-                    # 尝试增量解析
-                    parsed = _try_parse_partial_json(accumulated)
-                    if parsed:
-                        for field_name in _TOP_LEVEL_FIELDS:
-                            if field_name in parsed and field_name not in yielded_fields:
-                                yielded_fields.add(field_name)
-                                yield StreamEvent(
-                                    event="field",
-                                    field_name=field_name,
-                                    data={"value": parsed[field_name]},
-                                )
+                # 尝试增量解析
+                parsed = _try_parse_partial_json(accumulated)
+                if parsed:
+                    for field_name in _TOP_LEVEL_FIELDS:
+                        if field_name in parsed and field_name not in yielded_fields:
+                            yielded_fields.add(field_name)
+                            yield StreamEvent(
+                                event="field",
+                                field_name=field_name,
+                                data={"value": parsed[field_name]},
+                            )
 
             # 流结束，确保所有字段都被 yield
             try:

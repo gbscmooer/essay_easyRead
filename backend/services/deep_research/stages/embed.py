@@ -8,7 +8,7 @@ from typing import AsyncIterator
 from ..embedder import embed_texts
 from ..vector_store import upsert_chunks, drop_workspace_collection
 
-BATCH = 32
+BATCH = 16
 
 
 async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIterator[int]:

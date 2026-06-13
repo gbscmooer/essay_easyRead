@@ -7,6 +7,7 @@ Analysis 路由
 import asyncio
 import logging
 import httpx
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -58,6 +59,9 @@ class ResearchConfig(BaseModel):
     email: str = ""
     api_key: str = ""
     similarity_threshold: float = 0.9
+    knn_k: int = 8                 # 图谱每节点最多保留的相似边数（之前会在保存时被丢，这里补回）
+    link_distance: int = 50        # 图谱节点边长基准
+    auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
 
 class RerankerConfig(BaseModel):
     enabled: bool = True
@@ -144,7 +148,7 @@ async def list_similarity_providers() -> dict:
 @router.post("/config")
 async def update_config(req: AppConfig) -> dict:
     """保存全部配置"""
-    from ..services.ai_config import save_config
+    from ..services.ai_config import save_config, merge_preserving_keys
     from ..services.ai_config import load_config as _load
     prior = _load()
     # similarity：保留 provider 之外的 provider-specific 子对象
@@ -162,6 +166,8 @@ async def update_config(req: AppConfig) -> dict:
         "arxiv_expand": req.arxiv_expand.model_dump(),
         "findpapers": req.findpapers.model_dump(),
     }
+    # 关键：前端回填的 api_key 可能是掩码占位（***xxxx），不能原样写回，否则会毁掉真 key
+    config = merge_preserving_keys(config, prior)
     save_config(config)
     return {"message": "配置已保存"}
 
@@ -285,6 +291,12 @@ class TestConnectionResponse(BaseModel):
 async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
     """测试 AI 模型服务是否可达"""
     import time
+    from ..services.ai_config import is_masked_key
+
+    # 表单回填的 api_key 可能是掩码占位（***xxxx）。掩码值不是真 key，置 None 让各 test
+    # 函数回退到盘上已保存的真实 key，否则会拿着 *** 去鉴权必然失败。
+    if req.api_key is not None and is_masked_key(req.api_key):
+        req.api_key = None
 
     if req.type in ("translate", "analysis"):
         return await _test_anthropic_connection(req)
@@ -295,9 +307,9 @@ async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
 
 
 async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnectionResponse:
-    """测试 Anthropic 兼容 API 连通性"""
+    """测试 LLM API 连通性（自动适配 Anthropic 格式和 OpenAI 兼容格式）"""
     import time
-    from ..services.ai_analyzer import _create_client
+    from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format
     from ..services.ai_config import get_translate_config, get_analysis_config
 
     if req.type == "translate":
@@ -318,22 +330,39 @@ async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnecti
 
     t0 = time.monotonic()
     try:
-        client = _create_client(api_key, base_url)
-        try:
-            message = await client.messages.create(
-                model=model,
-                max_tokens=5,
-                system="Reply with OK.",
-                messages=[{"role": "user", "content": "Hi"}],
-            )
-            latency = int((time.monotonic() - t0) * 1000)
-            return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
-        finally:
-            await client.close()
+        if _is_openai_format(base_url):
+            # OpenAI 兼容格式（DeepSeek / OpenAI 等）
+            client = _create_openai_client(api_key, base_url)
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    max_tokens=5,
+                    messages=[
+                        {"role": "system", "content": "Reply with OK."},
+                        {"role": "user", "content": "Hi"},
+                    ],
+                )
+                latency = int((time.monotonic() - t0) * 1000)
+                return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
+            finally:
+                await client.close()
+        else:
+            # Anthropic 格式
+            client = _create_client(api_key, base_url)
+            try:
+                await client.messages.create(
+                    model=model,
+                    max_tokens=5,
+                    system="Reply with OK.",
+                    messages=[{"role": "user", "content": "Hi"}],
+                )
+                latency = int((time.monotonic() - t0) * 1000)
+                return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
+            finally:
+                await client.close()
     except Exception as e:
         latency = int((time.monotonic() - t0) * 1000)
         err_msg = str(e)
-        # 截取关键错误信息，避免过长
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
         return TestConnectionResponse(ok=False, message=f"连接失败: {err_msg}", latency_ms=latency)
@@ -406,7 +435,6 @@ class TextActionResponse(BaseModel):
 @router.post("/text-action", response_model=TextActionResponse)
 async def text_action(req: TextActionRequest) -> TextActionResponse:
     """对选中文本进行翻译或 AI 总结"""
-    from ..services.ai_analyzer import _create_client
     from ..services.ai_config import get_translate_config, get_analysis_config
 
     if not req.text.strip():
@@ -433,22 +461,218 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
         raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
 
     try:
-        client = _create_client(api_key, base_url)
-        try:
-            message = await client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": req.text}],
-                temperature=temperature,
-            )
-            result = message.content[0].text.strip()
-            return TextActionResponse(result=result)
-        finally:
-            await client.close()
+        from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format, _extract_text
+        if _is_openai_format(base_url):
+            client = _create_openai_client(api_key, base_url)
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": req.text},
+                    ],
+                )
+                result = (resp.choices[0].message.content or "").strip()
+                return TextActionResponse(result=result)
+            finally:
+                await client.close()
+        else:
+            client = _create_client(api_key, base_url)
+            try:
+                message = await client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": req.text}],
+                    temperature=temperature,
+                )
+                result = _extract_text(message).strip()
+                return TextActionResponse(result=result)
+            finally:
+                await client.close()
     except Exception as e:
         logger.error(f"Text action failed: {e}")
         raise HTTPException(status_code=500, detail={"detail": f"处理失败: {str(e)}", "code": "INTERNAL_ERROR"})
+
+
+# ============================================================
+# POST /api/analysis/digest/... —— 图谱速读（轻量解读）
+# ============================================================
+class DigestBatchRequest(BaseModel):
+    workspace_id: int
+    force: bool = False        # True 则连已速读的也重做（已精读的始终跳过）
+    max_papers: int = 200      # 单次批量安全上限
+
+
+async def _run_digest(text: str, title: str, cfg: dict) -> dict:
+    from ..services.ai_analyzer import generate_graph_digest
+    return await generate_graph_digest(
+        text, cfg["api_key"], cfg.get("base_url", ""), cfg["model"], title=title,
+    )
+
+
+# 批量速读后台任务进度（按 workspace_id 记在内存）。单进程 uvicorn 足够；
+# 结果本身逐篇持久化到 Paper.graph_digest，故即使进程重启丢了进度，再点一次会
+# 自动跳过已速读的论文、从断点继续（断点续跑）。
+_DIGEST_JOBS: dict[int, dict] = {}
+
+
+def _digest_job_view(ws_id: int) -> dict:
+    """对外暴露的任务进度快照。"""
+    job = _DIGEST_JOBS.get(ws_id)
+    if not job:
+        return {"workspace_id": ws_id, "running": False, "total": 0,
+                "done": 0, "failed": 0, "skipped_no_text": 0, "last_error": None}
+    return {
+        "workspace_id": ws_id,
+        "running": job["running"],
+        "total": job["total"],
+        "done": job["done"],
+        "failed": job["failed"],
+        "skipped_no_text": job["skipped_no_text"],
+        "last_error": job["last_error"],
+    }
+
+
+async def _digest_worker(ws_id: int, todo: list[dict], cfg: dict) -> None:
+    """后台批量速读：逐篇调用 LLM 并**立即落盘**，是断点续跑的关键。"""
+    from ..models.paper import Paper
+
+    job = _DIGEST_JOBS[ws_id]
+    engine = get_engine()
+    sem = asyncio.Semaphore(4)   # 限并发，避免触发限流
+
+    async def _one(item: dict):
+        async with sem:
+            try:
+                d = await _run_digest(item["text"], item["title"], cfg)
+            except Exception as e:
+                logger.warning(f"digest batch: paper {item['id']} failed: {e}")
+                job["failed"] += 1
+                job["last_error"] = str(e)[:200]
+                return
+            # 逐篇立即持久化（独立短事务，不跨 await 持有 session）
+            try:
+                with Session(engine) as session:
+                    p = session.get(Paper, item["id"])
+                    if p:
+                        p.graph_digest = d
+                        p.updated_at = datetime.now(timezone.utc)
+                        session.add(p)
+                        session.commit()
+                job["done"] += 1
+            except Exception as e:
+                logger.warning(f"digest batch: persist paper {item['id']} failed: {e}")
+                job["failed"] += 1
+                job["last_error"] = str(e)[:200]
+
+    try:
+        await asyncio.gather(*[_one(it) for it in todo])
+    finally:
+        job["running"] = False
+
+
+@router.post("/digest/batch")
+async def digest_batch(req: DigestBatchRequest) -> dict:
+    """批量「图谱速读」一个工作区里所有未解读的论文（精读优先，已精读跳过）。
+
+    只抽知识图谱需要的 facet + 简短总结，token 成本远低于全量精读。后台异步执行、
+    逐篇立即落盘，可断点续跑；前端轮询 GET /digest/status/{ws} 看进度。速读完成后
+    需重新构建图谱（前端触发）才会让新 facet 关系生效。
+    """
+    from sqlmodel import select
+    from ..services.ai_config import get_analysis_config
+    from ..models.workspace import WorkspacePaper
+    from ..models.paper import Paper
+    from ..models.analysis import AnalysisResult
+
+    cfg = get_analysis_config()
+    if not cfg.get("api_key"):
+        raise HTTPException(status_code=400, detail={"detail": "请先在设置页配置解读模型的 API Key", "code": "NO_API_KEY"})
+
+    # 已有任务在跑：直接回传当前进度，不重复启动
+    existing = _DIGEST_JOBS.get(req.workspace_id)
+    if existing and existing["running"]:
+        return {"started": False, "already_running": True, **_digest_job_view(req.workspace_id)}
+
+    engine = get_engine()
+    with Session(engine) as session:
+        papers = session.exec(
+            select(Paper).join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
+            .where(WorkspacePaper.workspace_id == req.workspace_id)
+        ).all()
+        if not papers:
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在或没有论文", "code": "NOT_FOUND"})
+        pids = [p.id for p in papers]
+        analyzed = set(session.exec(
+            select(AnalysisResult.paper_id).where(AnalysisResult.paper_id.in_(pids))
+        ).all())
+        todo, no_text = [], 0
+        for p in papers:
+            if p.id in analyzed:
+                continue                                  # 已精读
+            if p.graph_digest and not req.force:
+                continue                                  # 已速读
+            if not (p.full_text or "").strip():
+                no_text += 1                              # 没全文，无法速读
+                continue
+            todo.append({"id": p.id, "text": p.full_text, "title": p.title or p.filename or ""})
+
+    todo = todo[:max(0, req.max_papers)]
+    if not todo:
+        return {"workspace_id": req.workspace_id, "started": False, "candidates": 0,
+                "total": 0, "skipped_no_text": no_text}
+
+    _DIGEST_JOBS[req.workspace_id] = {
+        "running": True, "total": len(todo), "done": 0, "failed": 0,
+        "skipped_no_text": no_text, "last_error": None,
+    }
+    asyncio.create_task(_digest_worker(req.workspace_id, todo, cfg))
+    return {"workspace_id": req.workspace_id, "started": True, "candidates": len(todo),
+            "total": len(todo), "skipped_no_text": no_text}
+
+
+@router.get("/digest/status/{workspace_id}")
+async def digest_status(workspace_id: int) -> dict:
+    """查询某工作区批量速读的实时进度（前端轮询）。"""
+    return _digest_job_view(workspace_id)
+
+
+@router.post("/digest/{paper_id}")
+async def digest_paper(paper_id: int) -> dict:
+    """单篇「图谱速读」。"""
+    from ..services.ai_config import get_analysis_config
+    from ..models.paper import Paper
+
+    cfg = get_analysis_config()
+    if not cfg.get("api_key"):
+        raise HTTPException(status_code=400, detail={"detail": "请先在设置页配置解读模型的 API Key", "code": "NO_API_KEY"})
+
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            paper = get_paper(session, paper_id)
+        except Exception:
+            raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
+        text = paper.full_text or ""
+        title = paper.title or paper.filename or ""
+    if not text.strip():
+        raise HTTPException(status_code=400, detail={"detail": "该论文没有可用全文（未提取/未下载 PDF），无法速读", "code": "NO_TEXT"})
+
+    try:
+        digest = await _run_digest(text, title, cfg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"detail": f"速读失败: {e}", "code": "DIGEST_FAILED"})
+
+    with Session(engine) as session:
+        p = session.get(Paper, paper_id)
+        p.graph_digest = digest
+        p.updated_at = datetime.now(timezone.utc)
+        session.add(p)
+        session.commit()
+    return {"paper_id": paper_id, "digest": digest}
 
 
 # ============================================================

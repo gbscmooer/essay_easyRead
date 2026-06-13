@@ -20,7 +20,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from .config import settings
-from .services.database import init_db
+from .services.database import init_db, reconcile_interrupted_runs
 from .routers.papers import router as papers_router
 from .routers.analysis import router as analysis_router
 from .routers.code import router as code_router
@@ -61,6 +61,14 @@ async def lifespan(app: FastAPI):
     # 初始化数据库
     init_db(db_url)
     logger.info("数据库初始化完成")
+
+    # 启动自愈：重置上次被杀时残留的 running 研究任务（否则 UI 永久卡「运行中」）
+    try:
+        n = reconcile_interrupted_runs()
+        if n:
+            logger.warning(f"已将 {n} 个中断的研究任务标记为失败（上次后端非正常退出残留）")
+    except Exception as e:
+        logger.warning(f"重置中断研究任务失败（忽略）: {e}")
 
     # 存量论文自动索引补跑（全文 + 元数据），后台进行不阻塞启动
     import asyncio

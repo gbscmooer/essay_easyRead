@@ -245,6 +245,24 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
           <span>0.95 严格</span>
         </div>
       </div>
+
+      <div className="pt-3 border-t border-gray-800">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.research.auto_digest ?? true}
+            onChange={e => setConfig(prev => ({ ...prev, research: { ...prev.research, auto_digest: e.target.checked } }))}
+            className="mt-0.5 accent-blue-500"
+          />
+          <span>
+            <span className="text-xs font-medium text-gray-300">深度研究时自动「图谱速读」未解读论文</span>
+            <p className="text-[10px] text-gray-500 mt-0.5">
+              开启后，每次深度研究在构建图谱前会对未精读的论文做一次轻量速读（只抽研究目的/方法/数据集/基线 + 简短总结），
+              让它们也获得可解释的图谱关系。会消耗少量 LLM Token（约为全量精读的 1/5~1/10）。关闭则只能手动点「速读未解读论文」。
+            </p>
+          </span>
+        </label>
+      </div>
     </div>
   )
 }
@@ -371,8 +389,9 @@ export function SimilaritySection({ config, setConfig, simProviders }: SectionPr
           ))}
         </select>
         <p className="text-[10px] text-gray-600 mt-1">
-          当前默认 <code className="px-1 rounded bg-gray-800">bge_centroid</code>：复用 BGE chunk 向量取归一化均值后算余弦。
-          适合粗略相似度；细分方向区分有限。
+          当前默认 <code className="px-1 rounded bg-gray-800">unified</code>：给<b>每篇</b>论文挑最佳主题向量（ChromaDB 质心 &gt; title/abstract embedding），
+          全量连成研究地图；已解读论文对再挂可解释的 facet 分解。去噪用<b>互近邻</b>（mutual-kNN）。
+          <code className="px-1 rounded bg-gray-800">bge_centroid</code> 等旧法保留可切换对比。
         </p>
         <div className="mt-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/50">
           <p className="text-[11px] text-gray-400 leading-relaxed">

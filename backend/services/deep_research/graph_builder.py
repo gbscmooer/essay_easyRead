@@ -14,9 +14,9 @@ Graph Builder — 知识图谱构建
 
 import logging
 import re
-from collections import defaultdict
 from .similarity import get_similarity_provider
 from .graph_analytics import annotate_graph
+from .graphkit import denoise_knn
 from ..ai_config import get_similarity_config
 
 logger = logging.getLogger(__name__)
@@ -55,32 +55,18 @@ def _match_contexts_to_paper(contexts: list[dict], target_paper) -> list[dict]:
     return matched[:20]
 
 
-def _sparsify_knn(pairs: list[tuple[int, int, float]], knn_k: int, floor: float):
-    """kNN 稀疏化：每个节点只保留分数最高的 knn_k 条相似边（取并集）。
+def _sparsify_knn(pairs: list[tuple[int, int, float]], knn_k: int, floor: float, *, mutual: bool = True):
+    """kNN 稀疏化：委托 graphkit.denoise_knn。
 
-    这是解决"绝对阈值失效→图谱变全连接毛球"的核心：不再用一刀切的阈值，
-    而是让每篇论文只连它最像的 K 篇。返回去重后的 (a, b, score)，a < b。
+    默认 mutual=True（互近邻）——边只在双方都把对方选进 top-k 时成立，这是去"毛球"
+    的核心，比旧的 union-kNN 干净得多，并对度为 0 的节点补一条最强边避免孤立点。
+    mutual=False 可复现旧 union-kNN 行为（与旧 provider 对比时用）。
     """
-    if knn_k <= 0:
-        return [(a, b, s) for a, b, s in pairs if s >= floor]
-    nbr: dict[int, list[tuple[int, float]]] = defaultdict(list)
-    score_of: dict[tuple[int, int], float] = {}
-    for a, b, s in pairs:
-        if s < floor:
-            continue
-        key = (min(a, b), max(a, b))
-        score_of[key] = s
-        nbr[a].append((b, s))
-        nbr[b].append((a, s))
-    keep: set[tuple[int, int]] = set()
-    for node, lst in nbr.items():
-        lst.sort(key=lambda x: x[1], reverse=True)
-        for other, _ in lst[:knn_k]:
-            keep.add((min(node, other), max(node, other)))
-    return [(a, b, score_of[(a, b)]) for (a, b) in keep]
+    return denoise_knn(pairs, k=knn_k, mutual=mutual, min_sim=floor, connect_isolated=mutual)
 
 
 def _paper_node(p) -> dict:
+    digest = getattr(p, "graph_digest", None) or None
     return {
         "id": f"paper:{p.id}",
         "kind": "paper",
@@ -92,6 +78,10 @@ def _paper_node(p) -> dict:
             "source": p.source,
             "status": p.status,
             "external_id": p.external_id,
+            # 解读层级：full=全量精读 / digest=图谱速读 / none=未解读
+            "read_level": "full" if p.status == "done" else ("digest" if digest else "none"),
+            # 速读总结（供节点详情展示，未速读为 None）
+            "summary": digest.get("summary") if digest else None,
         },
     }
 
@@ -167,5 +157,6 @@ async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable
         },
         "clusters": analytics["clusters"],
         "top_papers": analytics["top_papers"],
+        "modularity": analytics.get("modularity", 0.0),
     }
     return {"nodes": nodes, "edges": edges, "stats": stats}

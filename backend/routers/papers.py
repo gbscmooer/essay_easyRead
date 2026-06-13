@@ -139,6 +139,16 @@ async def get_papers_list(
             date_added=date_added, page=page, per_page=per_page, source=source,
         )
 
+    # 批量查出有全量精读结果的论文 ID（用于 read_level 判断）
+    from ..models.analysis import AnalysisResult
+    pids = [p["id"] for p in papers]
+    analyzed_ids: set[int] = set()
+    if pids:
+        with Session(engine) as session:
+            analyzed_ids = set(
+                session.exec(select(AnalysisResult.paper_id).where(AnalysisResult.paper_id.in_(pids))).all()
+            )
+
     paper_responses = [
         PaperResponse(
             id=p["id"],
@@ -155,6 +165,7 @@ async def get_papers_list(
             code_status=p.get("code_status", "none"),
             source=p.get("source", "uploaded"),
             level=p.get("level", 1),
+            read_level="full" if p["id"] in analyzed_ids else ("digest" if p.get("graph_digest") else "none"),
             created_at=p["created_at"],
             updated_at=p["updated_at"],
         )

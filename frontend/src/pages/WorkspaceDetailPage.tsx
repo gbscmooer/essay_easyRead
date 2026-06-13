@@ -217,9 +217,22 @@ export default function WorkspaceDetailPage() {
             </button>
           </div>
         )}
-        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-          {l1Papers.length} 篇本地论文
-          {discoveredPapers.length > 0 && ` · ${discoveredPapers.length} 篇深度研究发现`}
+        <p className="text-sm mt-1 flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
+          <span>
+            {l1Papers.length} 篇本地论文
+            {discoveredPapers.length > 0 && ` · ${discoveredPapers.length} 篇深度研究发现`}
+          </span>
+          {workspace.papers.length > 0 && (
+            workspace.papers.filter(p => !p.read_level || p.read_level === 'none').length === 0 ? (
+              <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/20" style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' }}>
+                ✓ 已全部速读
+              </span>
+            ) : (
+              <span className="text-xs px-1.5 py-0.5 rounded border border-amber-500/20" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+                还有 {workspace.papers.filter(p => !p.read_level || p.read_level === 'none').length} 篇未速读
+              </span>
+            )
+          )}
         </p>
       </div>
 

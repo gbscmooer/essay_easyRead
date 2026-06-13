@@ -25,6 +25,7 @@ export interface Paper {
   code_status: 'none' | 'cloning' | 'ready' | 'failed'
   source?: 'uploaded' | 'expanded'
   level?: number   // 1=用户手动加；2+=联网扩展
+  read_level?: 'full' | 'digest' | 'none'  // 解读层级：已精读 / 已速读 / 未解读
   created_at: string  // ISO 8601
   updated_at: string
 }
@@ -272,6 +273,10 @@ export interface GraphNode {
     importance?: number        // PageRank 归一化 [0,1]，标识关键论文
     cluster?: number           // Louvain 社区编号（-1 为孤立点）
     cluster_label?: string     // 研究子方向标题（簇内最重要论文标题）
+    foundational?: number      // 有向引用 PageRank [0,1]，奠基性
+    centrality?: number        // 语义图加权 PageRank [0,1]，主题枢纽性
+    read_level?: 'full' | 'digest' | 'none'  // 解读层级：全量精读 / 图谱速读 / 未解读
+    summary?: string | null    // 图谱速读的简短总结
   }
 }
 

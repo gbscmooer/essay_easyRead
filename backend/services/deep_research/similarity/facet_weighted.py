@@ -88,19 +88,36 @@ class FacetWeightedProvider:
         self.use_embedding = use_embedding
         self.details: dict[tuple[int, int], dict] = {}
 
-    def _load_facets(self, paper_ids: list[int]) -> dict[int, dict]:
-        """从 AnalysisResult 读取每篇论文的 facet 文本/列表；无解读结果的论文不在返回里。"""
+    def _load_facets(self, papers: list) -> dict[int, dict]:
+        """从 AnalysisResult 读取每篇论文的 facet 文本/列表；如果无解读结果，回退使用 graph_digest 速读结果。"""
         facets: dict[int, dict] = {}
+        pids = [p.id for p in papers]
         with Session(_get_engine()) as s:
-            rows = s.exec(select(AnalysisResult).where(AnalysisResult.paper_id.in_(paper_ids))).all()
-        for r in rows:
-            method = r.method or {}
-            exp = r.experiments or {}
-            purpose_text = " ".join(filter(None, [r.problem, r.one_sentence, *(r.key_contributions or [])]))
-            method_text = " ".join(filter(None, [method.get("overview", ""), method.get("pipeline", "")]))
-            datasets = [d for d in (exp.get("datasets") or []) if str(d).strip()]
-            baselines = [b for b in (exp.get("baselines") or []) if str(b).strip()]
-            facets[r.paper_id] = {
+            analyses = {a.paper_id: a for a in s.exec(select(AnalysisResult).where(AnalysisResult.paper_id.in_(pids))).all()}
+            
+        for p in papers:
+            a = analyses.get(p.id)
+            digest = getattr(p, "graph_digest", None)
+            
+            if a is not None:
+                method = a.method or {}
+                exp = a.experiments or {}
+                purpose_text = " ".join(filter(None, [a.problem, a.one_sentence, *(a.key_contributions or [])]))
+                method_text = " ".join(filter(None, [method.get("overview", ""), method.get("pipeline", "")]))
+                datasets = [d for d in (exp.get("datasets") or []) if str(d).strip()]
+                baselines = [b for b in (exp.get("baselines") or []) if str(b).strip()]
+            elif digest:
+                purpose_text = " ".join(filter(None, [
+                    digest.get("problem", ""), digest.get("one_sentence", ""),
+                    *(digest.get("key_contributions") or []),
+                ]))
+                method_text = digest.get("method", "") or ""
+                datasets = [d for d in (digest.get("datasets") or []) if str(d).strip()]
+                baselines = [b for b in (digest.get("baselines") or []) if str(b).strip()]
+            else:
+                continue
+                
+            facets[p.id] = {
                 "purpose": purpose_text,
                 "method": method_text,
                 "datasets": datasets,
@@ -135,7 +152,7 @@ class FacetWeightedProvider:
     async def score_pairs(self, papers: list, *, ws_id: int) -> list[tuple[int, int, float]]:
         self.details = {}
         pids = [p.id for p in papers]
-        facets = self._load_facets(pids)
+        facets = self._load_facets(papers)
         usable = [pid for pid in pids if pid in facets]
         if len(usable) < 2:
             logger.warning(f"facet_weighted: 只有 {len(usable)} 篇论文有解读结果，无法计算 facet 相似度")

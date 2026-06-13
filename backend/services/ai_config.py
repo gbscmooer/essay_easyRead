@@ -62,6 +62,7 @@ DEFAULT_CONFIG = {
         "similarity_threshold": 0.9,  # 图谱相似边阈值（已弃用，相似边改用 kNN 稀疏化）
         "knn_k": 8,                   # 每篇论文最多保留 K 条最相似的边（控制图谱稀密）
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
+        "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
     },
     "reranker": {
         "enabled": True,
@@ -74,9 +75,20 @@ DEFAULT_CONFIG = {
     },
     "similarity": {
         # 论文级相似度计算 provider，对应 backend/services/deep_research/similarity/REGISTRY
-        # 可选：bge_centroid（默认）/ bibcoupling / hybrid / facet_weighted
-        "provider": "bge_centroid",
+        # 可选：unified（默认）/ bge_centroid / bibcoupling / hybrid / facet_weighted
+        "provider": "unified",
         # 每个 provider 的私有配置写在与 name 同名的子对象里：
+        # unified：给每篇论文挑最佳主题向量（ChromaDB 质心 > title/abstract embedding），
+        #   全量连接成研究地图；已解读论文对再挂可解释 facet 分解 detail。
+        #   去噪用互近邻（graph_builder 统一负责），weights 透传给 facet 分解。
+        "unified": {
+            "weights": {
+                "purpose": 0.5,    # 研究目的
+                "method": 0.2,     # 方法
+                "baseline": 0.15,  # 对比基线
+                "dataset": 0.05,   # 数据集
+            },
+        },
         # facet_weighted：可解释的多维度相似度，权重会自动归一化到 1
         "facet_weighted": {
             "weights": {
@@ -136,6 +148,31 @@ def mask_config(config: dict) -> dict:
         if isinstance(section, dict) and "api_key" in section:
             section["api_key"] = _mask_api_key(section["api_key"])
     return masked
+
+
+def is_masked_key(value: str) -> bool:
+    """判断一个 api_key 是否是掩码占位（GET /config 回显的 ***xxxx），而非真实 key。
+
+    前端表单回填的就是掩码值；若原样保存/拿去测试会毁掉真 key、导致鉴权失败。
+    """
+    if not value:
+        return False
+    if value.startswith("***"):
+        return True
+    return set(value) == {"*"}    # 短 key 被掩成全 *
+
+
+def merge_preserving_keys(new_config: dict, prior_config: dict) -> dict:
+    """保存配置时，若某段 api_key 是掩码占位，则保留盘上原有真实 key。
+
+    这样前端「只改了别的设置、api_key 字段还是回显的 ***xxxx」时不会把真 key 覆盖掉。
+    用户确实想清空 key 时会传空串（不是掩码），照常清空。
+    """
+    out = copy.deepcopy(new_config)
+    for name, section in out.items():
+        if isinstance(section, dict) and "api_key" in section and is_masked_key(section.get("api_key", "")):
+            section["api_key"] = (prior_config.get(name) or {}).get("api_key", "")
+    return out
 
 
 def load_config() -> dict:

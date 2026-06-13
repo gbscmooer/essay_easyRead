@@ -63,9 +63,27 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
 
     对瞬时网络抖动（ConnectError/TimeoutException）和 5xx 做指数退避重试，
     避免一次短暂断网就让整个深度研究 run 失败。
+    批量 400 时自动降级为逐条发送，跳过不合法的单条输入。
     """
     if not cfg.get("api_key"):
         raise RuntimeError(f"{cfg['provider']} embedding 需要在配置中填写 api_key")
+
+    # 截断过长输入：远程 embedding 模型普遍有 max token 限制（如 bge-large-en-v1.5 仅 512
+    # token），超长会被服务端直接拒为 400（SiliconFlow code 20015）。按字符保守截断（默认
+    # 500 ≈ <512 token for both EN/ZH），可在 embedding 配置里加 max_input_chars 覆盖。
+    # 空串也可能触发 400，置为单空格兜底。
+    # 本地 sentence-transformers 会自行截断，故只在远程路径处理。
+    max_chars = int(cfg.get("max_input_chars") or 500)
+    safe_texts, n_trunc = [], 0
+    for t in texts:
+        t = t or ""
+        if len(t) > max_chars:
+            t = t[:max_chars]
+            n_trunc += 1
+        safe_texts.append(t if t.strip() else " ")
+    if n_trunc:
+        logger.info(f"embedding: 已将 {n_trunc}/{len(texts)} 条超长输入截断到 {max_chars} 字符以内（避免 400）")
+
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
@@ -73,7 +91,7 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
                 r = await client.post(
                     f"{cfg['base_url'].rstrip('/')}/embeddings",
                     headers={"Authorization": f"Bearer {cfg['api_key']}"},
-                    json={"model": cfg["model"], "input": texts},
+                    json={"model": cfg["model"], "input": safe_texts},
                 )
                 r.raise_for_status()
                 data = r.json()["data"]
@@ -81,15 +99,65 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
             last_err = e
         except httpx.HTTPStatusError as e:
-            # 4xx（鉴权/参数错误）不重试；仅 5xx 服务端错误重试
+            if e.response.status_code == 400 and len(safe_texts) > 1:
+                # 批量 400：可能是某条文本导致，降级为逐条发送
+                logger.warning(
+                    f"embedding batch 400 ({e.response.text[:200]})，降级为逐条发送 {len(safe_texts)} 条"
+                )
+                return await _embed_one_by_one(safe_texts, cfg)
+            # 其他 4xx（鉴权/参数错误）不重试；仅 5xx 服务端错误重试
             if e.response.status_code < 500:
+                logger.error(
+                    f"embedding API {e.response.status_code}: {e.response.text[:500]}"
+                )
                 raise
             last_err = e
         if attempt < max_retries - 1:
-            delay = 2 ** attempt  # 1s, 2s, 4s
+            # SSL/代理瞬态错误用更长的等待（给代理恢复时间）
+            is_ssl = "ssl" in str(last_err).lower() or "certificate" in str(last_err).lower()
+            delay = (3 + attempt * 2) if is_ssl else 2 ** attempt  # SSL: 3s,5s,7s,9s; 其他: 1s,2s,4s,8s
             logger.warning(
-                f"embedding 请求失败（{type(last_err).__name__}），{delay}s 后重试 "
+                f"embedding 请求失败（{type(last_err).__name__}: "
+                f"{str(last_err)[:120]}），{delay}s 后重试 "
                 f"({attempt + 1}/{max_retries})"
             )
             await asyncio.sleep(delay)
     raise last_err  # type: ignore[misc]
+
+
+async def _embed_one_by_one(texts: list[str], cfg) -> list[list[float]]:
+    """逐条发送 embedding 请求（批量 400 降级路径）。
+
+    单条仍然 400 的文本用零向量占位并 warning，避免整批失败。
+    """
+    results: list[list[float]] = []
+    dim: int | None = None
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for i, t in enumerate(texts):
+            try:
+                r = await client.post(
+                    f"{cfg['base_url'].rstrip('/')}/embeddings",
+                    headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                    json={"model": cfg["model"], "input": [t]},
+                )
+                r.raise_for_status()
+                vec = r.json()["data"][0]["embedding"]
+                if dim is None:
+                    dim = len(vec)
+                results.append(vec)
+            except Exception as e:
+                logger.warning(f"embedding 单条 #{i} 失败（{e}），用零向量占位")
+                if dim is None:
+                    # 还没拿到维度，先尝试一条空格拿维度
+                    try:
+                        r2 = await client.post(
+                            f"{cfg['base_url'].rstrip('/')}/embeddings",
+                            headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                            json={"model": cfg["model"], "input": [" "]},
+                        )
+                        r2.raise_for_status()
+                        dim = len(r2.json()["data"][0]["embedding"])
+                    except Exception:
+                        dim = 1024  # bge-large-en-v1.5 默认维度
+                results.append([0.0] * dim)
+    return results

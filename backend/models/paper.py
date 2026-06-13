@@ -7,8 +7,8 @@ SQLModel 模型，映射到 SQLite 的 papers 表。
 
 from datetime import datetime, timezone
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from sqlalchemy import Index
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy import Index, JSON
 
 
 class Paper(SQLModel, table=True):
@@ -61,6 +61,12 @@ class Paper(SQLModel, table=True):
     level: int = 1                         # 1 = 用户手动加入工作区; 2 = 联网扩展下载; 3+ = 多跳扩展
     parent_paper_id: Optional[int] = None  # 仅 expanded：seed 论文 id
     external_id: Optional[str] = None      # S2 paperId 或 arXivId，用于去重
+
+    # 图谱速读（轻量解读）：独立于全量 AnalysisResult 的精读，只抽知识图谱所需的 facet
+    # + 一段简短总结，token 成本远低于全量分析。结构见 ai_analyzer.generate_graph_digest：
+    # {summary, one_sentence, problem, key_contributions[], method, datasets[], baselines[], model, created_at}
+    # 图谱 facet 关系优先用全量 AnalysisResult，没有就回退用本字段（见 similarity/unified.py）。
+    graph_digest: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # 时间戳 — 在 database.py 的 CRUD 中手动设置
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

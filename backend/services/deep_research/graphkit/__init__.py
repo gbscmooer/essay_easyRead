@@ -19,5 +19,12 @@ graphkit — 论文图谱算法的纯净核心（decoupled）
 from .features import PaperFeatures
 from .engine import FacetEngine
 from .facets import build_default_facets, FACET_REGISTRY
+from .vectors import build_topic_vectors, cosine_pairs
+from .knn import denoise_knn, local_scaling_affinity
+from .graph import build_unified_graph
 
-__all__ = ["PaperFeatures", "FacetEngine", "build_default_facets", "FACET_REGISTRY"]
+__all__ = [
+    "PaperFeatures", "FacetEngine", "build_default_facets", "FACET_REGISTRY",
+    "build_topic_vectors", "cosine_pairs", "denoise_knn", "local_scaling_affinity",
+    "build_unified_graph",
+]

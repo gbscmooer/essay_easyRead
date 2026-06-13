@@ -191,7 +191,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     ctx.fill()
     // 边框：上传=白，扩展=琥珀；importance 高则描边更粗，进一步突出关键论文
     ctx.strokeStyle = node.meta?.source === 'expanded' ? expandedStrokeColorRef.current : strokeColorRef.current
-    ctx.lineWidth = (importance > 0.6 ? 2.5 : 1.5) / globalScale
+    ctx.lineWidth = (importance > 0.6 ? 4.0 : 2.5) / globalScale
     ctx.stroke()
 
     // 文字（缩放过小时隐藏，避免过密）
@@ -334,19 +334,19 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       </div>
 
       {/* 图例 */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
-          <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" />
+      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
+          <span className="w-3.5 h-3.5 rounded-full bg-gray-400 inline-block" />
           大小 = 影响力
         </span>
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'conic-gradient(#3b82f6,#10b981,#f59e0b,#8b5cf6)' }} />
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full inline-block" style={{ background: 'conic-gradient(#3b82f6,#10b981,#f59e0b,#8b5cf6)' }} />
           颜色 = 研究子方向
         </span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block border-2 border-amber-500" />扩展论文</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-px bg-red-500 inline-block" />引用</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-px bg-blue-500 inline-block" />相似</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full inline-block border-[3px] border-amber-500" />扩展论文</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-1 bg-red-500 inline-block rounded-full" />引用</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-1 bg-blue-500 inline-block rounded-full" />相似</span>
       </div>
     </div>
   )

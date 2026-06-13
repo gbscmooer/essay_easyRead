@@ -102,6 +102,7 @@ def _migrate_schema(engine) -> None:
             ("full_text", "TEXT"),
             ("index_status", "TEXT DEFAULT 'none'"),
             ("category", "TEXT"),
+            ("graph_digest", "JSON"),
         ]
         for col_name, col_def in paper_migrations:
             _validate_column_name(col_name)
@@ -181,6 +182,41 @@ def init_db(database_url: str) -> None:
 
     # 简易迁移：为已有表添加新列
     _migrate_schema(engine)
+
+
+def reconcile_interrupted_runs(engine=None) -> int:
+    """启动自愈：把上次进程被杀时残留为 running 的研究任务标记为 failed。
+
+    进程刚启动，内存里不可能有真正在跑的 pipeline 任务（后台任务随进程一起死了）；
+    任何仍是 running 的 ResearchRun 都是上次异常退出（kill / 崩溃 / 重启）留下的孤儿。
+    不重置的话：①前端 getLatestRun 会一直把 UI 锁成「运行中」且无进度；
+    ②create_run 会因「已有运行中任务」永远返回 409，连新任务都发不起。
+
+    Returns:
+        int: 被重置的孤儿 run 数量
+    """
+    if engine is None:
+        engine = get_engine()
+    now = datetime.now(timezone.utc)
+    # 用 Core 批量 UPDATE（而非逐个 ORM flush）：单条 SQL，且不触发 FK 依赖排序，
+    # 即使在「未 import 全部模型」的孤立调用下也能安全执行。
+    from sqlalchemy import update as _sa_update
+    with Session(engine) as session:
+        ids = session.exec(
+            select(ResearchRun.id).where(ResearchRun.status == "running")
+        ).all()
+        if ids:
+            session.exec(
+                _sa_update(ResearchRun)
+                .where(ResearchRun.status == "running")
+                .values(
+                    status="failed",
+                    error_message="后端重启导致任务中断（启动时自动标记为失败）",
+                    updated_at=now,
+                )
+            )
+            session.commit()
+        return len(ids)
 
 
 def create_paper(session: Session, filename: str, pdf_path: str, file_size: int) -> int:
@@ -391,7 +427,7 @@ def list_papers(
         Paper.id, Paper.filename, Paper.title, Paper.authors, Paper.venue,
         Paper.year, Paper.category, Paper.status, Paper.index_status,
         Paper.error_message, Paper.code_url, Paper.code_status, Paper.source,
-        Paper.level, Paper.created_at, Paper.updated_at,
+        Paper.level, Paper.created_at, Paper.updated_at, Paper.graph_digest,
     )
 
     # source 过滤
@@ -436,6 +472,7 @@ def list_papers(
             "level": row.level,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
+            "graph_digest": row.graph_digest,
         }
         for row in rows
     ]

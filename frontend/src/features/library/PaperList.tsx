@@ -350,6 +350,16 @@ export const PaperList = memo(function PaperList({
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
+                  {paper.read_level === 'full' && (
+                    <span className="px-2 py-0.5 text-[10px] rounded-full" style={{ color: '#6366f1', border: '1px solid #6366f1' }}>
+                      已精读
+                    </span>
+                  )}
+                  {paper.read_level === 'digest' && (
+                    <span className="px-2 py-0.5 text-[10px] rounded-full" style={{ color: '#10b981', border: '1px solid #10b981' }}>
+                      已速读
+                    </span>
+                  )}
                   <span className="px-2.5 py-0.5 text-xs rounded-full" style={{ backgroundColor: statusBg, color: statusColor }}>
                     {statusText}
                   </span>

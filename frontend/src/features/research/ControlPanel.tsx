@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get, post } from '@/api/client'
+import { digestBatch, digestStatus } from '@/api/research'
 import { toast } from '@/hooks/useToast'
 import { Tooltip } from '@/components/Tooltip'
 
@@ -23,6 +24,12 @@ const STATUS_LABEL: Record<string, string> = {
   analyzing:  '分析中',
 }
 
+// 解读层级标记（持久化，源自后端 read_level）。仅对已解读的论文显示徽章。
+const READ_BADGE: Record<string, { text: string; color: string }> = {
+  full:   { text: '已精读', color: 'var(--accent)' },
+  digest: { text: '已速读', color: '#10b981' },
+}
+
 export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, onLinkDistanceChange }: ControlPanelProps) {
   const [mode, setMode] = useState<ResearchMode>('local')
   const [topK, setTopK] = useState(5)
@@ -30,26 +37,78 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [knnK, setKnnK] = useState(8)
+  const [digesting, setDigesting] = useState(false)
+  const [digestProgress, setDigestProgress] = useState<{ done: number; total: number } | null>(null)
   const [includeExpanded, setIncludeExpanded] = useState(true)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
   const [expandedCount, setExpandedCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [showPicker, setShowPicker] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
-  useEffect(() => {
-    getWorkspace(wsId)
-      .then(ws => {
-        const l1 = ws.papers.filter(p => (p.level ?? 1) === 1)
-        const l2plus = ws.papers.filter(p => (p.level ?? 1) >= 2)
-        setPapers(l1)
-        setExpandedCount(l2plus.length)
-        const usable = new Set(
+  // 加载工作区论文（含解读层级标记 read_level）。速读完成后复用以刷新标记。
+  const loadPapers = useCallback(async (resetSelection = false) => {
+    try {
+      const ws = await getWorkspace(wsId)
+      if (!mounted.current) return
+      const l1 = ws.papers.filter(p => (p.level ?? 1) === 1)
+      const l2plus = ws.papers.filter(p => (p.level ?? 1) >= 2)
+      setPapers(l1)
+      setExpandedCount(l2plus.length)
+      if (resetSelection) {
+        setSelectedIds(new Set(
           l1.filter(p => p.status === 'done' || p.status === 'indexed' || p.status === 'pending').map(p => p.id)
-        )
-        setSelectedIds(usable)
-      })
-      .catch(() => { toast({ type: 'error', message: '加载工作区论文失败' }) })
+        ))
+      }
+    } catch {
+      if (mounted.current) toast({ type: 'error', message: '加载工作区论文失败' })
+    }
+  }, [wsId])
+
+  useEffect(() => { loadPapers(true) }, [loadPapers])
+
+  // 轮询后台批量速读进度，直到结束；结束后刷新论文「已速读」标记
+  const pollDigest = useCallback(() => {
+    const tick = async () => {
+      if (!mounted.current) return
+      try {
+        const s = await digestStatus(wsId)
+        if (!mounted.current) return
+        setDigestProgress({ done: s.done, total: s.total })
+        if (s.running) { setTimeout(tick, 1500); return }
+        // 完成
+        setDigesting(false)
+        setDigestProgress(null)
+        if (s.done > 0 || s.failed > 0) {
+          toast({
+            type: s.failed && !s.done ? 'error' : 'success',
+            message: `速读完成：${s.done} 篇成功${s.failed ? `，${s.failed} 篇失败` : ''}。点「开始研究」重建图谱即可生效`,
+          })
+        }
+        loadPapers()   // 刷新「已速读」标记（持久化，源自 DB）
+      } catch {
+        if (!mounted.current) return
+        setDigesting(false)
+        setDigestProgress(null)
+        toast({ type: 'error', message: '速读进度查询失败' })
+      }
+    }
+    setTimeout(tick, 1200)
+  }, [wsId, loadPapers])
+
+  // 进入页面时若后台已有批量速读在跑（如刷新/切回），自动接上进度条
+  useEffect(() => {
+    let cancelled = false
+    digestStatus(wsId).then(s => {
+      if (cancelled || !s.running) return
+      setDigesting(true)
+      setDigestProgress({ done: s.done, total: s.total })
+      pollDigest()
+    }).catch(() => { /* noop */ })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId])
 
   useEffect(() => {
@@ -100,6 +159,36 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
       rebuild,
       knn_k: knnK,
     })
+  }
+
+  const handleDigest = async () => {
+    setDigesting(true)
+    setDigestProgress(null)
+    try {
+      const r = await digestBatch(wsId)
+      if (r.already_running) {
+        setDigestProgress({ done: r.done ?? 0, total: r.total ?? 0 })
+        pollDigest()
+        return
+      }
+      if (!r.started) {
+        toast({
+          type: 'info',
+          message: (r.skipped_no_text ?? 0) > 0
+            ? `没有可速读的论文（${r.skipped_no_text} 篇缺全文）`
+            : '工作区里所有论文都已解读',
+        })
+        setDigesting(false)
+        return
+      }
+      setDigestProgress({ done: 0, total: r.total ?? 0 })
+      toast({ type: 'info', message: `已开始后台速读 ${r.total} 篇，可离开页面；完成前请勿关闭后端` })
+      pollDigest()
+    } catch (e) {
+      const msg = (e as { detail?: string })?.detail || String(e)
+      toast({ type: 'error', message: `速读失败：${msg}` })
+      setDigesting(false)
+    }
   }
 
   const handleSaveAdvanced = async () => {
@@ -301,6 +390,19 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
 
         <div className="flex-1" />
 
+        <Tooltip content={'对工作区里未解读的论文做「图谱速读」：只抽知识图谱需要的研究目的/方法/数据集/基线 + 一段简短总结，token 成本远低于全量精读。完成后点「开始研究」重建图谱即可让可解释关系覆盖到这些论文。'}>
+          <button
+            onClick={handleDigest}
+            disabled={disabled || digesting}
+            className="px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+          >
+            {digesting
+              ? (digestProgress ? `速读中 ${digestProgress.done}/${digestProgress.total}…` : '速读中…')
+              : '速读未解读论文'}
+          </button>
+        </Tooltip>
+
         <Tooltip content={'清空该工作区的向量索引和图谱缓存（已上传的 PDF 文件不会删除）。下次点「开始研究」会从零重建。'}>
           <button
             onClick={onClear}
@@ -373,6 +475,17 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
                       className="accent-blue-500 shrink-0"
                     />
                     <span className="truncate flex-1">{p.title || p.filename}</span>
+                    {p.read_level && READ_BADGE[p.read_level] && (
+                      <span
+                        className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
+                        style={{
+                          color: READ_BADGE[p.read_level].color,
+                          border: `1px solid ${READ_BADGE[p.read_level].color}`,
+                        }}
+                      >
+                        {READ_BADGE[p.read_level].text}
+                      </span>
+                    )}
                     <span
                       className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
                       style={{

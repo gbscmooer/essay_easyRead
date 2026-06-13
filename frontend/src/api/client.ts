@@ -21,18 +21,49 @@ const API_BASE = '/api'  // Vite proxy 会转发到后端
  * 解析错误响应体，抛出结构化错误
  */
 async function parseError(res: Response): Promise<never> {
-  let detail = res.statusText
+  let detail = res.statusText || 'Unknown Error'
   let code = String(res.status)
   try {
-    const body: ApiError = await res.json()
-    detail = body.detail || detail
-    code = body.code || code
+    const text = await res.text()
+    if (text) {
+      const body: ApiError = JSON.parse(text)
+      detail = body.detail || detail
+      code = body.code || code
+    }
   } catch {
     // 响应体不是 JSON，使用默认错误信息
   }
   const err = new Error(detail) as Error & { code: string }
   err.code = code
   throw err
+}
+
+/**
+ * 安全解析响应体，处理 204 No Content 或空响应体情况
+ */
+async function parseResponse<T>(res: Response): Promise<T> {
+  if (res.status === 204) {
+    return {} as T
+  }
+  const text = await res.text()
+  if (!text) {
+    return {} as T
+  }
+  return JSON.parse(text) as T
+}
+
+/**
+ * 包装 fetch 请求，捕获并格式化网络错误
+ */
+async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : '网络请求失败'
+    const err = new Error(message === 'Failed to fetch' ? '网络错误，请检查连接' : message) as Error & { code: string }
+    err.code = 'NETWORK_ERROR'
+    throw err
+  }
 }
 
 
@@ -48,9 +79,9 @@ async function parseError(res: Response): Promise<never> {
  * @throws ApiError 当响应状态码非 2xx
  */
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { signal })
+  const res = await safeFetch(`${API_BASE}${path}`, { signal })
   if (!res.ok) await parseError(res)
-  return res.json() as Promise<T>
+  return parseResponse<T>(res)
 }
 
 
@@ -62,13 +93,13 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
  * @returns 解析后的 JSON 响应
  */
 async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await safeFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) await parseError(res)
-  return res.json() as Promise<T>
+  return parseResponse<T>(res)
 }
 
 
@@ -82,12 +113,12 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 async function upload<T>(path: string, file: File): Promise<T> {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await safeFetch(`${API_BASE}${path}`, {
     method: 'POST',
     body: formData,
   })
   if (!res.ok) await parseError(res)
-  return res.json() as Promise<T>
+  return parseResponse<T>(res)
 }
 
 
@@ -99,13 +130,13 @@ async function upload<T>(path: string, file: File): Promise<T> {
  * @returns 解析后的 JSON 响应
  */
 async function put<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await safeFetch(`${API_BASE}${path}`, {
     method: 'PUT',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) await parseError(res)
-  return res.json() as Promise<T>
+  return parseResponse<T>(res)
 }
 
 
@@ -116,9 +147,9 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
  * @returns 解析后的 JSON 响应
  */
 async function del<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' })
+  const res = await safeFetch(`${API_BASE}${path}`, { method: 'DELETE' })
   if (!res.ok) await parseError(res)
-  return res.json() as Promise<T>
+  return parseResponse<T>(res)
 }
 
 
@@ -141,9 +172,13 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: numb
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try { resolve(JSON.parse(xhr.responseText)) } catch { resolve(undefined as T) }
+        if (xhr.status === 204 || !xhr.responseText) {
+          resolve({} as T)
+        } else {
+          try { resolve(JSON.parse(xhr.responseText)) } catch { resolve({} as T) }
+        }
       } else {
-        let detail = xhr.statusText
+        let detail = xhr.statusText || 'Unknown Error'
         let code = String(xhr.status)
         try {
           const body = JSON.parse(xhr.responseText)

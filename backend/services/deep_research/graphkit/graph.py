@@ -14,6 +14,10 @@ analytics（PageRank / Louvain）直接复用 deep_research/graph_analytics.py�
 from __future__ import annotations
 
 from .features import PaperFeatures
+from .vectors import build_topic_vectors, cosine_pairs
+from .knn import denoise_knn
+from .engine import FacetEngine
+from .facets.base import EmbedFn
 
 
 def build_paper_nodes(papers: list[PaperFeatures]) -> list[dict]:
@@ -110,3 +114,56 @@ def faceted_edges(
                     "shared": comp.get("shared", []) if comp else [],
                 })
     return out
+
+
+async def build_unified_graph(
+    papers: list[PaperFeatures],
+    *,
+    embed_fn: EmbedFn,
+    knn_k: int = 8,
+    mutual: bool = True,
+    min_sim: float = 0.05,
+    facet_weights: dict[str, float] | None = None,
+) -> dict:
+    """统一建图（重设计目标的纯净实现，沙盒与生产共用同一套算法）。
+
+    与旧形态的本质区别：**所有论文**（含未解读叶子）都拿到 topic 向量并参与 similar
+    边——把 3 星引用树升级成真正的研究地图。流程：
+
+    1. 每篇论文取最佳主题向量（vectors.build_topic_vectors：doc_vector 优先，否则
+       embedding(topic_text)）。
+    2. 全量两两余弦 → 互近邻去噪（knn.denoise_knn）得到 similar 边。
+    3. 已解读论文对额外挂 facet 分解 detail（FacetEngine，解释"为什么相似"）。
+    4. cites 边照常由引用结构生成。
+
+    analytics（PageRank/社区）交给 graph_analytics.annotate_graph，本函数不重复。
+    """
+    nodes = build_paper_nodes(papers)
+    edges: list[dict] = cites_edges(papers)
+    cites_n = len(edges)
+
+    vectors = await build_topic_vectors(papers, embed_fn=embed_fn)
+    pairs = cosine_pairs(vectors)
+    kept = denoise_knn(pairs, k=knn_k, mutual=mutual, min_sim=min_sim)
+
+    # 已解读论文对的可解释 facet 分解（仅用于挂 detail，不改 similar 边的 headline 权重）
+    engine = FacetEngine(weights=facet_weights)
+    _, details = await engine.score_pairs(papers, embed_fn=embed_fn)
+
+    similar_n = 0
+    for a, b, sim in kept:
+        detail = details.get((min(a, b), max(a, b)))
+        for s, t in ((a, b), (b, a)):
+            e = {"source": f"paper:{s}", "target": f"paper:{t}", "kind": "similar", "weight": sim}
+            if detail:
+                e["detail"] = detail
+            edges.append(e)
+            similar_n += 1
+
+    stats = {
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "by_kind": {"cites": cites_n, "similar": similar_n, "shared-method": 0},
+        "topic_vectors": len(vectors),
+    }
+    return {"nodes": nodes, "edges": edges, "stats": stats}

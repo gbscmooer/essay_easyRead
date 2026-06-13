@@ -21,6 +21,7 @@ export interface WorkspacePaper {
   source?: 'uploaded' | 'expanded' | 'promoted'
   level?: number
   parent_paper_id?: number | null
+  read_level?: 'full' | 'digest' | 'none'   // 解读层级（持久化）：已精读 / 已速读 / 未解读
   created_at: string | null
   added_at: string | null
 }

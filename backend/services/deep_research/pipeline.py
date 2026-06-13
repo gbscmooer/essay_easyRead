@@ -4,9 +4,10 @@ Pipeline — 深度研究 6 阶段编排
 collect → [expand] → chunk → embed → graph → persist
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 
 from ...config import settings
 from ...models.research import ResearchRun
@@ -42,6 +43,66 @@ def _set_stage(run_id: int, stage: str, status: str = "running", **counters):
         run.updated_at = datetime.now(timezone.utc)
         s.add(run)
         s.commit()
+
+
+async def _auto_digest(papers, *, max_papers: int = 100) -> int:
+    """对未精读且未速读、且有全文的论文批量「图谱速读」，写回 Paper.graph_digest。
+
+    在 graph 阶段之前调用，使新生成的 facet 立刻参与 unified provider 的可解释关系。
+    限并发 + 单轮上限，失败单篇跳过。返回成功速读的篇数。
+    """
+    from ..ai_config import get_analysis_config
+    from ...models.analysis import AnalysisResult
+    from ...models.paper import Paper
+    from ..ai_analyzer import generate_graph_digest
+
+    cfg = get_analysis_config()
+    if not cfg.get("api_key"):
+        logger.info("auto_digest: 未配置解读 API Key，跳过")
+        return 0
+
+    pids = [p.id for p in papers]
+    if not pids:
+        return 0
+    with Session(_eng()) as s:
+        analyzed = set(s.exec(select(AnalysisResult.paper_id).where(AnalysisResult.paper_id.in_(pids))).all())
+        rows = s.exec(select(Paper).where(Paper.id.in_(pids))).all()
+        todo = [
+            {"id": p.id, "text": p.full_text, "title": p.title or p.filename or ""}
+            for p in rows
+            if p.id not in analyzed and not p.graph_digest and (p.full_text or "").strip()
+        ]
+    todo = todo[:max_papers]
+    if not todo:
+        return 0
+
+    sem = asyncio.Semaphore(4)
+
+    async def _one(item):
+        async with sem:
+            try:
+                return item["id"], await generate_graph_digest(
+                    item["text"], cfg["api_key"], cfg.get("base_url", ""), cfg["model"], title=item["title"],
+                )
+            except Exception as e:
+                logger.warning(f"auto_digest: paper {item['id']} failed: {e}")
+                return item["id"], None
+
+    done = await asyncio.gather(*[_one(it) for it in todo])
+    n = 0
+    with Session(_eng()) as s:
+        for pid, d in done:
+            if d is None:
+                continue
+            p = s.get(Paper, pid)
+            if p:
+                p.graph_digest = d
+                p.updated_at = datetime.now(timezone.utc)
+                s.add(p)
+                n += 1
+        s.commit()
+    logger.info(f"auto_digest: {n}/{len(todo)} 篇速读成功")
+    return n
 
 
 async def run_pipeline(run_id: int):
@@ -125,6 +186,19 @@ async def run_pipeline(run_id: int):
             _set_stage(run_id, "embed", embed_done=done, embed_total=len(chunks))
             await emit("embed_progress", done=done, total=len(chunks))
         await emit("stage_done", stage="embed", summary={"total": len(chunks)})
+
+        # 5.5) 图谱速读：对未精读/未速读的论文做轻量解读，让叶子也能参与可解释 facet 关系。
+        # 由 research.auto_digest 开关控制（默认开）。失败不影响图谱构建。
+        from ..ai_config import load_config
+        if (load_config().get("research", {}) or {}).get("auto_digest", True):
+            _set_stage(run_id, "digest")
+            await emit("stage_start", stage="digest")
+            try:
+                n_dig = await _auto_digest(papers)
+                await emit("stage_done", stage="digest", summary={"digested": n_dig})
+            except Exception as de:
+                logger.warning(f"auto_digest failed (non-fatal): {de}")
+                await emit("stage_done", stage="digest", summary={"digested": 0, "error": str(de)})
 
         _set_stage(run_id, "graph")
         await emit("stage_start", stage="graph")

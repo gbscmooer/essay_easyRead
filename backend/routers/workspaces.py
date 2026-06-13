@@ -102,8 +102,22 @@ async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
             .order_by(desc(WorkspacePaper.added_at))
         )
         rows = session.exec(stmt).all()
+
+        # 解读层级标记（持久化）：已精读（有全量 AnalysisResult）> 已速读（有 graph_digest）> 未解读
+        from ..models.analysis import AnalysisResult
+        pids = [paper.id for paper, _ in rows]
+        analyzed = set(
+            session.exec(select(AnalysisResult.paper_id).where(AnalysisResult.paper_id.in_(pids))).all()
+        ) if pids else set()
+
         papers = []
         for paper, added_at in rows:
+            if paper.id in analyzed:
+                read_level = "full"
+            elif getattr(paper, "graph_digest", None):
+                read_level = "digest"
+            else:
+                read_level = "none"
             papers.append({
                 "id": paper.id,
                 "filename": paper.filename,
@@ -116,6 +130,7 @@ async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
                 "source": getattr(paper, "source", "uploaded"),
                 "level": getattr(paper, "level", 1),
                 "parent_paper_id": getattr(paper, "parent_paper_id", None),
+                "read_level": read_level,
                 "created_at": paper.created_at.isoformat() if paper.created_at else None,
                 "added_at": added_at.isoformat() if added_at else None,
             })

@@ -13,8 +13,10 @@ from .bge_centroid import BgeCentroidProvider
 from .bibcoupling import BibCouplingProvider
 from .hybrid import HybridProvider
 from .facet_weighted import FacetWeightedProvider
+from .unified import UnifiedProvider
 
 REGISTRY: dict[str, type] = {
+    "unified": UnifiedProvider,          # 新默认：全量主题向量 + 可解释 facet detail
     "bge_centroid": BgeCentroidProvider,
     "bibcoupling": BibCouplingProvider,
     "hybrid": HybridProvider,
@@ -28,10 +30,10 @@ def get_similarity_provider(config: dict) -> SimilarityProvider:
     Args:
         config: 形如 {"provider": "bge_centroid", "<name>": {<kwargs>}}
     """
-    name = (config or {}).get("provider", "bge_centroid")
+    name = (config or {}).get("provider", "unified")
     cls = REGISTRY.get(name)
     if cls is None:
-        cls = BgeCentroidProvider
+        cls = UnifiedProvider
     kwargs = (config or {}).get(name, {}) or {}
     return cls(**kwargs)
 

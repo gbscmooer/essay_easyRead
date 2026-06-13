@@ -42,6 +42,7 @@ export interface ResearchConfig {
   email: string
   api_key: string
   similarity_threshold: number
+  auto_digest?: boolean   // 深度研究时自动「图谱速读」未解读论文
 }
 
 export interface RerankerConfig {
@@ -143,6 +144,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     email: '',
     api_key: '',
     similarity_threshold: 0.9,
+    auto_digest: true,
   },
   reranker: {
     enabled: true,

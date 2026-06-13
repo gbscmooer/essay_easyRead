@@ -50,6 +50,7 @@ class PaperResponse(BaseModel):
     code_status: str = "none"
     source: str = "uploaded"   # uploaded | expanded
     level: int = 1             # 1=用户手动加; 2+=联网扩展下载
+    read_level: str = "none"       # none | digest | full（解读层级）
     created_at: datetime
     updated_at: datetime
 
