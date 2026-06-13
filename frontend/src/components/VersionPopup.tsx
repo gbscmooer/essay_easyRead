@@ -1,19 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.18.0'
+const APP_VERSION = '1.20.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-09',
+  date: '2026-06-13',
   changes: [
-    'XSS 防护：Mermaid SVG 渲染使用 DOMPurify 消毒',
-    'SSRF 防护：git clone URL 白名单增加 Gitee，屏蔽内网 IP',
-    '路径遍历修复：代码文件读取和终端 CWD 校验改用 os.path.commonpath',
-    '上传安全：PDF 分块读取 + magic bytes 校验',
-    '速率限制：全局 120 次/分钟 API 限流',
-    '数据库优化：SQLite WAL 模式 + busy_timeout',
-    '前端健壮性：AbortController / mounted ref / EventSource 泄漏修复',
-    '安全加固：收紧 CORS、绑定 127.0.0.1、Docker 非 root 用户',
+    '升级图谱引擎：统一相似度计算，支持向后兼容速读降级',
+    '优化可视化效果：增加工作区速读状态标识，增强核心节点与图例的描边辨识度',
+    '提升API网络健壮性：强化空响应和网络异常的容错处理',
+    '去重机制增强：一键清理知识库内重复文献',
   ],
 }
 
