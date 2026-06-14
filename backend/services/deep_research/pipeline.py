@@ -207,7 +207,7 @@ async def run_pipeline(run_id: int):
             ws_id, papers,
             similarity_threshold=params.get("similarity_threshold", 0.78),
             enable_shared_method=params.get("enable_shared_method", False),
-            knn_k=int(params.get("knn_k", 8)),
+            backbone_alpha=float(params.get("backbone_alpha", 0.25)),
             citation_contexts=seed_citation_contexts,
         )
         _set_stage(run_id, "graph", "running",

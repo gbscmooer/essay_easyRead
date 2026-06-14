@@ -232,8 +232,9 @@ export interface ResearchRunCreate {
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean
-  similarity_threshold?: number  // 已弃用，相似边改用 kNN 稀疏化
-  knn_k?: number                 // 每篇论文最多保留 K 条最相似的边
+  similarity_threshold?: number  // 已弃用，相似边改用多尺度骨架提取
+  knn_k?: number                 // 已弃用：旧的全局 kNN 条数，保留兼容
+  backbone_alpha?: number        // 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
   enable_shared_method?: boolean
 }
 

@@ -65,7 +65,8 @@ class ResearchConfig(BaseModel):
     email: str = ""
     api_key: str = ""
     similarity_threshold: float = 0.9
-    knn_k: int = 8                 # 图谱每节点最多保留的相似边数（之前会在保存时被丢，这里补回）
+    knn_k: int = 8                 # 已弃用：旧的全局 kNN 条数；保留以兼容旧配置
+    backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
 

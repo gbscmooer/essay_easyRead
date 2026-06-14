@@ -61,8 +61,9 @@ DEFAULT_CONFIG = {
         "provider": "openalex",       # openalex | semantic_scholar | local
         "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
-        "similarity_threshold": 0.9,  # 图谱相似边阈值（已弃用，相似边改用 kNN 稀疏化）
-        "knn_k": 8,                   # 每篇论文最多保留 K 条最相似的边（控制图谱稀密）
+        "similarity_threshold": 0.9,  # 图谱相似边阈值（已弃用，相似边改用多尺度骨架提取）
+        "knn_k": 8,                   # 已弃用：旧的全局 kNN 条数；现由 backbone_alpha 取代
+        "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
         "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
     },

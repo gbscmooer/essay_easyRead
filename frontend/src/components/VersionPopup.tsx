@@ -1,16 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.21.0'
+const APP_VERSION = '1.22.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-14',
   changes: [
-    '增量嵌入：深度研究重复运行只嵌入新增切片，大幅减少重复 API 调用',
-    '换模型自愈：切换 Embedding 模型自动重建向量库，避免新旧向量混用导致相似度错乱',
-    '图谱质量优化：论文主题向量按章节/位置加权（摘要/引言更重），聚类更贴研究方向',
-    '嵌入截断改用 token 估算：适配 bge-m3 长上下文，修复中文超长输入报 400',
-    '设置页新增 Embedding 高级参数（token 上限/字符上限/批大小）可调',
+    '图谱去毛球算法升级：相似边改用「多尺度骨架提取」（Disparity Filter），逐节点自适应去噪，比全局 kNN 更干净',
+    '骨架自动保证连通：被剪开的子图用最强跨块边桥接，研究地图不再产生孤立论文',
+    '图谱稀密改由「骨架密度 α」单一参数控制（控制面板/设置滑块），取代旧的相似边条数 K',
+    '修复：图谱稀密滑块的值此前未传到后端（一直按默认值），现已真正生效',
   ],
 }
 

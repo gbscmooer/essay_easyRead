@@ -8,9 +8,9 @@ from ..graph_builder import build_graph
 
 
 async def stage_graph(ws_id: int, papers, *, similarity_threshold: float, enable_shared_method: bool,
-                      knn_k: int = 8, citation_contexts: dict[int, list[dict]] | None = None):
+                      backbone_alpha: float = 0.25, citation_contexts: dict[int, list[dict]] | None = None):
     return await build_graph(ws_id, papers,
                              similarity_threshold=similarity_threshold,
                              enable_shared_method=enable_shared_method,
-                             knn_k=knn_k,
+                             backbone_alpha=backbone_alpha,
                              citation_contexts=citation_contexts or {})

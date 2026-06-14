@@ -16,14 +16,17 @@ import logging
 import re
 from .similarity import get_similarity_provider
 from .graph_analytics import annotate_graph
-from .graphkit import denoise_knn
+from .graphkit import extract_backbone
 from ..ai_config import get_similarity_config
 
 logger = logging.getLogger(__name__)
 
-# 相似边的最小分数地板：低于此值即便进了某节点的 top-k 也不连边，
-# 避免论文很少时把几乎不相关的对也连上。kNN 是主控，这是兜底。
+# 相似边的最小分数地板：低于此值的对直接当噪声丢弃，不参与骨架的强度统计
+# （避免一堆近乎正交的弱边拉高节点强度分母）。骨架提取是主控，这是兜底。
 MIN_SIMILARITY = 0.05
+
+# Disparity Filter 默认显著性水平 α：越小骨架越稀越严格。可被运行参数覆盖。
+DEFAULT_BACKBONE_ALPHA = 0.25
 
 
 def _normalize_title(t: str) -> str:
@@ -55,14 +58,14 @@ def _match_contexts_to_paper(contexts: list[dict], target_paper) -> list[dict]:
     return matched[:20]
 
 
-def _sparsify_knn(pairs: list[tuple[int, int, float]], knn_k: int, floor: float, *, mutual: bool = True):
-    """kNN 稀疏化：委托 graphkit.denoise_knn。
+def _backbone(pairs: list[tuple[int, int, float]], alpha: float, floor: float):
+    """去毛球：委托 graphkit.extract_backbone（多尺度骨架 / Disparity Filter）。
 
-    默认 mutual=True（互近邻）——边只在双方都把对方选进 top-k 时成立，这是去"毛球"
-    的核心，比旧的 union-kNN 干净得多，并对度为 0 的节点补一条最强边避免孤立点。
-    mutual=False 可复现旧 union-kNN 行为（与旧 provider 对比时用）。
+    只保留相对每个节点局部强度分布而言统计显著的边（α 越小越严格），并用最强跨块边
+    把骨架补成连通图。取代旧的全局 kNN——后者用同一个 k 套所有节点，稠密区仍是毛球、
+    稀疏区又强连弱关系；骨架法逐节点自适应，是真正的多尺度去噪。
     """
-    return denoise_knn(pairs, k=knn_k, mutual=mutual, min_sim=floor, connect_isolated=mutual)
+    return extract_backbone(pairs, alpha=alpha, min_sim=floor, ensure_connected=True)
 
 
 def _paper_node(p) -> dict:
@@ -87,7 +90,8 @@ def _paper_node(p) -> dict:
 
 
 async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable_shared_method: bool,
-                      knn_k: int = 8, citation_contexts: dict[int, list[dict]] | None = None) -> dict:
+                      backbone_alpha: float = DEFAULT_BACKBONE_ALPHA,
+                      citation_contexts: dict[int, list[dict]] | None = None) -> dict:
     nodes = [_paper_node(p) for p in papers]
     by_id = {p.id: p for p in papers}
     edges: list[dict] = []
@@ -121,12 +125,12 @@ async def build_graph(ws_id: int, papers, *, similarity_threshold: float, enable
 
     # 2) similar 边：委托给配置的 SimilarityProvider，再用 kNN 稀疏化
     provider = get_similarity_provider(get_similarity_config())
-    logger.info(f"graph similar edges via provider={provider.name}, knn_k={knn_k}")
+    logger.info(f"graph similar edges via provider={provider.name}, backbone_alpha={backbone_alpha}")
     pairs = await provider.score_pairs(papers, ws_id=ws_id)
     # provider 可选地通过 .details 暴露每对论文的相似度分解（如 facet_weighted），
     # 键为 (min_id, max_id)，graph_builder 把它原样挂到 edge.detail 上供前端展示。
     details: dict = getattr(provider, "details", {}) or {}
-    kept = _sparsify_knn(pairs, knn_k=knn_k, floor=max(MIN_SIMILARITY, 0.0))
+    kept = _backbone(pairs, alpha=backbone_alpha, floor=max(MIN_SIMILARITY, 0.0))
     similar_count = 0
     for a_id, b_id, sim in kept:
         detail = details.get((min(a_id, b_id), max(a_id, b_id)))

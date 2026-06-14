@@ -36,7 +36,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   const [deep, setDeep] = useState(1)
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [knnK, setKnnK] = useState(8)
+  const [backboneAlpha, setBackboneAlpha] = useState(0.25)
   const [digesting, setDigesting] = useState(false)
   const [digestProgress, setDigestProgress] = useState<{ done: number; total: number } | null>(null)
   const [includeExpanded, setIncludeExpanded] = useState(true)
@@ -112,10 +112,10 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   }, [wsId])
 
   useEffect(() => {
-    get<{ research?: { knn_k?: number; link_distance?: number } }>('/analysis/config')
+    get<{ research?: { backbone_alpha?: number; link_distance?: number } }>('/analysis/config')
       .then(cfg => {
-        const savedKnn = cfg.research?.knn_k
-        if (typeof savedKnn === 'number') setKnnK(savedKnn)
+        const savedAlpha = cfg.research?.backbone_alpha
+        if (typeof savedAlpha === 'number') setBackboneAlpha(savedAlpha)
         const savedDist = cfg.research?.link_distance
         if (typeof savedDist === 'number') onLinkDistanceChange(savedDist)
       })
@@ -157,7 +157,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
       expand_top_k: topK,
       deep,
       rebuild,
-      knn_k: knnK,
+      backbone_alpha: backboneAlpha,
     })
   }
 
@@ -200,7 +200,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
         ...fullCfg,
         research: {
           ...(fullCfg.research || {}),
-          knn_k: knnK,
+          backbone_alpha: backboneAlpha,
           link_distance: linkDistance,
         },
       }
@@ -506,19 +506,19 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
       {/* 高级设置面板 */}
       {showAdvanced && (
         <div className="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap" style={{ borderColor: 'var(--border)' }}>
-          <Tooltip content={'相似边稀疏化：每篇论文只与最相似的 K 篇连「相似」边（kNN）。值越小图谱越稀疏精炼，越大越密。替代了旧的绝对阈值——因为 BGE 余弦整体偏高，绝对阈值几乎失效。默认 8。'}>
+          <Tooltip content={'多尺度骨架显著性 α（Disparity Filter 去毛球）：只保留相对每篇论文「局部相似度分布」而言异常突出的边，逐节点自适应，比全局 kNN 更干净。α 越小骨架越稀越精炼（只留最显著的关系），越大越密。骨架若裂开会用最强跨块边补成连通图。默认 0.25。'}>
             <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>相似边密度 K</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>骨架密度 α</span>
               <input
                 type="range"
-                min={2}
-                max={20}
-                step={1}
-                value={knnK}
-                onChange={e => setKnnK(Number(e.target.value))}
+                min={0.05}
+                max={0.6}
+                step={0.05}
+                value={backboneAlpha}
+                onChange={e => setBackboneAlpha(Number(e.target.value))}
                 className="w-24 h-1 accent-blue-500"
               />
-              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{knnK}</span>
+              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{backboneAlpha.toFixed(2)}</span>
             </div>
           </Tooltip>
 

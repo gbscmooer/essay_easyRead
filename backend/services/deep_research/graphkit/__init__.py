@@ -21,10 +21,11 @@ from .engine import FacetEngine
 from .facets import build_default_facets, FACET_REGISTRY
 from .vectors import build_topic_vectors, cosine_pairs
 from .knn import denoise_knn, local_scaling_affinity
+from .backbone import extract_backbone
 from .graph import build_unified_graph
 
 __all__ = [
     "PaperFeatures", "FacetEngine", "build_default_facets", "FACET_REGISTRY",
     "build_topic_vectors", "cosine_pairs", "denoise_knn", "local_scaling_affinity",
-    "build_unified_graph",
+    "extract_backbone", "build_unified_graph",
 ]
