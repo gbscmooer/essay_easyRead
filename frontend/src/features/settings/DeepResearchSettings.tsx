@@ -113,6 +113,64 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
           本地模式使用 sentence-transformers 加载模型，首次运行会自动下载。切换 provider 后建议重建索引以避免向量维度不匹配。
         </p>
       )}
+
+      {/* 高级参数（按模型上下文长度可调） */}
+      <details className="group pt-2 border-t border-gray-800">
+        <summary className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-400 hover:text-gray-200 select-none">
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          高级参数（截断 / 批大小）
+        </summary>
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">单条输入 token 上限</label>
+              <input
+                type="number"
+                min={64}
+                max={32768}
+                value={config.embedding.max_input_tokens ?? 7000}
+                onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_tokens: Number(e.target.value) || 7000 } }))}
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">
+                远程模型的单条截断上限（CJK≈1 字/token，英文≈4 字/token）。
+                <b>bge-m3</b> 8192 → 填 7000；<b>bge-large-en-v1.5</b> 512 → 填 480；更大上下文的模型可调更高。
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">硬字符上限（0=关闭）</label>
+              <input
+                type="number"
+                min={0}
+                max={200000}
+                value={config.embedding.max_input_chars ?? 0}
+                onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_chars: Number(e.target.value) || 0 } }))}
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">
+                token 截断之外再加一道字符硬上限保险。一般留 0；只在仍偶发 400 时设个保守值（如 6000）。
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">批大小 batch_size</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={config.embedding.batch_size}
+                onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, batch_size: Number(e.target.value) || 32 } }))}
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <p className="text-[10px] text-gray-600 mt-1">本地模式每批编码条数（显存不足可调小）。</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-amber-500/80">
+            提示：换 embedding 模型后必须「重建索引」重新嵌入 —— bge-large 与 bge-m3 同为 1024 维，不重建会让新旧向量混在一起，相似度全错。
+          </p>
+        </div>
+      </details>
     </div>
   )
 }

@@ -17,6 +17,33 @@ _model = None  # 本地模型单例（lazy）
 _model_lock = asyncio.Lock()
 
 
+def _est_tokens(s: str) -> int:
+    """粗略 token 估算：CJK 字 ≈ 1 token，其余 ≈ 4 字符/token。"""
+    cjk = sum(1 for c in s if "一" <= c <= "鿿")
+    return cjk + (len(s) - cjk + 3) // 4
+
+
+def _truncate_to_tokens(s: str, max_tokens: int) -> str:
+    """按估算 token 把文本截断到 max_tokens 以内（fast-path：未超限原样返回）。
+
+    比纯字符截断更准：同一阈值下英文（~4 字/token）能整段保留，中文（~1 字/token）
+    才会被收敛——避免"为兼容中文把英文 chunk 也腰斩"。
+    """
+    if max_tokens <= 0 or _est_tokens(s) <= max_tokens:
+        return s
+    tok = noncjk = 0
+    for i, c in enumerate(s):
+        if "一" <= c <= "鿿":
+            tok += 1
+        else:
+            noncjk += 1
+            if noncjk % 4 == 1:
+                tok += 1
+        if tok > max_tokens:
+            return s[:i]
+    return s
+
+
 async def _get_local_model():
     global _model
     async with _model_lock:
@@ -68,21 +95,26 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
     if not cfg.get("api_key"):
         raise RuntimeError(f"{cfg['provider']} embedding 需要在配置中填写 api_key")
 
-    # 截断过长输入：远程 embedding 模型普遍有 max token 限制（如 bge-large-en-v1.5 仅 512
-    # token），超长会被服务端直接拒为 400（SiliconFlow code 20015）。按字符保守截断（默认
-    # 500 ≈ <512 token for both EN/ZH），可在 embedding 配置里加 max_input_chars 覆盖。
-    # 空串也可能触发 400，置为单空格兜底。
-    # 本地 sentence-transformers 会自行截断，故只在远程路径处理。
-    max_chars = int(cfg.get("max_input_chars") or 500)
+    # 截断过长输入：远程 embedding 模型有 max token 限制，超长会被服务端拒为 400
+    # （SiliconFlow code 20015）。按 **token 估算** 截断（见 _truncate_to_tokens）——同一
+    # 阈值下英文 chunk（1200 字≈300 token）整段保留、中文长文本才收敛，避免纯字符截断
+    # "为兼容中文把英文也腰斩"。默认 7000，适配 bge-m3 的 8192 上下文；若换回 512-token
+    # 模型（如 bge-large-en-v1.5），把 embedding.max_input_tokens 调到 ~480。
+    # 空串也可能触发 400，置为单空格兜底。本地 sentence-transformers 自行截断，仅远程路径处理。
+    max_tokens = int(cfg.get("max_input_tokens") or 7000)
+    hard_chars = int(cfg.get("max_input_chars") or 0)  # 可选硬字符上限（0=不启用）
     safe_texts, n_trunc = [], 0
     for t in texts:
         t = t or ""
-        if len(t) > max_chars:
-            t = t[:max_chars]
+        orig_len = len(t)
+        t = _truncate_to_tokens(t, max_tokens)
+        if hard_chars and len(t) > hard_chars:
+            t = t[:hard_chars]
+        if len(t) < orig_len:
             n_trunc += 1
         safe_texts.append(t if t.strip() else " ")
     if n_trunc:
-        logger.info(f"embedding: 已将 {n_trunc}/{len(texts)} 条超长输入截断到 {max_chars} 字符以内（避免 400）")
+        logger.info(f"embedding: 已按 ~{max_tokens} token 上限截断 {n_trunc}/{len(texts)} 条超长输入（避免 400）")
 
     last_err: Exception | None = None
     for attempt in range(max_retries):

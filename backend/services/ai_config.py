@@ -54,6 +54,8 @@ DEFAULT_CONFIG = {
         "base_url": "https://api.openai.com/v1",
         "batch_size": 32,
         "device": "auto",
+        "max_input_tokens": 7000,   # 远程单条输入 token 截断上限（适配 bge-m3 8192；512 模型设 ~480）
+        "max_input_chars": 0,       # 可选硬字符上限（0=不启用）
     },
     "research": {
         "provider": "openalex",       # openalex | semantic_scholar | local

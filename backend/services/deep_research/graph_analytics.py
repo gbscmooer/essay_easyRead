@@ -72,14 +72,18 @@ def _minmax(scores: dict[str, float]) -> dict[str, float]:
     return {k: (v - lo) / span for k, v in scores.items()}
 
 
-def _safe_pagerank(g, *, directed: bool) -> dict[str, float]:
+def _safe_pagerank(g) -> dict[str, float]:
+    """加权 PageRank，空图/数值异常时回退空 dict。
+
+    对有向引用图：奠基论文 = 入边多 → 标准 PageRank 沿引用流向累积即可；
+    对无向语义图：度量主题枢纽性。两者算法相同（nx.pagerank 同时支持 Graph/DiGraph）。
+    """
     if g.number_of_edges() == 0:
         return {}
     try:
-        # 有向引用图：奠基论文 = 入边多 → 标准 PageRank 即可（沿引用流向累积）
         return nx.pagerank(g, weight="weight")
     except Exception as ex:  # pragma: no cover - 数值兜底
-        logger.warning(f"pagerank failed ({'directed' if directed else 'undirected'}): {ex}")
+        logger.warning(f"pagerank failed: {ex}")
         return {}
 
 
@@ -175,8 +179,8 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
 
     cite, sem = _split_graphs(nodes, edges)
 
-    foundational = _minmax(_safe_pagerank(cite, directed=True))
-    centrality = _minmax(_safe_pagerank(sem, directed=False))
+    foundational = _minmax(_safe_pagerank(cite))   # 有向引用图：奠基性
+    centrality = _minmax(_safe_pagerank(sem))       # 无向语义图：主题枢纽性
 
     # 综合影响力：奠基性优先（被引是更硬的信号），主题枢纽性次之；缺一不互相拉低。
     importance: dict[str, float] = {}

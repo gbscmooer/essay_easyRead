@@ -28,11 +28,41 @@ def _collection_name(ws_id: int) -> str:
     return f"ws_{ws_id}"
 
 
-def get_or_create(ws_id: int):
+def get_or_create(ws_id: int, embed_model: Optional[str] = None):
+    # embed_model 仅在「集合首次创建」时写入 metadata 作为指纹；集合已存在时 Chroma 会忽略
+    # 此处 metadata（保留原值）。stage_embed 据此检测"换了 embedding 模型"并自动重建，
+    # 避免新旧模型向量混进同一 collection（两者常同为 1024 维，不会触发维度报错而静默腐烂）。
+    meta = {"hnsw:space": "cosine"}
+    if embed_model:
+        meta["embed_model"] = embed_model
     return _get_client().get_or_create_collection(
         name=_collection_name(ws_id),
-        metadata={"hnsw:space": "cosine"},
+        metadata=meta,
     )
+
+
+def get_existing_ids(ws_id: int) -> set:
+    """集合中已存在的 chunk id 集合（增量嵌入用：跳过已嵌入的 chunk）。失败回退空集（=全量重嵌，安全）。"""
+    try:
+        col = get_or_create(ws_id)
+        return set(col.get(include=[]).get("ids") or [])
+    except Exception as e:
+        logger.warning(f"get_existing_ids failed: {e}")
+        return set()
+
+
+def collection_model(ws_id: int) -> Optional[str]:
+    """集合创建时记录的 embedding 模型指纹；用于检测模型变更触发自动重建。
+
+    关键：用 get_collection（**不创建**）。若用 get_or_create 会在集合不存在时先建一个
+    无指纹的空集，导致随后 get_or_create(embed_model=...) 因"集合已存在"写不进指纹。
+    集合不存在 / 读取失败 → None。
+    """
+    try:
+        col = _get_client().get_collection(_collection_name(ws_id))
+        return (col.metadata or {}).get("embed_model")
+    except Exception:
+        return None
 
 
 def upsert_chunks(ws_id: int, ids: list[str], docs: list[str], embeddings: list[list[float]], metas: list[dict]):

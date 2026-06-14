@@ -35,6 +35,8 @@ export interface EmbeddingConfig {
   base_url: string
   batch_size: number
   device: string
+  max_input_tokens?: number   // 远程单条输入 token 截断上限（适配 bge-m3 8192；512 模型设 ~480）
+  max_input_chars?: number    // 可选硬字符上限（0=不启用）
 }
 
 export interface ResearchConfig {
@@ -138,6 +140,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     base_url: 'https://api.openai.com/v1',
     batch_size: 32,
     device: 'auto',
+    max_input_tokens: 7000,
+    max_input_chars: 0,
   },
   research: {
     provider: 'openalex',

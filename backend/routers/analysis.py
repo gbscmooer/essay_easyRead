@@ -53,6 +53,12 @@ class EmbeddingConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     batch_size: int = 32
     device: str = "auto"
+    # —— 远程 embedding 高级参数（不同模型上下文长度不同，可手动调整）——
+    # 单条输入按 token 估算的截断上限。默认 7000 适配 bge-m3 的 8192；
+    # 若换 512-token 模型（如 bge-large-en-v1.5）调到 ~480；更大上下文的模型可调更高。
+    max_input_tokens: int = 7000
+    # 可选的硬字符上限（0=不启用）。token 估算之外再加一道保险，极端长文也不会超。
+    max_input_chars: int = 0
 
 class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local

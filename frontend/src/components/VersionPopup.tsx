@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.20.0'
+const APP_VERSION = '1.21.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-13',
+  date: '2026-06-14',
   changes: [
-    '升级图谱引擎：统一相似度计算，支持向后兼容速读降级',
-    '优化可视化效果：增加工作区速读状态标识，增强核心节点与图例的描边辨识度',
-    '提升API网络健壮性：强化空响应和网络异常的容错处理',
-    '去重机制增强：一键清理知识库内重复文献',
+    '增量嵌入：深度研究重复运行只嵌入新增切片，大幅减少重复 API 调用',
+    '换模型自愈：切换 Embedding 模型自动重建向量库，避免新旧向量混用导致相似度错乱',
+    '图谱质量优化：论文主题向量按章节/位置加权（摘要/引言更重），聚类更贴研究方向',
+    '嵌入截断改用 token 估算：适配 bge-m3 长上下文，修复中文超长输入报 400',
+    '设置页新增 Embedding 高级参数（token 上限/字符上限/批大小）可调',
   ],
 }
 

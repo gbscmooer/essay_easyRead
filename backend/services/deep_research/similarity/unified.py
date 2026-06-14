@@ -37,6 +37,32 @@ def _get_engine():
     return _engine
 
 
+# 主题代表性强的章节关键词（命中则加权，让质心更偏向"研究主题/目的"）
+_TOPIC_SECTIONS = ("abstract", "intro", "conclusion", "overview")
+
+
+def _chunk_weight(meta: dict) -> float:
+    """单个 chunk 在论文质心里的权重。
+
+    动机：简单平均会让到处雷同的实现细节（backbone/优化器/超参）稀释主题信号，
+    使本不相关的论文也"看起来相似"。据章节/位置加权可让质心更贴近研究方向：
+    - 摘要/引言/结论：最能代表主题 → 2.0
+    - 正文滑窗（section_name=="Body"）：按位置衰减，开头(题录/摘要/引言)更代表主题
+      —— 这对**没有章节信息的叶子论文**也有效（它们全是 Body，只能靠位置区分）
+    - 引用上下文：讲的是别人的工作 → 0.5 弱化
+    - 其他具名章节（method/experiment…）：1.0 正常
+    """
+    name = (meta.get("section_name") or "").strip().lower()
+    idx = int(meta.get("chunk_index") or 0)
+    if any(k in name for k in _TOPIC_SECTIONS):
+        return 2.0
+    if "citation context" in name:
+        return 0.5
+    if name in ("body", ""):
+        return max(0.7, 1.5 - 0.1 * idx)
+    return 1.0
+
+
 class UnifiedProvider:
     name = "unified"
 
@@ -56,13 +82,19 @@ class UnifiedProvider:
             return out
         for pid in paper_ids:
             try:
-                res = col.get(where={"paper_id": pid}, include=["embeddings"])
+                res = col.get(where={"paper_id": pid}, include=["embeddings", "metadatas"])
                 embs = res["embeddings"] if isinstance(res, dict) else None
                 arr = np.asarray(embs) if embs is not None else None
                 if arr is None or arr.size == 0 or arr.ndim < 2:
                     continue
+                metas = (res.get("metadatas") if isinstance(res, dict) else None) or []
                 norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-9
-                mean_vec = (arr / norms).mean(axis=0)
+                unit = arr / norms                              # 每个 chunk 向量单位化
+                if len(metas) == len(unit):
+                    w = np.array([_chunk_weight(m or {}) for m in metas], dtype=float).reshape(-1, 1)
+                else:
+                    w = np.ones((len(unit), 1))                 # 元数据对不齐 → 退回等权平均
+                mean_vec = (unit * w).sum(axis=0) / (float(w.sum()) + 1e-9)
                 out[pid] = (mean_vec / (np.linalg.norm(mean_vec) + 1e-9)).tolist()
             except Exception as ex:
                 logger.debug(f"unified: skip centroid for paper {pid}: {ex}")

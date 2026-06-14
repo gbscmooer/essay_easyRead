@@ -78,29 +78,30 @@ async def _auto_digest(papers, *, max_papers: int = 100) -> int:
 
     sem = asyncio.Semaphore(4)
 
-    async def _one(item):
+    async def _one(item) -> int:
+        """单篇速读并**立即落盘**（逐篇短事务）。被中断时已完成的不丢，再跑自动跳过。"""
         async with sem:
             try:
-                return item["id"], await generate_graph_digest(
+                d = await generate_graph_digest(
                     item["text"], cfg["api_key"], cfg.get("base_url", ""), cfg["model"], title=item["title"],
                 )
             except Exception as e:
                 logger.warning(f"auto_digest: paper {item['id']} failed: {e}")
-                return item["id"], None
+                return 0
+            try:
+                with Session(_eng()) as s:
+                    p = s.get(Paper, item["id"])
+                    if p:
+                        p.graph_digest = d
+                        p.updated_at = datetime.now(timezone.utc)
+                        s.add(p)
+                        s.commit()
+                return 1
+            except Exception as e:
+                logger.warning(f"auto_digest: persist paper {item['id']} failed: {e}")
+                return 0
 
-    done = await asyncio.gather(*[_one(it) for it in todo])
-    n = 0
-    with Session(_eng()) as s:
-        for pid, d in done:
-            if d is None:
-                continue
-            p = s.get(Paper, pid)
-            if p:
-                p.graph_digest = d
-                p.updated_at = datetime.now(timezone.utc)
-                s.add(p)
-                n += 1
-        s.commit()
+    n = sum(await asyncio.gather(*[_one(it) for it in todo]))
     logger.info(f"auto_digest: {n}/{len(todo)} 篇速读成功")
     return n
 
