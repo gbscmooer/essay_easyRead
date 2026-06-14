@@ -1,15 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.22.0'
+const APP_VERSION = '1.22.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-14',
   changes: [
-    '图谱去毛球算法升级：相似边改用「多尺度骨架提取」（Disparity Filter），逐节点自适应去噪，比全局 kNN 更干净',
-    '骨架自动保证连通：被剪开的子图用最强跨块边桥接，研究地图不再产生孤立论文',
-    '图谱稀密改由「骨架密度 α」单一参数控制（控制面板/设置滑块），取代旧的相似边条数 K',
-    '修复：图谱稀密滑块的值此前未传到后端（一直按默认值），现已真正生效',
+    '修复去毛球在真实 BGE 向量上退化为「一棵树或全连接毛球」：骨架显著性检验改在「超出语料基线的相似度」上做，恢复窄高余弦带的区分度',
+    '骨架更稳健：α 在 0.15–0.40 间都能稳定输出清晰的子方向簇结构，不再对参数极度敏感',
   ],
 }
 

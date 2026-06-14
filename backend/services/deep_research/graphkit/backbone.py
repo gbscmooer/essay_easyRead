@@ -32,6 +32,16 @@ backbone — 多尺度骨架提取（纯函数，无 DB）
 度为 1 的节点：它只有一条边，无从做显著性检验（k_i-1=0），该边直接保留（否则会把它
 变成孤点）。
 
+稠密 embedding 的"高相似度地板"修正（关键）
+--------------------------------------------------
+Disparity Filter 的零模型隐含假设权重从 ~0 起跳。但 BGE 等稠密向量的余弦挤在一条**窄
+而高的带**里（实测语料两两余弦 min≈0.76、median≈0.85），于是每个节点的归一化权重近乎
+均匀(≈1/k_i)，p 值 `(1-1/k_i)^(k_i-1)≈1/e≈0.376` 对几乎所有边都一样——结果是**双峰退
+化**：α<0.376 全删（连通兜底只剩一棵生成树）、α>0.376 全留（又变完整毛球），中间没有可用区
+间。修正：显著性检验改在**"超出语料基线的相似度" w'=cos-baseline** 上做（baseline=图内
+最小边权，即"语料公共相似度地板"），恢复窄带内的动态范围；**返回的边权仍是原始余弦**（供
+渲染/PageRank）。修正后骨架在 α∈[0.15,0.40] 稳定且簇结构清晰，不再 tree-or-hairball。
+
 连通性兜底
 --------------------------------------------------
 骨架可能裂成多个连通块，但"研究地图"要连通才有导航意义。用**原图最强跨块边**做最大权
@@ -127,6 +137,7 @@ def extract_backbone(
     alpha: float = 0.25,
     min_sim: float = 0.05,
     ensure_connected: bool = True,
+    baseline: str | float = "auto",
 ) -> list[tuple[int, int, float]]:
     """从稠密加权相似图抽取多尺度骨架。
 
@@ -135,6 +146,10 @@ def extract_backbone(
         alpha: 显著性水平 α ∈ (0,1)。越小骨架越稀越严格；典型 0.1（很稀）~ 0.5（较密）。
         min_sim: 相似度地板，低于此的对直接当噪声丢弃（不参与强度统计，避免拉高分母）。
         ensure_connected: True 时用最强跨块边把骨架补成连通图（研究地图需连通）。
+        baseline: 显著性检验前从边权里减去的"语料相似度基线"，专治稠密 embedding 的窄
+            高带退化。"auto"=图内最小边权（推荐，自适应语料地板）；0/None=不减（原始余弦，
+            退化为经典 disparity filter）；也可传固定 float。**只影响显著性判定**，返回边权
+            始终是原始相似度。
 
     Returns:
         骨架边 [(a, b, sim)]，a<b，去重，sim 为原始相似度（供下游 PageRank/渲染用）。
@@ -148,7 +163,19 @@ def extract_backbone(
     if len(nodes) <= 3:
         return [(a, b, s) for (a, b), s in sim_of.items()]
 
-    keep = _disparity_keep(adj, alpha)
+    # 基线扣除：把"超出语料公共相似度地板"的部分作为显著性检验的有效权重，
+    # 让窄高带（BGE 余弦 ~0.8）恢复动态范围；权重几乎全相等时退回原始权重。
+    weights = sim_of.values()
+    if baseline == "auto":
+        lo, hi = min(weights), max(weights)
+        base = lo if (hi - lo) > 1e-9 else 0.0
+    else:
+        base = float(baseline or 0.0)
+    adj_eff = adj if base <= 0.0 else {
+        i: {j: max(0.0, w - base) for j, w in nb.items()} for i, nb in adj.items()
+    }
+
+    keep = _disparity_keep(adj_eff, alpha)
     if ensure_connected:
-        keep = _ensure_connected(keep, sim_of, nodes)
+        keep = _ensure_connected(keep, sim_of, nodes)   # 桥按原始相似度排序（单调，等价）
     return [(a, b, sim_of[(a, b)]) for (a, b) in keep if (a, b) in sim_of]
