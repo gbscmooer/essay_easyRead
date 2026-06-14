@@ -275,6 +275,54 @@ async def grobid_pull() -> dict:
 
 
 # ============================================================
+# POST /api/analysis/findpapers/test-databases
+# ============================================================
+
+class FindpapersTestRequest(BaseModel):
+    """findpapers 数据库功能检测请求。
+
+    databases：要测的库（传 1 个=单独测，传多个=测全部）。省略时用已保存配置里启用的库。
+    """
+    databases: Optional[list[str]] = None
+
+
+class DatabaseTestResult(BaseModel):
+    database: str
+    label: str
+    searchable: bool                  # 能否用 findpapers 搜到结果
+    downloadable: bool                # 能否真正下载到 PDF（已验证 PDF 头）
+    needs_key: bool = False
+    latency_ms: Optional[int] = None
+    message: str
+
+
+class FindpapersTestResponse(BaseModel):
+    findpapers_installed: bool        # findpapers 库是否已 pip 安装
+    results: list[DatabaseTestResult]
+
+
+@router.post("/findpapers/test-databases", response_model=FindpapersTestResponse)
+async def findpapers_test_databases(req: FindpapersTestRequest) -> FindpapersTestResponse:
+    """逐库实测 findpapers 数据库：能否「搜索」+ 能否「下载 PDF」。
+
+    不是简单 ping——真用 findpapers 搜该库、取一条结果的 PDF 并流式下载头部字节验证。
+    传单个 database = 单独测；传多个 = 并行测全部。
+    """
+    from ..services.findpapers_service import test_databases, is_findpapers_installed
+    from ..services.ai_config import get_findpapers_config
+
+    databases = req.databases
+    if databases is None:
+        databases = get_findpapers_config().get("databases", [])
+
+    results = await test_databases(databases)
+    return FindpapersTestResponse(
+        findpapers_installed=is_findpapers_installed(),
+        results=[DatabaseTestResult(**r) for r in results],
+    )
+
+
+# ============================================================
 # POST /api/analysis/test-connection
 # ============================================================
 

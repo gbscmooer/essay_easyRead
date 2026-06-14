@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.22.1'
+const APP_VERSION = '1.23.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-06-14',
   changes: [
-    '修复去毛球在真实 BGE 向量上退化为「一棵树或全连接毛球」：骨架显著性检验改在「超出语料基线的相似度」上做，恢复窄高余弦带的区分度',
-    '骨架更稳健：α 在 0.15–0.40 间都能稳定输出清晰的子方向簇结构，不再对参数极度敏感',
+    'findpapers 多源搜索新增「逐库功能检测」接口：真实发起搜索并流式下载验证 PDF 头部字节（而非简单 ping），逐库区分「可搜索」与「可下载」',
+    '健壮性：批量检测时单个数据库异常不再拖垮整批结果',
+    '工程清理：移除误入库的运行日志，.gitignore 补全日志与工具缓存规则',
   ],
 }
 

@@ -10,13 +10,29 @@ findpapers 多源学术搜索服务
 """
 
 import asyncio
+import importlib.util
 import logging
+import time
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 # findpapers 支持的搜索数据库（crossref 仅用于 enrichment，不可搜索）
 _VALID_SEARCH_DBS = {"arxiv", "ieee", "openalex", "pubmed", "scopus", "semantic_scholar", "wos"}
+
+# 各数据库的元信息：(展示名, 是否需要 API key)。crossref 仅用于 enrichment，不可单独搜索。
+_DB_META: dict[str, tuple[str, bool]] = {
+    "arxiv":            ("arXiv",            False),
+    "openalex":         ("OpenAlex",         False),
+    "pubmed":           ("PubMed",           False),
+    "semantic_scholar": ("Semantic Scholar", False),
+    "ieee":             ("IEEE Xplore",      True),
+    "scopus":           ("Scopus",           True),
+    "wos":              ("Web of Science",   True),
+    "crossref":         ("CrossRef",         False),
+}
 
 # 停用词（构建布尔查询时过滤）
 _STOP_WORDS = frozenset({
@@ -217,3 +233,145 @@ async def resolve_pdf_url(title: str, config: dict) -> Optional[str]:
     return await asyncio.to_thread(
         _resolve_pdf_sync, title, databases
     )
+
+
+# ============================================================
+# 数据库功能检测（逐库实测：能否成功「搜索」+「下载 PDF」）
+# ============================================================
+# 不是简单 ping/HTTP 探测，而是真的用 findpapers 搜该库 → 拿一条结果的 PDF →
+# 流式下载头部字节确认是真 PDF。这样能区分：库通但搜不到 / 搜得到但下不了 / 全通。
+
+# 功能检测用的通用查询（findpapers 布尔语法，单个常见词足够命中各库）
+_TEST_QUERY = "[machine learning]"
+
+
+def is_findpapers_installed() -> bool:
+    """findpapers 库是否已安装（未装则无法搜索/下载）。"""
+    return importlib.util.find_spec("findpapers") is not None
+
+
+def _test_search_one_sync(db: str, query: str, max_n: int = 2) -> dict:
+    """同步：用 findpapers 搜单个库，返回 {ok, papers:[{title,pdf_url,doi}], error}。"""
+    try:
+        engine = _get_engine()
+        result = engine.search(
+            query, databases=[db], max_papers_per_database=max_n,
+            num_workers=1, show_progress=False,
+        )
+    except Exception as e:
+        return {"ok": False, "papers": [], "error": str(e)[:200]}
+    papers = []
+    for p in (result.papers if result else []):
+        papers.append({
+            "title": p.title or "",
+            "pdf_url": getattr(p, "pdf_url", "") or "",
+            "doi": p.doi or "",
+        })
+    return {"ok": len(papers) > 0, "papers": papers, "error": ""}
+
+
+async def _verify_pdf_downloadable(client: httpx.AsyncClient, url: str) -> tuple[bool, str]:
+    """流式拉取 PDF 头部字节，确认确实是可下载的 PDF（而非着陆页/HTML/404）。"""
+    if not url:
+        return False, ""
+    try:
+        async with client.stream("GET", url) as r:
+            if r.status_code >= 400:
+                return False, f"下载请求 HTTP {r.status_code}"
+            ctype = (r.headers.get("content-type") or "").lower()
+            head = b""
+            async for chunk in r.aiter_bytes():
+                head += chunk
+                if len(head) >= 2048:
+                    break
+            if head[:5] == b"%PDF-":
+                return True, "已下载并验证 PDF 头"
+            if "application/pdf" in ctype:
+                return True, "content-type 为 PDF"
+            return False, f"返回的不是 PDF（{ctype or '未知类型'}）"
+    except httpx.TimeoutException:
+        return False, "下载超时"
+    except Exception as e:
+        return False, f"下载失败（{type(e).__name__}）"
+
+
+async def test_database(db: str, *, query: str = _TEST_QUERY, timeout: float = 30.0) -> dict:
+    """实测单个数据库：能否搜索 + 能否下载到真实 PDF。
+
+    Returns:
+        {database, label, needs_key, searchable, downloadable, latency_ms, message}
+    """
+    key = (db or "").strip().lower()
+    meta = _DB_META.get(key)
+    label, needs_key = (meta[0], meta[1]) if meta else (key, False)
+    out = {
+        "database": key, "label": label, "needs_key": needs_key,
+        "searchable": False, "downloadable": False, "latency_ms": None, "message": "",
+    }
+    if meta is None:
+        out["message"] = "未知数据库"
+        return out
+    if not is_findpapers_installed():
+        out["message"] = "findpapers 库未安装（pip install findpapers）"
+        return out
+
+    t0 = time.monotonic()
+    try:
+        search = await asyncio.wait_for(
+            asyncio.to_thread(_test_search_one_sync, key, query), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        out["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        out["message"] = f"搜索超时（>{int(timeout)}s）"
+        return out
+
+    out["searchable"] = search["ok"]
+    if not search["ok"]:
+        out["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        if search["error"]:
+            out["message"] = f"搜索失败：{search['error']}"
+        elif needs_key:
+            out["message"] = "搜索无结果（多半是缺 API key / 未授权）"
+        else:
+            out["message"] = "搜索无结果（库暂不可用或配额耗尽）"
+        return out
+
+    # 取第一条有 pdf_url 的结果验证下载
+    pdf_url = next((p["pdf_url"] for p in search["papers"] if p["pdf_url"]), "")
+    if not pdf_url:
+        out["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        out["message"] = "可搜索，但结果未提供可下载 PDF（多为闭源/需订阅）"
+        return out
+
+    headers = {"User-Agent": "essay-read/1.0 (findpapers download test)"}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=min(timeout, 20.0), headers=headers) as client:
+        dl_ok, dl_msg = await _verify_pdf_downloadable(client, pdf_url)
+    out["downloadable"] = dl_ok
+    out["latency_ms"] = int((time.monotonic() - t0) * 1000)
+    out["message"] = "可搜索 + 可下载 ✓" if dl_ok else f"可搜索；下载：{dl_msg}"
+    return out
+
+
+async def test_databases(databases: list[str]) -> list[dict]:
+    """并行实测一组数据库（用于「测试全部」）。逐库 searchable / downloadable。
+
+    单库异常被降级为一条 failed 结果，绝不让整批测试 500（return_exceptions=True）。
+    """
+    keys = list(dict.fromkeys(d.strip().lower() for d in (databases or []) if d and d.strip()))
+    if not keys:
+        return []
+    settled = await asyncio.gather(*[test_database(k) for k in keys], return_exceptions=True)
+    out: list[dict] = []
+    for k, r in zip(keys, settled):
+        if isinstance(r, Exception):
+            meta = _DB_META.get(k)
+            label, needs_key = (meta[0], meta[1]) if meta else (k, False)
+            logger.warning(f"test_database({k}) crashed: {r!r}")
+            out.append({
+                "database": k, "label": label, "needs_key": needs_key,
+                "searchable": False, "downloadable": False, "latency_ms": None,
+                "message": f"测试异常：{type(r).__name__}",
+            })
+        else:
+            out.append(r)
+    return out

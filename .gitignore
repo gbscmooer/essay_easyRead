@@ -25,6 +25,14 @@ code_downloads/
 # Data
 data/
 
+# Logs
+*.log
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
 # IDE
 .vscode/
 .idea/
