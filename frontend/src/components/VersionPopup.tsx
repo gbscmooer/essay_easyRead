@@ -1,14 +1,13 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.23.0'
+const APP_VERSION = '1.23.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-14',
+  date: '2026-06-15',
   changes: [
-    'findpapers 多源搜索新增「逐库功能检测」接口：真实发起搜索并流式下载验证 PDF 头部字节（而非简单 ping），逐库区分「可搜索」与「可下载」',
-    '健壮性：批量检测时单个数据库异常不再拖垮整批结果',
-    '工程清理：移除误入库的运行日志，.gitignore 补全日志与工具缓存规则',
+    '接入 claude.ai/design 设计系统：将骨架屏、加载态、确认弹窗、快捷键帮助、Tooltip 等精选 UI 组件导出为可复用设计系统',
+    '新增设计系统同步工具链（.design-sync/）：scoped barrel 入口 + 主题令牌 :root 提升 + 组件预览，支持一键重新同步',
   ],
 }
 
@@ -79,7 +78,7 @@ export function VersionPopup({ onClose }: { onClose: () => void }) {
         <div className="p-4 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
-              <span style={{ color: 'var(--accent)' }}>&#9670;</span>
+              <img src="/logo.jpg" alt="Logo" className="w-4 h-4 rounded-sm object-cover" />
               <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 Easy Essay
               </span>

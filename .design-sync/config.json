@@ -1,0 +1,43 @@
+{
+  "projectId": "cf896ca6-97d2-424d-b8ad-048c8efa2785",
+  "shape": "package",
+  "pkg": "essay-read-frontend",
+  "globalName": "EssayReadDS",
+  "entry": "./frontend/ds-entry.tsx",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "ds-styles.css",
+  "runtimeFontPrefixes": ["Inter"],
+  "buildCmd": "bash .design-sync/build-css.sh",
+  "readmeHeader": ".design-sync/conventions.md",
+  "componentSrcMap": {
+    "SkeletonLine": "src/components/Skeleton.tsx",
+    "SkeletonBlock": "src/components/Skeleton.tsx",
+    "SkeletonCircle": "src/components/Skeleton.tsx",
+    "SkeletonCard": "src/components/Skeleton.tsx",
+    "SkeletonAnalysis": "src/components/Skeleton.tsx",
+    "Tooltip": "src/components/Tooltip.tsx",
+    "ConfirmDialog": "src/components/ConfirmDialog.tsx",
+    "LoadingSpinner": "src/components/LoadingSpinner.tsx",
+    "LoadingState": "src/components/LoadingState.tsx",
+    "ShortcutHelp": "src/components/ShortcutHelp.tsx"
+  },
+  "dtsPropsFor": {
+    "SkeletonLine": "  /** CSS width — number (px) or any CSS length. Default '100%'. */\n  width?: string | number;\n  /** Height in px. Default 14. */\n  height?: number;\n  /** Border radius — number (px) or any CSS length. */\n  radius?: string | number;\n  className?: string;\n  style?: React.CSSProperties;",
+    "SkeletonBlock": "  /** CSS width — number (px) or any CSS length. Default '100%'. */\n  width?: string | number;\n  /** Height in px. Default 80. */\n  height?: number;\n  /** Border radius (CSS length). Defaults to var(--seed-radius). */\n  radius?: string;\n  className?: string;\n  style?: React.CSSProperties;",
+    "SkeletonCircle": "  /** Diameter in px. Default 40. */\n  size?: number;\n  className?: string;\n  style?: React.CSSProperties;",
+    "SkeletonCard": "  className?: string;\n  style?: React.CSSProperties;",
+    "SkeletonAnalysis": "  className?: string;\n  style?: React.CSSProperties;",
+    "Tooltip": "  /** Tooltip content shown on hover/focus. */\n  content: React.ReactNode;\n  /** Trigger element(s). */\n  children: React.ReactNode;\n  /** Delay in ms before showing. Default 1500. */\n  delay?: number;\n  /** Placement relative to the trigger. Default 'bottom'. */\n  placement?: 'top' | 'bottom';\n  /** Class applied to the trigger wrapper. */\n  className?: string;",
+    "ConfirmDialog": "  /** Whether the dialog is open. */\n  open: boolean;\n  title: string;\n  message: string;\n  /** Confirm button label. Default '确认'. */\n  confirmLabel?: string;\n  /** Cancel button label. Default '取消'. */\n  cancelLabel?: string;\n  /** Visual + semantic variant. Default 'danger'. */\n  variant?: 'danger' | 'warning';\n  onConfirm: () => void;\n  onCancel: () => void;",
+    "LoadingSpinner": "  /** Spinner size. Default 'md'. */\n  size?: 'sm' | 'md' | 'lg';\n  className?: string;",
+    "LoadingState": "  /** Current analysis phase. */\n  status: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'done' | 'failed';\n  /** Status message shown under the steps. */\n  message: string;\n  /** Partial analysis result accumulated so far (drives the field checklist). */\n  partialResult: Record<string, unknown>;\n  /** Server-computed progress 0–100; <0 falls back to client estimate. */\n  progress?: number;",
+    "ShortcutHelp": "  /** Whether the help dialog is open. */\n  open: boolean;\n  onClose: () => void;"
+  },
+  "overrides": {
+    "ConfirmDialog": { "cardMode": "single", "viewport": "500x340", "primaryStory": "Danger" },
+    "ShortcutHelp": { "cardMode": "single", "viewport": "520x500" },
+    "LoadingState": { "cardMode": "column" },
+    "SkeletonCard": { "cardMode": "column" }
+  }
+}
