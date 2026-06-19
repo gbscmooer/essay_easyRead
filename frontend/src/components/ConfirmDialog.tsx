@@ -1,8 +1,8 @@
 /**
  * ConfirmDialog 通用确认弹窗
  *
- * 可复用的确认对话框组件，支持 danger/warning 两种变体，
- * 包含焦点捕获、Escape 关闭、点击背景关闭等无障碍功能。
+ * 磨砂玻璃遮罩 + 表面提升卡片 + 药丸/幽灵按钮组合。
+ * 支持 danger/warning 变体，含焦点捕获和 Escape 关闭。
  */
 
 import { useEffect, useRef } from 'react'
@@ -11,24 +11,24 @@ interface ConfirmDialogProps {
   open: boolean
   title: string
   message: string
-  confirmLabel?: string  // default "确认"
-  cancelLabel?: string   // default "取消"
-  variant?: 'danger' | 'warning'  // default 'danger'
+  confirmLabel?: string
+  cancelLabel?: string
+  variant?: 'danger' | 'warning'
   onConfirm: () => void
   onCancel: () => void
 }
 
 const ICONS = {
   danger: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
       />
     </svg>
   ),
   warning: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
         d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
       />
     </svg>
@@ -37,7 +37,7 @@ const ICONS = {
 
 const ICON_COLORS = {
   danger: 'var(--error)',
-  warning: 'text-amber-400',
+  warning: 'var(--warning)',
 }
 
 export function ConfirmDialog({
@@ -53,7 +53,6 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
 
-  // Focus trap: focus cancel button on open, Tab cycles within dialog
   useEffect(() => {
     if (!open) return
     cancelRef.current?.focus()
@@ -93,8 +92,12 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+      className="fixed inset-0 z-[200] flex items-center justify-center animate-reveal-fade"
+      style={{
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+      }}
       onMouseDown={onCancel}
       role="dialog"
       aria-modal="true"
@@ -102,42 +105,66 @@ export function ConfirmDialog({
     >
       <div
         ref={cardRef}
-        className="w-80 rounded-xl border p-5 shadow-2xl"
-        style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+        className="w-[340px] p-6 shadow-2xl animate-reveal-scale"
+        style={{
+          backgroundColor: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--seed-radius, 12px)',
+          boxShadow: '0 24px 48px rgba(0,0,0,0.16), 0 8px 16px rgba(0,0,0,0.08)',
+        }}
         onMouseDown={e => e.stopPropagation()}
       >
-        <div className="flex items-start gap-3 mb-4">
-          <span className={`mt-0.5 shrink-0 ${variant === 'warning' ? ICON_COLORS.warning : ''}`}
-            style={variant === 'danger' ? { color: ICON_COLORS.danger } : undefined}
+        {/* Header: icon + text */}
+        <div className="flex items-start gap-3.5 mb-5">
+          <span
+            className="shrink-0 mt-0.5 flex items-center justify-center w-9 h-9 rounded-full"
+            style={{
+              color: ICON_COLORS[variant],
+              backgroundColor: variant === 'danger' ? 'var(--error-subtle)' : 'var(--warning-subtle)',
+            }}
           >
             {ICONS[variant]}
           </span>
-          <div>
-            <p id="confirm-dialog-title" className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+          <div className="flex-1 min-w-0">
+            <p
+              id="confirm-dialog-title"
+              className="text-[14px] font-medium mb-1.5"
+              style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}
+            >
               {title}
             </p>
-            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
               {message}
             </p>
           </div>
         </div>
-        <div className="flex justify-end gap-2">
+
+        {/* Actions: ghost cancel + pill confirm */}
+        <div className="flex justify-end gap-2.5">
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="px-3 py-1.5 text-xs rounded-md border transition-colors hover:opacity-80"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            className="px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+            style={{
+              color: 'var(--text-secondary)',
+              backgroundColor: 'transparent',
+              border: '1px solid var(--border)',
+              cursor: 'pointer',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className="px-3 py-1.5 text-xs rounded-md transition-colors"
-            style={
-              variant === 'danger'
-                ? { backgroundColor: 'var(--error)', color: '#fff' }
-                : { backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }
-            }
+            className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200"
+            style={{
+              backgroundColor: variant === 'danger' ? 'var(--error)' : 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
           >
             {confirmLabel}
           </button>

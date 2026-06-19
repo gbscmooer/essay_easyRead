@@ -19,7 +19,7 @@
  */
 
 import React, { Suspense } from 'react'
-import { createBrowserRouter, Outlet } from 'react-router-dom'
+import { createBrowserRouter, Outlet, useLocation } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ToastContainer } from '@/components/ToastContainer'
 import { PageErrorBoundary } from '@/components/PageErrorBoundary'
@@ -45,11 +45,21 @@ function LoadingFallback() {
   )
 }
 
+/** 路由切换时按路径 key 重新挂载并淡入（纯透明度，不改盒模型，h-full 透传保证满高页面正常）。 */
+function RouteTransition() {
+  const location = useLocation()
+  return (
+    <div key={location.pathname} className="h-full animate-reveal-fade">
+      <Outlet />
+    </div>
+  )
+}
+
 function RootLayout() {
   return (
     <Layout>
       <Suspense fallback={<LoadingFallback />}>
-        <Outlet />
+        <RouteTransition />
       </Suspense>
       <ToastContainer />
     </Layout>

@@ -75,13 +75,13 @@ export function ShortcutHelp({ open, onClose }: Props) {
       className="fixed inset-0 z-[9998] flex items-center justify-center"
       onClick={onClose}
     >
-      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+      <div className="absolute inset-0 animate-reveal-fade" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcut-help-title"
-        className="relative rounded-xl shadow-2xl border p-6 w-[400px] max-h-[80vh] overflow-auto"
+        className="relative rounded-xl shadow-2xl border p-6 w-[400px] max-h-[80vh] overflow-auto animate-reveal-scale"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
         onClick={e => e.stopPropagation()}
       >

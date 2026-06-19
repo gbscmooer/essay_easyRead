@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { LoadingState } from '@/components/LoadingState'
+import { LoadingState } from '@/ds-entry'
 import type { AnalysisStatus } from '@/types'
 
 describe('LoadingState', () => {

@@ -85,18 +85,25 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
+      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} />
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
-        className="relative w-[30rem] max-w-full h-full flex flex-col"
+        className="relative w-[30rem] max-w-full h-full flex flex-col animate-slide-in-x"
         style={{ backgroundColor: 'var(--bg-surface)', borderLeft: '1px solid var(--border)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>研究设置</h3>
-          <button ref={closeRef} onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--text-muted)' }}>关闭</button>
+        <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+          <h3 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>研究设置</h3>
+          <button
+            ref={closeRef}
+            onClick={onClose}
+            className="text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+          >
+            关闭
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -104,20 +111,21 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
             <DeepResearchSettings config={config} setConfig={setConfig} simProviders={simProviders} />
           ) : (
             <div className="flex items-center justify-center h-32">
-              <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t shrink-0 flex items-center gap-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="px-5 py-3.5 shrink-0 flex items-center gap-3" style={{ borderTop: '1px solid var(--border)' }}>
           <button
             onClick={handleSave}
             disabled={saving || !loaded}
-            className="px-4 py-1.5 text-sm font-medium bg-blue-600 text-black rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 text-[13px] font-medium rounded-full transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
           >
             {saving ? '保存中…' : '保存'}
           </button>
-          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>保存后立即生效于下一次研究运行</span>
+          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>保存后立即生效于下一次研究运行</span>
         </div>
       </div>
     </div>

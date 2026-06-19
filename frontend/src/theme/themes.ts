@@ -1,12 +1,21 @@
 /**
- * 主题系统
+ * 主题系统 — Seed Token 架构
  *
- * 一个主题 = 12 个可自定义颜色（语义色 + 状态色）。
- * 其余 CSS 变量（accent-subtle、状态浅底、代码区配色）由这 12 个色 + 明暗模式自动派生。
+ * 6 个 seed token 派生出全部 CSS 变量。
+ * Light / Dark 两个内置预设，用户可在此基础上自定义。
  *
- * 内置 3 个主题（不可删除）：纯白 light / 纯黑 pure / 摩卡 mocha。
- * 用户可在此基础上新建、重命名、删除自定义主题，全部颜色用色盘自定义。
+ * Seed tokens:
+ *   --seed-bg       页面最底层背景
+ *   --seed-fg       主文字色
+ *   --seed-surface  面板/卡片表面
+ *   --seed-accent   强调色
+ *   --seed-muted    弱化文字色
+ *   --seed-radius   基础圆角基数 (px)
  */
+
+/* ============================================================
+ * 接口定义（向后兼容 ThemeColors 消费方）
+ * ============================================================ */
 
 export interface ThemeColors {
   bg_base: string
@@ -23,14 +32,229 @@ export interface ThemeColors {
   error: string
 }
 
+export interface SeedTokens {
+  bg: string
+  fg: string
+  surface: string
+  accent: string
+  muted: string
+  radius: number
+}
+
 export interface Theme {
   id: string
   name: string
   builtin?: boolean
+  seeds: SeedTokens
+  /** 兼容旧消费方 — 由 seeds 派生 */
   colors: ThemeColors
 }
 
-/** 12 个可编辑颜色的元信息（用于设置页生成色盘） */
+/* ============================================================
+ * 颜色工具
+ * ============================================================ */
+
+function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.replace('#', '').trim()
+  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const n = parseInt(h, 16)
+  if (isNaN(n) || h.length !== 6) return [128, 128, 128]
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map(v => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('')
+}
+
+/** Mix two hex colors: ratio 0 = c1, 1 = c2 */
+function mixHex(c1: string, c2: string, ratio: number): string {
+  const [r1, g1, b1] = hexToRgb(c1)
+  const [r2, g2, b2] = hexToRgb(c2)
+  return rgbToHex(
+    r1 + (r2 - r1) * ratio,
+    g1 + (g2 - g1) * ratio,
+    b1 + (b2 - b1) * ratio,
+  )
+}
+
+export function rgba(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(hex)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** 相对亮度 (0~1) */
+function luminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex)
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+}
+
+export function isDarkTheme(colors: ThemeColors): boolean {
+  return luminance(colors.bg_base) < 0.5
+}
+
+/* ============================================================
+ * Seeds → 派生色
+ * ============================================================ */
+
+function seedsToColors(seeds: SeedTokens): ThemeColors {
+  const dark = luminance(seeds.bg) < 0.5
+
+  return {
+    bg_base: seeds.bg,
+    bg_surface: seeds.surface,
+    bg_elevated: dark ? mixHex(seeds.surface, '#ffffff', 0.06) : mixHex(seeds.surface, '#000000', 0.03),
+    border: dark ? mixHex(seeds.bg, '#ffffff', 0.10) : mixHex(seeds.bg, '#000000', 0.10),
+    border_light: dark ? mixHex(seeds.bg, '#ffffff', 0.18) : mixHex(seeds.bg, '#000000', 0.18),
+    text_primary: seeds.fg,
+    text_secondary: dark ? mixHex(seeds.fg, seeds.bg, 0.25) : mixHex(seeds.fg, '#ffffff', 0.20),
+    text_muted: seeds.muted,
+    accent: seeds.accent,
+    success: dark ? '#22c55e' : '#16a34a',
+    warning: dark ? '#eab308' : '#ca8a04',
+    error: dark ? '#ef4444' : '#dc2626',
+  }
+}
+
+/** 反向：从一套 ThemeColors 反推种子令牌（自定义主题编辑器创建主题时用）。 */
+export function colorsToSeeds(c: ThemeColors): SeedTokens {
+  return {
+    bg: c.bg_base,
+    fg: c.text_primary,
+    surface: c.bg_surface,
+    accent: c.accent,
+    muted: c.text_muted,
+    radius: 12,
+  }
+}
+
+/* ============================================================
+ * 内置预设
+ * ============================================================ */
+
+// Claude 暖纸 — 默认外观：暖米白纸感 + 黏土橙强调（对齐 claude.ai/design 编辑风）
+const LIGHT_SEEDS: SeedTokens = {
+  bg: '#f5f3ec',
+  fg: '#2b2722',
+  surface: '#fcfbf7',
+  accent: '#cc785c',
+  muted: '#8a8478',
+  radius: 12,
+}
+
+const DARK_SEEDS: SeedTokens = {
+  bg: '#0c0c0e',
+  fg: '#f0f0f0',
+  surface: '#1a1a1c',
+  accent: '#60a5fa',
+  muted: '#707070',
+  radius: 12,
+}
+
+export const BUILTIN_THEMES: Theme[] = [
+  {
+    id: 'light',
+    name: 'Claude 暖纸',
+    builtin: true,
+    seeds: LIGHT_SEEDS,
+    colors: seedsToColors(LIGHT_SEEDS),
+  },
+  {
+    id: 'dark',
+    name: '深色',
+    builtin: true,
+    seeds: DARK_SEEDS,
+    colors: seedsToColors(DARK_SEEDS),
+  },
+]
+
+export const DEFAULT_THEME_ID = 'light'
+
+/* ============================================================
+ * 解析与应用
+ * ============================================================ */
+
+export function resolveTheme(key: string | undefined, customThemes: Theme[] = []): Theme {
+  if (key) {
+    if (key.startsWith('custom:')) {
+      const id = key.slice('custom:'.length)
+      const found = customThemes.find(t => t.id === id)
+      if (found) return found
+    }
+    const builtin = BUILTIN_THEMES.find(t => t.id === key)
+    if (builtin) return builtin
+  }
+  return BUILTIN_THEMES.find(t => t.id === DEFAULT_THEME_ID) || BUILTIN_THEMES[0]
+}
+
+export function themeKey(theme: Theme): string {
+  return theme.builtin ? theme.id : `custom:${theme.id}`
+}
+
+/** 由 seeds 派生全部 CSS 变量 */
+export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<string, string> {
+  // 颜色变量以显式 colors 为准（自定义主题可逐项细调，编辑即生效）；
+  // 缺省时（如仅传种子）从种子派生。seeds 仍提供 --seed-* 原始令牌与 radius。
+  const c = colors ?? seedsToColors(seeds)
+  const dark = luminance(c.bg_base) < 0.5
+
+  return {
+    // Seed tokens (raw)——跟随有效颜色，避免自定义主题改色后漂移
+    '--seed-bg': c.bg_base,
+    '--seed-fg': c.text_primary,
+    '--seed-surface': c.bg_surface,
+    '--seed-accent': c.accent,
+    '--seed-muted': c.text_muted,
+    '--seed-radius': `${seeds.radius}px`,
+
+    // Surface tokens
+    '--bg-base': c.bg_base,
+    '--bg-surface': c.bg_surface,
+    '--bg-elevated': c.bg_elevated,
+
+    // Border tokens
+    '--border': c.border,
+    '--border-light': c.border_light,
+
+    // Text tokens
+    '--text-primary': c.text_primary,
+    '--text-secondary': c.text_secondary,
+    '--text-muted': c.text_muted,
+
+    // Accent + subtle variants
+    '--accent': c.accent,
+    '--accent-subtle': rgba(c.accent, dark ? 0.14 : 0.08),
+
+    // Semantic status + subtle variants
+    '--success': c.success,
+    '--success-subtle': rgba(c.success, dark ? 0.16 : 0.10),
+    '--warning': c.warning,
+    '--warning-subtle': rgba(c.warning, dark ? 0.16 : 0.10),
+    '--error': c.error,
+    '--error-subtle': rgba(c.error, dark ? 0.16 : 0.10),
+
+    // Code area
+    '--code-bg': dark ? '#1e1e2e' : '#f6f8fa',
+    '--code-fg': dark ? '#cdd6f4' : '#1f2328',
+  }
+}
+
+/**
+ * 将主题应用到 <html>：注入 CSS 变量 + data-theme + data-mode。
+ */
+export function applyTheme(theme: Theme): void {
+  const root = document.documentElement
+  const vars = buildCssVars(theme.seeds, theme.colors)
+  for (const [k, v] of Object.entries(vars)) {
+    root.style.setProperty(k, v)
+  }
+  root.setAttribute('data-theme', theme.builtin ? theme.id : 'custom')
+  root.setAttribute('data-mode', isDarkTheme(theme.colors) ? 'dark' : 'light')
+}
+
+/* ============================================================
+ * 向后兼容：COLOR_FIELDS 供设置页色盘使用
+ * ============================================================ */
+
 export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: string }[] = [
   { key: 'bg_base', label: '背景 · 底层', group: '背景' },
   { key: 'bg_surface', label: '背景 · 面板', group: '背景' },
@@ -45,129 +269,3 @@ export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: strin
   { key: 'warning', label: '状态 · 警告', group: '状态' },
   { key: 'error', label: '状态 · 错误', group: '状态' },
 ]
-
-export const BUILTIN_THEMES: Theme[] = [
-  {
-    id: 'light',
-    name: '纯白',
-    builtin: true,
-    colors: {
-      bg_base: '#ffffff', bg_surface: '#f8fafc', bg_elevated: '#f1f5f9',
-      border: '#e2e8f0', border_light: '#cbd5e1',
-      text_primary: '#0f172a', text_secondary: '#334155', text_muted: '#94a3b8',
-      accent: '#1d4ed8', success: '#16a34a', warning: '#ca8a04', error: '#dc2626',
-    },
-  },
-  {
-    id: 'pure',
-    name: '纯黑',
-    builtin: true,
-    colors: {
-      bg_base: '#000000', bg_surface: '#0a0a0a', bg_elevated: '#171717',
-      border: '#262626', border_light: '#404040',
-      text_primary: '#ffffff', text_secondary: '#a3a3a3', text_muted: '#737373',
-      accent: '#ffffff', success: '#22c55e', warning: '#eab308', error: '#ef4444',
-    },
-  },
-  {
-    id: 'mocha',
-    name: '摩卡',
-    builtin: true,
-    colors: {
-      bg_base: '#1a1614', bg_surface: '#252019', bg_elevated: '#302a22',
-      border: '#4a4136', border_light: '#5c5246',
-      text_primary: '#faf0e4', text_secondary: '#dcc8a8', text_muted: '#a89888',
-      accent: '#f0a050', success: '#22c55e', warning: '#eab308', error: '#ef4444',
-    },
-  },
-]
-
-export const DEFAULT_THEME_ID = 'light'
-
-
-// ---------- 颜色工具 ----------
-
-function hexToRgb(hex: string): [number, number, number] {
-  let h = hex.replace('#', '').trim()
-  if (h.length === 3) h = h.split('').map(c => c + c).join('')
-  const n = parseInt(h, 16)
-  if (isNaN(n) || h.length !== 6) return [128, 128, 128]
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
-export function rgba(hex: string, alpha: number): string {
-  const [r, g, b] = hexToRgb(hex)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-/** 相对亮度（0~1），用于判断主题明暗 */
-function luminance(hex: string): number {
-  const [r, g, b] = hexToRgb(hex)
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
-}
-
-export function isDarkTheme(colors: ThemeColors): boolean {
-  return luminance(colors.bg_base) < 0.5
-}
-
-
-// ---------- 主题解析与应用 ----------
-
-/** 把主题 key（内置 id 或 custom:<id>）解析为完整 Theme */
-export function resolveTheme(key: string | undefined, customThemes: Theme[] = []): Theme {
-  if (key) {
-    if (key.startsWith('custom:')) {
-      const id = key.slice('custom:'.length)
-      const found = customThemes.find(t => t.id === id)
-      if (found) return found
-    }
-    const builtin = BUILTIN_THEMES.find(t => t.id === key)
-    if (builtin) return builtin
-  }
-  return BUILTIN_THEMES.find(t => t.id === DEFAULT_THEME_ID) || BUILTIN_THEMES[0]
-}
-
-/** 主题 key 用于持久化：内置直接用 id，自定义用 custom:<id> */
-export function themeKey(theme: Theme): string {
-  return theme.builtin ? theme.id : `custom:${theme.id}`
-}
-
-/** 由 12 个颜色派生出全部 CSS 变量 */
-export function buildCssVars(colors: ThemeColors): Record<string, string> {
-  const dark = isDarkTheme(colors)
-  return {
-    '--bg-base': colors.bg_base,
-    '--bg-surface': colors.bg_surface,
-    '--bg-elevated': colors.bg_elevated,
-    '--border': colors.border,
-    '--border-light': colors.border_light,
-    '--text-primary': colors.text_primary,
-    '--text-secondary': colors.text_secondary,
-    '--text-muted': colors.text_muted,
-    '--accent': colors.accent,
-    '--accent-subtle': rgba(colors.accent, dark ? 0.14 : 0.08),
-    '--success': colors.success,
-    '--success-subtle': rgba(colors.success, dark ? 0.16 : 0.1),
-    '--warning': colors.warning,
-    '--warning-subtle': rgba(colors.warning, dark ? 0.16 : 0.1),
-    '--error': colors.error,
-    '--error-subtle': rgba(colors.error, dark ? 0.16 : 0.1),
-    // 代码区：浅色主题用浅底深字，深色主题用深底浅字
-    '--code-bg': dark ? '#1e1e2e' : '#f6f8fa',
-    '--code-fg': dark ? '#cdd6f4' : '#1f2328',
-  }
-}
-
-/**
- * 将主题应用到 <html>：注入 CSS 变量 + data-theme(id) + data-mode(light/dark)。
- * data-mode 驱动代码区/语法高亮/终端的明暗切换。
- */
-export function applyTheme(theme: Theme): void {
-  const root = document.documentElement
-  const vars = buildCssVars(theme.colors)
-  for (const [k, v] of Object.entries(vars)) {
-    root.style.setProperty(k, v)
-  }
-  root.setAttribute('data-theme', theme.builtin ? theme.id : 'custom')
-  root.setAttribute('data-mode', isDarkTheme(theme.colors) ? 'dark' : 'light')
-}

@@ -138,7 +138,14 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                   color: isDone || isCurrentStep ? 'var(--text-primary)' : 'var(--text-muted)',
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
-                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" role="status"><span className="sr-only">\u52A0\u8F7D\u4E2D</span></div>
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{
+                        backgroundColor: '#fff',
+                        animation: 'skeleton-breathe 1.5s ease-in-out infinite',
+                      }}
+                      role="status"
+                    ><span className="sr-only">加载中</span></div>
                   ) : '\u25CB'}
                 </div>
 

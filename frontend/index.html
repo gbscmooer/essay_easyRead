@@ -3,37 +3,92 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/jpeg" href="/logo.jpg" />
     <title>Easy Essay</title>
+    <!-- Inter Variable（正文）+ Source Serif 4（暖纸主题 display 大标题） -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/files/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/source-serif-4@5/index.css" />
     <script>
       (function(){
         try {
-          var k = localStorage.getItem('essay_theme');
-          if (!k) k = 'light';
-          if (k.startsWith('custom:')) {
+          var root = document.documentElement;
+          var key = localStorage.getItem('essay_theme') || 'light';
+
+          /* Seed token presets — mirror themes.ts LIGHT_SEEDS / DARK_SEEDS */
+          var PRESETS = {
+            light: {
+              '--seed-bg':'#f5f3ec','--seed-fg':'#2b2722','--seed-surface':'#fcfbf7',
+              '--seed-accent':'#cc785c','--seed-muted':'#8a8478','--seed-radius':'12px',
+              '--seed-accent-rgb':'204,120,92', mode:'light'
+            },
+            dark: {
+              '--seed-bg':'#0c0c0e','--seed-fg':'#f0f0f0','--seed-surface':'#1a1a1c',
+              '--seed-accent':'#60a5fa','--seed-muted':'#707070','--seed-radius':'12px',
+              '--seed-accent-rgb':'96,165,250', mode:'dark'
+            }
+          };
+
+          var seeds, mode, themeAttr;
+
+          if (key.startsWith('custom:')) {
             var raw = localStorage.getItem('essay_custom_themes');
             if (raw) {
               var themes = JSON.parse(raw);
-              var id = k.slice(7);
-              var t = themes.find(function(x){return x.id===id});
-              if (t && t.colors) {
+              var id = key.slice(7);
+              var t = themes.find(function(x){ return x.id === id; });
+              if (t && t.seeds) {
+                var s = t.seeds;
+                var acR = parseInt(s.accent.slice(1),16);
+                seeds = {
+                  '--seed-bg': s.bg, '--seed-fg': s.fg, '--seed-surface': s.surface,
+                  '--seed-accent': s.accent, '--seed-muted': s.muted,
+                  '--seed-radius': s.radius + 'px',
+                  '--seed-accent-rgb': ((acR>>16)&255)+','+((acR>>8)&255)+','+(acR&255)
+                };
+                var bgR = parseInt(s.bg.slice(1),16);
+                var lum = ((bgR>>16)&255)*0.2126 + ((bgR>>8)&255)*0.7152 + (bgR&255)*0.0722;
+                mode = lum < 128 ? 'dark' : 'light';
+              } else if (t && t.colors) {
+                /* Legacy custom theme with ThemeColors — derive minimal seeds */
                 var c = t.colors;
-                var r = document.documentElement;
-                r.style.setProperty('--bg-base', c.bg_base);
-                r.style.setProperty('--bg-surface', c.bg_surface);
-                r.style.setProperty('--bg-elevated', c.bg_elevated);
-                r.style.setProperty('--border', c.border);
-                r.style.setProperty('--border-light', c.border_light);
-                r.style.setProperty('--text-primary', c.text_primary);
-                r.style.setProperty('--text-secondary', c.text_secondary);
-                r.style.setProperty('--text-muted', c.text_muted);
-                r.style.setProperty('--accent', c.accent);
-                r.setAttribute('data-theme','custom');
-                r.setAttribute('data-mode', (parseInt(c.bg_base.replace('#',''),16)>>16&255)*0.2126+(parseInt(c.bg_base.replace('#',''),16)>>8&255)*0.7152+(parseInt(c.bg_base.replace('#',''),16)&255)*0.0722 < 128 ? 'dark' : 'light');
+                seeds = {
+                  '--seed-bg': c.bg_base, '--seed-fg': c.text_primary,
+                  '--seed-surface': c.bg_surface, '--seed-accent': c.accent,
+                  '--seed-muted': c.text_muted, '--seed-radius': '12px',
+                  '--bg-base': c.bg_base, '--bg-surface': c.bg_surface,
+                  '--bg-elevated': c.bg_elevated, '--border': c.border,
+                  '--border-light': c.border_light, '--text-primary': c.text_primary,
+                  '--text-secondary': c.text_secondary, '--text-muted': c.text_muted,
+                  '--accent': c.accent
+                };
+                var cbR = parseInt(c.bg_base.replace('#',''),16);
+                var cLum = ((cbR>>16)&255)*0.2126 + ((cbR>>8)&255)*0.7152 + (cbR&255)*0.0722;
+                mode = cLum < 128 ? 'dark' : 'light';
               }
             }
-          } else {
-            document.documentElement.setAttribute('data-theme', k);
+            themeAttr = 'custom';
           }
+
+          if (!seeds && PRESETS[key]) {
+            var p = PRESETS[key];
+            seeds = {};
+            Object.keys(p).forEach(function(k){ if (k !== 'mode') seeds[k] = p[k]; });
+            mode = p.mode;
+            themeAttr = key;
+          }
+
+          if (!seeds) {
+            var lp = PRESETS.light;
+            seeds = {};
+            Object.keys(lp).forEach(function(k){ if (k !== 'mode') seeds[k] = lp[k]; });
+            mode = 'light';
+            themeAttr = 'light';
+          }
+
+          Object.keys(seeds).forEach(function(k){ root.style.setProperty(k, seeds[k]); });
+          root.setAttribute('data-theme', themeAttr);
+          root.setAttribute('data-mode', mode);
         } catch(e){}
       })();
     </script>

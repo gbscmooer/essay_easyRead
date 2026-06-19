@@ -4,7 +4,7 @@ import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get, post } from '@/api/client'
 import { digestBatch, digestStatus } from '@/api/research'
 import { toast } from '@/hooks/useToast'
-import { Tooltip } from '@/components/Tooltip'
+import { Tooltip } from '@/ds-entry'
 
 interface ControlPanelProps {
   wsId: number

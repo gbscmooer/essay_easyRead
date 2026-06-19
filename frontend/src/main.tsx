@@ -16,8 +16,11 @@ import ReactDOM from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { router } from './App'
+import { initSpotlight } from './lib/spotlight'
 import './styles/globals.css'
 
+// 全局聚光高光：卡片光晕跟随鼠标
+initSpotlight()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

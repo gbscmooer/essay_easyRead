@@ -58,7 +58,6 @@ export default function ReaderPage() {
       .finally(() => setPapersLoading(false))
   }, [])
 
-  // Auto-start analysis for freshly uploaded papers
   useEffect(() => {
     if (autoAnalyzeRef.current && status === 'idle' && paperId) {
       autoAnalyzeRef.current = false
@@ -66,28 +65,23 @@ export default function ReaderPage() {
     }
   }, [status, paperId, startAnalysis])
 
-  // 加载 PDF 标题坐标（用于大纲精确定位）
   useEffect(() => {
     if (!paperId) { setHeadings([]); return }
     getHeadings(paperId).then(setHeadings).catch(() => setHeadings([]))
   }, [paperId])
 
-  // Focus mode: toggle data attribute + browser fullscreen
   useEffect(() => {
     document.documentElement.dataset.focusMode = focusMode ? 'true' : 'false'
-
     if (focusMode) {
       document.documentElement.requestFullscreen?.().catch(() => {})
     } else if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {})
     }
-
     return () => {
       document.documentElement.dataset.focusMode = 'false'
     }
   }, [focusMode])
 
-  // Listen for fullscreen exit (e.g. user presses Esc natively)
   useEffect(() => {
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement && focusMode) {
@@ -98,7 +92,6 @@ export default function ReaderPage() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [focusMode])
 
-  // Escape 退出专注模式
   useEffect(() => {
     if (!focusMode) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -108,7 +101,6 @@ export default function ReaderPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [focusMode])
 
-  // 拖拽逻辑
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     draggingRef.current = true
@@ -131,17 +123,8 @@ export default function ReaderPage() {
       const pct = ((rect.width - x) / rect.width) * 100
       setPanelPct(Math.min(MAX_PANEL_PCT, Math.max(MIN_PANEL_PCT, pct)))
     }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!draggingRef.current) return
-      calcPct(e.clientX)
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!draggingRef.current) return
-      calcPct(e.touches[0].clientX)
-    }
-
+    const handleMouseMove = (e: MouseEvent) => { if (draggingRef.current) calcPct(e.clientX) }
+    const handleTouchMove = (e: TouchEvent) => { if (draggingRef.current) calcPct(e.touches[0].clientX) }
     const handleUp = () => {
       if (draggingRef.current) {
         draggingRef.current = false
@@ -149,7 +132,6 @@ export default function ReaderPage() {
         document.body.style.userSelect = ''
       }
     }
-
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleUp)
     document.addEventListener('touchmove', handleTouchMove, { passive: false })
@@ -191,11 +173,8 @@ export default function ReaderPage() {
       setPapers(prev => {
         const remaining = prev.filter(p => p.id !== id)
         if (id === paperId) {
-          if (remaining.length > 0) {
-            navigate(`/reader/${remaining[0].id}`)
-          } else {
-            navigate('/')
-          }
+          if (remaining.length > 0) navigate(`/reader/${remaining[0].id}`)
+          else navigate('/')
         }
         return remaining
       })
@@ -212,6 +191,7 @@ export default function ReaderPage() {
       {sidebarOpen && !focusMode && (
         <div
           className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          style={{ backdropFilter: 'blur(4px)' }}
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -220,15 +200,15 @@ export default function ReaderPage() {
       {!focusMode && (
         <div className={`
           fixed lg:static inset-y-0 left-0 z-40 overflow-hidden
-          transform transition-all duration-200 ease-in-out
+          transform transition-all duration-200
           ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-0'}
-        `}>
+        `} style={{ transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}>
           {papersLoading && papers.length === 0 ? (
             <div className="flex flex-col w-64 h-full items-center justify-center" style={{
               backgroundColor: 'var(--bg-surface)',
               borderRight: '1px solid var(--border)',
             }}>
-              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status">
+              <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status">
                 <span className="sr-only">加载中</span>
               </div>
             </div>
@@ -255,11 +235,11 @@ export default function ReaderPage() {
               onClick={() => setSidebarOpen(v => !v)}
               aria-label="切换侧边栏"
               aria-expanded={sidebarOpen}
-              className="p-1.5 rounded-md transition-colors"
-              style={{ color: 'var(--text-muted)' }}
+              className="p-2 rounded-lg transition-all duration-200"
+              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
               title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d={sidebarOpen
                     ? "M11 19l-7-7 7-7m8 14l-7-7 7-7"
@@ -270,15 +250,14 @@ export default function ReaderPage() {
 
             <div />
 
-            <div className="flex items-center gap-1">
-              {/* 专注模式按钮 — 放大镜图标 */}
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={() => setFocusMode(true)}
-                className="p-1.5 rounded-md transition-colors"
+                className="p-2 rounded-lg transition-all duration-200"
                 style={{ color: 'var(--text-muted)' }}
                 title="专注模式"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"
                   />
@@ -289,11 +268,11 @@ export default function ReaderPage() {
                 onClick={() => setPanelOpen(v => !v)}
                 aria-label="切换分析面板"
                 aria-expanded={panelOpen}
-                className="p-1.5 rounded-md transition-colors"
+                className="p-2 rounded-lg transition-all duration-200"
                 style={{ color: 'var(--text-muted)' }}
                 title={panelOpen ? '收起分析面板' : '展开分析面板'}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d={panelOpen
                       ? "M13 5l7 7-7 7M5 5l7 7-7 7"
@@ -320,33 +299,41 @@ export default function ReaderPage() {
         </div>
       </div>
 
-      {/* 可拖拽分割条 */}
+      {/* 可拖拽分割条 — 精致 glass 风格 */}
       {panelOpen && !focusMode && (
         <div
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}
-          className="w-1 shrink-0 cursor-col-resize transition-colors relative group z-10"
-          style={{ backgroundColor: 'var(--border)' }}
+          className="shrink-0 cursor-col-resize relative group z-10 flex items-center justify-center"
+          style={{ width: 6, backgroundColor: 'var(--border)' }}
         >
-          <div className="absolute inset-y-0 -left-1 -right-1" />
+          <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
+          <div
+            className="w-1 h-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            style={{ backgroundColor: 'var(--accent)' }}
+          />
         </div>
       )}
 
       {/* 右侧 AI 分析面板 */}
       {!focusMode && (
         <div
-          className="overflow-auto transition-[width] duration-100 ease-out shrink-0"
-          style={{ width: panelOpen ? `${panelPct}%` : 0, backgroundColor: 'var(--bg-surface)' }}
+          className="overflow-auto shrink-0"
+          style={{
+            width: panelOpen ? `${panelPct}%` : 0,
+            backgroundColor: 'var(--bg-surface)',
+            transition: 'width 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+          }}
         >
           {panelOpen && (
             <div className="h-full overflow-auto">
               {error && status === 'failed' ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
-                  <p className="text-sm text-center" style={{ color: 'var(--error)' }}>{error}</p>
+                  <p className="text-[13px] text-center" style={{ color: 'var(--error)' }}>{error}</p>
                   <button
                     onClick={reparse}
-                    className="px-4 py-2 text-sm rounded-lg transition-colors"
-                    style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    className="px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+                    style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                   >
                     重试
                   </button>
@@ -374,15 +361,16 @@ export default function ReaderPage() {
       {focusMode && (
         <button
           onClick={() => setFocusMode(false)}
-          className="fixed top-4 right-4 z-[9999] p-2 rounded-full shadow-lg transition-all opacity-60 hover:opacity-100"
+          className="fixed top-4 right-4 z-[9999] p-2.5 rounded-full shadow-lg transition-all duration-200 opacity-60 hover:opacity-100"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
             color: 'var(--text-secondary)',
+            backdropFilter: 'blur(12px)',
           }}
           title="退出专注模式 (Esc)"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
             />

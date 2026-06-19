@@ -1,7 +1,9 @@
 /**
- * 全局样式
+ * 全局样式 — Seed Token 设计系统
  *
- * Tailwind CSS 入口 + 自定义样式 + 主题系统。
+ * Tailwind CSS 入口 + Seed Token 主题 + 工具类 + 组件覆盖。
+ * 6 个 seed token (--seed-bg/fg/surface/accent/muted/radius) 驱动整套视觉系统。
+ * Inter Variable 字体由 index.html <link> 加载。
  */
 
 /* ============================================================
@@ -12,52 +14,51 @@
 @tailwind utilities;
 
 /* ============================================================
- * 主题 CSS 变量
+ * Seed Tokens — Light 预设
  * ============================================================ */
-:root {
-  --color-primary: #3b82f6;
-  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  /* 代码区配色（VS Code 风格） */
-  --code-bg: #252526;
-  --code-sidebar-bg: #252526;
-  --code-text: #cccccc;
-  --code-text-muted: #6a737d;
-  --code-text-bright: #e8e8e8;
-  --code-selection: #094771;
-  --code-hover: #2a2d2e;
-  --code-border: #404040;
-  --code-folder: #dcb67a;
-}
-
-/* 纯黑 (pure) — 纯黑白，无彩色点缀 */
-[data-theme="pure"] {
-  --bg-base: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-elevated: #171717;
-  --border: #262626;
-  --border-light: #404040;
-  --text-primary: #ffffff;
-  --text-secondary: #a3a3a3;
-  --text-muted: #737373;
-  --accent: #ffffff;
-  --accent-subtle: rgba(255, 255, 255, 0.08);
-}
-
-/* 纯白 (light) — 纯白简洁风格，深蓝点缀 */
 [data-theme="light"] {
-  --bg-base: #ffffff;
-  --bg-surface: #f8fafc;
-  --bg-elevated: #f1f5f9;
-  --border: #e2e8f0;
-  --border-light: #cbd5e1;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #94a3b8;
-  --accent: #1d4ed8;
-  --accent-subtle: rgba(29, 78, 216, 0.06);
-  /* 代码区配色（浅色模式） */
+  /* Claude 暖纸 — 暖米白纸感 + 黏土橙强调（默认外观，对齐 claude.ai/design 编辑风） */
+  --seed-bg: #f5f3ec;
+  --seed-fg: #2b2722;
+  --seed-surface: #fcfbf7;
+  --seed-accent: #cc785c;
+  --seed-accent-rgb: 204, 120, 92;
+  --seed-muted: #8a8478;
+  --seed-radius: 12px;
+
+  /* 衬线 display 字体 —— 仅暖纸主题启用，营造印刷/编辑质感 */
+  --font-display: 'Source Serif 4 Variable', 'Source Serif 4', Georgia, 'Songti SC', 'Times New Roman', serif;
+
+  /* Derived — surface stepping */
+  --bg-base: var(--seed-bg);
+  --bg-surface: var(--seed-surface);
+  --bg-elevated: color-mix(in srgb, var(--seed-surface) 97%, #000);
+
+  /* Derived — border */
+  --border: color-mix(in srgb, var(--seed-bg) 90%, #000);
+  --border-light: color-mix(in srgb, var(--seed-bg) 82%, #000);
+
+  /* Derived — text ladder */
+  --text-primary: var(--seed-fg);
+  --text-secondary: color-mix(in srgb, var(--seed-fg) 80%, #fff);
+  --text-muted: var(--seed-muted);
+
+  /* Accent + subtle */
+  --accent: var(--seed-accent);
+  --accent-subtle: rgba(var(--seed-accent-rgb), 0.08);
+
+  /* Semantic status */
+  --success: #16a34a;
+  --success-subtle: rgba(22, 163, 74, 0.10);
+  --warning: #ca8a04;
+  --warning-subtle: rgba(202, 138, 4, 0.10);
+  --error: #dc2626;
+  --error-subtle: rgba(220, 38, 38, 0.10);
+
+  /* Code area */
   --code-bg: #f6f8fa;
   --code-sidebar-bg: #f6f8fa;
+  --code-fg: #1f2328;
   --code-text: #24292f;
   --code-text-muted: #656d76;
   --code-text-bright: #1b1f23;
@@ -67,42 +68,116 @@
   --code-folder: #9a6700;
 }
 
-/* 摩卡 (mocha) — Claude 风格温暖中性色调，浅橙点缀 */
-[data-theme="mocha"] {
-  --bg-base: #1a1614;
-  --bg-surface: #252019;
-  --bg-elevated: #302a22;
-  --border: #4a4136;
-  --border-light: #5c5246;
-  --text-primary: #faf0e4;
-  --text-secondary: #dcc8a8;
-  --text-muted: #a89888;
-  --accent: #f0a050;
-  --accent-subtle: rgba(240, 160, 80, 0.12);
-  /* 代码区配色（摩卡主题） */
-  --code-bg: #201c18;
-  --code-sidebar-bg: #201c18;
-  --code-text: #dcc8a8;
-  --code-text-muted: #a89888;
-  --code-text-bright: #faf0e4;
-  --code-selection: #4a3820;
-  --code-hover: #302a22;
-  --code-border: #4a4136;
-  --code-folder: #f0a050;
+/* ============================================================
+ * Seed Tokens — Dark 预设
+ * ============================================================ */
+[data-theme="dark"] {
+  --seed-bg: #0c0c0e;
+  --seed-fg: #f0f0f0;
+  --seed-surface: #1a1a1c;
+  --seed-accent: #60a5fa;
+  --seed-accent-rgb: 96, 165, 250;
+  --seed-muted: #707070;
+  --seed-radius: 12px;
+
+  /* Derived — surface stepping */
+  --bg-base: var(--seed-bg);
+  --bg-surface: var(--seed-surface);
+  --bg-elevated: color-mix(in srgb, var(--seed-surface) 94%, #fff);
+
+  /* Derived — border (semi-transparent white on dark) */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.18);
+
+  /* Derived — text ladder */
+  --text-primary: var(--seed-fg);
+  --text-secondary: color-mix(in srgb, var(--seed-fg) 75%, var(--seed-bg));
+  --text-muted: var(--seed-muted);
+
+  /* Accent + subtle */
+  --accent: var(--seed-accent);
+  --accent-subtle: rgba(var(--seed-accent-rgb), 0.14);
+
+  /* Semantic status */
+  --success: #22c55e;
+  --success-subtle: rgba(34, 197, 94, 0.16);
+  --warning: #eab308;
+  --warning-subtle: rgba(234, 179, 8, 0.16);
+  --error: #ef4444;
+  --error-subtle: rgba(239, 68, 68, 0.16);
+
+  /* Code area */
+  --code-bg: #1e1e2e;
+  --code-sidebar-bg: #1e1e2e;
+  --code-fg: #cdd6f4;
+  --code-text: #cccccc;
+  --code-text-muted: #6a737d;
+  --code-text-bright: #e8e8e8;
+  --code-selection: #094771;
+  --code-hover: #2a2d2e;
+  --code-border: #404040;
+  --code-folder: #dcb67a;
 }
 
 /* ============================================================
- * 基础样式 — 使用 CSS 变量
+ * :root 共享变量
  * ============================================================ */
+:root {
+  --font-ui: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* 默认 display 字体回退到 UI 字体；暖纸主题在 [data-theme="light"] 覆盖为衬线 */
+  --font-display: var(--font-ui);
+  --spring-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --color-primary: var(--seed-accent, #2563eb);
+}
+
+/* ============================================================
+ * 基础样式
+ * ============================================================ */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
   background-color: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-ui);
+  font-feature-settings: "cv01", "ss03";
+  font-variation-settings: "wght" 400;
+  transition: background-color 0.3s var(--spring-ease), color 0.3s var(--spring-ease);
 }
 
 /* ============================================================
- * 主题覆盖 — 让 Tailwind 灰色/彩色类跟随主题变量
- * 仅保留代码库实际使用的类，移除未使用的变体以减小 CSS 体积
+ * 排版工具类 — Display / Heading
+ * ============================================================ */
+.text-display {
+  font-family: var(--font-display, var(--font-ui));
+  font-feature-settings: "cv01", "ss03";
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.08;
+}
+
+.text-heading {
+  font-family: var(--font-ui);
+  font-feature-settings: "cv01", "ss03";
+  font-weight: 500;
+  letter-spacing: -0.011em;
+  line-height: 1.2;
+}
+
+.text-label {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+/* ============================================================
+ * 主题覆盖 — Tailwind 类跟随主题变量
  * ============================================================ */
 
 /* 背景色 */
@@ -130,11 +205,11 @@ body {
 [data-theme] .text-gray-600 { color: var(--text-muted) !important; }
 [data-theme] .placeholder-gray-600::placeholder { color: var(--text-muted) !important; }
 
-/* Hover 状态（仅保留实际使用的） */
+/* Hover 状态 */
 [data-theme] .hover\:border-gray-600:hover { border-color: var(--border-light) !important; }
 [data-theme] .hover\:text-gray-200:hover { color: var(--text-primary) !important; }
 
-/* 强调色跟随主题 */
+/* 强调色 */
 [data-theme] .text-blue-400,
 [data-theme] .text-blue-300 { color: var(--accent) !important; }
 [data-theme] .hover\:text-blue-400:hover,
@@ -159,96 +234,17 @@ body {
 /* 其他 */
 [data-theme] .ring-offset-gray-900 { --tw-ring-offset-color: var(--bg-base) !important; }
 
-[data-theme] input, [data-theme] textarea, [data-theme] select {
+/* 表单元素 */
+[data-theme] input,
+[data-theme] textarea,
+[data-theme] select {
   background-color: var(--bg-elevated);
   border-color: var(--border);
   color: var(--text-primary);
 }
 
 /* ============================================================
- * 滚动条样式
- * ============================================================ */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: var(--bg-surface);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-light);
-}
-
-/* ============================================================
- * 卡片翻转动画（InterviewTab 用）
- * ============================================================ */
-.flip-card { perspective: 1000px; }
-.flip-card-inner {
-  transition: transform 0.6s;
-  transform-style: preserve-3d;
-}
-.flip-card.flipped .flip-card-inner {
-  transform: rotateY(180deg);
-}
-.flip-card-front, .flip-card-back {
-  backface-visibility: hidden;
-}
-.flip-card-back {
-  transform: rotateY(180deg);
-}
-
-/* ============================================================
- * 卡片 Hover 效果
- * ============================================================ */
-.card-hover {
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.card-hover:hover {
-  border-color: var(--border-light) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* ============================================================
- * 下拉菜单进入动画
- * ============================================================ */
-.dropdown-menu {
-  opacity: 0;
-  transform: translateY(-4px);
-  animation: dropdown-enter 0.15s ease forwards;
-}
-@keyframes dropdown-enter {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ============================================================
- * Toast 动画
- * ============================================================ */
-@keyframes slide-in-y {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.animate-slide-in,
-.animate-slide-in-y {
-  animation: slide-in-y 0.25s ease-out;
-}
-
-/* ============================================================
- * Mermaid 主题覆盖
- * ============================================================ */
-.mermaid svg {
-  max-width: 100%;
-  height: auto;
-}
-
-/* ============================================================
- * 状态色跟随主题（success / warning / error）
+ * 语义状态色覆盖
  * ============================================================ */
 [data-theme] .text-green-400 { color: var(--success) !important; }
 [data-theme] .bg-green-500 { background-color: var(--success) !important; }
@@ -272,14 +268,170 @@ body {
 [data-theme] .hover\:bg-red-600:hover { background-color: var(--error) !important; opacity: 0.9; }
 
 /* ============================================================
- * 代码区 / 语法高亮：跟随主题明暗自动切换（变量驱动，替代 hljs 预设主题）
+ * 滚动条 — 6px 精致宽度
+ * ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+ * 磨砂玻璃工具类
+ * ============================================================ */
+.glass-panel {
+  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+}
+
+.glass-toolbar {
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+}
+
+[data-mode="dark"] .glass-panel {
+  background: color-mix(in srgb, var(--bg-surface) 85%, transparent);
+}
+[data-mode="dark"] .glass-toolbar {
+  background: color-mix(in srgb, var(--bg-surface) 75%, transparent);
+}
+
+/* ============================================================
+ * 弹性过渡工具类
+ * ============================================================ */
+.spring-transition {
+  transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ============================================================
+ * 焦点环系统
+ * ============================================================ */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+ * 卡片翻转动画（InterviewTab 用）
+ * ============================================================ */
+.flip-card { perspective: 1000px; }
+.flip-card-inner {
+  transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transform-style: preserve-3d;
+}
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+.flip-card-front, .flip-card-back {
+  backface-visibility: hidden;
+}
+.flip-card-back {
+  transform: rotateY(180deg);
+}
+
+/* ============================================================
+ * 卡片 Hover 效果 — 表面微提升
+ * ============================================================ */
+.card-hover {
+  transition:
+    border-color 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    box-shadow 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.card-hover:hover {
+  border-color: var(--border-light) !important;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.05),
+    0 8px 24px -6px rgba(0, 0, 0, 0.10);
+  transform: translateY(-2px);
+}
+.card-hover:active { transform: translateY(-1px) scale(0.995); }
+[data-mode="dark"] .card-hover:hover {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.25),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22);
+}
+
+/* ============================================================
+ * 下拉菜单进入动画
+ * ============================================================ */
+.dropdown-menu {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  animation: dropdown-enter 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+@keyframes dropdown-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================
+ * Toast 动画
+ * ============================================================ */
+@keyframes slide-in-y {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-slide-in,
+.animate-slide-in-y {
+  animation: slide-in-y 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes slide-in-x {
+  from { opacity: 0; transform: translateX(100%) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+.animate-slide-in-x {
+  animation: slide-in-x 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ============================================================
+ * Mermaid 图表
+ * ============================================================ */
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ============================================================
+ * 代码区 / 语法高亮 — 变量驱动，明暗自动切换
  * ============================================================ */
 .hljs {
   color: var(--code-fg);
   background: transparent;
 }
 
-/* 深色模式 token 配色（Catppuccin 风格） */
+/* 深色模式 token 配色（Catppuccin Mocha） */
 [data-mode="dark"] .hljs-comment,
 [data-mode="dark"] .hljs-quote { color: #6c7086; font-style: italic; }
 [data-mode="dark"] .hljs-keyword,
@@ -302,7 +454,7 @@ body {
 [data-mode="dark"] .hljs-emphasis { font-style: italic; }
 [data-mode="dark"] .hljs-strong { font-weight: bold; }
 
-/* 浅色模式 token 配色（GitHub Light 风格） */
+/* 浅色模式 token 配色（GitHub Light） */
 [data-mode="light"] .hljs-comment,
 [data-mode="light"] .hljs-quote { color: #6e7781; font-style: italic; }
 [data-mode="light"] .hljs-keyword,
@@ -333,7 +485,6 @@ body {
   display: none !important;
 }
 
-/* 二级导航栏：h-11 的 shrink-0 div（非 main、非 flex-1） */
 [data-focus-mode="true"] .h-11.shrink-0 {
   display: none !important;
 }
@@ -348,12 +499,248 @@ body {
 }
 
 /* ============================================================
- * Toast 动画
+ * 选中文本样式
  * ============================================================ */
-@keyframes slide-in-x {
-  from { opacity: 0; transform: translateX(100%); }
-  to { opacity: 1; transform: translateX(0); }
+::selection {
+  background: rgba(var(--seed-accent-rgb, 37, 99, 235), 0.2);
 }
-.animate-slide-in-x {
-  animation: slide-in-x 0.2s ease-out;
+
+[data-mode="dark"] ::selection {
+  background: rgba(var(--seed-accent-rgb, 96, 165, 250), 0.3);
+}
+
+/* ============================================================
+ * 骨架屏 — 呼吸灯 + Shimmer 动画
+ * ============================================================ */
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface) 25%,
+    var(--bg-elevated) 37%,
+    var(--bg-surface) 63%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skeleton-pulse {
+  background-color: var(--bg-surface);
+  animation: skeleton-breathe 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  border-radius: 6px;
+}
+
+/* ============================================================
+ * 平滑过渡 — 主题切换时全局过渡
+ * ============================================================ */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition:
+    background-color 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    border-color 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    color 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    box-shadow 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+}
+
+/* ============================================================
+ * 动效原语 — 入场揭示 / 滚动揭示 / 错峰 / 交互反馈
+ * Vercel / Linear 风：克制、弹簧缓动、无处不在但不喧宾夺主。
+ * 通过工具类铺开，逻辑层零侵入。
+ * ============================================================ */
+
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes reveal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes reveal-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* 挂载即播放（首屏、路由切换、弹窗入场） */
+.animate-reveal-up    { animation: reveal-up 0.5s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+.animate-reveal-fade  { animation: reveal-fade 0.45s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+.animate-reveal-scale { animation: reveal-scale 0.34s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+
+/* 滚动揭示：JS 在进入视口时加 .is-visible */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.6s cubic-bezier(0.25,0.46,0.45,0.94),
+    transform 0.6s cubic-bezier(0.25,0.46,0.45,0.94);
+  will-change: opacity, transform;
+}
+.reveal.is-visible { opacity: 1; transform: translateY(0); }
+
+/* 错峰入场：父 .stagger，子项设 style="--i:n" 逐个递延 */
+.stagger > * {
+  animation: reveal-up 0.5s cubic-bezier(0.25,0.46,0.45,0.94) both;
+  animation-delay: calc(var(--stagger-step, 55ms) * var(--i, 0));
+}
+
+/* 悬停抬升 — 比 card-hover 更明显，用于磁贴/特性卡 */
+.hover-lift {
+  transition:
+    transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94),
+    box-shadow 0.28s cubic-bezier(0.25,0.46,0.45,0.94),
+    border-color 0.28s cubic-bezier(0.25,0.46,0.45,0.94);
+  will-change: transform;
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 36px -10px rgba(0,0,0,0.18);
+  border-color: var(--border-light);
+}
+
+/* 按压反馈 — 任意可点元素加 .press */
+.press { transition: transform 0.12s cubic-bezier(0.25,0.46,0.45,0.94); }
+.press:active { transform: scale(0.96); }
+
+/* 强调下划线滑入（链接/标签，Linear 风） */
+.underline-slide {
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-size: 0% 1.5px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size 0.3s cubic-bezier(0.25,0.46,0.45,0.94);
+}
+.underline-slide:hover { background-size: 100% 1.5px; }
+
+/* 图标按钮悬停微动 */
+.icon-spin-hover svg { transition: transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94); }
+.icon-spin-hover:hover svg { transform: rotate(90deg); }
+
+/* 焦点光晕 — 可达性 + 质感 */
+.focus-glow:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+/* ============================================================
+ * 高级感视觉 — 极光背景 / 聚光卡片 / 辉光按钮 / 高光扫过 / 渐变文字
+ * ============================================================ */
+
+/* 极光环境背景 —— 缓慢漂移的强调色光晕，营造「活着」的高级氛围 */
+.app-aurora {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.app-aurora::before,
+.app-aurora::after {
+  content: '';
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+.app-aurora::before {
+  top: -18vw;
+  left: -8vw;
+  opacity: 0.5;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--seed-accent-rgb), 0.30), transparent 70%);
+  animation: aurora-drift-a 26s ease-in-out infinite alternate;
+}
+.app-aurora::after {
+  bottom: -22vw;
+  right: -10vw;
+  opacity: 0.4;
+  background: radial-gradient(circle at 70% 70%, rgba(var(--seed-accent-rgb), 0.20), transparent 70%);
+  animation: aurora-drift-b 32s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift-a {
+  from { transform: translate3d(0,0,0) scale(1); }
+  to   { transform: translate3d(8vw, 6vw, 0) scale(1.15); }
+}
+@keyframes aurora-drift-b {
+  from { transform: translate3d(0,0,0) scale(1.1); }
+  to   { transform: translate3d(-7vw, -5vw, 0) scale(1); }
+}
+[data-mode="dark"] .app-aurora::before { opacity: 0.34; }
+[data-mode="dark"] .app-aurora::after  { opacity: 0.26; }
+
+/* 聚光卡片 —— 光晕跟随鼠标（JS 写入 --mx/--my） */
+.spotlight { position: relative; isolation: isolate; }
+.spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%),
+              rgba(var(--seed-accent-rgb), 0.16), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
+  pointer-events: none;
+}
+.spotlight:hover::before { opacity: 1; }
+
+/* 辉光按钮 —— 强调色光晕 + 上浮 */
+.btn-glow {
+  transition:
+    box-shadow 0.3s cubic-bezier(0.25,0.46,0.45,0.94),
+    transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94);
+}
+.btn-glow:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 20px -4px rgba(var(--seed-accent-rgb), 0.45),
+    0 2px 6px -2px rgba(var(--seed-accent-rgb), 0.35);
+}
+.btn-glow:active { transform: translateY(0) scale(0.98); }
+
+/* 高光扫过 —— 悬停时一道斜向光泽划过 */
+.sheen { position: relative; overflow: hidden; }
+.sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.35), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s cubic-bezier(0.25,0.46,0.45,0.94);
+  pointer-events: none;
+}
+.sheen:hover::after { left: 125%; }
+
+/* 渐变文字 —— 大标题质感 */
+.text-gradient {
+  background: linear-gradient(120deg, var(--text-primary) 28%, var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 无障碍：尊重系统「减少动态效果」，一键降级所有动效 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal { opacity: 1 !important; transform: none !important; }
 }

@@ -225,10 +225,10 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center rounded-xl border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-base)' }}>
+      <div className="flex-1 flex items-center justify-center rounded-2xl" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
         <div className="text-center">
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>暂无图谱</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>点击"开始研究"构建知识图谱</p>
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>暂无图谱</p>
+          <p className="text-[12px] mt-1.5" style={{ color: 'var(--text-muted)' }}>点击「开始研究」构建知识图谱</p>
         </div>
       </div>
     )
@@ -237,8 +237,8 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   return (
     <div
       ref={setContainer}
-      className="flex-1 rounded-xl border overflow-hidden relative min-h-[300px]"
-      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-base)' }}
+      className="flex-1 rounded-2xl overflow-hidden relative min-h-[300px]"
+      style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-base)' }}
     >
       {size.w > 0 && size.h > 0 && (
         <ForceGraph2D
@@ -289,8 +289,14 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
       {/* 缩放控制（右上角） */}
       <div
-        className="absolute top-3 right-3 flex items-center gap-1 rounded-lg border px-1.5 py-1 shadow-sm"
-        style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+        className="absolute top-3 right-3 flex items-center gap-0.5 rounded-xl px-1.5 py-1"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 88%, transparent)',
+          backdropFilter: 'blur(16px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+          border: '1px solid var(--border)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+        }}
       >
         {/* 回到总观 */}
         <button
@@ -334,7 +340,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       </div>
 
       {/* 图例 */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]" style={{ color: 'var(--text-muted)', backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 85%, transparent)', backdropFilter: 'blur(16px) saturate(180%)', WebkitBackdropFilter: 'blur(16px) saturate(180%)', padding: '8px 14px', borderRadius: '12px', border: '1px solid var(--border)' }}>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
           <span className="w-3.5 h-3.5 rounded-full bg-gray-400 inline-block" />

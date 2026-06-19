@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
+import { useThemeMode } from '@/theme/useTheme'
 
 
 function sanitizeSvg(svg: string): string {
@@ -15,35 +16,43 @@ interface FlowChartProps {
   chart: string
 }
 
-let mermaidInitialized = false
 let mermaidModule: typeof import('mermaid') | null = null
+let mermaidMode: 'light' | 'dark' | null = null
 
-async function getMermaid() {
+async function getMermaidInstance() {
   if (!mermaidModule) {
     mermaidModule = await import('mermaid')
   }
-  if (!mermaidInitialized) {
-    mermaidModule.default.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#3b82f6',
-        primaryTextColor: '#e5e7eb',
-        primaryBorderColor: '#6b7280',
-        lineColor: '#6b7280',
-        secondaryColor: '#1f2937',
-        tertiaryColor: '#111827',
-        background: '#1f2937',
-        mainBkg: '#1f2937',
-        nodeBorder: '#6b7280',
-        clusterBkg: '#111827',
-        clusterBorder: '#374151',
-        edgeLabelBackground: '#1f2937',
-      },
-    })
-    mermaidInitialized = true
-  }
   return mermaidModule.default
+}
+
+/** 按当前明暗模式用设计令牌初始化 mermaid（切换主题时重新初始化，与代码分析面板同一范式） */
+async function ensureMermaid(mode: 'light' | 'dark') {
+  const mermaid = await getMermaidInstance()
+  if (mermaidMode === mode) return mermaid
+  const cs = getComputedStyle(document.documentElement)
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: mode === 'dark' ? 'dark' : 'default',
+    themeVariables: {
+      primaryColor: v('--bg-elevated', '#1f2937'),
+      primaryTextColor: v('--text-primary', '#e5e7eb'),
+      primaryBorderColor: v('--border-light', '#6b7280'),
+      lineColor: v('--text-muted', '#6b7280'),
+      secondaryColor: v('--bg-surface', '#1f2937'),
+      tertiaryColor: v('--bg-base', '#111827'),
+      background: v('--bg-surface', '#1f2937'),
+      mainBkg: v('--bg-elevated', '#1f2937'),
+      nodeBorder: v('--border-light', '#6b7280'),
+      nodeTextColor: v('--text-primary', '#e5e7eb'),
+      clusterBkg: v('--bg-base', '#111827'),
+      clusterBorder: v('--border', '#374151'),
+      edgeLabelBackground: v('--bg-elevated', '#1f2937'),
+    },
+  })
+  mermaidMode = mode
+  return mermaid
 }
 
 /**
@@ -89,6 +98,7 @@ export function FlowChart({ chart }: FlowChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [svg, setSvg] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const mode = useThemeMode()
 
   useEffect(() => {
     if (!chart || !containerRef.current) return
@@ -96,7 +106,7 @@ export function FlowChart({ chart }: FlowChartProps) {
     let cancelled = false
 
     ;(async () => {
-      const mermaid = await getMermaid()
+      const mermaid = await ensureMermaid(mode)
       if (cancelled) return
 
       const sanitized = sanitizeMermaid(chart)
@@ -127,19 +137,19 @@ export function FlowChart({ chart }: FlowChartProps) {
     })()
 
     return () => { cancelled = true }
-  }, [chart])
+  }, [chart, mode])
 
   if (error) {
     return (
-      <div className="rounded-lg p-4 overflow-auto" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-        <p className="text-sm mb-2" style={{ color: 'var(--error)' }}>流程图渲染失败</p>
-        <pre className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{chart}</pre>
+      <div className="rounded-xl p-4 overflow-auto" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+        <p className="text-[13px] mb-2" style={{ color: 'var(--error)' }}>流程图渲染失败</p>
+        <pre className="text-[12px] whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{chart}</pre>
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} className="mermaid rounded-lg p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+    <div ref={containerRef} className="mermaid rounded-xl p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
       {svg ? (
         <div dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }} />
       ) : (

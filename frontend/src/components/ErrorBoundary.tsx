@@ -43,7 +43,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold mb-2">页面出现错误</h1>
+          <h1 className="text-display text-xl mb-2">页面出现错误</h1>
           <p className="text-sm mb-6 max-w-md text-center" style={{ color: 'var(--text-muted)' }}>
             {this.state.error?.message || '渲染过程中发生未知错误'}
           </p>

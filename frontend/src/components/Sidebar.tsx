@@ -1,25 +1,25 @@
+/**
+ * 论文侧边栏 — 搜索 + 论文列表
+ *
+ * 无边框搜索框 + 3px 强调色指示条 + 文字状态标记。
+ */
 import { useState, useMemo, memo } from 'react'
 import type { Paper } from '@/types'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmDialog } from '@/ds-entry'
 
-
-// Module-level stable style objects
+/* ============================================================
+ * 模块级样式常量
+ * ============================================================ */
 const SIDEBAR_STYLE: React.CSSProperties = {
   backgroundColor: 'var(--bg-surface)',
   borderRight: '1px solid var(--border)',
 }
-const SEARCH_CONTAINER_STYLE: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
-const SEARCH_INPUT_STYLE: React.CSSProperties = {
-  backgroundColor: 'var(--bg-surface)',
-  border: '1px solid var(--border)',
-  color: 'var(--text-primary)',
-}
 const ACTIVE_PAPER_STYLE: React.CSSProperties = {
-  borderLeft: '2px solid var(--accent)',
+  borderLeft: '3px solid var(--accent)',
   backgroundColor: 'var(--accent-subtle)',
 }
 const INACTIVE_PAPER_STYLE: React.CSSProperties = {
-  borderLeft: '2px solid transparent',
+  borderLeft: '3px solid transparent',
   backgroundColor: 'transparent',
 }
 
@@ -30,13 +30,13 @@ interface SidebarProps {
   onDelete: (id: number) => void
 }
 
-function statusDotColor(status: Paper['status']): string {
+function statusLabel(status: Paper['status']): { text: string; color: string } {
   switch (status) {
-    case 'done': return '#22c55e'
-    case 'extracting':
-    case 'analyzing': return '#eab308'
-    case 'failed': return '#ef4444'
-    default: return 'var(--text-muted)'
+    case 'done': return { text: '已完成', color: 'var(--success)' }
+    case 'extracting': return { text: '提取中', color: 'var(--warning)' }
+    case 'analyzing': return { text: '分析中', color: 'var(--warning)' }
+    case 'failed': return { text: '失败', color: 'var(--error)' }
+    default: return { text: '', color: 'var(--text-muted)' }
   }
 }
 
@@ -54,61 +54,122 @@ export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDel
 
   return (
     <div className="flex flex-col w-64 h-full" style={SIDEBAR_STYLE}>
-      <div className="p-3" style={SEARCH_CONTAINER_STYLE}>
-        <input
-          type="text"
-          placeholder="搜索论文..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          data-shortcut-search
-          className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none"
-          style={SEARCH_INPUT_STYLE}
-        />
+      {/* 搜索框 — 无边框磨砂玻璃风格 */}
+      <div className="px-3 pt-3 pb-2">
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors"
+          style={{
+            backgroundColor: 'var(--bg-elevated)',
+            border: '1px solid transparent',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            style={{ color: 'var(--text-muted)', flexShrink: 0 }}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            placeholder="搜索论文..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            data-shortcut-search
+            className="flex-1 bg-transparent text-[13px] focus:outline-none"
+            style={{
+              color: 'var(--text-primary)',
+              border: 'none',
+            }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="shrink-0 p-0.5 rounded transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* 论文列表 */}
       <div className="flex-1 overflow-auto">
         {filtered.length === 0 ? (
-          <p className="text-sm text-center mt-8" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-[13px] text-center mt-8" style={{ color: 'var(--text-muted)' }}>
             {search.trim() ? '无匹配论文' : '暂无论文'}
           </p>
         ) : (
-          filtered.map(paper => (
-            <div
-              key={paper.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(paper.id)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
-              className="group flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-colors"
-              style={activeId === paper.id ? ACTIVE_PAPER_STYLE : INACTIVE_PAPER_STYLE}
-            >
-              <span className="w-2 h-2 mt-1.5 rounded-full shrink-0" style={{ backgroundColor: statusDotColor(paper.status) }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
-                  {paper.title || paper.filename}
-                </p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  {paper.venue && (
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue}</span>
-                  )}
-                  {paper.year && (
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.year}</span>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={e => {
-                  e.stopPropagation()
-                  setDeleteTarget(paper.id)
+          filtered.map(paper => {
+            const status = statusLabel(paper.status)
+            const isActive = activeId === paper.id
+            return (
+              <div
+                key={paper.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(paper.id)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
+                className="group flex items-start gap-2 px-3 py-2.5 cursor-pointer transition-all duration-200"
+                style={{
+                  ...(isActive ? ACTIVE_PAPER_STYLE : INACTIVE_PAPER_STYLE),
+                  transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                 }}
-                className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-xs"
-                style={{ color: 'var(--text-muted)' }}
-                title="删除"
               >
-                &times;
-              </button>
-            </div>
-          ))
+                <div className="flex-1 min-w-0 pl-1">
+                  <p
+                    className="text-[13px] truncate leading-snug"
+                    style={{
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      fontWeight: isActive ? 500 : 400,
+                    }}
+                  >
+                    {paper.title || paper.filename}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {status.text && (
+                      <span
+                        className="text-[11px]"
+                        style={{ color: status.color }}
+                      >
+                        {status.text}
+                      </span>
+                    )}
+                    {paper.venue && (
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        {paper.venue}
+                      </span>
+                    )}
+                    {paper.year && (
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        {paper.year}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={e => {
+                    e.stopPropagation()
+                    setDeleteTarget(paper.id)
+                  }}
+                  className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 rounded-md"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="删除"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            )
+          })
         )}
       </div>
 

@@ -1,11 +1,16 @@
+/**
+ * WorkspaceDetailPage — 工作区详情
+ *
+ * Display 排版 + surface-lifted PaperCard + 药丸按钮 + gradient CTA。
+ */
+
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWorkspace, promotePaper, type WorkspaceDetail, type WorkspacePaper } from '@/api/workspaces'
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
 import { toast } from '@/hooks/useToast'
-import { LoadingSpinner } from '@/components/LoadingSpinner'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 
 
 export default function WorkspaceDetailPage() {
@@ -52,7 +57,6 @@ export default function WorkspaceDetailPage() {
     setLoadingPapers(true)
     try {
       const res = await listPapers({ per_page: 100 })
-      // 过滤掉已在工作区中的论文
       const existingIds = new Set(workspace?.papers.map(p => p.id) || [])
       setLibraryPapers(res.papers.filter(p => !existingIds.has(p.id)))
     } catch (e: unknown) {
@@ -112,7 +116,6 @@ export default function WorkspaceDetailPage() {
     setBatchLoading(true)
     try {
       const ids = Array.from(selectedDiscovered)
-      // allSettled：部分失败时已成功的不回滚，仍要刷新列表 + 如实汇报失败数
       const results = await Promise.allSettled(ids.map(id => promotePaper(workspaceId, id)))
       const failed = results.filter(r => r.status === 'rejected').length
       setSelectedDiscovered(new Set())
@@ -157,50 +160,48 @@ export default function WorkspaceDetailPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8">
-      {/* 返回按钮 */}
+    <div className="max-w-3xl mx-auto px-8 py-10">
+      {/* 返回链接 */}
       <Link
         to="/workspace"
-        className="inline-flex items-center gap-1.5 text-sm transition-colors mb-4"
+        className="inline-flex items-center gap-1.5 text-[13px] transition-colors duration-200 mb-6"
         style={{ color: 'var(--text-muted)' }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
         </svg>
         返回工作区
       </Link>
 
       {/* 标题 */}
-      <div className="mb-6">
+      <div className="mb-8">
         {editing ? (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <input
               type="text"
               value={editName}
               onChange={e => setEditName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleRename()}
-              className="flex-1 px-3 py-1.5 text-lg rounded-lg focus:outline-none"
+              className="flex-1 px-4 py-2 text-[17px] transition-colors"
               style={{
+                borderRadius: 'var(--seed-radius, 12px)',
                 backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border)',
                 color: 'var(--text-primary)',
+                outline: 'none',
               }}
               autoFocus
             />
-            <button onClick={handleRename} className="px-3 py-1.5 text-sm rounded-lg transition-colors" style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}>保存</button>
-            <button onClick={() => { setEditing(false); setEditName(workspace.name) }} className="px-3 py-1.5 text-sm transition-colors" style={{ color: 'var(--text-muted)' }}>取消</button>
+            <button onClick={handleRename} className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>保存</button>
+            <button onClick={() => { setEditing(false); setEditName(workspace.name) }} className="px-4 py-2 text-[13px] rounded-full transition-all duration-200" style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}>取消</button>
           </div>
         ) : (
           <div className="flex items-center gap-3">
             <h1
-              className="text-xl font-bold cursor-pointer transition-colors"
+              className="text-display text-[24px] cursor-pointer transition-colors duration-200"
               style={{ color: 'var(--text-primary)' }}
               role="button"
               tabIndex={0}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
               onClick={() => setEditing(true)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
             >
@@ -208,27 +209,25 @@ export default function WorkspaceDetailPage() {
             </h1>
             <button
               onClick={() => setEditing(true)}
-              className="text-xs transition-colors"
+              className="text-[12px] transition-colors duration-200"
               style={{ color: 'var(--text-muted)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
             >
               重命名
             </button>
           </div>
         )}
-        <p className="text-sm mt-1 flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-[13px] mt-2 flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
           <span>
             {l1Papers.length} 篇本地论文
             {discoveredPapers.length > 0 && ` · ${discoveredPapers.length} 篇深度研究发现`}
           </span>
           {workspace.papers.length > 0 && (
             workspace.papers.filter(p => !p.read_level || p.read_level === 'none').length === 0 ? (
-              <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/20" style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' }}>
-                ✓ 已全部速读
+              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)' }}>
+                已全部速读
               </span>
             ) : (
-              <span className="text-xs px-1.5 py-0.5 rounded border border-amber-500/20" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--warning-subtle)', color: 'var(--warning)' }}>
                 还有 {workspace.papers.filter(p => !p.read_level || p.read_level === 'none').length} 篇未速读
               </span>
             )
@@ -236,11 +235,11 @@ export default function WorkspaceDetailPage() {
         </p>
       </div>
 
-      {/* 添加论文 + 深度研究入口 */}
-      <div className="flex items-center gap-3 mb-4">
+      {/* 操作区：添加论文 + 深度研究 CTA */}
+      <div className="flex items-center gap-3 mb-6">
         <button
           onClick={handleShowAddPaper}
-          className="px-4 py-2 text-sm rounded-lg transition-colors shrink-0"
+          className="px-4 py-2.5 text-[13px] rounded-full transition-all duration-200 shrink-0"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
@@ -253,61 +252,67 @@ export default function WorkspaceDetailPage() {
         <button
           onClick={() => navigate(`/workspace/${workspaceId}/research`)}
           disabled={workspace.papers.length === 0}
-          className="flex-1 group relative overflow-hidden px-6 py-3 rounded-xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 group relative overflow-hidden px-6 py-3.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
-            borderColor: 'var(--accent)',
+            borderRadius: 'var(--seed-radius, 12px)',
+            border: '1.5px solid var(--accent)',
             background: 'linear-gradient(135deg, var(--accent-subtle), transparent)',
             color: 'var(--accent)',
-          }}
-          onMouseEnter={e => {
-            if (workspace.papers.length === 0) return
-            e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)'
-            e.currentTarget.style.transform = 'translateY(-1px)'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.boxShadow = 'none'
-            e.currentTarget.style.transform = 'none'
+            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
           }}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-2xl">⚡</span>
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
               <div className="text-left">
-                <div className="text-base font-semibold leading-tight">深度研究</div>
+                <div className="text-[14px] font-medium leading-tight">深度研究</div>
                 <div className="text-[11px] mt-0.5 opacity-80">
                   跨论文构建知识图谱 · RAG 问答
                 </div>
               </div>
             </div>
-            <span className="text-xl opacity-60 group-hover:translate-x-1 transition-transform">→</span>
+            <svg className="w-5 h-5 opacity-60 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
           </div>
         </button>
       </div>
 
       {/* 添加论文面板 */}
       {showAddPaper && (
-        <div className="mb-6 rounded-lg p-4" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
+        <div
+          className="mb-6 p-5 transition-all duration-200"
+          style={{
+            borderRadius: 'var(--seed-radius, 12px)',
+            backgroundColor: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+          }}
+        >
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>选择论文添加到工作区</h3>
-            <button onClick={() => setShowAddPaper(false)} className="text-xs" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}>关闭</button>
+            <h3 className="text-[13px] font-medium" style={{ color: 'var(--text-secondary)' }}>选择论文添加到工作区</h3>
+            <button onClick={() => setShowAddPaper(false)} className="text-[12px] rounded-full px-2.5 py-1 transition-colors duration-200" style={{ color: 'var(--text-muted)' }}>关闭</button>
           </div>
           {loadingPapers ? (
-            <div className="flex justify-center py-4">
-              <LoadingSpinner size="sm" />
-            </div>
+            <div className="flex justify-center py-4"><LoadingSpinner size="sm" /></div>
           ) : libraryPapers.length === 0 ? (
-            <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
+            <p className="text-[12px] text-center py-4" style={{ color: 'var(--text-muted)' }}>没有可添加的论文</p>
           ) : (
-            <div className="max-h-60 overflow-auto space-y-2">
+            <div className="max-h-60 overflow-auto space-y-1.5">
               {libraryPapers.map(paper => (
-                <div key={paper.id} className="flex items-center justify-between px-3 py-2 rounded transition-colors" style={{ backgroundColor: 'var(--bg-surface)' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}>
+                <div
+                  key={paper.id}
+                  className="flex items-center justify-between px-4 py-2.5 transition-colors duration-200"
+                  style={{ borderRadius: 8, backgroundColor: 'var(--bg-surface)' }}
+                >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{paper.title || paper.filename}</p>
-                    {paper.venue && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</p>}
+                    <p className="text-[13px] truncate" style={{ color: 'var(--text-secondary)' }}>{paper.title || paper.filename}</p>
+                    {paper.venue && <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</p>}
                   </div>
                   <button
                     onClick={() => handleAddPaper(paper.id)}
-                    className="ml-3 px-2 py-1 text-xs rounded transition-colors shrink-0"
+                    className="ml-3 px-3 py-1 text-[12px] rounded-full transition-all duration-200 shrink-0"
                     style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
                   >
                     添加
@@ -321,13 +326,13 @@ export default function WorkspaceDetailPage() {
 
       {/* 本地论文 (L1) */}
       {l1Papers.length === 0 && discoveredPapers.length === 0 ? (
-        <div className="text-center py-12">
-          <p style={{ color: 'var(--text-muted)' }}>工作区暂无论文</p>
-          <p className="text-xs mt-1 mb-4" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>点击"从论文库添加"将论文加入工作区</p>
+        <div className="text-center py-16">
+          <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>工作区暂无论文</p>
+          <p className="text-[12px] mt-1 mb-4" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>点击「从论文库添加」将论文加入工作区</p>
           <button
             onClick={handleShowAddPaper}
-            className="px-4 py-2 text-sm rounded-lg transition-colors"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+            className="px-5 py-2.5 text-[13px] rounded-full font-medium transition-all duration-200"
+            style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
           >
             + 从论文库添加
           </button>
@@ -335,7 +340,7 @@ export default function WorkspaceDetailPage() {
       ) : (
         <>
           {l1Papers.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {l1Papers.map(paper => (
                 <PaperCard
                   key={paper.id}
@@ -354,39 +359,39 @@ export default function WorkspaceDetailPage() {
           {discoveredPapers.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-[13px] font-medium" style={{ color: 'var(--text-secondary)' }}>
                     通过深度研究搜索到的相关论文
                   </h2>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
                     {discoveredPapers.length}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   {selectedDiscovered.size > 0 ? (
                     <>
-                      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
                         已选 {selectedDiscovered.size} 篇
                       </span>
                       <button
                         onClick={handleBatchPromote}
                         disabled={batchLoading}
-                        className="px-2.5 py-1 text-xs rounded-md transition-colors disabled:opacity-50"
-                        style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+                        className="px-3 py-1 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
                       >
-                        {batchLoading ? '移入中…' : '批量移入工作区'}
+                        {batchLoading ? '移入中…' : '批量移入'}
                       </button>
                       <button
                         onClick={handleBatchRemove}
                         disabled={batchLoading}
-                        className="px-2.5 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
-                        style={{ borderColor: 'var(--error)', color: 'var(--error)' }}
+                        className="px-3 py-1 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                        style={{ border: '1px solid var(--error)', color: 'var(--error)', backgroundColor: 'transparent' }}
                       >
                         {batchLoading ? '移除中…' : '批量移除'}
                       </button>
                       <button
                         onClick={deselectAllDiscovered}
-                        className="text-xs transition-colors"
+                        className="text-[12px] transition-colors duration-200"
                         style={{ color: 'var(--text-muted)' }}
                       >
                         取消选择
@@ -395,7 +400,7 @@ export default function WorkspaceDetailPage() {
                   ) : (
                     <button
                       onClick={selectAllDiscovered}
-                      className="text-xs transition-colors"
+                      className="text-[12px] transition-colors duration-200"
                       style={{ color: 'var(--text-muted)' }}
                     >
                       全选
@@ -403,10 +408,10 @@ export default function WorkspaceDetailPage() {
                   )}
                 </div>
               </div>
-              <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                这些论文已索引、可参与跨论文检索；点击"移入工作区"可将其升级为本地正式论文（参与下一轮研究的 seed）。
+              <p className="text-[12px] mb-3" style={{ color: 'var(--text-muted)' }}>
+                这些论文已索引、可参与跨论文检索；点击「移入工作区」可将其升级为本地正式论文。
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {discoveredPapers.map(paper => (
                   <PaperCard
                     key={paper.id}
@@ -449,6 +454,10 @@ export default function WorkspaceDetailPage() {
 }
 
 
+/* ============================================================
+ * PaperCard
+ * ============================================================ */
+
 interface PaperCardProps {
   paper: WorkspacePaper
   workspaceId: number
@@ -465,42 +474,37 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
   const isDiscovered = variant === 'discovered'
   return (
     <div
-      className="rounded-lg p-4 group transition-all cursor-pointer border"
+      className="p-4 group transition-all duration-200 cursor-pointer card-hover press spotlight"
       style={{
         backgroundColor: isDiscovered ? 'transparent' : 'var(--bg-surface)',
-        borderColor: selected ? 'var(--accent)' : 'var(--border)',
+        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
         borderStyle: isDiscovered ? 'dashed' : 'solid',
-        boxShadow: selected ? '0 0 0 1px var(--accent)' : 'none',
+        borderRadius: 'var(--seed-radius, 12px)',
+        boxShadow: selected ? '0 0 0 1px var(--accent)' : undefined,
+        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
       }}
       role="button"
       tabIndex={0}
       onClick={onNavigate}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate() } }}
-      onMouseEnter={e => {
-        if (!selected) e.currentTarget.style.borderColor = 'var(--border-light)'
-        e.currentTarget.style.boxShadow = selected ? '0 0 0 1px var(--accent)' : '0 2px 8px rgba(0,0,0,0.08)'
-      }}
-      onMouseLeave={e => {
-        if (!selected) e.currentTarget.style.borderColor = 'var(--border)'
-        e.currentTarget.style.boxShadow = selected ? '0 0 0 1px var(--accent)' : 'none'
-      }}
     >
       <div className="flex items-start justify-between">
-        {/* Checkbox for discovered papers */}
+        {/* Checkbox for discovered */}
         {isDiscovered && onToggleSelect && (
           <div
             className="shrink-0 mr-3 mt-0.5"
             onClick={e => { e.stopPropagation(); onToggleSelect() }}
           >
             <div
-              className="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+              className="w-4 h-4 rounded flex items-center justify-center transition-colors duration-200"
               style={{
                 borderColor: selected ? 'var(--accent)' : 'var(--border)',
                 backgroundColor: selected ? 'var(--accent)' : 'transparent',
+                border: `1.5px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
               }}
             >
               {selected && (
-                <svg className="w-3 h-3" fill="none" stroke="var(--bg-base)" viewBox="0 0 24 24" strokeWidth={3}>
+                <svg className="w-3 h-3" fill="none" stroke="#fff" viewBox="0 0 24 24" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               )}
@@ -508,37 +512,47 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
+          <p className="text-[13px] font-medium transition-colors" style={{ color: 'var(--text-primary)' }}>
             {paper.title || paper.filename}
           </p>
-          <div className="flex items-center gap-3 mt-1 flex-wrap">
-            {paper.venue && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</span>}
-            <span className={`text-xs px-1.5 py-0.5 rounded ${
-              paper.status === 'done' ? 'bg-green-500/10 text-green-400' :
-              paper.status === 'indexed' ? 'bg-amber-500/10 text-amber-400' :
-              paper.status === 'failed' ? 'bg-red-500/10 text-red-400' :
-              'var(--bg-surface)'
-            }`}>
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            {paper.venue && <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>{paper.venue} {paper.year || ''}</span>}
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-full"
+              style={{
+                backgroundColor:
+                  paper.status === 'done' ? 'var(--success-subtle)' :
+                  paper.status === 'indexed' ? 'var(--warning-subtle)' :
+                  paper.status === 'failed' ? 'var(--error-subtle)' :
+                  'var(--bg-elevated)',
+                color:
+                  paper.status === 'done' ? 'var(--success)' :
+                  paper.status === 'indexed' ? 'var(--warning)' :
+                  paper.status === 'failed' ? 'var(--error)' :
+                  'var(--text-muted)',
+              }}
+            >
               {paper.status === 'done' ? '已解析' :
                paper.status === 'indexed' ? '未解析·已索引' :
                paper.status === 'failed' ? '失败' : '待解析'}
             </span>
             {isDiscovered && (
               <span
-                className="text-[10px] px-1.5 py-0.5 rounded border"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-                title="联网扩展下载的论文（未经 LLM 深度解析）"
+                className="text-[11px] px-2 py-0.5 rounded-full"
+                style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                title="联网扩展下载的论文"
               >
                 L{paper.level} · 扩展
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-2">
+          <div className="flex items-center gap-3 mt-2.5">
             <Link
               to={`/reader/${paper.id}`}
               state={{ from: `/workspace/${workspaceId}` }}
               onClick={e => e.stopPropagation()}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-[12px] transition-colors duration-200"
+              style={{ color: 'var(--accent)' }}
             >
               论文分析
             </Link>
@@ -547,10 +561,8 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
                 to={`/code/${paper.id}`}
                 state={{ from: `/workspace/${workspaceId}` }}
                 onClick={e => e.stopPropagation()}
-                className="text-xs transition-colors"
-              style={{ color: 'var(--text-muted)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
+                className="text-[12px] transition-colors duration-200"
+                style={{ color: 'var(--text-muted)' }}
               >
                 源码分析
               </Link>
@@ -561,22 +573,17 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
           {isDiscovered && onPromote && (
             <button
               onClick={(e) => { e.stopPropagation(); onPromote() }}
-              className="px-2.5 py-1 text-xs rounded-md border transition-colors"
-              style={{ borderColor: 'var(--accent)', color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }}
-              title="把这篇论文升级为本地正式论文：下一次研究会把它当作 seed 进行扩展"
+              className="px-3 py-1 text-[12px] rounded-full transition-all duration-200"
+              style={{ border: '1px solid var(--accent)', color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }}
+              title="升级为本地正式论文"
             >
               移入工作区
             </button>
           )}
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onRequestRemove()
-            }}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2 py-1 text-xs transition-all"
+            onClick={(e) => { e.stopPropagation(); onRequestRemove() }}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 px-2.5 py-1 text-[12px] rounded-full transition-all duration-200"
             style={{ color: 'var(--text-muted)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--error)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
           >
             移除
           </button>

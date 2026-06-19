@@ -7,6 +7,7 @@ import { toast } from '@/hooks/useToast'
 import type { WorkspaceItem } from '@/api/workspaces'
 import { TagManager } from '../TagManager'
 
+const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
 
 interface OverviewTabProps {
   result: AnalysisResult
@@ -143,31 +144,46 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
     }
   }, [selectedIndices, relatedPapers])
 
+  // ── shared presentational helpers ────────────────────────────────────────
+  /** Ghost pill button: surface tint + hairline, hover lifts luminance (never color). */
+  const ghostPill = {
+    color: 'var(--text-secondary)',
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border)',
+    transitionTimingFunction: SPRING,
+  } as const
+  const onGhostEnter = (e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }
+  const onGhostLeave = (e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }
+
   return (
-    <div className="space-y-6">
-      {/* Title + venue + year */}
-      <div>
-        <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{result.title}</h1>
-        <div className="flex items-center gap-2">
+    <div className="space-y-8">
+      {/* Title — editorial display type */}
+      <header>
+        <h1
+          className="text-display text-[27px] mb-3"
+          style={{ color: 'var(--text-primary)', letterSpacing: '-0.022em', lineHeight: 1.12 }}
+        >
+          {result.title}
+        </h1>
+        <div className="flex flex-wrap items-center gap-2.5">
           {result.venue && (
-            <span className="px-2.5 py-0.5 text-xs font-medium rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+            <span
+              className="text-[11px] font-medium px-2.5 py-1 rounded-full"
+              style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            >
               {result.venue}
             </span>
           )}
           {result.year && (
-            <span className="px-2.5 py-0.5 text-xs font-medium rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-              {result.year}
-            </span>
+            <span className="text-[12px] tabular-nums" style={{ color: 'var(--text-muted)' }}>{result.year}</span>
           )}
         </div>
-      </div>
+        {result.authors && (
+          <p className="text-[13px] mt-2.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.authors}</p>
+        )}
+      </header>
 
-      {/* Authors */}
-      {result.authors && (
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.authors}</p>
-      )}
-
-      {/* Tags + Export */}
+      {/* Tags + BibTeX export */}
       {paperId && (
         <div className="flex items-center justify-between gap-3">
           <TagManager paperId={paperId} />
@@ -191,12 +207,14 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                 }
               }}
               disabled={bibtexLoading}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+              className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full transition-all duration-200 disabled:opacity-50"
+              style={ghostPill}
+              onMouseEnter={onGhostEnter}
+              onMouseLeave={onGhostLeave}
               title="导出 BibTeX"
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               BibTeX
             </button>
@@ -204,29 +222,38 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
         </div>
       )}
 
-      {/* One-sentence contribution */}
+      {/* One-sentence contribution — surface-tinted highlight (no left-border accent card) */}
       {result.one_sentence && (
-        <div className="bg-blue-500/10 border-l-4 border-blue-500 p-4 rounded-r-lg">
-          <p className="text-blue-300 text-sm leading-relaxed">{result.one_sentence}</p>
+        <div
+          className="rounded-2xl p-5"
+          style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--border)' }}
+        >
+          <p className="text-label mb-2" style={{ color: 'var(--accent)' }}>核心一句</p>
+          <p className="text-[15px] leading-relaxed" style={{ color: 'var(--text-primary)', letterSpacing: '-0.005em' }}>
+            {result.one_sentence}
+          </p>
         </div>
       )}
 
       {/* Research problem */}
       {result.problem && (
         <section>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>研究问题</h2>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.problem}</p>
+          <h2 className="text-heading text-[15px] mb-2.5" style={{ color: 'var(--text-primary)' }}>研究问题</h2>
+          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.problem}</p>
         </section>
       )}
 
       {/* Key contributions */}
       {result.key_contributions && result.key_contributions.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>核心贡献</h2>
-          <ol className="space-y-2">
+          <h2 className="text-heading text-[15px] mb-3.5" style={{ color: 'var(--text-primary)' }}>核心贡献</h2>
+          <ol className="space-y-3">
             {result.key_contributions.map((item, idx) => (
-              <li key={idx} className="flex gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium">
+              <li key={idx} className="flex gap-3.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                <span
+                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium tabular-nums mt-px"
+                  style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+                >
                   {idx + 1}
                 </span>
                 <span className="leading-relaxed">{item}</span>
@@ -238,26 +265,26 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
       {/* Related papers */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>相关论文推荐</h2>
+        <div className="flex items-center justify-between gap-3 mb-3.5">
+          <h2 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>相关论文推荐</h2>
           <div className="flex items-center gap-2">
             {importMode ? (
               <>
                 <button
                   onClick={selectAll}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
-                  style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                  className="px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                  style={ghostPill}
+                  onMouseEnter={onGhostEnter}
+                  onMouseLeave={onGhostLeave}
                 >
                   {selectedIndices.size === relatedPapers.length ? '取消全选' : '全选'}
                 </button>
                 <button
                   onClick={handleStartImport}
                   disabled={selectedIndices.size === 0 || isImporting}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
+                  className="px-3.5 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200 disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--accent)', color: '#ffffff', transitionTimingFunction: SPRING }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.9' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
                 >
                   导入选中 ({selectedIndices.size})
@@ -265,10 +292,10 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                 <button
                   onClick={handleExitImportMode}
                   disabled={isImporting}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
-                  style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                  className="px-3 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                  style={ghostPill}
+                  onMouseEnter={onGhostEnter}
+                  onMouseLeave={onGhostLeave}
                 >
                   取消
                 </button>
@@ -279,13 +306,13 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   <>
                     <button
                       onClick={handleEnterImportMode}
-                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
-                      style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--success)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                      style={ghostPill}
+                      onMouseEnter={onGhostEnter}
+                      onMouseLeave={onGhostLeave}
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                           d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       导入到工作区
@@ -301,13 +328,13 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                           listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([])).finally(() => setWsLoading(false))
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors"
-                      style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--success)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                      style={ghostPill}
+                      onMouseEnter={onGhostEnter}
+                      onMouseLeave={onGhostLeave}
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                           d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                       </svg>
                       导入全部
@@ -318,20 +345,20 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                   <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50"
-                    style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                    style={ghostPill}
+                    onMouseEnter={onGhostEnter}
+                    onMouseLeave={onGhostLeave}
                   >
                     {isRefreshing ? (
                       <>
-                        <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+                        <div className="w-3.5 h-3.5 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
                         搜索中...
                       </>
                     ) : (
                       <>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         刷新
                       </>
@@ -344,113 +371,119 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
         </div>
 
         {relatedPapers.length > 0 ? (
-          <div className="space-y-3">
-            {relatedPapers.map((paper, idx) => (
-              <div
-                key={idx}
-                className="rounded-lg p-3 border transition-colors"
-                style={importMode && selectedIndices.has(idx) ? { backgroundColor: 'var(--accent-subtle)', borderColor: 'var(--accent)' } : { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}
-              >
-                <div className="flex items-start gap-2.5">
-                  {/* Checkbox (import mode only) */}
-                  {importMode && !isImporting && !importResults && (
-                    <button
-                      onClick={() => toggleSelect(idx)}
-                      className="flex-shrink-0 mt-0.5 w-4 h-4 rounded border transition-colors flex items-center justify-center"
-                      style={selectedIndices.has(idx) ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' } : { borderColor: 'var(--text-muted)' }}
-                    >
-                      {selectedIndices.has(idx) && (
-                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                      {paper.url && paper.url.match(/^https?:\/\//) ? (
-                        <a href={paper.url} target="_blank" rel="noopener noreferrer"
-                           className="hover:text-blue-400 transition-colors">
-                          {paper.title}
-                        </a>
-                      ) : paper.title}
-                    </p>
-                    {paper.authors && (
-                      <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{paper.authors}</p>
+          <div className="space-y-2.5">
+            {relatedPapers.map((paper, idx) => {
+              const selected = importMode && selectedIndices.has(idx)
+              return (
+                <div
+                  key={idx}
+                  className="rounded-xl p-4 transition-all duration-200"
+                  style={selected
+                    ? { backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent)', transitionTimingFunction: SPRING }
+                    : { backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Checkbox (import mode only) */}
+                    {importMode && !isImporting && !importResults && (
+                      <button
+                        onClick={() => toggleSelect(idx)}
+                        className="flex-shrink-0 mt-0.5 w-4 h-4 rounded-md border transition-colors flex items-center justify-center"
+                        style={selectedIndices.has(idx) ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' } : { borderColor: 'var(--text-muted)' }}
+                      >
+                        {selectedIndices.has(idx) && (
+                          <svg className="w-3 h-3" style={{ color: '#fff' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                      {paper.venue && (
-                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                          {paper.venue}
-                        </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium mb-1 leading-snug" style={{ color: 'var(--text-primary)' }}>
+                        {paper.url && paper.url.match(/^https?:\/\//) ? (
+                          <a href={paper.url} target="_blank" rel="noopener noreferrer"
+                             className="transition-colors hover:opacity-80" style={{ color: 'var(--text-primary)' }}>
+                            {paper.title}
+                          </a>
+                        ) : paper.title}
+                      </p>
+                      {paper.authors && (
+                        <p className="text-[12px] mb-1.5" style={{ color: 'var(--text-secondary)' }}>{paper.authors}</p>
                       )}
-                      {paper.year > 0 && (
-                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{paper.year}</span>
-                      )}
-                      {paper.citation_count > 0 && (
-                        <span className="text-xs text-yellow-500/80">
-                          {paper.citation_count} citations
-                        </span>
-                      )}
-                      {paper.doi && (
-                        <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noopener noreferrer"
-                           className="text-xs text-blue-400/70 hover:text-blue-400 transition-colors">
-                          DOI: {paper.doi}
-                        </a>
-                      )}
-                      {/* Import result badge */}
-                      {importResults && importResults[idx] && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${
-                          importResults[idx].status === 'local'
-                            ? 'bg-green-500/20 text-green-400'
-                            : importResults[idx].status === 'downloaded'
-                              ? 'bg-blue-500/20 text-blue-400'
-                              : 'bg-red-500/20 text-red-400'
-                        }`}>
-                          {importResults[idx].message}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-2.5 text-[12px]">
+                        {paper.venue && (
+                          <span style={{ color: 'var(--text-muted)' }}>{paper.venue}</span>
+                        )}
+                        {paper.year > 0 && (
+                          <span className="tabular-nums" style={{ color: 'var(--text-muted)' }}>{paper.year}</span>
+                        )}
+                        {paper.citation_count > 0 && (
+                          <span className="tabular-nums" style={{ color: 'var(--text-muted)' }}>{paper.citation_count} 引用</span>
+                        )}
+                        {paper.doi && (
+                          <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noopener noreferrer"
+                             className="transition-colors hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                            DOI: {paper.doi}
+                          </a>
+                        )}
+                        {/* Import result — subtle text tint, no filled badge */}
+                        {importResults && importResults[idx] && (
+                          <span
+                            className="font-medium"
+                            style={{
+                              color: importResults[idx].status === 'local'
+                                ? 'var(--success)'
+                                : importResults[idx].status === 'downloaded'
+                                  ? 'var(--accent)'
+                                  : 'var(--error)',
+                            }}
+                          >
+                            {importResults[idx].message}
+                          </span>
+                        )}
+                      </div>
+                      {paper.relevance && (
+                        <p className="text-[12px] italic mt-1.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{paper.relevance}</p>
                       )}
                     </div>
-                    {paper.relevance && (
-                      <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>{paper.relevance}</p>
-                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : relatedStatus === 'loading' && !isRefreshing ? (
-          <div className="flex items-center justify-center gap-2 py-6">
-            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>主体分析已完成，正在后台搜索相关论文...</span>
+          <div className="flex items-center justify-center gap-2.5 py-8">
+            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+            <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>主体分析已完成，正在后台搜索相关论文…</span>
           </div>
         ) : relatedStatus === 'failed' && !isRefreshing ? (
           <div
-            className="text-center py-6 rounded-lg border"
-            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
+            className="text-center py-8 rounded-xl"
+            style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
           >
-            <p className="text-sm mb-1" style={{ color: 'var(--error)' }}>相关论文搜索超时或失败</p>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
+            <p className="text-[13px] mb-1" style={{ color: 'var(--error)' }}>相关论文搜索超时或失败</p>
+            <p className="text-[12px] mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
             {paperId && (
               <button
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+                className="text-[12px] transition-colors disabled:opacity-50 hover:opacity-80"
+                style={{ color: 'var(--accent)' }}
               >
-                {isRefreshing ? '搜索中...' : '重新搜索'}
+                {isRefreshing ? '搜索中…' : '重新搜索'}
               </button>
             )}
           </div>
         ) : (
-          <div className="text-center py-6">
-            <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>暂无相关论文推荐</p>
+          <div className="text-center py-8">
+            <p className="text-[13px] mb-2" style={{ color: 'var(--text-muted)' }}>暂无相关论文推荐</p>
             {paperId && (
               <button
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+                className="text-[12px] transition-colors disabled:opacity-50 hover:opacity-80"
+                style={{ color: 'var(--accent)' }}
               >
-                {isRefreshing ? '搜索中...' : '通过 Semantic Scholar 搜索'}
+                {isRefreshing ? '搜索中…' : '通过 Semantic Scholar 搜索'}
               </button>
             )}
           </div>
@@ -458,46 +491,46 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
         {/* Import progress */}
         {isImporting && importProgress && (
-          <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                正在导入... {importProgress.done}/{importProgress.total}
+          <div className="mt-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+              <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                正在导入… {importProgress.done}/{importProgress.total}
               </span>
             </div>
-            <div className="w-full rounded-full h-1.5" style={{ backgroundColor: 'var(--bg-surface)' }}>
+            <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               <div
-                className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${(importProgress.done / importProgress.total) * 100}%` }}
+                className="h-1.5 rounded-full transition-all duration-500"
+                style={{ width: `${(importProgress.done / importProgress.total) * 100}%`, backgroundColor: 'var(--accent)' }}
               />
             </div>
-            <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-              正在通过 Semantic Scholar 查找 PDF 并下载，请耐心等待...
+            <p className="text-[12px] mt-2" style={{ color: 'var(--text-muted)' }}>
+              正在通过 Semantic Scholar 查找 PDF 并下载，请耐心等待…
             </p>
           </div>
         )}
 
-        {/* Import results summary */}
+        {/* Import results summary — subtle text tints */}
         {importResults && !isImporting && (
-          <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>导入完成</span>
+          <div className="mt-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>导入完成</span>
               <button
                 onClick={handleExitImportMode}
-                className="text-xs transition-colors" style={{ color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                className="text-[12px] transition-colors hover:opacity-80" style={{ color: 'var(--text-secondary)' }}
               >
                 关闭
               </button>
             </div>
-            <div className="flex gap-3 text-xs">
-              <span className="text-green-400">
-                本地导入: {importResults.filter(r => r.status === 'local').length}
+            <div className="flex gap-4 text-[12px] font-medium">
+              <span style={{ color: 'var(--success)' }}>
+                本地导入 {importResults.filter(r => r.status === 'local').length}
               </span>
-              <span className="text-blue-400">
-                新下载: {importResults.filter(r => r.status === 'downloaded').length}
+              <span style={{ color: 'var(--accent)' }}>
+                新下载 {importResults.filter(r => r.status === 'downloaded').length}
               </span>
-              <span className="text-red-400">
-                失败: {importResults.filter(r => r.status === 'failed').length}
+              <span style={{ color: 'var(--error)' }}>
+                失败 {importResults.filter(r => r.status === 'failed').length}
               </span>
             </div>
           </div>
@@ -507,66 +540,73 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Limitations */}
       {result.limitations && (
         <section>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>局限性</h2>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.limitations}</p>
+          <h2 className="text-heading text-[15px] mb-2.5" style={{ color: 'var(--text-primary)' }}>局限性</h2>
+          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{result.limitations}</p>
         </section>
       )}
 
-      {/* Workspace selector modal */}
+      {/* Workspace selector modal — frosted backdrop + elevated card */}
       {showWsSelector && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          onClick={() => !isImporting && setShowWsSelector(false)}
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+          onMouseDown={() => !isImporting && setShowWsSelector(false)}
         >
           <div
             ref={wsModalRef}
             role="dialog"
             aria-modal="true"
-            className="w-96 max-h-[70vh] rounded-xl border p-5 shadow-2xl flex flex-col"
-            style={{ backgroundColor: 'var(--bg-elevated, #1a1a2e)', borderColor: 'var(--border, #333)' }}
-            onClick={e => e.stopPropagation()}
+            className="w-96 max-h-[70vh] rounded-2xl p-6 flex flex-col"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--seed-radius, 12px)',
+              boxShadow: '0 24px 48px rgba(0,0,0,0.16), 0 8px 16px rgba(0,0,0,0.08)',
+            }}
+            onMouseDown={e => e.stopPropagation()}
           >
-            <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>选择工作区</h3>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+            <h3 className="text-heading text-[15px] mb-1" style={{ color: 'var(--text-primary)' }}>选择工作区</h3>
+            <p className="text-[12px] mb-4" style={{ color: 'var(--text-secondary)' }}>
               将 {selectedIndices.size} 篇论文导入到以下工作区：
             </p>
 
             {wsLoading ? (
-              <div className="flex items-center justify-center py-8 gap-2">
-                <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--text-muted)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>加载工作区...</span>
+              <div className="flex items-center justify-center py-8 gap-2.5">
+                <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+                <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>加载工作区…</span>
               </div>
             ) : workspaces.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>暂无工作区</p>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>请先在「工作区」页面创建工作区</p>
+                <p className="text-[13px] mb-2" style={{ color: 'var(--text-muted)' }}>暂无工作区</p>
+                <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>请先在「工作区」页面创建工作区</p>
               </div>
             ) : (
-              <div className="flex-1 overflow-auto space-y-2 max-h-60">
+              <div className="flex-1 overflow-auto space-y-2 max-h-60 -mx-1 px-1">
                 {workspaces.map(ws => (
                   <button
                     key={ws.id}
                     onClick={() => handleImportToWorkspace(ws.id)}
                     disabled={isImporting}
-                    className="w-full text-left px-3 py-2.5 rounded-lg border transition-colors hover:border-blue-500/50 hover:bg-blue-500/5 disabled:opacity-50"
-                    style={{ borderColor: 'var(--border, #333)' }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-xl transition-all duration-200 disabled:opacity-50"
+                    style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
+                    onMouseEnter={e => { if (!isImporting) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{ws.name}</span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{ws.paper_count} 篇论文</span>
+                      <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{ws.name}</span>
+                      <span className="text-[12px] tabular-nums" style={{ color: 'var(--text-muted)' }}>{ws.paper_count} 篇</span>
                     </div>
                   </button>
                 ))}
               </div>
             )}
 
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-end mt-5">
               <button
                 onClick={() => setShowWsSelector(false)}
                 disabled={isImporting}
-                className="px-4 py-1.5 text-xs rounded-md border transition-colors hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: 'var(--border, #333)', color: 'var(--text-secondary, #aaa)' }}
+                className="px-4 py-2 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
               >
                 取消
               </button>

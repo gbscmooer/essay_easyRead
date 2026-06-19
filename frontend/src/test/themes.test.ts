@@ -12,6 +12,7 @@ import {
   BUILTIN_THEMES,
   DEFAULT_THEME_ID,
   type ThemeColors,
+  type SeedTokens,
   type Theme,
 } from '@/theme/themes'
 
@@ -64,9 +65,9 @@ describe('isDarkTheme', () => {
 
 describe('resolveTheme', () => {
   it('resolves builtin theme by id', () => {
-    const theme = resolveTheme('pure')
-    expect(theme.id).toBe('pure')
-    expect(theme.name).toBe('纯黑')
+    const theme = resolveTheme('dark')
+    expect(theme.id).toBe('dark')
+    expect(theme.name).toBe('深色')
   })
 
   it('resolves default theme for unknown id', () => {
@@ -83,6 +84,7 @@ describe('resolveTheme', () => {
     const custom: Theme = {
       id: 'my-theme',
       name: '我的主题',
+      seeds: BUILTIN_THEMES[0].seeds,
       colors: BUILTIN_THEMES[0].colors,
     }
     const theme = resolveTheme('custom:my-theme', [custom])
@@ -106,6 +108,7 @@ describe('themeKey', () => {
     const custom: Theme = {
       id: 'my-theme',
       name: '我的主题',
+      seeds: BUILTIN_THEMES[0].seeds,
       colors: BUILTIN_THEMES[0].colors,
     }
     expect(themeKey(custom)).toBe('custom:my-theme')
@@ -115,7 +118,7 @@ describe('themeKey', () => {
 
 describe('buildCssVars', () => {
   it('generates all required CSS variables', () => {
-    const vars = buildCssVars(BUILTIN_THEMES[0].colors)
+    const vars = buildCssVars(BUILTIN_THEMES[0].seeds)
     const expectedKeys = [
       '--bg-base', '--bg-surface', '--bg-elevated',
       '--border', '--border-light',
@@ -132,41 +135,37 @@ describe('buildCssVars', () => {
   })
 
   it('generates dark code colors for dark theme', () => {
-    const darkColors: ThemeColors = {
-      bg_base: '#000000', bg_surface: '#0a0a0a', bg_elevated: '#171717',
-      border: '#262626', border_light: '#404040',
-      text_primary: '#ffffff', text_secondary: '#a3a3a3', text_muted: '#737373',
-      accent: '#ffffff', success: '#22c55e', warning: '#eab308', error: '#ef4444',
+    const darkSeeds: SeedTokens = {
+      bg: '#000000', fg: '#ffffff', surface: '#0a0a0a',
+      accent: '#ffffff', muted: '#737373', radius: 12,
     }
-    const vars = buildCssVars(darkColors)
+    const vars = buildCssVars(darkSeeds)
     expect(vars['--code-bg']).toBe('#1e1e2e')
     expect(vars['--code-fg']).toBe('#cdd6f4')
   })
 
   it('generates light code colors for light theme', () => {
-    const lightColors: ThemeColors = {
-      bg_base: '#ffffff', bg_surface: '#f8fafc', bg_elevated: '#f1f5f9',
-      border: '#e2e8f0', border_light: '#cbd5e1',
-      text_primary: '#0f172a', text_secondary: '#334155', text_muted: '#94a3b8',
-      accent: '#1d4ed8', success: '#16a34a', warning: '#ca8a04', error: '#dc2626',
+    const lightSeeds: SeedTokens = {
+      bg: '#ffffff', fg: '#0f172a', surface: '#f8fafc',
+      accent: '#1d4ed8', muted: '#94a3b8', radius: 12,
     }
-    const vars = buildCssVars(lightColors)
+    const vars = buildCssVars(lightSeeds)
     expect(vars['--code-bg']).toBe('#f6f8fa')
     expect(vars['--code-fg']).toBe('#1f2328')
   })
 
-  it('uses base colors directly', () => {
-    const colors = BUILTIN_THEMES[0].colors
-    const vars = buildCssVars(colors)
-    expect(vars['--bg-base']).toBe(colors.bg_base)
-    expect(vars['--accent']).toBe(colors.accent)
+  it('derives base colors from seeds', () => {
+    const seeds = BUILTIN_THEMES[0].seeds
+    const vars = buildCssVars(seeds)
+    expect(vars['--bg-base']).toBe(seeds.bg)
+    expect(vars['--accent']).toBe(seeds.accent)
   })
 })
 
 
 describe('BUILTIN_THEMES', () => {
-  it('has 3 builtin themes', () => {
-    expect(BUILTIN_THEMES).toHaveLength(3)
+  it('has 2 builtin themes', () => {
+    expect(BUILTIN_THEMES).toHaveLength(2)
   })
 
   it('all themes have required fields', () => {

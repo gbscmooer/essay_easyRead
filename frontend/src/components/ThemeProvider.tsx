@@ -1,9 +1,12 @@
+/**
+ * 主题应用器 — 注入 seed token + 字体配置
+ */
 import { useEffect } from 'react'
 import { useUIConfig } from '@/hooks/useConfig'
 import { resolveTheme, applyTheme } from '@/theme/themes'
 
 const FONT_MAP: Record<string, string> = {
-  sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
+  sans: "'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   serif: "'Times New Roman', Georgia, 'Noto Serif', serif",
   mono: "'Menlo', 'Monaco', 'Courier New', monospace",
 }

@@ -412,11 +412,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                   if (el) pageRefs.current.set(pageNum, el)
                   else pageRefs.current.delete(pageNum)
                 }}
-                className={`relative transition-all duration-300 ${
-                  activePage === pageNum
-                    ? 'ring-2 ring-blue-500/60 ring-offset-2 ring-offset-gray-900 scale-[1.01]'
-                    : ''
-                }`}
+                className="relative transition-all duration-300"
+                style={activePage === pageNum
+                  ? { boxShadow: '0 0 0 2px var(--accent)', transform: 'scale(1.01)' }
+                  : undefined}
               >
                 <Page
                   pageNumber={pageNum}
@@ -437,7 +436,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                 </div>
                 {/* 跳转高亮光晕 */}
                 {activePage === pageNum && (
-                  <div className="absolute inset-0 pointer-events-none bg-blue-500/10 rounded" />
+                  <div className="absolute inset-0 pointer-events-none rounded" style={{ backgroundColor: 'var(--accent-subtle)' }} />
                 )}
               </div>
             ))}
@@ -486,7 +485,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
         {/* 标注统计 */}
         {annotations.length > 0 && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
             {annotations.length} 个标注
           </span>
         )}

@@ -103,7 +103,7 @@ export function TagManager({ paperId }: TagManagerProps) {
         {paperTags.map(tag => (
           <span
             key={tag.id}
-            className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full cursor-default group"
+            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full cursor-default group"
             style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}
           >
             {tag.name}
@@ -111,6 +111,7 @@ export function TagManager({ paperId }: TagManagerProps) {
               onClick={() => handleRemove(tag.id)}
               className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
               style={{ color: tag.color }}
+              aria-label={`移除标签 ${tag.name}`}
             >
               &times;
             </button>
@@ -120,8 +121,8 @@ export function TagManager({ paperId }: TagManagerProps) {
           onClick={() => setShowDropdown(v => !v)}
           aria-expanded={showDropdown}
           aria-haspopup="true"
-          className="text-xs px-2 py-0.5 rounded-full transition-colors"
-          style={{ color: 'var(--text-muted)', border: '1px dashed var(--border)' }}
+          className="text-[11px] px-2.5 py-0.5 rounded-full transition-colors hover:opacity-80"
+          style={{ color: 'var(--text-muted)', border: '1px dashed var(--border-light)' }}
         >
           + 标签
         </button>
@@ -130,23 +131,28 @@ export function TagManager({ paperId }: TagManagerProps) {
       {showDropdown && (
         <div
           data-tag-dropdown
-          className="absolute z-50 mt-2 w-56 rounded-lg border shadow-lg p-2"
-          style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+          className="absolute z-50 mt-2 w-56 rounded-xl p-2.5"
+          style={{
+            backgroundColor: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.14), 0 4px 8px rgba(0,0,0,0.06)',
+          }}
         >
-          <div className="flex gap-1 mb-2">
+          <div className="flex gap-1.5 mb-2">
             <input
+              ref={inputRef}
               type="text"
               value={newTagName}
               onChange={e => setNewTagName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              placeholder="新建标签..."
-              className="flex-1 text-xs px-2 py-1 rounded border focus:outline-none"
-              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+              placeholder="新建标签…"
+              className="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg focus:outline-none"
+              style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
             />
             <button
               onClick={handleCreate}
-              className="text-xs px-2 py-1 rounded transition-colors"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-base)' }}
+              className="text-[12px] px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-90"
+              style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
             >
               创建
             </button>
@@ -157,7 +163,7 @@ export function TagManager({ paperId }: TagManagerProps) {
                 <button
                   key={tag.id}
                   onClick={() => handleAdd(tag.id)}
-                  className="w-full text-left text-xs px-2 py-1 rounded transition-colors flex items-center gap-2"
+                  className="w-full text-left text-[12px] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-2"
                   style={{ color: 'var(--text-secondary)' }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--bg-surface)')}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -169,7 +175,7 @@ export function TagManager({ paperId }: TagManagerProps) {
             </div>
           )}
           {availableTags.length === 0 && !newTagName && (
-            <p className="text-xs text-center py-2" style={{ color: 'var(--text-muted)' }}>输入名称创建新标签</p>
+            <p className="text-[12px] text-center py-2" style={{ color: 'var(--text-muted)' }}>输入名称创建新标签</p>
           )}
         </div>
       )}

@@ -350,12 +350,14 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
             >
               总结
             </button>
-            <div className="w-px h-5 bg-gray-600 mx-0.5" />
+            <div className="w-px h-5 mx-0.5" style={{ backgroundColor: 'var(--border)' }} />
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('highlight')}
-              className="px-2.5 py-1.5 text-xs font-medium bg-gray-700 hover:bg-yellow-600 rounded transition-colors"
-              style={{ color: 'var(--text-primary)' }}
+              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
               title="荧光笔"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -365,8 +367,10 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('underline')}
-              className="px-2.5 py-1.5 text-xs font-medium bg-gray-700 hover:bg-blue-600 rounded transition-colors"
-              style={{ color: 'var(--text-primary)' }}
+              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
               title="下划线"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -377,8 +381,10 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('strikethrough')}
-              className="px-2.5 py-1.5 text-xs font-medium bg-gray-700 hover:bg-red-600 rounded transition-colors"
-              style={{ color: 'var(--text-primary)' }}
+              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
               title="删除线"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -392,22 +398,27 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         {/* 颜色选择器 */}
         {showColorPicker && (
           <div className="p-2">
-            <p className="text-xs text-gray-400 mb-1.5">选择颜色</p>
+            <p className="text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>选择颜色</p>
             <div className="flex items-center gap-1.5">
               {HIGHLIGHT_COLORS.map(c => (
                 <button
                   key={c.value}
                   onMouseDown={e => e.stopPropagation()}
                   onClick={() => handleColorSelect(c.value)}
-                  className="w-6 h-6 rounded-full border-2 border-gray-600 hover:border-white transition-colors"
-                  style={{ backgroundColor: c.value }}
+                  className="w-6 h-6 rounded-full border-2 transition-colors"
+                  style={{ backgroundColor: c.value, borderColor: 'var(--border)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-primary)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
                   title={c.name}
                 />
               ))}
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => setShowColorPicker(false)}
-                className="ml-1 text-xs text-gray-400 hover:text-gray-200"
+                className="ml-1 text-xs transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
               >
                 取消
               </button>

@@ -1,5 +1,6 @@
 import type { AnalysisResult } from '@/types'
 
+const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
 
 interface OutlineTabProps {
   result: AnalysisResult
@@ -9,7 +10,7 @@ interface OutlineTabProps {
 export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
   if (!result.outline || result.outline.length === 0) {
     return (
-      <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>
+      <div className="text-[13px] text-center py-10" style={{ color: 'var(--text-muted)' }}>
         暂无大纲信息
       </div>
     )
@@ -22,43 +23,48 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>论文大纲</h2>
-      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>点击章节跳转到论文对应位置</p>
+    <div className="space-y-5">
+      <header>
+        <h2 className="text-heading text-[15px] mb-1" style={{ color: 'var(--text-primary)' }}>论文大纲</h2>
+        <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>点击章节跳转到论文对应位置</p>
+      </header>
 
       <div className="relative">
-        <div className="absolute left-3 top-2 bottom-2 w-px" style={{ backgroundColor: 'var(--border-light)' }} />
+        <div className="absolute left-[7px] top-3 bottom-3 w-px" style={{ backgroundColor: 'var(--border)' }} />
 
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {result.outline.map((item, idx) => {
             const pageNum = parsePage(item.page)
             const clickable = !!pageNum && !!onJumpToPage
 
             return (
-              <div key={idx} className="relative pl-10">
-                <div className="absolute left-1.5 top-2.5 w-3 h-3 rounded-full z-10" style={{ backgroundColor: 'var(--accent)', border: '2px solid var(--bg-base)' }} />
+              <div key={idx} className="relative pl-9">
+                <div className="absolute left-[3px] top-[18px] w-2 h-2 rounded-full z-10" style={{ backgroundColor: 'var(--bg-surface)', border: '1.5px solid var(--border-light)' }} />
 
                 <button
                   onClick={() => pageNum && onJumpToPage?.(pageNum, item.section)}
                   disabled={!clickable}
-                  className="w-full text-left rounded-lg p-3 border transition-colors"
-                  style={clickable ? { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' } : { backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)', cursor: 'default' }}
-                  onMouseEnter={e => { if (clickable) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' } }}
-                  onMouseLeave={e => { if (clickable) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-light)' } }}
+                  className="w-full text-left rounded-xl p-3.5 transition-all duration-200"
+                  style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', cursor: clickable ? 'pointer' : 'default', transitionTimingFunction: SPRING }}
+                  onMouseEnter={e => { if (clickable) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' }}
+                  onMouseLeave={e => { if (clickable) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-sm font-medium"
-                    style={{ color: clickable ? 'var(--accent)' : 'var(--text-primary)' }}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <h3 className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
                       {item.section}
                     </h3>
                     {item.page && (
-                      <span className="text-xs px-2 py-0.5 rounded"
-                      style={clickable ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' } : { color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full shrink-0 tabular-nums"
+                        style={clickable
+                          ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }
+                          : { color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}
+                      >
                         p.{item.page}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                     {item.summary}
                   </p>
                 </button>

@@ -6,8 +6,7 @@
 
 import { useState, useMemo, memo } from 'react'
 import type { Paper, SearchResult } from '@/types'
-import { Tooltip } from '@/components/Tooltip'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmDialog, Tooltip } from '@/ds-entry'
 
 
 interface FilterParams {
@@ -273,7 +272,7 @@ export const PaperList = memo(function PaperList({
               <div
                 key={r.paper_id}
                 onClick={() => onSelect(r.paper_id)}
-                className="p-4 rounded-xl cursor-pointer transition-all"
+                className="p-4 rounded-xl cursor-pointer card-hover press spotlight transition-all"
                 style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
               >
                 <h3 className="text-sm font-medium mb-1 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -327,7 +326,7 @@ export const PaperList = memo(function PaperList({
               <div
                 key={paper.id}
                 onClick={() => onSelect(paper.id)}
-                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover group"
+                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover press spotlight group"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border)',

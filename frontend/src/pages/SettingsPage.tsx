@@ -1,10 +1,14 @@
 /**
- * 设置页面
+ * SettingsPage — 设置页
  *
- * 管理配置状态、加载/保存逻辑，渲染各设置区块组件。
- * Deep Research 相关区块通过 Suspense 延迟加载。
+ * Tab 切换式分区：
+ *   1. 模型配置 — 翻译模型 / 解读模型 / 解读提示词
+ *   2. 界面与主题 — 主题、字体、交互参数
+ *   3. 深度研究 — Embedding / 研究源 / Reranker / 相似度 / arXiv / findpapers
+ *
+ * 顶部 pill 形 segmented control 切换当前分区，只显示对应内容。
  */
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import { post, get } from '@/api/client'
 import { refreshConfig, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
 import { PromptEditor } from '@/features/settings/PromptEditor'
@@ -23,10 +27,108 @@ import type { AppConfig } from '@/features/settings/config'
 import { DEFAULT_CONFIG } from '@/features/settings/config'
 
 
+/* ── Tab 定义 ─────────────────────────────────────── */
+
+type TabKey = 'models' | 'appearance' | 'research'
+
+interface TabDef {
+  key: TabKey
+  label: string
+  icon: React.ReactNode
+}
+
+const TABS: TabDef[] = [
+  {
+    key: 'models',
+    label: '模型配置',
+    icon: (
+      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
+      </svg>
+    ),
+  },
+  {
+    key: 'appearance',
+    label: '界面与主题',
+    icon: (
+      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      </svg>
+    ),
+  },
+  {
+    key: 'research',
+    label: '深度研究',
+    icon: (
+      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="8" />
+        <path d="M21 21l-4.35-4.35" />
+        <path d="M11 8v6M8 11h6" />
+      </svg>
+    ),
+  },
+]
+
+
+/* ── Segmented Tab Bar ────────────────────────────── */
+
+function TabBar({
+  active,
+  onChange,
+}: {
+  active: TabKey
+  onChange: (key: TabKey) => void
+}) {
+  return (
+    <div
+      className="inline-flex items-center gap-1 p-1 rounded-full"
+      style={{
+        backgroundColor: 'var(--bg-elevated)',
+        border: '1px solid var(--border)',
+      }}
+      role="tablist"
+    >
+      {TABS.map(tab => {
+        const isActive = tab.key === active
+        return (
+          <button
+            key={tab.key}
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onChange(tab.key)}
+            className="relative flex items-center gap-1.5 px-4 py-1.5 text-[13px] font-medium rounded-full transition-all duration-200"
+            style={{
+              backgroundColor: isActive ? 'var(--accent)' : 'transparent',
+              color: isActive ? '#fff' : 'var(--text-secondary)',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
+          >
+            <span style={{ opacity: isActive ? 1 : 0.6 }}>{tab.icon}</span>
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+
+/* ── Hooks ─────────────────────────────────────────── */
+
 function LoadingPlaceholder() {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 flex items-center justify-center h-32">
-      <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+    <div
+      className="flex items-center justify-center h-32"
+      style={{
+        backgroundColor: 'var(--bg-surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--seed-radius, 12px)',
+      }}
+    >
+      <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
     </div>
   )
 }
@@ -61,12 +163,10 @@ function useConfigInit() {
       .catch(() => {})
   }, [])
 
-  // 离开页面时清除预览（不保存则恢复原样）
   useEffect(() => {
     return () => { clearUIPreview() }
   }, [])
 
-  // 浏览器关闭/刷新提示
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (hasUnsavedConfig()) {
@@ -81,10 +181,101 @@ function useConfigInit() {
 }
 
 
+/* ── 各 Tab 面板内容 ─────────────────────────────── */
+
+function ModelsPanel({
+  config,
+  setConfig,
+}: {
+  config: AppConfig
+  setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
+}) {
+  return (
+    <div className="space-y-4 stagger">
+      <AIModelSection
+        title="翻译模型"
+        description="用于选中文本的翻译功能。"
+        config={config.translate}
+        onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
+        defaultMaxTokens={2048}
+        testSlot={
+          <TestButton
+            type="translate"
+            api_key={config.translate.api_key}
+            base_url={config.translate.base_url}
+            model={config.translate.model}
+          />
+        }
+      />
+      <AIModelSection
+        title="解读模型"
+        description="用于论文解析、总结等功能。"
+        config={config.analysis}
+        onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
+        defaultMaxTokens={16384}
+        testSlot={
+          <TestButton
+            type="analysis"
+            api_key={config.analysis.api_key}
+            base_url={config.analysis.base_url}
+            model={config.analysis.model}
+          />
+        }
+      />
+      <PromptEditor
+        value={config.analysis_prompt}
+        onChange={ap => setConfig(prev => ({ ...prev, analysis_prompt: ap }))}
+      />
+    </div>
+  )
+}
+
+function AppearancePanel({
+  config,
+  setConfig,
+}: {
+  config: AppConfig
+  setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
+}) {
+  return (
+    <UIConfigSection
+      config={config.ui}
+      onChange={cfg => setConfig(prev => ({ ...prev, ui: cfg }))}
+    />
+  )
+}
+
+function ResearchPanel({
+  config,
+  setConfig,
+  simProviders,
+}: {
+  config: AppConfig
+  setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
+  simProviders: string[]
+}) {
+  return (
+    <Suspense fallback={<LoadingPlaceholder />}>
+      <div className="space-y-4 stagger">
+        <EmbeddingSection config={config} setConfig={setConfig} />
+        <ResearchProviderSection config={config} setConfig={setConfig} />
+        <RerankerSection config={config} setConfig={setConfig} />
+        <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders} />
+        <ArxivExpandSection config={config} setConfig={setConfig} />
+        <FindpapersSection config={config} setConfig={setConfig} />
+      </div>
+    </Suspense>
+  )
+}
+
+
+/* ── 主页面 ────────────────────────────────────────── */
+
 export function SettingsPage() {
   const { config, setConfig, loading, simProviders } = useConfigInit()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabKey>('models')
 
   const handleSave = async () => {
     setSaving(true)
@@ -101,10 +292,16 @@ export function SettingsPage() {
     }
   }
 
+  /* 切换 tab 时滚到顶部 */
+  const handleTabChange = useCallback((key: TabKey) => {
+    setActiveTab(key)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
       </div>
     )
   }
@@ -114,91 +311,71 @@ export function SettingsPage() {
   const allConfigured = translateOk && analysisOk
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-100">设置</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-          配置模型参数和界面行为。点击"高级参数"可调整 temperature、token 上限等。
-        </p>
+    <div className="max-w-2xl mx-auto px-8 py-10">
+      {/* Header + Tab Bar */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>
+          设置
+        </h1>
+        <TabBar active={activeTab} onChange={handleTabChange} />
       </div>
 
-      {/* 整体状态提示 */}
-      {!allConfigured && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+      {/* 配置状态提示 — 只在"模型配置" tab 显示 */}
+      {!allConfigured && activeTab === 'models' && (
+        <div
+          className="p-4 mb-5"
+          style={{
+            borderRadius: 'var(--seed-radius, 12px)',
+            backgroundColor: 'var(--error-subtle)',
+            border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)',
+          }}
+        >
           <div className="flex items-start gap-3">
-            <span className="text-red-400 text-lg mt-0.5">!</span>
+            <span style={{ color: 'var(--error)' }}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </span>
             <div>
-              <p className="text-sm text-red-300 font-medium">配置不完整</p>
-              <ul className="text-xs text-red-400/80 mt-1 space-y-0.5">
-                {!translateOk && <li>- 翻译模型未配置 API Key，画词翻译功能将不可用</li>}
-                {!analysisOk && <li>- 解读模型未配置 API Key，论文分析功能将使用默认配置</li>}
-              </ul>
+              <p className="text-[13px] font-medium" style={{ color: 'var(--error)' }}>配置不完整</p>
+              <div className="text-[12px] mt-1.5 space-y-0.5" style={{ color: 'var(--error)', opacity: 0.85 }}>
+                {!translateOk && <p>翻译模型未配置 API Key，画词翻译功能将不可用</p>}
+                {!analysisOk && <p>解读模型未配置 API Key，论文分析功能将使用默认配置</p>}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      <AIModelSection
-        title="翻译模型"
-        description="用于选中文本的翻译功能。"
-        config={config.translate}
-        onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
-        defaultMaxTokens={2048}
-        testSlot={
-          <TestButton
-            type="translate"
-            api_key={config.translate.api_key}
-            base_url={config.translate.base_url}
-            model={config.translate.model}
-          />
-        }
-      />
+      {/* Tab 面板内容 */}
+      {activeTab === 'models' && (
+        <ModelsPanel config={config} setConfig={setConfig} />
+      )}
+      {activeTab === 'appearance' && (
+        <AppearancePanel config={config} setConfig={setConfig} />
+      )}
+      {activeTab === 'research' && (
+        <ResearchPanel config={config} setConfig={setConfig} simProviders={simProviders} />
+      )}
 
-      <AIModelSection
-        title="解读模型"
-        description="用于论文解析、总结等功能。"
-        config={config.analysis}
-        onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
-        defaultMaxTokens={16384}
-        testSlot={
-          <TestButton
-            type="analysis"
-            api_key={config.analysis.api_key}
-            base_url={config.analysis.base_url}
-            model={config.analysis.model}
-          />
-        }
-      />
-
-      <PromptEditor
-        value={config.analysis_prompt}
-        onChange={ap => setConfig(prev => ({ ...prev, analysis_prompt: ap }))}
-      />
-
-      <UIConfigSection
-        config={config.ui}
-        onChange={cfg => setConfig(prev => ({ ...prev, ui: cfg }))}
-      />
-
-      <Suspense fallback={<LoadingPlaceholder />}>
-        <EmbeddingSection config={config} setConfig={setConfig} />
-        <ResearchProviderSection config={config} setConfig={setConfig} />
-        <RerankerSection config={config} setConfig={setConfig} />
-        <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders} />
-        <ArxivExpandSection config={config} setConfig={setConfig} />
-        <FindpapersSection config={config} setConfig={setConfig} />
-      </Suspense>
-
-      <div className="flex items-center gap-3 pt-2">
+      {/* 保存按钮 — 始终固定在底部 */}
+      <div className="flex items-center gap-3 pt-6">
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-5 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors"
+          className="px-6 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-50 transition-all duration-200"
+          style={{
+            backgroundColor: 'var(--accent)',
+            color: '#fff',
+            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+          }}
         >
           {saving ? '保存中...' : '保存配置'}
         </button>
         {saved && (
-          <span className="text-sm text-green-400">已保存</span>
+          <span className="text-[13px]" style={{ color: 'var(--success)' }}>已保存</span>
         )}
       </div>
     </div>

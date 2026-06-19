@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
 import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
@@ -13,7 +13,6 @@ import { ResearchSettingsDrawer } from '@/features/research/ResearchSettingsDraw
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 import { toast } from '@/hooks/useToast'
-import { LoadingSpinner } from '@/components/LoadingSpinner'
 
 export default function ResearchPage() {
   const { id } = useParams<{ id: string }>()
@@ -29,7 +28,6 @@ export default function ResearchPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const stream = useResearchStream(runId)
 
-  // Leave confirmation when research is running
   useEffect(() => {
     if (stream.status !== 'running') return
     const handler = (e: BeforeUnloadEvent) => {
@@ -40,7 +38,6 @@ export default function ResearchPage() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [stream.status])
 
-  // 1) 初始加载历史：图谱 + 最近 run
   useEffect(() => {
     getGraph(wsId).then(setGraph).catch(() => { toast({ type: 'error', message: '加载图谱失败' }) }).finally(() => setGraphLoading(false))
     getLatestRun(wsId).then(r => {
@@ -48,7 +45,6 @@ export default function ResearchPage() {
     }).catch(() => { toast({ type: 'error', message: '加载研究记录失败' }) })
   }, [wsId])
 
-  // 2) stream.graph 覆盖历史
   useEffect(() => {
     if (stream.graph) {
       setGraph({
@@ -72,9 +68,7 @@ export default function ResearchPage() {
     }
   }
 
-  const onClear = () => {
-    setShowClearConfirm(true)
-  }
+  const onClear = () => { setShowClearConfirm(true) }
 
   const confirmClear = async () => {
     setShowClearConfirm(false)
@@ -109,21 +103,21 @@ export default function ResearchPage() {
         />
       )}
 
-      {/* 边类型过滤 + 图谱 + RAG */}
-      <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-        <div className="flex-1 flex flex-col gap-2 min-w-0">
+      {/* 图谱 + RAG 区域 */}
+      <div className="flex-1 flex flex-col md:flex-row gap-4 p-5 overflow-hidden">
+        <div className="flex-1 flex flex-col gap-2.5 min-w-0">
           <div className="flex items-center justify-between">
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               {graph && (
-                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
                   {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
                 </span>
               )}
               <button
                 onClick={() => setShowSettings(true)}
-                className="text-[11px] px-2 py-1 rounded-md border transition-colors"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                className="text-[12px] px-3 py-1 rounded-full transition-all duration-200"
+                style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
               >
                 研究设置
               </button>
@@ -146,13 +140,8 @@ export default function ResearchPage() {
         <RagQueryBox wsId={wsId} />
       </div>
 
-      {/* 节点详情抽屉 */}
       <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
-
-      {/* 相似边详情抽屉 */}
       <EdgeDetail edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
-
-      {/* 研究设置抽屉（与设置页共用 DeepResearchSettings） */}
       <ResearchSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
 
       <ConfirmDialog

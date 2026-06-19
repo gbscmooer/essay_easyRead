@@ -55,3 +55,4 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 frontend/ds-styles.css
+frontend/.ds-preview/

@@ -10,7 +10,7 @@ import { useState } from 'react'
 import type { UIConfig } from '@/hooks/useConfig'
 import { setUIPreview } from '@/hooks/useConfig'
 import {
-  BUILTIN_THEMES, COLOR_FIELDS, DEFAULT_THEME_ID, resolveTheme, themeKey,
+  BUILTIN_THEMES, COLOR_FIELDS, DEFAULT_THEME_ID, resolveTheme, themeKey, colorsToSeeds,
   type Theme, type ThemeColors,
 } from '@/theme/themes'
 
@@ -49,7 +49,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
   function createTheme(from: ThemeColors) {
     const id = genId()
     const n = customThemes.length + 1
-    const theme: Theme = { id, name: `自定义主题 ${n}`, colors: { ...from } }
+    const theme: Theme = { id, name: `自定义主题 ${n}`, seeds: colorsToSeeds(from), colors: { ...from } }
     apply({ custom_themes: [...customThemes, theme], theme: `custom:${id}` })
   }
 

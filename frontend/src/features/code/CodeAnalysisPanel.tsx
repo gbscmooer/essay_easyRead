@@ -27,10 +27,22 @@ type TabKey = typeof tabs[number]['key']
 
 function DataFlowTab({ dataFlow }: { dataFlow: string | null }) {
   if (!dataFlow) {
-    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无数据流分析</div>
+    return <div className="text-[13px] text-center py-10" style={{ color: 'var(--text-muted)' }}>暂无数据流分析</div>
   }
   return (
-    <div className="prose prose-invert prose-sm max-w-none text-sm leading-relaxed">
+    <div
+      className="prose prose-sm max-w-none text-[13px] leading-relaxed"
+      style={{
+        '--tw-prose-body': 'var(--text-secondary)',
+        '--tw-prose-headings': 'var(--text-primary)',
+        '--tw-prose-bold': 'var(--text-primary)',
+        '--tw-prose-code': 'var(--text-primary)',
+        '--tw-prose-links': 'var(--accent)',
+        '--tw-prose-quotes': 'var(--text-secondary)',
+        '--tw-prose-bullets': 'var(--text-muted)',
+        '--tw-prose-hr': 'var(--border)',
+      } as React.CSSProperties}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{dataFlow}</ReactMarkdown>
     </div>
   )
@@ -184,7 +196,7 @@ function DependencyGraph({
 
   if (error) {
     return (
-      <div className="rounded-lg p-4 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
+      <div className="rounded-xl p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         <p className="text-xs mb-2" style={{ color: 'var(--error)' }}>依赖图渲染失败</p>
         <pre className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-muted)' }}>{chart}</pre>
       </div>
@@ -193,7 +205,7 @@ function DependencyGraph({
 
   return (
     <div className="relative">
-      <div ref={containerRef} className="mermaid rounded-lg p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+      <div ref={containerRef} className="mermaid rounded-xl p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         {svg ? (
           <div dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
@@ -287,9 +299,9 @@ function FullscreenGraph({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-[85vw] h-[80vh] rounded-xl shadow-2xl border flex flex-col overflow-hidden"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-light)' }}>
+      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={onClose} />
+      <div className="relative w-[85vw] h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between px-4 py-2 border-b shrink-0" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-light)' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>依赖图</span>
           <div className="flex items-center gap-2">
@@ -309,7 +321,7 @@ function FullscreenGraph({
         </div>
         <div className="flex-1 overflow-auto flex items-center justify-center p-8">
           {error ? (
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-[13px]" style={{ color: 'var(--error)' }}>{error}</p>
           ) : svg ? (
             <div ref={containerRef} style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}>
               <div dangerouslySetInnerHTML={{ __html: svg }} />
@@ -327,7 +339,7 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
   const [showFullscreen, setShowFullscreen] = useState(false)
 
   if (!edges || edges.length === 0) {
-    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无依赖分析</div>
+    return <div className="text-[13px] text-center py-10" style={{ color: 'var(--text-muted)' }}>暂无依赖分析</div>
   }
 
   const grouped = new Map<string, DependencyEdge[]>()
@@ -347,7 +359,7 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
 
       <div className="space-y-3">
         {Array.from(grouped.entries()).map(([source, deps]) => (
-          <div key={source} className="rounded-lg p-3 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
+          <div key={source} className="rounded-xl p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <button
               onClick={() => onFileClick?.(source)}
               className="text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors"
@@ -463,13 +475,13 @@ function PaperMappingTab({
   paperId?: number
 }) {
   if (!mappings || mappings.length === 0) {
-    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无论文-代码映射</div>
+    return <div className="text-[13px] text-center py-10" style={{ color: 'var(--text-muted)' }}>暂无论文-代码映射</div>
   }
 
   return (
     <div className="space-y-3">
       {mappings.map((m, idx) => (
-        <div key={idx} className="rounded-lg p-3 border" style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}>
+        <div key={idx} className="rounded-xl p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <div className="flex items-start gap-2 mb-2">
             <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium">
               {idx + 1}
@@ -537,7 +549,7 @@ export function CodeAnalysisPanel({ analysis, isAnalyzing, paperId, onFileClick,
         {isAnalyzing && !analysis ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>正在分析代码...</p>
+            <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>正在分析代码…</p>
           </div>
         ) : (
           <>

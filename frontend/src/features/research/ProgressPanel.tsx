@@ -23,25 +23,23 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
   const currentIdx = stage ? STAGE_ORDER.indexOf(stage) : -1
 
   return (
-    <div className="px-6 py-3 border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-base)' }}>
+    <div className="px-6 py-3.5" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
       {/* 阶段指示器 */}
-      <div className="flex items-center gap-1 mb-2">
+      <div className="flex items-center gap-1.5 mb-2.5">
         {STAGE_ORDER.map((s, i) => (
-          <div key={s} className="flex items-center gap-1">
+          <div key={s} className="flex items-center gap-1.5">
             <div
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i < currentIdx ? '' : i === currentIdx ? 'animate-pulse' : ''
-              }`}
+              className={`w-2 h-2 rounded-full transition-colors ${i === currentIdx ? 'animate-pulse' : ''}`}
               style={
                 i < currentIdx
                   ? { backgroundColor: 'var(--accent)' }
                   : i === currentIdx
                   ? { backgroundColor: 'var(--accent)', opacity: 0.7 }
-                  : { backgroundColor: 'var(--border)' }
+                  : { backgroundColor: 'var(--border-light)' }
               }
             />
             <span
-              className="text-[10px]"
+              className="text-[11px]"
               style={
                 i <= currentIdx
                   ? { color: 'var(--text-secondary)' }
@@ -61,7 +59,7 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
       <div className="flex items-center gap-4">
         {stage === 'embed' && embed.total > 0 && (
           <div className="flex items-center gap-2 flex-1">
-            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--border)' }}>
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               <div
                 className="h-full rounded-full transition-all duration-300"
                 style={{
@@ -70,26 +68,26 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
                 }}
               />
             </div>
-            <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-[12px] font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
               {embed.done}/{embed.total}
             </span>
           </div>
         )}
 
         {stage === 'expand' && papersAdded.length > 0 && (
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
             已扩展 {papersAdded.length} 篇论文
           </span>
         )}
 
         {progressMessage && (
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
             {progressMessage}
           </span>
         )}
 
         {error && (
-          <span className="text-xs text-red-400">{error}</span>
+          <span className="text-[12px]" style={{ color: 'var(--error)' }}>{error}</span>
         )}
       </div>
     </div>

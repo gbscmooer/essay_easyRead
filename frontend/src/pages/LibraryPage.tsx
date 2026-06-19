@@ -1,10 +1,16 @@
+/**
+ * LibraryPage — 论文库
+ *
+ * Display 排版标题 + 精致重索引按钮 + 磨砂展开区块。
+ */
+
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper, SearchResult } from '@/types'
 import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibrary } from '@/api/papers'
 import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
-import { Tooltip } from '@/components/Tooltip'
+import { Tooltip } from '@/ds-entry'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -41,21 +47,24 @@ function ExpandedPaperRow({
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-colors group"
-      style={{ backgroundColor: 'var(--bg-base)' }}
+      className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-all duration-200 group"
+      style={{
+        backgroundColor: 'var(--bg-base)',
+        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      }}
       role="button"
       tabIndex={0}
       onClick={() => onSelect(paper.id)}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
     >
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+        <p className="text-[13px] truncate" style={{ color: 'var(--text-primary)' }}>
           {paper.title || paper.filename}
         </p>
-        <div className="flex items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+        <div className="flex items-center gap-2 mt-1 text-[12px]" style={{ color: 'var(--text-muted)' }}>
           {paper.year && <span>{paper.year}</span>}
           {paper.category && (
-            <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+            <span className="px-2 py-0.5 rounded-full text-[11px]" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
               {paper.category}
             </span>
           )}
@@ -64,7 +73,7 @@ function ExpandedPaperRow({
         </div>
       </div>
       <span
-        className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
+        className="shrink-0 text-[11px] px-2 py-0.5 rounded-full"
         style={{
           backgroundColor: paper.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-surface)',
           color: paper.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
@@ -75,9 +84,9 @@ function ExpandedPaperRow({
       <button
         onClick={handlePromote}
         disabled={promoting}
-        className="shrink-0 text-xs px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
+        className="shrink-0 text-[12px] px-3 py-1 rounded-full transition-all duration-200 disabled:opacity-50"
         style={{
-          borderColor: 'var(--accent)',
+          border: '1px solid var(--accent)',
           color: 'var(--accent)',
           backgroundColor: 'transparent',
         }}
@@ -103,18 +112,15 @@ export default function LibraryPage() {
   const [expandedTotal, setExpandedTotal] = useState(0)
   const [showExpanded, setShowExpanded] = useState(false)
 
-  // 重新索引：用 GROBID 重提元数据缺失/索引失败的论文，轮询观察进度
   const [reindexing, setReindexing] = useState(false)
   const [reindexNote, setReindexNote] = useState<string | null>(null)
 
-  // 智能搜索：searchResults 为 null = 浏览模式；非 null = 搜索结果模式
   const [globalSearch, setGlobalSearch] = useState(false)
   const [includeExpanded, setIncludeExpanded] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searchTotal, setSearchTotal] = useState(0)
   const [searchLoading, setSearchLoading] = useState(false)
 
-  // 浏览：仅在无搜索词时拉取分页论文（同时为筛选下拉提供 venue/year 选项）
   const fetchPapers = useCallback(() => {
     listPapers({
       category: category || undefined,
@@ -131,7 +137,6 @@ export default function LibraryPage() {
       .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
   }, [category, year, dateAdded, page])
 
-  // 智能搜索：搜索词非空时调 smart-search（元数据 + 解读内容 + 可选全局正文）
   useEffect(() => {
     const q = search.trim()
     if (!q) {
@@ -217,15 +222,14 @@ export default function LibraryPage() {
         setTimeout(() => setReindexNote(null), 4000)
         return
       }
-      setReindexNote(`正在重新索引 ${queued} 篇论文${includeExpanded ? '（含联网扩展）' : ''}…`)
-      // 轮询：当不再有论文处于 indexing（且已过启动窗口）即视为完成
+      setReindexNote(`正在重新索引 ${queued} 篇论文${includeExpanded ? '（含联网扩展论文）' : ''}…`)
       const pollSource = includeExpanded ? 'all' : 'uploaded'
       const started = Date.now()
       const poll = async () => {
         const res = await listPapers({ source: pollSource, per_page: 200 }).catch(() => null)
         const indexing = res ? res.papers.filter(p => p.index_status === 'indexing').length : 0
         fetchPapers()
-        if (includeExpanded) fetchExpandedPapers()  // 同步刷新「深度研究发现的论文」区块
+        if (includeExpanded) fetchExpandedPapers()
         const elapsed = Date.now() - started
         if (indexing === 0 && elapsed > 4000) {
           setReindexing(false)
@@ -233,7 +237,7 @@ export default function LibraryPage() {
           setTimeout(() => setReindexNote(null), 4000)
           return
         }
-        if (elapsed > 180000) {  // 兜底超时
+        if (elapsed > 180000) {
           setReindexing(false)
           setReindexNote(null)
           return
@@ -249,26 +253,33 @@ export default function LibraryPage() {
   }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
 
   return (
-    <div className="max-w-5xl mx-auto h-[calc(100vh-3.5rem)] flex flex-col">
-      <div className="px-6 pt-6 pb-2 flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>论文库</h1>
+    <div className="max-w-5xl mx-auto h-full flex flex-col">
+      {/* Header */}
+      <div className="px-8 pt-8 pb-3 flex items-center justify-between gap-3 shrink-0">
+        <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>
+          论文库
+        </h1>
         <div className="flex items-center gap-3">
           {reindexNote && (
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{reindexNote}</span>
+            <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>{reindexNote}</span>
           )}
           <Tooltip
-            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回（不跳过已索引的论文）。默认处理论文库里的所有论文；勾选「含联网扩展论文」后会一并重做深度研究发现的论文。需后台 GROBID 服务在运行。"
+            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回。默认处理论文库里的所有论文；勾选「含联网扩展论文」后会一并重做深度研究发现的论文。"
             delay={600}
             placement="bottom"
           >
             <button
               onClick={handleReindex}
               disabled={reindexing}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                color: 'var(--accent)',
+                border: '1px solid var(--border)',
+                transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              }}
             >
               <svg
-                className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`}
+                className={`w-3.5 h-3.5 ${reindexing ? 'animate-spin' : ''}`}
                 fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
               >
                 <path strokeLinecap="round" strokeLinejoin="round"
@@ -301,33 +312,35 @@ export default function LibraryPage() {
 
       {/* 深度研究发现区块 */}
       {expandedTotal > 0 && (
-        <div className="px-6 pb-6 shrink-0">
+        <div className="px-8 pb-8 shrink-0">
           <button
-            className="w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-colors"
+            className="w-full flex items-center justify-between px-5 py-3.5 transition-all duration-200"
             style={{
-              borderColor: 'var(--border)',
+              borderRadius: 'var(--seed-radius, 12px)',
+              border: '1px solid var(--border)',
               backgroundColor: showExpanded ? 'var(--bg-surface)' : 'transparent',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
             }}
             onClick={() => setShowExpanded(v => !v)}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 style={{ color: 'var(--accent)' }}>
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              <span className="text-[13px] font-medium" style={{ color: 'var(--text-secondary)' }}>
                 深度研究发现的论文
               </span>
               <span
-                className="text-xs px-1.5 py-0.5 rounded-full"
+                className="text-[11px] px-2 py-0.5 rounded-full"
                 style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
               >
                 {expandedTotal}
               </span>
             </div>
             <svg
-              className={`w-4 h-4 transition-transform ${showExpanded ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 transition-transform duration-200 ${showExpanded ? 'rotate-180' : ''}`}
               fill="none" stroke="currentColor" viewBox="0 0 24 24"
               style={{ color: 'var(--text-muted)' }}
             >
@@ -337,12 +350,15 @@ export default function LibraryPage() {
 
           {showExpanded && (
             <div
-              className="mt-2 rounded-xl border overflow-hidden"
-              style={{ borderColor: 'var(--border)' }}
+              className="mt-2 overflow-hidden"
+              style={{
+                borderRadius: 'var(--seed-radius, 12px)',
+                border: '1px solid var(--border)',
+              }}
             >
-              <div className="px-4 py-2 border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  通过深度研究联网扩展下载的论文。点击「加入论文库」可将其移入主论文库并在首页显示。
+              <div className="px-5 py-2.5 border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+                <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+                  通过深度研究联网扩展下载的论文。点击「加入论文库」可将其移入主论文库。
                 </p>
               </div>
               <div className="divide-y" style={{ borderColor: 'var(--border)' }}>

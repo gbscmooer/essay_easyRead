@@ -1,0 +1,446 @@
+{
+  "version": "1.0.0",
+  "mode": "app-ui",
+  "fidelity": "high-fidelity",
+  "abstract": "对 Easy Essay 学术论文阅读分析工具进行全面 UI 重设计，以 Apple 设计语言和红点奖级别为标准，在保留全部 8 个页面和 70 余个组件的功能接口不变的前提下，重新构建全局导航、主题系统、排版体系、空间节奏和视觉语言。采用 Inter 字族的 SF Pro 近似排版、frosted glass 半透明层次、非对称空间构图和 seed token 色彩架构，从根本上区别于同质化 SaaS 模板。用户应重点审查：1) 新导航结构是否符合工作流习惯；2) 全新主题色彩方案是否满足学术阅读场景的舒适度需求。",
+  "brief": {
+    "type": "academic paper reading and analysis tool",
+    "audience": "academic researchers, paper readers",
+    "platform": "desktop web",
+    "targetPlatform": ["desktop", "web"],
+    "output_target": "react-vite",
+    "component_library": "shadcn",
+    "fidelity": "high-fidelity",
+    "style_constraints": "Apple design language, Red Dot Award quality, anti-homogenization, preserve all existing API interfaces",
+    "businessGoal": "Redesign the entire UI of Easy Essay to achieve Apple-level design quality while preserving all existing functionality and API interfaces. The redesign should create a unique visual identity that avoids the homogeneous SaaS dashboard aesthetic.",
+    "scope": {
+      "pages": ["HomePage", "ReaderPage", "CodePage", "LibraryPage", "WorkspacePage", "WorkspaceDetailPage", "ResearchPage", "SettingsPage"],
+      "globalSystems": ["Layout/Navigation", "Theme System", "Typography System", "Component Library", "Global Styles"],
+      "components": "All 70+ components to be restyled with new design tokens while preserving props interfaces"
+    }
+  },
+  "output": {
+    "target": "react-vite",
+    "componentLibrary": "shadcn",
+    "fontStack": "Inter Variable (primary), Inter Tight (display headings), JetBrains Mono (code)",
+    "designSystem": "apple"
+  },
+  "designDirection": {
+    "philosophy": "Scholarly Precision meets Apple Craft - an editorial reading environment that feels like a premium research instrument, not a SaaS dashboard",
+    "styleSource": "design-system:apple",
+    "inspirations": ["linear-app", "apple"],
+    "visualStrategy": {
+      "navigation": "Replace top navbar with a collapsible left rail navigation (macOS Finder sidebar pattern) - more scalable and distinctive than the typical top-nav SaaS layout",
+      "surfaceLanguage": "Three-layer depth system: base canvas, frosted glass panels (backdrop-filter: blur), and elevated surfaces. Use luminance stepping instead of shadows for dark themes.",
+      "cardsAndContainers": "Remove standard card-with-border pattern. Use surface-lifting (subtle bg tint + hairline border at 0.06 opacity) with generous internal padding (20-28px). No colored left-border accent cards.",
+      "typography": "Inter Variable with font-feature-settings 'cv01' 'ss03'. Display sizes use aggressive negative tracking (-1.2px at 56px). Weight ladder: 400 (body), 500 (UI/labels), 600 (headings). Never use weight 700.",
+      "motionAndInteraction": "Spring-based transitions (cubic-bezier(0.25, 0.46, 0.45, 0.94)). Panels slide with 200ms ease-out. Focus rings use accent color at 0.3 opacity with 4px spread. Hover states use subtle background luminance shift, never color changes.",
+      "antiHomogenization": [
+        "Use frosted glass toolbar floating over content (not fixed bar)",
+        "Asymmetric grid layouts - avoid centered max-w-Nxl symmetry",
+        "Status indicators as subtle text tints, not colored dots/badges",
+        "Knowledge graph uses force-directed layout with organic node sizes",
+        "Reader page has floating action capsules instead of standard toolbar",
+        "Homepage uses editorial magazine-style composition, not hero+cards"
+      ]
+    },
+    "colorArchitecture": {
+      "seedTokens": {
+        "description": "All colors derive from 6 seed tokens via CSS color-mix() and relative color syntax",
+        "seeds": ["--seed-bg", "--seed-fg", "--seed-surface", "--seed-accent", "--seed-muted", "--seed-radius"]
+      },
+      "themeStrategy": "Seed-based theme system with Light and Dark presets. Each preset patches the same 6 seed tokens; all derived colors compute via CSS. No hardcoded hex values outside :root.",
+      "accentPhilosophy": "Accent color used max 2 times per viewport. Primary accent is a warm sapphire (#2563eb) for Light, a luminous cerulean (#60a5fa) for Dark. Never use default Tailwind indigo."
+    }
+  },
+  "resources": {
+    "skill": {
+      "id": "dashboard",
+      "title": "dashboard",
+      "rationale": "mode matches prototype; platform: desktop; design intelligence favors dashboard/data workflow",
+      "alternatives": ["saas-landing", "mobile-app", "docs-page"]
+    },
+    "styleReference": {
+      "primary": "apple",
+      "inspiration": ["linear-app", "stripe"],
+      "rationale": "Apple as primary design language foundation; Linear for dark-mode-first precision and developer tool UX; Stripe for polished data presentation"
+    },
+    "requiredReads": [
+      { "kind": "skill", "id": "dashboard", "reason": "Selected Canvas skill checklist" },
+      { "kind": "design-system", "id": "apple", "reason": "Primary style reference" },
+      { "kind": "design-system", "id": "linear-app", "reason": "Dark mode and developer tool UX inspiration" },
+      { "kind": "craft", "id": "anti-ai-slop", "reason": "Anti-homogenization guardrail" },
+      { "kind": "craft", "id": "typography", "reason": "Baseline typography quality" },
+      { "kind": "craft", "id": "color", "reason": "Baseline color quality" },
+      { "kind": "protocol", "id": "design-mode-runtime", "reason": "Execution contract" },
+      { "kind": "protocol", "id": "skill-protocol", "reason": "Skill metadata contract" }
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "frontend/src/styles/globals.css",
+      "action": "modify",
+      "purpose": "Global stylesheet: new seed token system, typography rules, anti-homogenization base styles, scrollbar refinement, focus ring system, frosted glass utilities",
+      "requirements": [
+        "Replace existing CSS variable system with seed-based 6-token architecture",
+        "Add Inter Variable font with font-feature-settings 'cv01' 'ss03'",
+        "Define Light and Dark theme via data-theme attribute with seed token patches",
+        "Add frosted glass utility classes (.glass-panel, .glass-toolbar)",
+        "New scrollbar styling (6px width, minimal thumb)",
+        "Focus ring system using accent at 0.3 opacity",
+        "Spring transition utility class (.spring-transition)",
+        "Preserve all existing [data-theme] override selectors but update values",
+        "Remove default Tailwind indigo usage"
+      ]
+    },
+    {
+      "path": "frontend/src/theme/themes.ts",
+      "action": "modify",
+      "purpose": "Theme system: new seed-based color architecture with Light/Dark presets replacing the existing 3-theme system",
+      "requirements": [
+        "Refactor ThemeColors to use 6 seed tokens + derived colors via buildCssVars",
+        "Light preset: warm white canvas (#fafaf9) with sapphire accent (#2563eb)",
+        "Dark preset: deep graphite (#0c0c0e) with cerulean accent (#60a5fa)",
+        "All derived colors (accent-subtle, status colors, code colors) computed from seeds",
+        "Preserve Theme/ThemeColors interface shape for backward compatibility",
+        "Add isDarkTheme detection using seed-bg luminance",
+        "Apply data-mode attribute for code highlight theme switching"
+      ]
+    },
+    {
+      "path": "frontend/src/components/Layout.tsx",
+      "action": "modify",
+      "purpose": "Global layout: replace top navbar with collapsible left rail navigation + main content area with floating toolbar pattern",
+      "requirements": [
+        "Replace horizontal navbar with a 64px-wide left rail (expandable to 240px) using macOS Finder sidebar pattern",
+        "Rail contains: logo mark, navigation items (with icons), theme toggle, settings gear",
+        "Navigation items use icon + label when expanded, icon-only when collapsed",
+        "Active state: subtle background fill with accent at 0.08 opacity, no colored text",
+        "Secondary navigation (paper tabs, workspace tabs) becomes a floating pill toolbar above content",
+        "Content area uses full remaining width with generous padding (32px horizontal)",
+        "Preserve all existing nav guard logic (unsaved config dialog)",
+        "Preserve keyboard shortcuts integration",
+        "Add subtle backdrop-filter blur on rail for depth"
+      ]
+    },
+    {
+      "path": "frontend/src/components/Sidebar.tsx",
+      "action": "modify",
+      "purpose": "Paper list sidebar: refined visual treatment with better typography hierarchy and interaction feedback",
+      "requirements": [
+        "Remove colored status dots; use subtle text-based status indicators",
+        "Active paper: gentle surface lift (bg at 0.04 opacity) with 3px accent bar, not 2px",
+        "Search input: borderless with frosted glass background",
+        "Paper items: 16px padding, 2-line title with tight leading, venue/year in single muted line",
+        "Delete button: fade-in on hover with smooth transition",
+        "Add subtle section headers when papers grouped by status"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/HomePage.tsx",
+      "action": "modify",
+      "purpose": "Homepage: editorial magazine-style composition replacing standard hero + card grid layout",
+      "requirements": [
+        "Replace centered hero with asymmetric editorial layout: left-aligned wordmark + right-side illustration",
+        "Upload zone as a full-width drop area with frosted glass surface and subtle dashed border",
+        "Recent papers as a horizontal scrolling row (not 3-column grid) with larger, more detailed cards",
+        "Recent workspaces as a compact list section below papers",
+        "Use display typography (48-56px, weight 600, -1.2px tracking) for page title",
+        "Generous vertical rhythm: 80px section spacing",
+        "Status indicators as subtle text tints, not colored dots"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/ReaderPage.tsx",
+      "action": "modify",
+      "purpose": "Paper reader: floating action capsules, refined three-panel layout with better depth hierarchy",
+      "requirements": [
+        "Replace fixed toolbar with floating capsule action bar (backdrop-filter blur, rounded-full)",
+        "Sidebar uses refined Sidebar component",
+        "PDF viewer area: no visible border, content flows edge-to-edge within its panel",
+        "Analysis panel: refined tab bar with pill-shaped active indicator (not underline)",
+        "Drag handle: 2px wide with hover glow effect",
+        "Focus mode exit: refined floating button with glass morphism",
+        "Preserve all drag-to-resize logic and panel open/close functionality"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/LibraryPage.tsx",
+      "action": "modify",
+      "purpose": "Library page: refined list view with better information density and search UX",
+      "requirements": [
+        "Page title: display typography (40px, weight 600)",
+        "Search bar: full-width frosted glass input with magnifier icon, no border",
+        "Paper rows: generous padding (16px vertical), refined status badges as subtle text",
+        "Filter controls: compact pill-shaped selectors",
+        "Expanded papers section: refined accordion with frosted glass header",
+        "Reindex button: ghost button with icon, no colored accent"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/WorkspacePage.tsx",
+      "action": "modify",
+      "purpose": "Workspace list: card-based layout with refined depth and typography",
+      "requirements": [
+        "Page title and create input in an asymmetric header (title left, input right)",
+        "Workspace cards: surface-lifted containers with 20px internal padding",
+        "Hover: subtle scale(1.01) + shadow increase",
+        "Empty state: refined illustration placeholder with muted text",
+        "Delete button: text-only, appears on hover with smooth fade"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/WorkspaceDetailPage.tsx",
+      "action": "modify",
+      "purpose": "Workspace detail: refined paper management interface with clear visual hierarchy",
+      "requirements": [
+        "Back link: subtle ghost link with chevron, no colored accent",
+        "Title: editable inline with smooth transition to input",
+        "Deep Research CTA: refined card with subtle gradient border (not bold colored border)",
+        "Paper cards: surface-lifted with refined status and action layout",
+        "Discovered papers section: dashed border containers with batch action toolbar",
+        "Preserve all existing functionality (add, remove, promote, batch operations)"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/ResearchPage.tsx",
+      "action": "modify",
+      "purpose": "Research page: refined knowledge graph interface with better spatial composition",
+      "requirements": [
+        "Control panel: compact floating toolbar with pill-shaped controls",
+        "Graph canvas: full-bleed within its container, no visible border",
+        "Edge filter: refined pill toggle group",
+        "RAG query box: frosted glass side panel with refined input styling",
+        "Progress panel: minimal inline progress with text-based status",
+        "Node/Edge detail drawers: refined slide-in panels with glass header",
+        "Preserve all graph interaction and research stream functionality"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/SettingsPage.tsx",
+      "action": "modify",
+      "purpose": "Settings page: refined form layout with better section grouping and visual hierarchy",
+      "requirements": [
+        "Page title: display typography (40px, weight 600)",
+        "Config warning: refined alert with subtle background, no harsh red border",
+        "Section cards: surface-lifted containers with 24px padding",
+        "Save button: refined primary action with accent fill and pill shape",
+        "Success indicator: subtle text animation, not green text flash",
+        "Preserve all existing config sections and save logic"
+      ]
+    },
+    {
+      "path": "frontend/src/pages/CodePage.tsx",
+      "action": "modify",
+      "purpose": "Code analysis page: refined three-panel code browsing interface",
+      "requirements": [
+        "File browser: refined tree with better indentation and folder icons",
+        "Code viewer: preserve existing highlight.js integration, refine container styling",
+        "Analysis panel: refined card sections with better typography",
+        "Toolbar: compact ghost actions in a subtle top bar",
+        "Drag handles: refined with hover accent glow",
+        "Preserve all drag-to-resize and SSE analysis functionality"
+      ]
+    },
+    {
+      "path": "frontend/src/components/ToastContainer.tsx",
+      "action": "modify",
+      "purpose": "Toast notifications: refined glass-morphism notification cards",
+      "requirements": [
+        "Glass-morphism background with backdrop-filter blur",
+        "Subtle left accent bar (3px, status-colored)",
+        "Refined typography: 14px body, 12px dismiss",
+        "Slide-in animation from bottom-right with spring easing",
+        "Auto-dismiss with subtle progress indicator"
+      ]
+    },
+    {
+      "path": "frontend/src/components/ConfirmDialog.tsx",
+      "action": "modify",
+      "purpose": "Confirmation dialog: refined modal with glass backdrop and clear action hierarchy",
+      "requirements": [
+        "Backdrop: dark overlay with backdrop-filter blur(8px)",
+        "Dialog: surface-lifted container with 24px padding and 16px radius",
+        "Actions: primary (accent fill pill) + secondary (ghost button)",
+        "Preserve all existing open/confirm/cancel props interface"
+      ]
+    },
+    {
+      "path": "frontend/src/features/analysis/AnalysisPanel.tsx",
+      "action": "modify",
+      "purpose": "Analysis panel: refined tab system and content presentation",
+      "requirements": [
+        "Tab bar: pill-shaped active indicator (not underline), refined typography",
+        "Content area: 28px padding with generous vertical rhythm",
+        "Idle state: refined empty state with subtle icon and clear CTA",
+        "Loading state: refined progress with text-based status, not spinner-only",
+        "Reanalyze: refined confirmation dialog",
+        "Preserve all tab components and keyboard shortcut (1-7) functionality"
+      ]
+    },
+    {
+      "path": "frontend/src/features/upload/UploadZone.tsx",
+      "action": "modify",
+      "purpose": "Upload zone: refined drag-and-drop area with frosted glass aesthetic",
+      "requirements": [
+        "Full-width drop area with frosted glass surface",
+        "Subtle dashed border that glows on drag-over",
+        "Progress indicator: refined linear progress bar",
+        "Typography: clear hierarchy between instruction and status text"
+      ]
+    },
+    {
+      "path": "frontend/src/hooks/useTheme.ts",
+      "action": "modify",
+      "purpose": "Theme hook: update to work with new seed-based theme system",
+      "requirements": [
+        "Preserve hook interface (returns current theme and setter)",
+        "Update internal logic to use new seed token application",
+        "Maintain localStorage persistence for theme preference"
+      ]
+    },
+    {
+      "path": "frontend/src/components/ThemeProvider.tsx",
+      "action": "modify",
+      "purpose": "Theme provider: update to apply new seed-based CSS variables",
+      "requirements": [
+        "Apply seed tokens via CSS custom properties",
+        "Set data-theme and data-mode attributes",
+        "Preserve ThemeProvider component interface"
+      ]
+    },
+    {
+      "path": "frontend/tailwind.config.js",
+      "action": "modify",
+      "purpose": "Tailwind config: align with new design token system, remove unused dark theme colors",
+      "requirements": [
+        "Remove custom dark color palette (no longer needed with seed tokens)",
+        "Add fontFamily configuration for Inter Variable",
+        "Preserve @tailwindcss/typography plugin",
+        "Add custom transition-timing-function for spring easing"
+      ]
+    },
+    {
+      "path": "frontend/index.html",
+      "action": "modify",
+      "purpose": "HTML entry: update theme initialization script for new seed token system",
+      "requirements": [
+        "Update inline script to apply seed tokens instead of old CSS variables",
+        "Add Inter Variable font preconnect/preload",
+        "Preserve flash-of-unstyled-content prevention"
+      ]
+    }
+  ],
+  "qualityCriteria": {
+    "antiAiSlop": [
+      "No default Tailwind indigo (#6366f1, #4f46e5, etc.) anywhere",
+      "No emoji as feature icons in headings or buttons",
+      "No two-stop purple-blue gradients on hero sections",
+      "No rounded card with colored left-border accent pattern",
+      "No invented metrics or filler copy",
+      "No external placeholder image CDNs",
+      "var(--accent) used max 2 times per viewport"
+    ],
+    "typography": [
+      "Inter Variable with font-feature-settings 'cv01' 'ss03' on all text",
+      "Display sizes use negative tracking (-1.2px at 56px)",
+      "Weight ladder strictly 400/500/600 (never 700)",
+      "Line-height: 1.00 for display, 1.50 for body, 1.60 for small text"
+    ],
+    "color": [
+      "All colors derive from 6 seed tokens",
+      "No hardcoded hex values in component files",
+      "Accent used max 2 times per viewport",
+      "Status colors derived from seed-muted with hue rotation"
+    ],
+    "depth": [
+      "Three-layer system: base/surface/elevated via luminance stepping",
+      "Frosted glass (backdrop-filter) for floating elements",
+      "Borders at 0.06 opacity, not solid colors",
+      "Shadows only for Level 4+ elevation (dropdowns, modals)"
+    ]
+  },
+  "screens": [
+    {
+      "id": "home",
+      "route": "/",
+      "label": "首页",
+      "artifacts": ["frontend/src/pages/HomePage.tsx", "frontend/src/features/upload/UploadZone.tsx"],
+      "description": "Editorial magazine-style homepage with asymmetric layout, full-width frosted glass upload zone, horizontal scrolling recent papers, and compact workspace list"
+    },
+    {
+      "id": "reader",
+      "route": "/reader/:id",
+      "label": "论文精读",
+      "artifacts": ["frontend/src/pages/ReaderPage.tsx", "frontend/src/components/Sidebar.tsx", "frontend/src/features/analysis/AnalysisPanel.tsx"],
+      "description": "Three-panel paper reader with floating capsule action bar, edge-to-edge PDF viewer, and refined analysis panel with pill-shaped tab indicator"
+    },
+    {
+      "id": "code",
+      "route": "/code/:id",
+      "label": "源码分析",
+      "artifacts": ["frontend/src/pages/CodePage.tsx"],
+      "description": "Three-panel code browsing interface with refined file tree, code viewer, and analysis panel with ghost action toolbar"
+    },
+    {
+      "id": "library",
+      "route": "/library",
+      "label": "论文库",
+      "artifacts": ["frontend/src/pages/LibraryPage.tsx"],
+      "description": "Paper library with full-width frosted glass search bar, refined list rows, pill-shaped filter controls, and expandable discovered papers section"
+    },
+    {
+      "id": "workspace-list",
+      "route": "/workspace",
+      "label": "工作区列表",
+      "artifacts": ["frontend/src/pages/WorkspacePage.tsx"],
+      "description": "Workspace list with asymmetric header (title left, create input right) and surface-lifted workspace cards"
+    },
+    {
+      "id": "workspace-detail",
+      "route": "/workspace/:id",
+      "label": "工作区详情",
+      "artifacts": ["frontend/src/pages/WorkspaceDetailPage.tsx"],
+      "description": "Workspace detail with inline-editable title, refined Deep Research CTA card, surface-lifted paper cards, and dashed-border discovered papers section"
+    },
+    {
+      "id": "research",
+      "route": "/workspace/:id/research",
+      "label": "深度研究",
+      "artifacts": ["frontend/src/pages/ResearchPage.tsx"],
+      "description": "Knowledge graph interface with floating pill control toolbar, full-bleed graph canvas, frosted glass RAG query panel, and refined slide-in detail drawers"
+    },
+    {
+      "id": "settings",
+      "route": "/settings",
+      "label": "设置",
+      "artifacts": ["frontend/src/pages/SettingsPage.tsx"],
+      "description": "Settings page with display typography title, surface-lifted section cards, refined alert styling, and pill-shaped save action"
+    }
+  ],
+  "globalArtifacts": [
+    "frontend/src/components/Layout.tsx",
+    "frontend/src/components/ToastContainer.tsx",
+    "frontend/src/components/ConfirmDialog.tsx",
+    "frontend/src/components/ThemeProvider.tsx",
+    "frontend/src/styles/globals.css",
+    "frontend/src/theme/themes.ts",
+    "frontend/src/hooks/useTheme.ts",
+    "frontend/tailwind.config.js",
+    "frontend/index.html"
+  ],
+  "risks": [
+    {
+      "risk": "Left rail navigation may feel unfamiliar to existing users accustomed to top nav",
+      "mitigation": "Rail starts in collapsed (icon-only) mode to minimize spatial change; users can expand when ready"
+    },
+    {
+      "risk": "Replacing 3-theme system with 2-theme seed system reduces theme variety",
+      "mitigation": "Seed architecture allows easy addition of creative presets (Editorial, Calm, etc.) as future iterations"
+    },
+    {
+      "risk": "Frosted glass effects (backdrop-filter) may impact performance on older hardware",
+      "mitigation": "Provide fallback solid backgrounds via @supports; limit blur usage to key UI elements"
+    }
+  ]
+}

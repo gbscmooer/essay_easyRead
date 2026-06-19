@@ -4,15 +4,21 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
-      colors: {
-        // 自定义深色主题色板
-        dark: {
-          950: '#030712',
-          900: '#111827',
-          800: '#1f2937',
-          700: '#374151',
-          600: '#4b5563',
-        },
+      fontFamily: {
+        sans: [
+          'Inter Variable',
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'sans-serif',
+        ],
+      },
+      transitionTimingFunction: {
+        spring: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      },
+      borderRadius: {
+        seed: 'var(--seed-radius, 12px)',
       },
     },
   },

@@ -5,9 +5,11 @@
  * 共 6 个子组件，从 SettingsPage 拆出。
  * 只负责渲染与改写传入的 config 切片，保存逻辑由宿主页面处理。
  */
+import { useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { TestButton } from './TestButton'
 import { GrobidPanel } from './GrobidPanel'
+import { post } from '@/api/client'
 import type { AppConfig, EmbeddingConfig } from './config'
 
 
@@ -18,6 +20,45 @@ interface SectionProps {
   setConfig: SetConfigFn
 }
 
+/* ── 通用样式常量 ─────────────────────────────────── */
+
+const CARD: React.CSSProperties = {
+  backgroundColor: 'var(--bg-surface)',
+  borderColor: 'var(--border)',
+}
+
+const LABEL: React.CSSProperties = { color: 'var(--text-muted)' }
+
+const INPUT: React.CSSProperties = {
+  backgroundColor: 'var(--bg-elevated)',
+  borderColor: 'var(--border)',
+  color: 'var(--text-primary)',
+}
+
+function PillButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-3 py-1.5 text-xs rounded-lg border transition-colors"
+      style={{
+        borderColor: active ? 'var(--accent)' : 'var(--border)',
+        backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 
 // ============================================================
 // Embedding 模型
@@ -25,11 +66,15 @@ interface SectionProps {
 
 export function EmbeddingSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-100">Embedding 模型</h2>
-          <p className="text-xs text-gray-500 mt-0.5">用于深度研究的向量嵌入模型。本地模式首次运行需下载模型（~2GB）。</p>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Embedding 模型
+          </h2>
+          <p className="text-xs mt-0.5" style={LABEL}>
+            用于深度研究的向量嵌入模型。本地模式首次运行需下载模型（~2GB）。
+          </p>
         </div>
         <TestButton
           type="embedding"
@@ -42,15 +87,16 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
 
       {/* Provider 选择 */}
       <div>
-        <label className="block text-xs text-gray-500 mb-2">Provider</label>
+        <label className="block text-xs mb-2" style={LABEL}>Provider</label>
         <div className="flex gap-2">
           {([
             { key: 'local' as const, label: '本地 (BGE-M3)' },
             { key: 'siliconflow' as const, label: '硅基流动' },
             { key: 'openai' as const, label: 'OpenAI' },
           ]).map(p => (
-            <button
+            <PillButton
               key={p.key}
+              active={config.embedding.provider === p.key}
               onClick={() => setConfig(prev => {
                 const defaults: Record<string, Partial<EmbeddingConfig>> = {
                   local: { model: 'BAAI/bge-m3', base_url: 'https://api.openai.com/v1' },
@@ -59,27 +105,23 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
                 }
                 return { ...prev, embedding: { ...prev.embedding, provider: p.key, ...defaults[p.key] } }
               })}
-              className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                config.embedding.provider === p.key
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-gray-700 text-gray-400 hover:border-gray-600'
-              }`}
             >
               {p.label}
-            </button>
+            </PillButton>
           ))}
         </div>
       </div>
 
       {/* 模型名 */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">模型名称</label>
+        <label className="block text-xs mb-1" style={LABEL}>模型名称</label>
         <input
           type="text"
           value={config.embedding.model}
           onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, model: e.target.value } }))}
           placeholder={config.embedding.provider === 'local' ? 'BAAI/bge-m3' : config.embedding.provider === 'siliconflow' ? 'BAAI/bge-m3' : 'text-embedding-3-small'}
-          className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+          style={INPUT}
         />
       </div>
 
@@ -87,86 +129,96 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
       {(config.embedding.provider === 'openai' || config.embedding.provider === 'siliconflow') && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+            <label className="block text-xs mb-1" style={LABEL}>API Base URL</label>
             <input
               type="text"
               value={config.embedding.base_url}
               onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, base_url: e.target.value } }))}
-              className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              style={INPUT}
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">API Key</label>
+            <label className="block text-xs mb-1" style={LABEL}>API Key</label>
             <input
               type="password"
               value={config.embedding.api_key}
               onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, api_key: e.target.value } }))}
               placeholder="sk-..."
-              className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+              style={INPUT}
             />
           </div>
         </>
       )}
 
       {config.embedding.provider === 'local' && (
-        <p className="text-[10px] text-gray-600">
+        <p className="text-[10px]" style={{ color: 'var(--text-disabled)' }}>
           本地模式使用 sentence-transformers 加载模型，首次运行会自动下载。切换 provider 后建议重建索引以避免向量维度不匹配。
         </p>
       )}
 
       {/* 高级参数（按模型上下文长度可调） */}
-      <details className="group pt-2 border-t border-gray-800">
-        <summary className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-400 hover:text-gray-200 select-none">
+      <details className="group pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+        <summary
+          className="flex items-center gap-1.5 cursor-pointer text-xs select-none"
+          style={{ color: 'var(--text-secondary)' }}
+        >
           <span className="transition-transform group-open:rotate-90">▸</span>
           高级参数（截断 / 批大小）
         </summary>
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">单条输入 token 上限</label>
+              <label className="block text-xs mb-1" style={LABEL}>单条输入 token 上限</label>
               <input
                 type="number"
                 min={64}
                 max={32768}
                 value={config.embedding.max_input_tokens ?? 7000}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_tokens: Number(e.target.value) || 7000 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
                 远程模型的单条截断上限（CJK≈1 字/token，英文≈4 字/token）。
                 <b>bge-m3</b> 8192 → 填 7000；<b>bge-large-en-v1.5</b> 512 → 填 480；更大上下文的模型可调更高。
               </p>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">硬字符上限（0=关闭）</label>
+              <label className="block text-xs mb-1" style={LABEL}>硬字符上限（0=关闭）</label>
               <input
                 type="number"
                 min={0}
                 max={200000}
                 value={config.embedding.max_input_chars ?? 0}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_chars: Number(e.target.value) || 0 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
                 token 截断之外再加一道字符硬上限保险。一般留 0；只在仍偶发 400 时设个保守值（如 6000）。
               </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">批大小 batch_size</label>
+              <label className="block text-xs mb-1" style={LABEL}>批大小 batch_size</label>
               <input
                 type="number"
                 min={1}
                 max={256}
                 value={config.embedding.batch_size}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, batch_size: Number(e.target.value) || 32 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">本地模式每批编码条数（显存不足可调小）。</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+                本地模式每批编码条数（显存不足可调小）。
+              </p>
             </div>
           </div>
-          <p className="text-[10px] text-amber-500/80">
+          <p className="text-[10px]" style={{ color: 'color-mix(in srgb, var(--warning, #eab308) 80%, transparent)' }}>
             提示：换 embedding 模型后必须「重建索引」重新嵌入 —— bge-large 与 bge-m3 同为 1024 维，不重建会让新旧向量混在一起，相似度全错。
           </p>
         </div>
@@ -182,43 +234,41 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
 
 export function ResearchProviderSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div>
-        <h2 className="text-base font-semibold text-gray-100">深度研究 — 论文扩展源</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+          深度研究 — 论文扩展源
+        </h2>
+        <p className="text-xs mt-0.5" style={LABEL}>
           决定"联网扩展"阶段从哪里抓取参考文献。本地模式表示不联网，只用工作区内已上传的论文构建图谱。
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-2">Provider</label>
+        <label className="block text-xs mb-2" style={LABEL}>Provider</label>
         <div className="flex gap-2 flex-wrap">
           {([
             { key: 'openalex' as const, label: 'OpenAlex（推荐）' },
             { key: 'semantic_scholar' as const, label: 'Semantic Scholar' },
             { key: 'local' as const, label: '本地（不联网）' },
           ]).map(p => (
-            <button
+            <PillButton
               key={p.key}
+              active={config.research.provider === p.key}
               onClick={() => setConfig(prev => ({
                 ...prev,
                 research: { ...prev.research, provider: p.key },
               }))}
-              className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                config.research.provider === p.key
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-gray-700 text-gray-400 hover:border-gray-600'
-              }`}
             >
               {p.label}
-            </button>
+            </PillButton>
           ))}
         </div>
       </div>
 
       {config.research.provider === 'openalex' && (
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="block text-xs mb-1" style={LABEL}>
             邮箱（可选 · polite pool）
           </label>
           <input
@@ -229,9 +279,10 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
               research: { ...prev.research, email: e.target.value },
             }))}
             placeholder="you@example.com"
-            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            style={INPUT}
           />
-          <p className="text-[10px] text-gray-600 mt-1">
+          <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
             填入邮箱可进入 OpenAlex polite pool，获得更稳定的速率配额。不填也能用。
           </p>
         </div>
@@ -239,7 +290,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
 
       {config.research.provider === 'semantic_scholar' && (
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="block text-xs mb-1" style={LABEL}>
             API Key（强烈建议填写）
           </label>
           <input
@@ -250,15 +301,17 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
               research: { ...prev.research, api_key: e.target.value },
             }))}
             placeholder="留空使用公共配额（容易 429）"
-            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+            style={INPUT}
           />
-          <p className="text-[10px] text-gray-600 mt-1">
+          <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
             申请地址：
             <a
               href="https://www.semanticscholar.org/product/api"
               target="_blank"
               rel="noreferrer"
-              className="text-blue-400 hover:underline ml-1"
+              className="ml-1"
+              style={{ color: 'var(--accent)' }}
             >
               semanticscholar.org/product/api
             </a>
@@ -268,21 +321,23 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
       )}
 
       {config.research.provider === 'local' && (
-        <p className="text-[10px] text-gray-600">
+        <p className="text-[10px]" style={{ color: 'var(--text-disabled)' }}>
           本地模式下，"联网扩展"阶段会被直接跳过；图谱仅基于工作区已上传的论文构建。
         </p>
       )}
 
       {/* 相似度阈值 */}
-      <div className="pt-2 border-t border-gray-800">
+      <div className="pt-2" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between mb-1">
           <div>
-            <span className="text-xs font-medium text-gray-300">默认相似度阈值</span>
-            <p className="text-[10px] text-gray-500 mt-0.5">
+            <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+              默认相似度阈值
+            </span>
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
               两篇论文向量余弦相似度超过此值时图谱连一条「相似」边。值越大边越少越精炼。可在每次开始研究时临时调整。
             </p>
           </div>
-          <span className="text-xs font-mono text-gray-300 ml-4 shrink-0">
+          <span className="text-xs font-mono ml-4 shrink-0" style={{ color: 'var(--text-secondary)' }}>
             {config.research.similarity_threshold.toFixed(2)}
           </span>
         </div>
@@ -296,25 +351,27 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
             ...prev,
             research: { ...prev.research, similarity_threshold: Number(e.target.value) },
           }))}
-          className="w-full h-1 accent-blue-500"
+          className="w-full h-1 accent-[var(--accent)]"
         />
-        <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+        <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
           <span>0.50 宽松</span>
           <span>0.95 严格</span>
         </div>
       </div>
 
-      <div className="pt-3 border-t border-gray-800">
+      <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
         <label className="flex items-start gap-2 cursor-pointer">
           <input
             type="checkbox"
             checked={config.research.auto_digest ?? true}
             onChange={e => setConfig(prev => ({ ...prev, research: { ...prev.research, auto_digest: e.target.checked } }))}
-            className="mt-0.5 accent-blue-500"
+            className="mt-0.5 accent-[var(--accent)]"
           />
           <span>
-            <span className="text-xs font-medium text-gray-300">深度研究时自动「图谱速读」未解读论文</span>
-            <p className="text-[10px] text-gray-500 mt-0.5">
+            <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+              深度研究时自动「图谱速读」未解读论文
+            </span>
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
               开启后，每次深度研究在构建图谱前会对未精读的论文做一次轻量速读（只抽研究目的/方法/数据集/基线 + 简短总结），
               让它们也获得可解释的图谱关系。会消耗少量 LLM Token（约为全量精读的 1/5~1/10）。关闭则只能手动点「速读未解读论文」。
             </p>
@@ -332,20 +389,22 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
 
 export function RerankerSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-100">重排序模型（Reranker）</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            重排序模型（Reranker）
+          </h2>
+          <p className="text-xs mt-0.5" style={LABEL}>
             在 RAG 跨论文问答时使用。向量检索召回 candidate_k 条候选，再由重排序模型按语义重排，最终取 top_n 喂给 LLM。提升答非所问的概率。
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+        <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
           <input
             type="checkbox"
             checked={config.reranker.enabled}
             onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, enabled: e.target.checked } }))}
-            className="accent-blue-500"
+            className="accent-[var(--accent)]"
           />
           启用
         </label>
@@ -354,64 +413,75 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
       {config.reranker.enabled && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">模型</label>
+            <label className="block text-xs mb-1" style={LABEL}>模型</label>
             <input
               type="text"
               value={config.reranker.model}
               onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, model: e.target.value } }))}
               placeholder="BAAI/bge-reranker-v2-m3"
-              className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              style={INPUT}
             />
-            <p className="text-[10px] text-gray-600 mt-1">默认 BAAI/bge-reranker-v2-m3（硅基流动）</p>
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+              默认 BAAI/bge-reranker-v2-m3（硅基流动）
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">API Base URL</label>
+              <label className="block text-xs mb-1" style={LABEL}>API Base URL</label>
               <input
                 type="text"
                 value={config.reranker.base_url}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, base_url: e.target.value } }))}
                 placeholder="留空 = 继承 embedding 的 base_url"
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">API Key</label>
+              <label className="block text-xs mb-1" style={LABEL}>API Key</label>
               <input
                 type="password"
                 value={config.reranker.api_key}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, api_key: e.target.value } }))}
                 placeholder="留空 = 继承 embedding 的 api_key"
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+                style={INPUT}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">candidate_k（召回数）</label>
+              <label className="block text-xs mb-1" style={LABEL}>candidate_k（召回数）</label>
               <input
                 type="number"
                 min={5}
                 max={200}
                 value={config.reranker.candidate_k}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, candidate_k: Number(e.target.value) || 30 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">向量检索的初筛数量，越大重排越充分但越慢</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+                向量检索的初筛数量，越大重排越充分但越慢
+              </p>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">top_n（送 LLM）</label>
+              <label className="block text-xs mb-1" style={LABEL}>top_n（送 LLM）</label>
               <input
                 type="number"
                 min={1}
                 max={20}
                 value={config.reranker.top_n}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, top_n: Number(e.target.value) || 5 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">重排序后保留的最终 chunk 数</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+                重排序后保留的最终 chunk 数
+              </p>
             </div>
           </div>
         </>
@@ -427,37 +497,58 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
 
 export function SimilaritySection({ config, setConfig, simProviders }: SectionProps & { simProviders: string[] }) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div>
-        <h2 className="text-base font-semibold text-gray-100">论文级相似度计算（Similarity Provider）</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
-          深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在 <code className="px-1 rounded bg-gray-800">backend/services/deep_research/similarity/</code> 自行新增 provider 并在 REGISTRY 注册。
+        <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+          论文级相似度计算（Similarity Provider）
+        </h2>
+        <p className="text-xs mt-0.5" style={LABEL}>
+          深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在{' '}
+          <code
+            className="px-1 rounded"
+            style={{ backgroundColor: 'var(--bg-elevated)' }}
+          >
+            backend/services/deep_research/similarity/
+          </code>{' '}
+          自行新增 provider 并在 REGISTRY 注册。
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Provider</label>
+        <label className="block text-xs mb-1" style={LABEL}>Provider</label>
         <select
           value={config.similarity.provider}
           onChange={e => setConfig(prev => ({ ...prev, similarity: { ...prev.similarity, provider: e.target.value } }))}
-          className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+          style={INPUT}
         >
           {simProviders.map(p => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <p className="text-[10px] text-gray-600 mt-1">
-          当前默认 <code className="px-1 rounded bg-gray-800">unified</code>：给<b>每篇</b>论文挑最佳主题向量（ChromaDB 质心 &gt; title/abstract embedding），
+        <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+          当前默认{' '}
+          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>unified</code>
+          ：给<b>每篇</b>论文挑最佳主题向量（ChromaDB 质心 &gt; title/abstract embedding），
           全量连成研究地图；已解读论文对再挂可解释的 facet 分解。去噪用<b>互近邻</b>（mutual-kNN）。
-          <code className="px-1 rounded bg-gray-800">bge_centroid</code> 等旧法保留可切换对比。
+          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>bge_centroid</code>{' '}
+          等旧法保留可切换对比。
         </p>
-        <div className="mt-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/50">
-          <p className="text-[11px] text-gray-400 leading-relaxed">
-            <span className="text-gray-300 font-medium">未来可扩展（已在 base.py 列出 TODO）：</span><br />
-            ·  <span className="text-gray-300">specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
-            ·  <span className="text-gray-300">bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
-            ·  <span className="text-gray-300">hybrid</span> —— 多信号融合<br />
-            ·  <span className="text-gray-300">cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
+        <div
+          className="mt-3 px-3 py-2 rounded-lg border"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--border) 50%, transparent)',
+          }}
+        >
+          <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+              未来可扩展（已在 base.py 列出 TODO）：
+            </span><br />
+            ·  <span style={{ color: 'var(--text-secondary)' }}>specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
+            ·  <span style={{ color: 'var(--text-secondary)' }}>bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
+            ·  <span style={{ color: 'var(--text-secondary)' }}>hybrid</span> —— 多信号融合<br />
+            ·  <span style={{ color: 'var(--text-secondary)' }}>cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
           </p>
         </div>
       </div>
@@ -472,22 +563,25 @@ export function SimilaritySection({ config, setConfig, simProviders }: SectionPr
 
 export function ArxivExpandSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-100">arXiv 引用列表扩展</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            联网模式下，从 L1 论文 PDF 文本解析 <code className="px-1 rounded bg-gray-800">[N]</code> 引用块，
-            提取 arXiv ID（正则优先，可选 LLM 兜底），从 arXiv 下载 PDF。
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            arXiv 引用列表扩展
+          </h2>
+          <p className="text-xs mt-0.5" style={LABEL}>
+            联网模式下，从 L1 论文 PDF 文本解析{' '}
+            <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>[N]</code>{' '}
+            引用块，提取 arXiv ID（正则优先，可选 LLM 兜底），从 arXiv 下载 PDF。
             与 OpenAlex/S2 扩展互补。
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+        <label className="flex items-center gap-2 text-xs cursor-pointer shrink-0 ml-4" style={{ color: 'var(--text-secondary)' }}>
           <input
             type="checkbox"
             checked={config.arxiv_expand.enabled}
             onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, enabled: e.target.checked } }))}
-            className="accent-blue-500"
+            className="accent-[var(--accent)]"
           />
           启用
         </label>
@@ -504,32 +598,35 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Top-K（按引用数取前 K 篇）</label>
+              <label className="block text-xs mb-1" style={LABEL}>Top-K（按引用数取前 K 篇）</label>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={config.arxiv_expand.top_k}
                 onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, top_k: Number(e.target.value) || 5 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
-              <p className="text-[10px] text-gray-600 mt-1">从候选论文中取前 K 篇（引用列表越靠前越重要）</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+                从候选论文中取前 K 篇（引用列表越靠前越重要）
+              </p>
             </div>
           </div>
 
           <div className="flex items-start gap-4">
-            <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
               <input
                 type="checkbox"
                 checked={config.arxiv_expand.use_llm_title}
                 onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, use_llm_title: e.target.checked } }))}
-                className="accent-blue-500"
+                className="accent-[var(--accent)]"
               />
               LLM 标题兜底
             </label>
             {config.arxiv_expand.use_llm_title && (
               <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">
+                <label className="block text-xs mb-1" style={LABEL}>
                   每篇 seed 最多 LLM+arXiv 搜索次数
                 </label>
                 <input
@@ -538,9 +635,10 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
                   max={50}
                   value={config.arxiv_expand.max_llm_refs}
                   onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, max_llm_refs: Number(e.target.value) || 15 } }))}
-                  className="w-48 px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-48 px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                  style={INPUT}
                 />
-                <p className="text-[10px] text-gray-600 mt-1">
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
                   对无 arXiv ID 的引用，调用解读模型提取标题再搜索（消耗 Token）。
                   每次 arXiv 搜索间隔 3 秒，过多会显著增加运行时间。
                 </p>
@@ -558,24 +656,80 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
 // findpapers 多源学术搜索
 // ============================================================
 
+interface DbTestResult {
+  database: string
+  label: string
+  searchable: boolean
+  downloadable: boolean
+  needs_key: boolean
+  latency_ms: number | null
+  message: string
+}
+
+const FP_DATABASES = [
+  { key: 'arxiv', label: 'arXiv', free: true },
+  { key: 'openalex', label: 'OpenAlex', free: true },
+  { key: 'pubmed', label: 'PubMed', free: true },
+  { key: 'semantic_scholar', label: 'Semantic Scholar', free: true },
+  { key: 'ieee', label: 'IEEE Xplore', free: false },
+  { key: 'scopus', label: 'Scopus', free: false },
+  { key: 'wos', label: 'Web of Science', free: false },
+]
+
 export function FindpapersSection({ config, setConfig }: SectionProps) {
+  const [testing, setTesting] = useState<Record<string, boolean>>({})
+  const [results, setResults] = useState<Record<string, DbTestResult>>({})
+  const [fpInstalled, setFpInstalled] = useState<boolean | null>(null)
+  const [testError, setTestError] = useState<string | null>(null)
+
+  // 实测一组库（单库=单独测，多库=测全部）：能否搜索 + 能否下载 PDF
+  const runTest = async (dbs: string[]) => {
+    if (dbs.length === 0) return
+    setTestError(null)
+    setTesting(prev => ({ ...prev, ...Object.fromEntries(dbs.map(d => [d, true])) }))
+    try {
+      const resp = await post<{ findpapers_installed: boolean; results: DbTestResult[] }>(
+        '/analysis/findpapers/test-databases',
+        { databases: dbs },
+      )
+      setFpInstalled(resp.findpapers_installed)
+      setResults(prev => ({ ...prev, ...Object.fromEntries(resp.results.map(r => [r.database, r])) }))
+    } catch (e) {
+      setTestError((e as { detail?: string })?.detail || '测试失败')
+    } finally {
+      setTesting(prev => ({ ...prev, ...Object.fromEntries(dbs.map(d => [d, false])) }))
+    }
+  }
+
+  const anyTesting = Object.values(testing).some(Boolean)
+  // 绿=可搜可下；黄=可搜但下不了；红=搜不到
+  const statusColor = (r: DbTestResult) =>
+    r.downloadable ? 'var(--success, #22c55e)'
+      : r.searchable ? 'var(--warning, #eab308)'
+        : 'var(--error, #ef4444)'
+
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-100">findpapers 多源搜索</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            findpapers 多源搜索
+          </h2>
+          <p className="text-xs mt-0.5" style={LABEL}>
             启用后使用 findpapers 库（arXiv、CrossRef、OpenAlex、PubMed 等 8 源并行搜索 + 自动去重）
             替代 Semantic Scholar 进行相关论文推荐和 PDF 下载。
-            需要 <code className="px-1 rounded bg-gray-800">pip install findpapers</code>。
+            需要{' '}
+            <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+              pip install findpapers
+            </code>。
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer shrink-0 ml-4">
+        <label className="flex items-center gap-2 text-xs cursor-pointer shrink-0 ml-4" style={{ color: 'var(--text-secondary)' }}>
           <input
             type="checkbox"
             checked={config.findpapers.enabled}
             onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, enabled: e.target.checked } }))}
-            className="accent-blue-500"
+            className="accent-[var(--accent)]"
           />
           启用
         </label>
@@ -584,46 +738,91 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
       {config.findpapers.enabled && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-2">启用的数据库</label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'arxiv', label: 'arXiv', free: true },
-                { key: 'openalex', label: 'OpenAlex', free: true },
-                { key: 'pubmed', label: 'PubMed', free: true },
-                { key: 'semantic_scholar', label: 'Semantic Scholar', free: true },
-                { key: 'ieee', label: 'IEEE Xplore', free: false },
-                { key: 'scopus', label: 'Scopus', free: false },
-                { key: 'wos', label: 'Web of Science', free: false },
-              ].map(db => (
-                <label key={db.key} className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={config.findpapers.databases.includes(db.key)}
-                    onChange={e => {
-                      const dbs = e.target.checked
-                        ? [...config.findpapers.databases, db.key]
-                        : config.findpapers.databases.filter(d => d !== db.key)
-                      setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, databases: dbs } }))
-                    }}
-                    className="accent-blue-500"
-                  />
-                  {db.label}
-                  {!db.free && <span className="text-[10px] text-amber-500">(需 key)</span>}
-                </label>
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs" style={LABEL}>启用的数据库（可单独测试或一键测全部）</label>
+              <button
+                type="button"
+                onClick={() => runTest(FP_DATABASES.map(d => d.key))}
+                disabled={anyTesting}
+                className="px-2.5 py-1 text-[11px] rounded-md border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                {anyTesting ? '测试中…' : '测试全部'}
+              </button>
             </div>
+
+            <div className="space-y-1.5">
+              {FP_DATABASES.map(db => {
+                const checked = config.findpapers.databases.includes(db.key)
+                const r = results[db.key]
+                const busy = testing[db.key]
+                return (
+                  <div key={db.key} className="flex items-center gap-2 text-xs">
+                    <label className="flex items-center gap-1.5 cursor-pointer shrink-0 w-48" style={{ color: 'var(--text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => {
+                          const dbs = e.target.checked
+                            ? [...config.findpapers.databases, db.key]
+                            : config.findpapers.databases.filter(d => d !== db.key)
+                          setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, databases: dbs } }))
+                        }}
+                        className="accent-[var(--accent)]"
+                      />
+                      {db.label}
+                      {!db.free && (
+                        <span className="text-[10px]" style={{ color: 'var(--warning, #eab308)' }}>(需 key)</span>
+                      )}
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => runTest([db.key])}
+                      disabled={busy}
+                      className="px-2 py-0.5 text-[11px] rounded-md border transition-colors disabled:opacity-50 shrink-0"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                    >
+                      {busy ? '测试中…' : '测试'}
+                    </button>
+
+                    {r && !busy && (
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColor(r) }} />
+                        <span className="truncate" style={{ color: 'var(--text-muted)' }}>
+                          {r.message}{r.latency_ms != null ? ` · ${r.latency_ms}ms` : ''}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <p className="text-[11px] mt-2" style={LABEL}>
+              「测试」会真的用 findpapers 搜该库并尝试下载一篇 PDF：🟢 可搜+可下载　🟡 可搜但下不了　🔴 搜不到
+            </p>
+            {fpInstalled === false && (
+              <p className="text-[11px] mt-1" style={{ color: 'var(--warning, #eab308)' }}>
+                findpapers 库未安装（pip install findpapers）
+              </p>
+            )}
+            {testError && (
+              <p className="text-[11px] mt-1" style={{ color: 'var(--error, #ef4444)' }}>{testError}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">搜索结果数量上限</label>
+              <label className="block text-xs mb-1" style={LABEL}>搜索结果数量上限</label>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={config.findpapers.max_results}
                 onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, max_results: Number(e.target.value) || 10 } }))}
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
               />
             </div>
           </div>

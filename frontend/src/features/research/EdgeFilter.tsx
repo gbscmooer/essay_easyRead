@@ -1,5 +1,5 @@
 import type { GraphEdgeKind } from '@/types'
-import { Tooltip } from '@/components/Tooltip'
+import { Tooltip } from '@/ds-entry'
 
 const EDGE_OPTIONS: { kind: GraphEdgeKind; label: string; color: string; hint: string }[] = [
   { kind: 'cites', label: '引用', color: '#ef4444', hint: '基于"父论文 → 引用论文"的关系（联网扩展阶段建立）。点亮则在图中显示。' },

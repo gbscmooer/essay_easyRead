@@ -6,13 +6,14 @@ import {
 import type { AnalysisResult, FigureAnalysis } from '@/types'
 import { useUIConfig } from '@/hooks/useConfig'
 
-
 interface ExperimentsTabProps {
   result: AnalysisResult
   onJumpToPage?: (page: number) => void
 }
 
 
+// Categorical palette for multi-series charts (data viz needs distinct hues —
+// this is the one place hardcoded colors are intentional, not UI chrome).
 const CHART_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
   '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
@@ -95,7 +96,7 @@ function FigureChart({ fig }: { fig: FigureAnalysis }) {
 
   if (!data || cols.length < 2) {
     return (
-      <div className="text-xs py-4 text-center" style={{ color: 'var(--text-muted)' }}>
+      <div className="text-[12px] py-4 text-center" style={{ color: 'var(--text-muted)' }}>
         数据不足以生成图表
       </div>
     )
@@ -107,7 +108,7 @@ function FigureChart({ fig }: { fig: FigureAnalysis }) {
   const tooltipStyle = {
     backgroundColor: colors.surface,
     border: `1px solid ${colors.border}`,
-    borderRadius: '0.5rem',
+    borderRadius: '0.75rem',
     color: colors.text,
     fontSize: 12,
   }
@@ -174,7 +175,7 @@ function FigureChart({ fig }: { fig: FigureAnalysis }) {
             key={key}
             dataKey={key}
             fill={CHART_COLORS[idx % CHART_COLORS.length]}
-            radius={[2, 2, 0, 0]}
+            radius={[3, 3, 0, 0]}
           />
         ))}
       </BarChart>
@@ -195,14 +196,14 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
   const clickable = !!pageNum && !!onJumpToPage
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
       {/* 图表标题 */}
-      <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center justify-between">
+      <div className="px-4 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex items-center justify-between gap-2">
           {clickable ? (
             <button
               onClick={() => pageNum && onJumpToPage?.(pageNum)}
-              className="group flex items-center gap-1.5 text-sm font-medium transition-colors"
+              className="group flex items-center gap-1.5 text-[13px] font-medium transition-colors"
               style={{ color: 'var(--accent)' }}
               title={`跳转到第 ${pageNum} 页`}
             >
@@ -213,14 +214,14 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
               </svg>
             </button>
           ) : (
-            <h3 className="text-sm font-medium" style={{ color: 'var(--accent)' }}>{fig.name}</h3>
+            <h3 className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{fig.name}</h3>
           )}
-          <span className="text-xs px-2 py-0.5 rounded" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
+          <span className="text-[11px] px-2 py-0.5 rounded-full shrink-0" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
             {fig.chart_type === 'bar' ? '柱状图' : fig.chart_type === 'line' ? '折线图' : fig.chart_type === 'scatter' ? '散点图' : '表格'}
           </span>
         </div>
         {fig.caption && (
-          <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{fig.caption}</p>
+          <p className="text-[12px] mt-1.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{fig.caption}</p>
         )}
       </div>
 
@@ -233,10 +234,10 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
 
       {/* 数据表格（可折叠） */}
       {fig.rows && fig.rows.length > 0 && (
-        <div className="px-4 py-2">
+        <div className="px-4 py-2.5">
           <button
             onClick={() => setShowTable(v => !v)}
-            className="text-xs transition-colors"
+            className="text-[12px] transition-colors hover:opacity-80"
             style={{ color: 'var(--text-muted)' }}
           >
             {showTable ? '收起数据 ▲' : '查看数据 ▼'}
@@ -244,11 +245,11 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
 
           {showTable && (
             <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-[12px]">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
                     {cols.map((col, i) => (
-                      <th key={i} className="text-left py-1.5 px-2 font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <th key={i} className="text-left py-1.5 px-2 font-medium" style={{ color: 'var(--text-muted)' }}>
                         {col}
                       </th>
                     ))}
@@ -258,7 +259,7 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
                   {fig.rows.map((row, ri) => (
                     <tr key={ri} style={ri % 2 === 0 ? { backgroundColor: 'var(--bg-elevated)' } : undefined}>
                       {row.map((cell, ci) => (
-                        <td key={ci} className="py-1.5 px-2" style={{ color: 'var(--text-primary)' }}>
+                        <td key={ci} className="py-1.5 px-2 tabular-nums" style={{ color: 'var(--text-primary)' }}>
                           {cell}
                         </td>
                       ))}
@@ -271,11 +272,11 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
         </div>
       )}
 
-      {/* 解读 */}
+      {/* 解读 — surface-tint */}
       {fig.interpretation && (
-        <div className="px-4 py-3" style={{ backgroundColor: 'var(--accent-subtle)', borderTop: '1px solid var(--border)' }}>
-          <p className="text-xs mb-1 font-medium" style={{ color: 'var(--text-secondary)' }}>解读</p>
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-primary)' }}>{fig.interpretation}</p>
+        <div className="px-4 py-3.5" style={{ backgroundColor: 'var(--accent-subtle)', borderTop: '1px solid var(--border)' }}>
+          <p className="text-label mb-1" style={{ color: 'var(--accent)' }}>解读</p>
+          <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{fig.interpretation}</p>
         </div>
       )}
     </div>
@@ -286,20 +287,20 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
 export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
   const { experiments } = result
   if (!experiments) {
-    return <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>暂无实验分析</div>
+    return <div className="text-[13px] text-center py-10" style={{ color: 'var(--text-muted)' }}>暂无实验分析</div>
   }
 
   const figures = experiments.figures || []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* 数据集标签 */}
       {experiments.datasets && experiments.datasets.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>数据集</h2>
+          <h2 className="text-heading text-[15px] mb-3" style={{ color: 'var(--text-primary)' }}>数据集</h2>
           <div className="flex flex-wrap gap-2">
             {experiments.datasets.map((ds, idx) => (
-              <span key={idx} className="px-3 py-1 text-sm rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+              <span key={idx} className="px-3 py-1 text-[12px] rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 {ds}
               </span>
             ))}
@@ -310,10 +311,10 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
       {/* 基线方法 */}
       {experiments.baselines && experiments.baselines.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>基线方法</h2>
+          <h2 className="text-heading text-[15px] mb-3" style={{ color: 'var(--text-primary)' }}>基线方法</h2>
           <div className="flex flex-wrap gap-2">
             {experiments.baselines.map((bl, idx) => (
-              <span key={idx} className="px-3 py-1 text-sm rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+              <span key={idx} className="px-3 py-1 text-[12px] rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 {bl}
               </span>
             ))}
@@ -324,19 +325,19 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
       {/* 主要结论 */}
       {experiments.main_results && (
         <section>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>主要结论</h2>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>{experiments.main_results}</p>
+          <h2 className="text-heading text-[15px] mb-2.5" style={{ color: 'var(--text-primary)' }}>主要结论</h2>
+          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{experiments.main_results}</p>
         </section>
       )}
 
       {/* 逐图表分析 */}
       {figures.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+          <h2 className="text-heading text-[15px] mb-3.5 flex items-baseline gap-2" style={{ color: 'var(--text-primary)' }}>
             图表分析
-            <span className="text-xs font-normal ml-2" style={{ color: 'var(--text-muted)' }}>共 {figures.length} 项</span>
+            <span className="text-[12px] font-normal" style={{ color: 'var(--text-muted)' }}>共 {figures.length} 项</span>
           </h2>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {figures.map((fig, idx) => (
               <FigureCard key={idx} fig={fig} onJumpToPage={onJumpToPage} />
             ))}
@@ -347,9 +348,9 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
       {/* 消融实验 */}
       {experiments.ablation && (
         <section>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>消融实验</h2>
-          <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>{experiments.ablation}</p>
+          <h2 className="text-heading text-[15px] mb-2.5" style={{ color: 'var(--text-primary)' }}>消融实验</h2>
+          <div className="rounded-xl p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{experiments.ablation}</p>
           </div>
         </section>
       )}

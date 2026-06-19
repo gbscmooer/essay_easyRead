@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.23.1'
+const APP_VERSION = '1.24.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-15',
+  date: '2026-06-20',
   changes: [
-    '接入 claude.ai/design 设计系统：将骨架屏、加载态、确认弹窗、快捷键帮助、Tooltip 等精选 UI 组件导出为可复用设计系统',
-    '新增设计系统同步工具链（.design-sync/）：scoped barrel 入口 + 主题令牌 :root 提升 + 组件预览，支持一键重新同步',
+    '全站 UI 重设计基线：对标 claude.ai 暖纸 + 黏土橙风格，macOS Finder 风可折叠侧栏 + 毛玻璃二级导航 + 首页粒子/打字机 Hero',
+    '统一 seed token 主题系统与签名缓动动效，骨架屏/加载态/空态/错误态体系化',
+    '全前端人机交互打磨：hover/focus/过渡、可访问性(aria/focus-visible)、间距与字号层级一致性（不改动任何功能）',
   ],
 }
 
@@ -61,12 +62,12 @@ export function VersionPopup({ onClose }: { onClose: () => void }) {
   }, [])
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center animate-reveal-fade" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
       <div
         ref={popupRef}
         role="dialog"
         aria-modal="true"
-        className="w-80 rounded-xl border overflow-hidden"
+        className="w-80 rounded-xl border overflow-hidden animate-reveal-scale"
         style={{
           backgroundColor: 'var(--bg-elevated)',
           borderColor: 'var(--border)',

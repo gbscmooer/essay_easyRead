@@ -28,7 +28,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-full p-8" style={{ color: 'var(--text-primary)' }}>
-          <h2 className="text-xl font-semibold mb-4">页面加载出错</h2>
+          <h2 className="text-heading text-xl mb-4">页面加载出错</h2>
           <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
             {this.state.error?.message || '未知错误'}
           </p>

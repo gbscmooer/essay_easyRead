@@ -24,21 +24,27 @@ interface ProviderPresetsProps {
 export default function ProviderPresets({ baseUrl, onSelect }: ProviderPresetsProps) {
   return (
     <div>
-      <label className="block text-xs text-gray-500 mb-1.5">服务商预设</label>
+      <label className="block text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>
+        服务商预设
+      </label>
       <div className="flex flex-wrap gap-2">
-        {PROVIDER_PRESETS.map(preset => (
-          <button
-            key={preset.label}
-            onClick={() => onSelect(preset)}
-            className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-              baseUrl === preset.base_url
-                ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-            }`}
-          >
-            {preset.label}
-          </button>
-        ))}
+        {PROVIDER_PRESETS.map(preset => {
+          const active = baseUrl === preset.base_url
+          return (
+            <button
+              key={preset.label}
+              onClick={() => onSelect(preset)}
+              className="px-3 py-1 text-xs rounded-full border transition-colors"
+              style={{
+                borderColor: active ? 'var(--accent)' : 'var(--border)',
+                backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
+                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              {preset.label}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
