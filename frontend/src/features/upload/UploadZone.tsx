@@ -121,12 +121,27 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
         {isUploading ? (
           <div className="flex flex-col items-center gap-3 w-full max-w-xs">
             <div className="flex items-center gap-2.5">
-              <div
-                className="w-4 h-4 border-[1.5px] rounded-full animate-spin"
-                style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
-              />
-              <span className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
-                {uploadProgress < 100 ? `上传中 ${uploadProgress}%` : '处理中...'}
+              {uploadProgress >= 100 ? (
+                <span
+                  className="w-4 h-4 rounded-full flex items-center justify-center animate-reveal-scale"
+                  style={{ backgroundColor: 'var(--success)' }}
+                  aria-hidden="true"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--bg-base)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              ) : (
+                <div
+                  className="w-4 h-4 border-[1.5px] rounded-full animate-spin"
+                  style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
+                />
+              )}
+              <span
+                className="text-[13px]"
+                style={{ color: uploadProgress >= 100 ? 'var(--success)' : 'var(--text-muted)' }}
+              >
+                {uploadProgress < 100 ? `上传中 ${uploadProgress}%` : '上传完成'}
               </span>
             </div>
             <div
@@ -137,7 +152,7 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${uploadProgress}%`,
-                  backgroundColor: 'var(--accent)',
+                  backgroundColor: uploadProgress >= 100 ? 'var(--success)' : 'var(--accent)',
                   transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                 }}
               />
@@ -157,9 +172,22 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
 
       {/* 错误提示 */}
       {error && (
-        <p className="mt-3 text-[13px] text-center" style={{ color: 'var(--error)' }}>
-          {error}
-        </p>
+        <div
+          role="alert"
+          className="mt-3 flex items-center justify-center gap-2 px-3 py-2 text-[13px] rounded-lg animate-reveal-up"
+          style={{
+            backgroundColor: 'var(--error-subtle)',
+            color: 'var(--error)',
+            border: '1px solid color-mix(in srgb, var(--error) 28%, transparent)',
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{error}</span>
+        </div>
       )}
 
       {/* 隐藏的文件输入 */}

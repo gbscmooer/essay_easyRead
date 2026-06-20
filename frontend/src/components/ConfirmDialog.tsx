@@ -144,7 +144,7 @@ export function ConfirmDialog({
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+            className="press focus-glow px-4 py-2 text-[13px] rounded-full transition-all duration-200"
             style={{
               color: 'var(--text-secondary)',
               backgroundColor: 'transparent',
@@ -152,18 +152,37 @@ export function ConfirmDialog({
               cursor: 'pointer',
               transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
             }}
+            onMouseEnter={e => {
+              e.currentTarget.style.backgroundColor = 'var(--bg-surface)'
+              e.currentTarget.style.borderColor = 'var(--border-light)'
+              e.currentTarget.style.color = 'var(--text-primary)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.backgroundColor = 'transparent'
+              e.currentTarget.style.borderColor = 'var(--border)'
+              e.currentTarget.style.color = 'var(--text-secondary)'
+            }}
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200"
+            className="press focus-glow px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200"
             style={{
               backgroundColor: variant === 'danger' ? 'var(--error)' : 'var(--accent)',
               color: '#fff',
               border: 'none',
               cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
               transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.filter = 'brightness(1.08)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.16)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.filter = 'none'
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)'
             }}
           >
             {confirmLabel}

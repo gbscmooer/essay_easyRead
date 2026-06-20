@@ -6,7 +6,7 @@
 
 import { useState, useMemo, memo } from 'react'
 import type { Paper, SearchResult } from '@/types'
-import { ConfirmDialog, Tooltip } from '@/ds-entry'
+import { ConfirmDialog, Tooltip, SkeletonCard } from '@/ds-entry'
 
 
 interface FilterParams {
@@ -65,22 +65,55 @@ function HighlightText({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((part, i) =>
         part.toLowerCase() === query.toLowerCase()
-          ? <mark key={i} style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)', borderRadius: '2px', padding: '0 1px' }}>{part}</mark>
+          ? <mark key={i} style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)', borderRadius: '4px', padding: '0.5px 3px', fontWeight: 600, boxShadow: '0 0 0 1px var(--accent-subtle)' }}>{part}</mark>
           : <span key={i}>{part}</span>
       )}
     </>
   )
 }
 
-function statusLabel(status: Paper['status']): { text: string; bgColor: string; textColor: string } {
+type StatusIcon = 'check' | 'cross' | 'clock' | 'spin'
+
+function statusLabel(status: Paper['status']): { text: string; bgColor: string; textColor: string; icon: StatusIcon } {
   switch (status) {
-    case 'done': return { text: '已完成', bgColor: 'var(--success-subtle)', textColor: 'var(--success)' }
-    case 'extracting': return { text: '提取中', bgColor: 'var(--warning-subtle)', textColor: 'var(--warning)' }
-    case 'analyzing': return { text: '分析中', bgColor: 'var(--warning-subtle)', textColor: 'var(--warning)' }
-    case 'pending': return { text: '等待中', bgColor: 'var(--bg-surface)', textColor: 'var(--text-muted)' }
-    case 'failed': return { text: '失败', bgColor: 'var(--error-subtle)', textColor: 'var(--error)' }
-    default: return { text: status, bgColor: 'var(--bg-surface)', textColor: 'var(--text-muted)' }
+    case 'done': return { text: '已完成', bgColor: 'var(--success-subtle)', textColor: 'var(--success)', icon: 'check' }
+    case 'extracting': return { text: '提取中', bgColor: 'var(--warning-subtle)', textColor: 'var(--warning)', icon: 'spin' }
+    case 'analyzing': return { text: '分析中', bgColor: 'var(--warning-subtle)', textColor: 'var(--warning)', icon: 'spin' }
+    case 'pending': return { text: '等待中', bgColor: 'var(--bg-surface)', textColor: 'var(--text-muted)', icon: 'clock' }
+    case 'failed': return { text: '失败', bgColor: 'var(--error-subtle)', textColor: 'var(--error)', icon: 'cross' }
+    default: return { text: status, bgColor: 'var(--bg-surface)', textColor: 'var(--text-muted)', icon: 'clock' }
   }
+}
+
+/** 状态徽标小图标 — 语义色由父级 currentColor 继承 */
+function StatusBadgeIcon({ icon }: { icon: StatusIcon }) {
+  const cls = 'w-3 h-3 shrink-0'
+  if (icon === 'spin') {
+    return (
+      <svg className={`${cls} animate-spin`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+        <path strokeLinecap="round" d="M12 3a9 9 0 1 0 9 9" />
+      </svg>
+    )
+  }
+  if (icon === 'cross') {
+    return (
+      <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    )
+  }
+  if (icon === 'clock') {
+    return (
+      <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z" />
+      </svg>
+    )
+  }
+  return (
+    <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+    </svg>
+  )
 }
 
 export const PaperList = memo(function PaperList({
@@ -172,7 +205,7 @@ export const PaperList = memo(function PaperList({
                 onChange={e => setSearchInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 aria-label="搜索论文"
-                className="w-full px-4 py-2 pl-10 text-sm rounded-lg focus:outline-none"
+                className="w-full px-4 py-2 pl-10 text-sm rounded-lg focus:outline-none focus-glow transition-shadow"
               />
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: 'var(--text-muted)' }}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -187,14 +220,20 @@ export const PaperList = memo(function PaperList({
             placement="bottom"
           >
             <label
-              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg cursor-pointer select-none"
-              style={{ color: globalSearch ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)' }}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg cursor-pointer select-none transition-all duration-200"
+              style={{
+                color: globalSearch ? 'var(--accent)' : 'var(--text-muted)',
+                border: `1px solid ${globalSearch ? 'var(--accent)' : 'var(--border)'}`,
+                backgroundColor: globalSearch ? 'var(--accent-subtle)' : 'transparent',
+                transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              }}
             >
               <input
                 type="checkbox"
                 checked={globalSearch}
                 onChange={e => onToggleGlobal(e.target.checked)}
                 className="accent-blue-500"
+                style={{ accentColor: 'var(--accent)' }}
               />
               全局搜索
             </label>
@@ -202,8 +241,13 @@ export const PaperList = memo(function PaperList({
 
           {/* 联网扩展论文开关：是否一并搜索深度研究下载的相关论文 */}
           <label
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg cursor-pointer select-none"
-            style={{ color: includeExpanded ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)' }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg cursor-pointer select-none transition-all duration-200"
+            style={{
+              color: includeExpanded ? 'var(--accent)' : 'var(--text-muted)',
+              border: `1px solid ${includeExpanded ? 'var(--accent)' : 'var(--border)'}`,
+              backgroundColor: includeExpanded ? 'var(--accent-subtle)' : 'transparent',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
             title="开启后，搜索范围一并包含深度研究通过联网下载的相关论文（L2+），默认只搜已加入论文库的论文"
           >
             <input
@@ -211,6 +255,7 @@ export const PaperList = memo(function PaperList({
               checked={includeExpanded}
               onChange={e => onToggleExpanded(e.target.checked)}
               className="accent-blue-500"
+              style={{ accentColor: 'var(--accent)' }}
             />
             含联网扩展论文
           </label>
@@ -220,7 +265,7 @@ export const PaperList = memo(function PaperList({
             value={categoryFilter}
             onChange={e => handleFilterCategory(e.target.value)}
             aria-label="按方向筛选"
-            className="px-3 py-2 text-sm rounded-lg focus:outline-none"
+            className="px-3 py-2 text-sm rounded-lg focus:outline-none focus-glow transition-shadow cursor-pointer"
           >
             <option value="">全部方向</option>
             {categories.map(c => (
@@ -233,7 +278,7 @@ export const PaperList = memo(function PaperList({
             value={yearFilter}
             onChange={e => handleFilterYear(e.target.value)}
             aria-label="按年份筛选"
-            className="px-3 py-2 text-sm rounded-lg focus:outline-none"
+            className="px-3 py-2 text-sm rounded-lg focus:outline-none focus-glow transition-shadow cursor-pointer"
           >
             <option value="">全部年份</option>
             {years.map(y => (
@@ -245,7 +290,7 @@ export const PaperList = memo(function PaperList({
           <select
             value={dateFilter}
             onChange={e => handleFilterDate(e.target.value)}
-            className="px-3 py-2 text-sm rounded-lg focus:outline-none"
+            className="px-3 py-2 text-sm rounded-lg focus:outline-none focus-glow transition-shadow cursor-pointer"
           >
             <option value="">全部添加日期</option>
             {dates.map(d => (
@@ -259,11 +304,16 @@ export const PaperList = memo(function PaperList({
       <div className="flex-1 overflow-auto p-4 space-y-2">
         {searchResults !== null ? (
           searchLoading ? (
-            <div className="text-center py-16">
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>搜索中…</p>
+            <div className="space-y-2" aria-busy="true" aria-label="搜索中">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonCard key={i} style={{ animationDelay: `${i * 60}ms` }} />
+              ))}
             </div>
           ) : searchResults.length === 0 ? (
-            <div className="text-center py-16">
+            <div className="flex flex-col items-center text-center py-16 animate-reveal-fade">
+              <svg className="w-10 h-10 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} style={{ color: 'var(--text-muted)', opacity: 0.6 }} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
               <p className="text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>没有匹配的论文</p>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>换个关键词，或开启「全局搜索」匹配正文全文</p>
             </div>
@@ -272,7 +322,10 @@ export const PaperList = memo(function PaperList({
               <div
                 key={r.paper_id}
                 onClick={() => onSelect(r.paper_id)}
-                className="p-4 rounded-xl cursor-pointer card-hover press spotlight transition-all"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.paper_id) } }}
+                role="button"
+                tabIndex={0}
+                className="p-4 rounded-xl cursor-pointer card-hover hover-lift press spotlight focus-glow transition-all"
                 style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
               >
                 <h3 className="text-sm font-medium mb-1 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -315,18 +368,24 @@ export const PaperList = memo(function PaperList({
             ))
           )
         ) : papers.length === 0 ? (
-          <div className="text-center py-16">
+          <div className="flex flex-col items-center text-center py-16 animate-reveal-fade">
+            <svg className="w-10 h-10 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} style={{ color: 'var(--text-muted)', opacity: 0.6 }} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
             <p className="text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>暂无论文</p>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>上传 PDF 开始精读</p>
           </div>
         ) : (
           papers.map(paper => {
-            const { text: statusText, bgColor: statusBg, textColor: statusColor } = statusLabel(paper.status)
+            const { text: statusText, bgColor: statusBg, textColor: statusColor, icon: statusIcon } = statusLabel(paper.status)
             return (
               <div
                 key={paper.id}
                 onClick={() => onSelect(paper.id)}
-                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover press spotlight group"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
+                role="button"
+                tabIndex={0}
+                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover hover-lift press spotlight focus-glow group"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border)',
@@ -359,7 +418,11 @@ export const PaperList = memo(function PaperList({
                       已速读
                     </span>
                   )}
-                  <span className="px-2.5 py-0.5 text-xs rounded-full" style={{ backgroundColor: statusBg, color: statusColor }}>
+                  <span
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs rounded-full"
+                    style={{ backgroundColor: statusBg, color: statusColor }}
+                  >
+                    <StatusBadgeIcon icon={statusIcon} />
                     {statusText}
                   </span>
                   <button
@@ -368,9 +431,11 @@ export const PaperList = memo(function PaperList({
                       setDeleteTarget(paper.id)
                     }}
                     aria-label="删除论文"
-                    className="opacity-0 group-hover:opacity-100 transition-all text-sm"
-                    style={{ color: 'var(--text-muted)' }}
+                    className="opacity-40 group-hover:opacity-100 hover:!opacity-100 focus-visible:opacity-100 press focus-glow rounded-md px-1.5 py-0.5 text-sm transition-all duration-200"
+                    style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
                     title="删除"
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
                   >
                     删除
                   </button>
@@ -388,20 +453,29 @@ export const PaperList = memo(function PaperList({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
             aria-label="上一页"
-            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed press focus-glow transition-all duration-200"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
+            onMouseEnter={e => { if (page > 1) e.currentTarget.style.borderColor = 'var(--border-light)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
           >
             上一页
           </button>
-          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {page} / {totalPages}
-          </span>
+          <div className="flex flex-col items-center leading-tight">
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{page}</span> / {totalPages}
+            </span>
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              共 {total} 篇
+            </span>
+          </div>
           <button
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
             aria-label="下一页"
-            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed press focus-glow transition-all duration-200"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
+            onMouseEnter={e => { if (page < totalPages) e.currentTarget.style.borderColor = 'var(--border-light)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
           >
             下一页
           </button>

@@ -39,9 +39,11 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
               }
             />
             <span
-              className="text-[11px]"
+              className={`text-[11px] transition-colors ${i === currentIdx ? 'font-semibold' : ''}`}
               style={
-                i <= currentIdx
+                i === currentIdx
+                  ? { color: 'var(--accent)' }
+                  : i < currentIdx
                   ? { color: 'var(--text-secondary)' }
                   : { color: 'var(--text-muted)', opacity: 0.5 }
               }

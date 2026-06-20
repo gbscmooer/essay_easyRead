@@ -38,14 +38,22 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
             const clickable = !!pageNum && !!onJumpToPage
 
             return (
-              <div key={idx} className="relative pl-9">
-                <div className="absolute left-[3px] top-[18px] w-2 h-2 rounded-full z-10" style={{ backgroundColor: 'var(--bg-surface)', border: '1.5px solid var(--border-light)' }} />
+              <div key={idx} className="group relative pl-9">
+                <div
+                  className={`absolute left-[3px] top-[18px] w-2 h-2 rounded-full z-10 transition-all duration-200 ${clickable ? 'group-hover:scale-[1.6]' : ''}`}
+                  style={{
+                    backgroundColor: clickable ? 'var(--accent)' : 'var(--bg-surface)',
+                    border: clickable ? '1.5px solid var(--accent)' : '1.5px solid var(--border-light)',
+                    boxShadow: clickable ? '0 0 0 0 var(--accent-subtle)' : 'none',
+                    transitionTimingFunction: SPRING,
+                  }}
+                />
 
                 <button
                   onClick={() => pageNum && onJumpToPage?.(pageNum, item.section)}
                   disabled={!clickable}
-                  className="w-full text-left rounded-xl p-3.5 transition-all duration-200"
-                  style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', cursor: clickable ? 'pointer' : 'default', transitionTimingFunction: SPRING }}
+                  className={`w-full text-left rounded-xl p-3.5 transition-all duration-200 ${clickable ? 'focus-glow press' : ''}`}
+                  style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', cursor: clickable ? 'pointer' : 'default', opacity: clickable ? 1 : 0.62, transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { if (clickable) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' }}
                   onMouseLeave={e => { if (clickable) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
                 >

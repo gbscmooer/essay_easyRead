@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FileNode } from '@/types'
+import { Tooltip } from '@/ds-entry'
 
 
 interface FileBrowserProps {
@@ -84,43 +85,48 @@ function TreeNode({
     const isSelected = selected === node.path
     const { icon, color } = getFileIcon(node.name)
     return (
-      <button
-        role="treeitem"
-        onClick={() => onSelect(node.path)}
-        className="w-full text-left flex items-center gap-1.5 py-[2px] text-[13px] group transition-colors"
-        style={{
-          paddingLeft: `${depth * 16 + 8}px`,
-          paddingRight: 8,
-          color: isSelected ? 'var(--text-primary)' : 'var(--code-text)',
-          backgroundColor: isSelected ? 'var(--code-selection)' : undefined,
-        }}
-        onMouseEnter={(e) => {
-          if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--code-hover)'
-        }}
-        onMouseLeave={(e) => {
-          if (!isSelected) e.currentTarget.style.backgroundColor = ''
-        }}
-      >
-        {/* 缩进引导线 */}
-        {depth > 0 && (
-          <span
-            className="absolute left-0 top-0 bottom-0 border-l"
-            style={{ marginLeft: `${(depth - 1) * 16 + 20}px`, borderColor: 'var(--code-border)' }}
-          />
-        )}
-        <span
-          className="shrink-0 text-[11px] font-bold w-4 text-center"
-          style={{ color }}
+      <Tooltip content={node.path} placement="bottom" className="block w-full">
+        <button
+          role="treeitem"
+          onClick={() => onSelect(node.path)}
+          className="w-full text-left flex items-center gap-1.5 py-[2px] text-[13px] group ease-spring focus-glow"
+          style={{
+            paddingLeft: `${depth * 16 + 8}px`,
+            paddingRight: 8,
+            transition: 'background-color 0.18s cubic-bezier(0.25,0.46,0.45,0.94), color 0.18s cubic-bezier(0.25,0.46,0.45,0.94)',
+            color: isSelected ? 'var(--accent)' : 'var(--code-text)',
+            backgroundColor: isSelected ? 'var(--code-selection)' : undefined,
+            boxShadow: isSelected ? 'inset 2px 0 0 var(--accent)' : undefined,
+            fontWeight: isSelected ? 600 : undefined,
+          }}
+          onMouseEnter={(e) => {
+            if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--code-hover)'
+          }}
+          onMouseLeave={(e) => {
+            if (!isSelected) e.currentTarget.style.backgroundColor = ''
+          }}
         >
-          {icon}
-        </span>
-        <span className="truncate">{node.name}</span>
-        {node.size !== undefined && node.size > 100000 && (
-          <span className="text-[10px] ml-auto shrink-0" style={{ color: 'var(--code-text-muted)' }}>
-            {(node.size / 1024).toFixed(0)}KB
+          {/* 缩进引导线 */}
+          {depth > 0 && (
+            <span
+              className="absolute left-0 top-0 bottom-0 border-l"
+              style={{ marginLeft: `${(depth - 1) * 16 + 20}px`, borderColor: 'var(--code-border)' }}
+            />
+          )}
+          <span
+            className="shrink-0 text-[11px] font-bold w-4 text-center"
+            style={{ color }}
+          >
+            {icon}
           </span>
-        )}
-      </button>
+          <span className="truncate">{node.name}</span>
+          {node.size !== undefined && node.size > 100000 && (
+            <span className="text-[10px] ml-auto shrink-0" style={{ color: 'var(--code-text-muted)' }}>
+              {(node.size / 1024).toFixed(0)}KB
+            </span>
+          )}
+        </button>
+      </Tooltip>
     )
   }
 
@@ -131,13 +137,14 @@ function TreeNode({
         role="treeitem"
         aria-expanded={expanded}
         onClick={() => setExpanded(v => !v)}
-        className="w-full text-left flex items-center gap-1 py-[2px] text-[13px] transition-colors"
-        style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8, color: 'var(--code-text)' }}
+        className="w-full text-left flex items-center gap-1 py-[2px] text-[13px] ease-spring focus-glow"
+        style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8, color: 'var(--code-text)', transition: 'background-color 0.18s cubic-bezier(0.25,0.46,0.45,0.94)' }}
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--code-hover)' }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '' }}
       >
         <svg
-          className={`w-3 h-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          className={`w-3 h-3 shrink-0 ease-spring ${expanded ? 'rotate-90' : ''}`}
+          style={{ transition: 'transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94)' }}
           fill="currentColor"
           viewBox="0 0 16 16"
         >
@@ -182,8 +189,12 @@ function TreeNode({
 export function FileBrowser({ tree, selected, onSelect }: FileBrowserProps) {
   if (!tree) {
     return (
-      <div className="p-4 text-center text-sm" style={{ color: 'var(--code-text-muted)' }}>
-        暂无文件
+      <div className="flex flex-col items-center justify-center gap-2 p-6 text-center animate-reveal-fade" style={{ color: 'var(--code-text-muted)' }}>
+        <svg className="w-7 h-7 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+        <span className="text-sm">暂无文件</span>
+        <span className="text-[11px] opacity-70">克隆代码仓库后将在此显示文件树</span>
       </div>
     )
   }
@@ -193,7 +204,7 @@ export function FileBrowser({ tree, selected, onSelect }: FileBrowserProps) {
       {/* 标题 */}
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--code-text)' }}>
         <span>资源管理器</span>
-        <button aria-label="新建文件" className="transition-colors" style={{ color: 'var(--code-text-muted)' }}
+        <button aria-label="新建文件" className="transition-colors press focus-glow rounded" style={{ color: 'var(--code-text-muted)' }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--code-text-bright)' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--code-text-muted)' }}
         >

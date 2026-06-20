@@ -61,7 +61,7 @@ export function SkeletonCircle({
   )
 }
 
-/* 卡片骨架 — 模拟论文卡片 */
+/* 卡片骨架 — 模拟论文卡片（贴合 HomePage 最近解析卡片布局） */
 export function SkeletonCard({ className = '', style }: SkeletonBase) {
   return (
     <div
@@ -72,11 +72,13 @@ export function SkeletonCard({ className = '', style }: SkeletonBase) {
         ...style,
       }}
     >
-      <SkeletonLine width="75%" height={14} style={{ marginBottom: 10 }} />
-      <SkeletonLine width="50%" height={11} style={{ marginBottom: 16 }} />
-      <div className="flex items-center gap-2">
-        <SkeletonLine width={56} height={20} radius="999px" />
-      </div>
+      {/* 标题（两行） */}
+      <SkeletonLine width="92%" height={13} style={{ marginBottom: 8 }} />
+      <SkeletonLine width="64%" height={13} style={{ marginBottom: 12 }} />
+      {/* 会议 / 年份 元信息行 */}
+      <SkeletonLine width="46%" height={11} style={{ marginBottom: 16 }} />
+      {/* 状态徽章 */}
+      <SkeletonLine width={52} height={18} radius="999px" />
     </div>
   )
 }

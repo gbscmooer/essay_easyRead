@@ -383,6 +383,21 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const zoomOut = useCallback(() => setScale(s => Math.max(s - (uiConfig.zoom_step || 0.2), uiConfig.zoom_min || 0.4)), [uiConfig])
   const resetZoom = useCallback(() => setScale(1.0), [])
 
+  // 控制栏按钮统一交互：hover 抬升表面、disabled 钝化、focus 可见
+  const ctrlBtnClass =
+    'inline-flex items-center justify-center h-7 px-2.5 text-sm rounded-lg press focus-glow transition-colors duration-150 disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none'
+  const ctrlBtnStyle: React.CSSProperties = {
+    color: 'var(--text-secondary)',
+    backgroundColor: 'var(--bg-elevated)',
+    transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+  }
+  const onCtrlEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--bg-surface)'
+  }, [])
+  const onCtrlLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'
+  }, [])
+
   return (
     <div className="flex flex-col h-full rounded-lg overflow-hidden relative" style={{ backgroundColor: 'var(--bg-surface)' }}>
       {/* 文本选择弹窗 */}
@@ -391,8 +406,22 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       {/* PDF 内容区 — 连续滚动 */}
       <div ref={scrollRef} className="flex-1 overflow-auto">
         {isLoading && (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+          <div className="w-full h-full flex flex-col items-center justify-center gap-4 py-8 animate-reveal-fade">
+            {/* 页面骨架占位 — 模拟一张正在加载的论文页 */}
+            <div
+              className="skeleton w-[min(80%,520px)] aspect-[1/1.32] flex flex-col gap-3 p-8"
+              style={{ borderRadius: 'var(--seed-radius, 12px)' }}
+              aria-hidden="true"
+            >
+              <div className="skeleton-pulse h-5 w-3/5 rounded" />
+              <div className="skeleton-pulse h-3 w-2/5 rounded" />
+              <div className="mt-4 flex flex-col gap-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="skeleton-pulse h-2.5 rounded" style={{ width: `${88 - (i % 3) * 12}%` }} />
+                ))}
+              </div>
+            </div>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }} role="status">正在加载文档…</span>
           </div>
         )}
         <Document
@@ -445,39 +474,43 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       </div>
 
       {/* 底部控制栏 */}
-      <div className="flex items-center justify-between px-4 py-2 border-t backdrop-blur-sm" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.9, borderColor: 'var(--border)' }}>
+      <div className="glass-toolbar flex items-center justify-between px-4 py-2 border-0 border-t" style={{ borderTopColor: 'var(--border)', borderRadius: 0 }}>
         {/* 翻页控制 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => goToPage(Math.max(1, visiblePage - 1))}
             disabled={visiblePage <= 1}
-            className="px-2 py-1 text-sm rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+            className={ctrlBtnClass}
+            style={ctrlBtnStyle}
+            onMouseEnter={onCtrlEnter}
+            onMouseLeave={onCtrlLeave}
+            aria-label="上一页"
           >
             上一页
           </button>
 
-          <div className="flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="flex items-center gap-1 text-sm px-1" style={{ color: 'var(--text-secondary)' }}>
             <input
               type="text"
               value={pageInput}
               onChange={e => setPageInput(e.target.value)}
               onKeyDown={handlePageInputKeyDown}
               placeholder={String(visiblePage)}
-              className="w-10 text-center rounded text-sm py-0.5 focus:outline-none" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+              aria-label="跳转到页码"
+              className="w-10 h-7 text-center rounded-lg text-sm focus:outline-none focus-glow transition-colors duration-150"
+              style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
             />
-            <span>/ {numPages || '--'}</span>
+            <span className="tabular-nums">/ {numPages || '--'}</span>
           </div>
 
           <button
             onClick={() => goToPage(Math.min(numPages, visiblePage + 1))}
             disabled={visiblePage >= numPages}
-            className="px-2 py-1 text-sm rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+            className={ctrlBtnClass}
+            style={ctrlBtnStyle}
+            onMouseEnter={onCtrlEnter}
+            onMouseLeave={onCtrlLeave}
+            aria-label="下一页"
           >
             下一页
           </button>
@@ -485,28 +518,40 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
         {/* 标注统计 */}
         {annotations.length > 0 && (
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
             {annotations.length} 个标注
           </span>
         )}
 
         {/* 缩放控制 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={zoomOut}
-            className="px-2 py-1 text-sm rounded transition-colors" style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+            className={`${ctrlBtnClass} w-7 px-0 text-base leading-none`}
+            style={ctrlBtnStyle}
+            onMouseEnter={onCtrlEnter}
+            onMouseLeave={onCtrlLeave}
+            aria-label="缩小"
           >
             −
           </button>
           <button
             onClick={resetZoom}
-            className="px-2 py-1 text-xs rounded transition-colors min-w-[3rem] text-center" style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+            className={`${ctrlBtnClass} min-w-[3rem] text-xs tabular-nums`}
+            style={ctrlBtnStyle}
+            onMouseEnter={onCtrlEnter}
+            onMouseLeave={onCtrlLeave}
+            aria-label="重置缩放"
           >
             {Math.round(scale * 100)}%
           </button>
           <button
             onClick={zoomIn}
-            className="px-2 py-1 text-sm rounded transition-colors" style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+            className={`${ctrlBtnClass} w-7 px-0 text-base leading-none`}
+            style={ctrlBtnStyle}
+            onMouseEnter={onCtrlEnter}
+            onMouseLeave={onCtrlLeave}
+            aria-label="放大"
           >
             +
           </button>

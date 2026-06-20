@@ -250,8 +250,23 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const [scrollTop, setScrollTop] = useState(0)
   const [containerHeight, setContainerHeight] = useState(0)
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const mode = useThemeMode()
   const proseClass = mode === 'dark' ? 'prose prose-invert' : 'prose'
+
+  // 复制当前文件内容到剪贴板（纯前端，不触后端）
+  const handleCopy = useCallback(() => {
+    if (content == null) return
+    const write = navigator.clipboard?.writeText?.(content)
+    Promise.resolve(write).then(() => {
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1800)
+    }).catch(() => { /* 剪贴板不可用时静默 */ })
+  }, [content])
+
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
   // Hooks must be called before any early returns
   const notebookCells = useMemo(
@@ -384,8 +399,27 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   return (
     <div ref={containerRef} className="h-full overflow-auto" style={{ backgroundColor: 'var(--code-bg)' }} onScroll={handleScroll}>
       {/* 文件路径 */}
-      <div className="sticky top-0 z-10 px-4 py-2 border-b backdrop-blur-sm" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.9, borderColor: 'var(--border)' }}>
-        <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{filePath}</span>
+      <div className="sticky top-0 z-10 px-4 py-2 border-b backdrop-blur-sm flex items-center justify-between gap-3" style={{ backgroundColor: 'var(--bg-surface)', opacity: 0.95, borderColor: 'var(--border)' }}>
+        <span className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)' }} title={filePath}>{filePath}</span>
+        {content != null && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="focus-glow shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors duration-200"
+            style={{ color: copied ? 'var(--success)' : 'var(--text-muted)', backgroundColor: copied ? 'var(--success-subtle)' : 'transparent' }}
+            onMouseEnter={e => { if (!copied) e.currentTarget.style.color = 'var(--accent)' }}
+            onMouseLeave={e => { if (!copied) e.currentTarget.style.color = 'var(--text-muted)' }}
+            aria-label="复制文件内容"
+            title="复制文件内容"
+          >
+            {copied ? (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+            )}
+            {copied ? '已复制' : '复制'}
+          </button>
+        )}
       </div>
 
       {/* Jupyter Notebook 渲染 */}

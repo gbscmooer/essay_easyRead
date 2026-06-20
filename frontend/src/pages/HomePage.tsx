@@ -373,7 +373,7 @@ export default function HomePage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <p className="text-label" style={{ color: 'var(--text-muted)' }}>最近解析</p>
-            <button onClick={() => navigate('/library')} className="text-[12px] transition-colors hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
+            <button onClick={() => navigate('/library')} className="focus-glow rounded px-1 text-[12px] transition-colors hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
               查看全部 &rarr;
             </button>
           </div>
@@ -410,7 +410,8 @@ export default function HomePage() {
                       {paper.year && <span>{paper.year}</span>}
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                      <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: m.bg, color: m.color }}>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: m.bg, color: m.color }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                         {m.label}
                       </span>
                     </div>
@@ -467,7 +468,7 @@ export default function HomePage() {
             <section>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-label" style={{ color: 'var(--text-muted)' }}>最近工作区</p>
-                <button onClick={() => navigate('/workspace')} className="text-[12px] transition-colors hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
+                <button onClick={() => navigate('/workspace')} className="focus-glow rounded px-1 text-[12px] transition-colors hover:opacity-70" style={{ color: 'var(--text-muted)' }}>
                   查看全部 &rarr;
                 </button>
               </div>
@@ -476,7 +477,7 @@ export default function HomePage() {
                   <button
                     key={ws.id}
                     onClick={() => navigate(`/workspace/${ws.id}`)}
-                    className="group w-full flex items-center gap-3 p-3.5 text-left spotlight card-hover press"
+                    className="group w-full flex items-center gap-3 p-3.5 text-left spotlight card-hover press focus-glow"
                     style={{
                       backgroundColor: 'var(--bg-surface)',
                       border: '1px solid var(--border)',

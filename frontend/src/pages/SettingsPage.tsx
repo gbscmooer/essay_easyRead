@@ -99,7 +99,7 @@ function TabBar({
             role="tab"
             aria-selected={isActive}
             onClick={() => onChange(tab.key)}
-            className="relative flex items-center gap-1.5 px-4 py-1.5 text-[13px] font-medium rounded-full transition-all duration-200"
+            className="press focus-glow relative flex items-center gap-1.5 px-4 py-1.5 text-[13px] font-medium rounded-full transition-all duration-200"
             style={{
               backgroundColor: isActive ? 'var(--accent)' : 'transparent',
               color: isActive ? '#fff' : 'var(--text-secondary)',
@@ -365,17 +365,32 @@ export function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-50 transition-all duration-200"
+          className="press focus-glow inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
           style={{
             backgroundColor: 'var(--accent)',
             color: '#fff',
             transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
           }}
         >
+          {saving && (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          )}
           {saving ? '保存中...' : '保存配置'}
         </button>
         {saved && (
-          <span className="text-[13px]" style={{ color: 'var(--success)' }}>已保存</span>
+          <span
+            className="animate-reveal-scale inline-flex items-center gap-1.5 text-[13px] font-medium"
+            style={{ color: 'var(--success)' }}
+            role="status"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            已保存
+          </span>
         )}
       </div>
     </div>

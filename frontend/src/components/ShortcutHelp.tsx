@@ -21,10 +21,10 @@ function KeyBadge({ k }: { k: string }) {
     <kbd
       className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-[11px] font-mono rounded border"
       style={{
-        backgroundColor: 'var(--bg-elevated)',
+        backgroundColor: 'var(--bg-surface)',
         borderColor: 'var(--border)',
         color: 'var(--text-secondary)',
-        boxShadow: '0 1px 0 var(--border)',
+        boxShadow: '0 1.5px 0 var(--border)',
       }}
     >
       {k}
@@ -85,26 +85,37 @@ export function ShortcutHelp({ open, onClose }: Props) {
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 id="shortcut-help-title" className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>键盘快捷键</h2>
+        <div className="flex items-center justify-between mb-5">
+          <h2 id="shortcut-help-title" className="text-base font-semibold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>键盘快捷键</h2>
           <button
             ref={closeRef}
             onClick={onClose}
-            className="text-sm opacity-60 hover:opacity-100 transition-opacity"
-            style={{ color: 'var(--text-muted)' }}
+            aria-label="关闭"
+            className="press focus-glow flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 opacity-60 hover:opacity-100"
+            style={{ color: 'var(--text-muted)', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
           >
-            ✕
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
-            <h3 className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>全局</h3>
-            <div className="space-y-1.5">
+            <h3 className="text-[11px] font-semibold uppercase mb-2" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>全局</h3>
+            <div className="space-y-0.5">
               {GLOBAL_SHORTCUTS.map((s, i) => (
-                <div key={i} className="flex items-center justify-between py-1">
+                <div
+                  key={i}
+                  className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md transition-colors"
+                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                >
                   <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{s.desc}</span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     {s.keys.map((k, j) => <KeyBadge key={j} k={k} />)}
                   </div>
                 </div>
@@ -112,12 +123,17 @@ export function ShortcutHelp({ open, onClose }: Props) {
             </div>
           </div>
           <div>
-            <h3 className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>阅读页</h3>
-            <div className="space-y-1.5">
+            <h3 className="text-[11px] font-semibold uppercase mb-2" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>阅读页</h3>
+            <div className="space-y-0.5">
               {READER_SHORTCUTS.map((s, i) => (
-                <div key={i} className="flex items-center justify-between py-1">
+                <div
+                  key={i}
+                  className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md transition-colors"
+                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                >
                   <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{s.desc}</span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     {s.keys.map((k, j) => <KeyBadge key={j} k={k} />)}
                   </div>
                 </div>

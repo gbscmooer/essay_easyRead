@@ -235,7 +235,7 @@ export default function ReaderPage() {
               onClick={() => setSidebarOpen(v => !v)}
               aria-label="切换侧边栏"
               aria-expanded={sidebarOpen}
-              className="p-2 rounded-lg transition-all duration-200"
+              className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
               style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
               title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
             >
@@ -253,7 +253,7 @@ export default function ReaderPage() {
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => setFocusMode(true)}
-                className="p-2 rounded-lg transition-all duration-200"
+                className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
                 style={{ color: 'var(--text-muted)' }}
                 title="专注模式"
               >
@@ -268,7 +268,7 @@ export default function ReaderPage() {
                 onClick={() => setPanelOpen(v => !v)}
                 aria-label="切换分析面板"
                 aria-expanded={panelOpen}
-                className="p-2 rounded-lg transition-all duration-200"
+                className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
                 style={{ color: 'var(--text-muted)' }}
                 title={panelOpen ? '收起分析面板' : '展开分析面板'}
               >
@@ -332,7 +332,7 @@ export default function ReaderPage() {
                   <p className="text-[13px] text-center" style={{ color: 'var(--error)' }}>{error}</p>
                   <button
                     onClick={reparse}
-                    className="px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+                    className="focus-glow press px-4 py-2 text-[13px] rounded-full transition-all duration-200 hover:opacity-90"
                     style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                   >
                     重试
@@ -361,7 +361,8 @@ export default function ReaderPage() {
       {focusMode && (
         <button
           onClick={() => setFocusMode(false)}
-          className="fixed top-4 right-4 z-[9999] p-2.5 rounded-full shadow-lg transition-all duration-200 opacity-60 hover:opacity-100"
+          aria-label="退出专注模式"
+          className="focus-glow fixed top-4 right-4 z-[9999] p-2.5 rounded-full shadow-lg transition-all duration-200 opacity-60 hover:opacity-100"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',

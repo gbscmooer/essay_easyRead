@@ -68,6 +68,142 @@ const primaryNav = [
   { path: '/settings', label: '设置' },
 ]
 
+const SEED_RADIUS = 'var(--seed-radius, 12px)'
+
+/* ============================================================
+ * 左轨导航项 — 含 hover 反馈 + active 强调条 + 焦点光晕
+ * ============================================================ */
+
+interface NavRailItemProps {
+  path: string
+  label: string
+  active: boolean
+  collapsed: boolean
+  onClick: (e: React.MouseEvent) => void
+}
+
+function NavRailItem({ path, label, active, collapsed, onClick }: NavRailItemProps) {
+  const [hover, setHover] = useState(false)
+
+  const bg = active
+    ? 'var(--accent-subtle)'
+    : hover
+      ? 'var(--bg-elevated)'
+      : 'transparent'
+
+  return (
+    <Link
+      to={path}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="focus-glow flex items-center gap-3 py-2.5 transition-all duration-200 press"
+      style={{
+        paddingLeft: collapsed ? 0 : 12,
+        paddingRight: collapsed ? 0 : 12,
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        color: active ? 'var(--accent)' : hover ? 'var(--text-primary)' : 'var(--text-secondary)',
+        backgroundColor: bg,
+        borderRadius: SEED_RADIUS,
+        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        position: 'relative',
+      }}
+      title={collapsed ? label : undefined}
+      aria-current={active ? 'page' : undefined}
+    >
+      {/* Active 指示条 */}
+      {active && (
+        <span
+          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full transition-all duration-200"
+          style={{
+            width: 3,
+            height: 20,
+            backgroundColor: 'var(--accent)',
+          }}
+        />
+      )}
+      <span className="shrink-0">
+        {navIcons[path]?.(active)}
+      </span>
+      <span
+        className="text-[13px] whitespace-nowrap transition-all duration-200"
+        style={{
+          fontWeight: active ? 500 : 400,
+          opacity: collapsed ? 0 : 1,
+          width: collapsed ? 0 : 'auto',
+          overflow: 'hidden',
+        }}
+      >
+        {label}
+      </span>
+    </Link>
+  )
+}
+
+/* ============================================================
+ * 二级导航药丸 — hover/active/focus 三态清晰区分
+ * ============================================================ */
+
+interface PillLinkProps {
+  to: string
+  active: boolean
+  state?: unknown
+  onClick?: (e: React.MouseEvent) => void
+  children: React.ReactNode
+}
+
+function PillLink({ to, active, state, onClick, children }: PillLinkProps) {
+  const [hover, setHover] = useState(false)
+  return (
+    <Link
+      to={to}
+      state={state}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="focus-glow px-3 py-1.5 text-[13px] transition-all press"
+      style={
+        active
+          ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500, borderRadius: SEED_RADIUS }
+          : {
+              color: hover ? 'var(--text-primary)' : 'var(--text-muted)',
+              backgroundColor: hover ? 'var(--accent-subtle)' : 'transparent',
+              borderRadius: SEED_RADIUS,
+            }
+      }
+      aria-current={active ? 'page' : undefined}
+    >
+      {children}
+    </Link>
+  )
+}
+
+interface BackLinkProps {
+  to: string
+  label: string
+  onClick: (e: React.MouseEvent) => void
+}
+
+function BackLink({ to, label, onClick }: BackLinkProps) {
+  const [hover, setHover] = useState(false)
+  return (
+    <Link
+      to={to}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="focus-glow text-[12px] px-2 py-1 transition-all press"
+      style={{
+        color: hover ? 'var(--text-primary)' : 'var(--text-muted)',
+        backgroundColor: hover ? 'var(--accent-subtle)' : 'transparent',
+        borderRadius: SEED_RADIUS,
+      }}
+    >
+      {label} &rarr;
+    </Link>
+  )
+}
+
 /* ============================================================
  * 路由辅助
  * ============================================================ */
@@ -97,6 +233,7 @@ export function Layout({ children }: LayoutProps) {
   const paperId = useCurrentPaperId()
   const wsId = useCurrentWorkspaceId()
   const [navCollapsed, setNavCollapsed] = useState(false)
+  const [collapseHover, setCollapseHover] = useState(false)
   const [showVersion, setShowVersion] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
@@ -138,72 +275,49 @@ export function Layout({ children }: LayoutProps) {
 
     secondaryItems.push(
       <div key="paper-tabs" className="flex items-center gap-0.5">
-        <Link
+        <PillLink
           to={`/reader/${paperId}`}
           state={location.state}
+          active={location.pathname.startsWith('/reader')}
           onClick={(e) => handleNavGuard(`/reader/${paperId}`, e, location.state)}
-          className="px-3 py-1.5 text-[13px] rounded-full transition-all press"
-          style={
-            location.pathname.startsWith('/reader')
-              ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500 }
-              : { color: 'var(--text-muted)' }
-          }
         >
           论文分析
-        </Link>
-        <Link
+        </PillLink>
+        <PillLink
           to={`/code/${paperId}`}
           state={location.state}
+          active={location.pathname.startsWith('/code')}
           onClick={(e) => handleNavGuard(`/code/${paperId}`, e, location.state)}
-          className="px-3 py-1.5 text-[13px] rounded-full transition-all press"
-          style={
-            location.pathname.startsWith('/code')
-              ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500 }
-              : { color: 'var(--text-muted)' }
-          }
         >
           源码分析
-        </Link>
+        </PillLink>
       </div>,
       <span key="sep" className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border)' }} />,
-      <Link
+      <BackLink
         key="back"
         to={backTo}
         onClick={(e) => handleNavGuard(backTo, e)}
-        className="text-[12px] px-2 py-1 rounded-full transition-colors"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        {backLabel} &rarr;
-      </Link>,
+        label={backLabel}
+      />,
     )
   }
 
   if (wsId && !paperId) {
     secondaryItems.push(
-      <Link
+      <PillLink
         key="ws-detail"
         to={`/workspace/${wsId}`}
-        className="px-3 py-1.5 text-[13px] rounded-full transition-all"
-        style={
-          location.pathname === `/workspace/${wsId}`
-            ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500 }
-            : { color: 'var(--text-muted)' }
-        }
+        active={location.pathname === `/workspace/${wsId}`}
       >
         论文列表
-      </Link>,
-      <Link
+      </PillLink>,
+      <PillLink
         key="ws-research"
         to={`/workspace/${wsId}/research`}
-        className="px-3 py-1.5 text-[13px] rounded-full transition-all"
-        style={
-          location.pathname.includes('/research')
-            ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500 }
-            : { color: 'var(--text-muted)' }
-        }
+        active={location.pathname.includes('/research')}
       >
         深度研究
-      </Link>,
+      </PillLink>,
     )
   }
 
@@ -228,12 +342,13 @@ export function Layout({ children }: LayoutProps) {
           <button
             onClick={toggleVersion}
             aria-label="Easy Essay"
-            className="flex items-center gap-2.5 p-4 cursor-pointer transition-opacity hover:opacity-80"
+            className="focus-glow flex items-center gap-2.5 p-4 cursor-pointer transition-opacity hover:opacity-80 press"
             style={{
               background: 'none',
               border: 'none',
               color: 'var(--text-primary)',
               justifyContent: navCollapsed ? 'center' : 'flex-start',
+              borderRadius: SEED_RADIUS,
             }}
           >
             <img
@@ -262,62 +377,32 @@ export function Layout({ children }: LayoutProps) {
 
           {/* 导航项 */}
           <div className="flex-1 py-2 px-2 space-y-0.5">
-            {primaryNav.map(item => {
-              const active = isNavActive(item.path, location.pathname)
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={(e) => handleNavGuard(item.path, e)}
-                  className="flex items-center gap-3 py-2.5 rounded-lg transition-all duration-200 press"
-                  style={{
-                    paddingLeft: navCollapsed ? 0 : 12,
-                    paddingRight: navCollapsed ? 0 : 12,
-                    justifyContent: navCollapsed ? 'center' : 'flex-start',
-                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                    backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
-                    position: 'relative',
-                  }}
-                  title={navCollapsed ? item.label : undefined}
-                >
-                  {/* Active indicator bar */}
-                  {active && (
-                    <span
-                      className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full transition-all duration-200"
-                      style={{
-                        width: 3,
-                        height: 20,
-                        backgroundColor: 'var(--accent)',
-                      }}
-                    />
-                  )}
-                  <span className="shrink-0">
-                    {navIcons[item.path]?.(active)}
-                  </span>
-                  <span
-                    className="text-[13px] whitespace-nowrap transition-all duration-200"
-                    style={{
-                      fontWeight: active ? 500 : 400,
-                      opacity: navCollapsed ? 0 : 1,
-                      width: navCollapsed ? 0 : 'auto',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {item.label}
-                  </span>
-                </Link>
-              )
-            })}
+            {primaryNav.map(item => (
+              <NavRailItem
+                key={item.path}
+                path={item.path}
+                label={item.label}
+                active={isNavActive(item.path, location.pathname)}
+                collapsed={navCollapsed}
+                onClick={(e) => handleNavGuard(item.path, e)}
+              />
+            ))}
           </div>
 
           {/* 收起/展开按钮 */}
           <div className="p-3 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
             <button
               onClick={() => setNavCollapsed(v => !v)}
+              onMouseEnter={() => setCollapseHover(true)}
+              onMouseLeave={() => setCollapseHover(false)}
               aria-label={navCollapsed ? '展开侧边栏' : '收起侧边栏'}
               aria-expanded={!navCollapsed}
-              className="w-full flex items-center justify-center p-2 rounded-lg transition-colors"
-              style={{ color: 'var(--text-muted)' }}
+              className="focus-glow w-full flex items-center justify-center p-2 transition-all press"
+              style={{
+                color: collapseHover ? 'var(--text-primary)' : 'var(--text-muted)',
+                backgroundColor: collapseHover ? 'var(--bg-elevated)' : 'transparent',
+                borderRadius: SEED_RADIUS,
+              }}
               title={navCollapsed ? '展开侧边栏' : '收起侧边栏'}
             >
               <svg

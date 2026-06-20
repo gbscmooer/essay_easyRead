@@ -14,6 +14,8 @@ interface CodeTabProps {
 export function CodeTab({ paperId }: CodeTabProps) {
   const [paper, setPaper] = useState<Paper | null>(null)
   const [searching, setSearching] = useState(false)
+  // 纯展示层：复制反馈，不触后端、不改既有数据流
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (paperId) {
@@ -38,6 +40,15 @@ export function CodeTab({ paperId }: CodeTabProps) {
   const codeUrl = paper?.code_url
   const codeStatus = paper?.code_status || 'none'
 
+  const handleCopyUrl = useCallback(() => {
+    if (!codeUrl) return
+    const full = codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`
+    navigator.clipboard?.writeText(full).then(
+      () => { setCopied(true); window.setTimeout(() => setCopied(false), 1600) },
+      () => { /* clipboard 不可用时静默 */ },
+    )
+  }, [codeUrl])
+
   return (
     <div className="space-y-6">
       <section>
@@ -52,20 +63,40 @@ export function CodeTab({ paperId }: CodeTabProps) {
               </svg>
               <span>已找到代码仓库</span>
             </div>
-            <a
-              href={codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-[13px] break-all transition-opacity hover:opacity-80"
-              style={{ color: 'var(--accent)' }}
-            >
-              {codeUrl}
-            </a>
+            <div className="flex items-start gap-2">
+              <a
+                href={codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 min-w-0 text-[13px] break-all transition-opacity hover:opacity-80 focus-glow rounded"
+                style={{ color: 'var(--accent)' }}
+              >
+                {codeUrl}
+              </a>
+              <button
+                onClick={handleCopyUrl}
+                aria-label={copied ? '已复制仓库地址' : '复制仓库地址'}
+                title={copied ? '已复制' : '复制地址'}
+                className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-full transition-all duration-200 focus-glow press"
+                style={{ color: copied ? 'var(--success)' : 'var(--text-muted)', border: '1px solid var(--border)', backgroundColor: 'var(--bg-elevated)', transitionTimingFunction: SPRING }}
+              >
+                {copied ? (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+                {copied ? '已复制' : '复制'}
+              </button>
+            </div>
             <div className="flex items-center gap-2 pt-1">
               {codeStatus === 'none' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-200"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-200 focus-glow press"
                   style={{ backgroundColor: 'var(--accent)', color: '#ffffff', transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.9' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
@@ -79,7 +110,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
               {codeStatus === 'ready' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-full transition-all duration-200 focus-glow press"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
@@ -102,7 +133,15 @@ export function CodeTab({ paperId }: CodeTabProps) {
             </div>
           </div>
         ) : (
-          <div className="rounded-xl p-6 text-center space-y-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="rounded-xl p-6 text-center space-y-3.5 flex flex-col items-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center"
+              style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+            </div>
             <div>
               <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>未找到公开的源码地址</p>
               <p className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>论文中未发现 GitHub/GitLab 等代码仓库链接</p>
@@ -110,9 +149,9 @@ export function CodeTab({ paperId }: CodeTabProps) {
             <button
               onClick={handleResearch}
               disabled={searching}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full disabled:opacity-50 transition-all duration-200"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 focus-glow press"
               style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { if (!searching) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
             >
               {searching ? (

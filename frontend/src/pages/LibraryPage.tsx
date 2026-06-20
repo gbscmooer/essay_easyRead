@@ -271,12 +271,15 @@ export default function LibraryPage() {
             <button
               onClick={handleReindex}
               disabled={reindexing}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full press focus-glow transition-all duration-200 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed disabled:pointer-events-none"
               style={{
                 color: 'var(--accent)',
                 border: '1px solid var(--border)',
+                backgroundColor: reindexing ? 'var(--accent-subtle)' : 'transparent',
                 transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               }}
+              onMouseEnter={e => { if (!reindexing) { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
+              onMouseLeave={e => { if (!reindexing) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)' } }}
             >
               <svg
                 className={`w-3.5 h-3.5 ${reindexing ? 'animate-spin' : ''}`}

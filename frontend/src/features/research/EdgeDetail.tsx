@@ -51,8 +51,10 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
             {edge.kind === 'cites' ? '引用详情' : '相似度详情'}
           </h3>
           <button
+            type="button"
             onClick={onClose}
-            className="text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+            aria-label="关闭引用详情"
+            className="focus-glow press text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
             style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
           >
             关闭

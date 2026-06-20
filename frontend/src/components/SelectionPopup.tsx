@@ -307,8 +307,12 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
       }}
     >
       <div
-        className="rounded-lg shadow-2xl overflow-hidden cursor-move select-none transition-colors"
-        style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}
+        className="rounded-lg shadow-2xl overflow-hidden cursor-move select-none transition-colors animate-reveal-scale"
+        style={{
+          backgroundColor: 'var(--bg-elevated)',
+          border: '1px solid var(--border-light)',
+          boxShadow: '0 16px 40px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.10)',
+        }}
         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-muted)' }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-light)' }}
         onMouseDown={(e) => {
@@ -332,32 +336,39 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('translate')}
               aria-label="翻译"
-              className="px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
             >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
               翻译
             </button>
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('summarize')}
               aria-label="总结"
-              className="px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
             >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
+              </svg>
               总结
             </button>
             <div className="w-px h-5 mx-0.5" style={{ backgroundColor: 'var(--border)' }} />
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('highlight')}
-              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              aria-label="荧光笔"
+              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
               title="荧光笔"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -367,10 +378,11 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('underline')}
-              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              aria-label="下划线"
+              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
               title="下划线"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -381,10 +393,11 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
             <button
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('strikethrough')}
-              className="px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              aria-label="删除线"
+              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--accent)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
               title="删除线"
             >
               <svg className="w-3.5 h-3.5 inline-block mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,17 +418,18 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
                   key={c.value}
                   onMouseDown={e => e.stopPropagation()}
                   onClick={() => handleColorSelect(c.value)}
-                  className="w-6 h-6 rounded-full border-2 transition-colors"
+                  aria-label={c.name}
+                  className="press w-6 h-6 rounded-full border-2 transition-all duration-150"
                   style={{ backgroundColor: c.value, borderColor: 'var(--border)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-primary)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text-primary)'; e.currentTarget.style.transform = 'scale(1.12)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'scale(1)' }}
                   title={c.name}
                 />
               ))}
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => setShowColorPicker(false)}
-                className="ml-1 text-xs transition-colors"
+                className="press ml-1 text-xs transition-colors"
                 style={{ color: 'var(--text-muted)' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}

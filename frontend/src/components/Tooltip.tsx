@@ -84,13 +84,19 @@ export function Tooltip({ content, children, delay = 1500, placement = 'bottom',
         <div
           ref={tipRef}
           role="tooltip"
-          className={`fixed z-[9999] pointer-events-none rounded-lg px-3 py-2 text-xs shadow-lg border max-w-xs leading-relaxed transition-opacity duration-150 ${open ? 'opacity-100' : 'opacity-0'}`}
+          className={`fixed z-[9999] pointer-events-none rounded-lg px-3 py-2 text-xs shadow-lg border max-w-xs leading-relaxed transition-[opacity,transform] duration-150 ${open ? 'opacity-100' : 'opacity-0'}`}
           style={{
             top: coords.top,
             left: 0,             // useLayoutEffect 会重写
             backgroundColor: 'var(--bg-elevated)',
             color: 'var(--text-primary)',
             borderColor: 'var(--border)',
+            transformOrigin: placement === 'bottom' ? 'top center' : 'bottom center',
+            transform: open
+              ? 'translateY(0) scale(1)'
+              : `translateY(${placement === 'bottom' ? '-4px' : '4px'}) scale(0.97)`,
+            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)',
           }}
         >
           {content}

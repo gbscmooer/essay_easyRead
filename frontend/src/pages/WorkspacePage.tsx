@@ -4,11 +4,28 @@
  * 不对称标题 + surface-lifted 卡片 + 药丸创建按钮。
  */
 
-import { useState, useEffect, useCallback, type CSSProperties } from 'react'
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
+
+
+/** 相对时间展示（纯展示，无副作用）；解析失败时回退到本地日期。 */
+function formatRelativeTime(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const diff = Date.now() - t
+  if (diff < 0) return '刚刚'
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} 小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 7) return `${day} 天前`
+  return new Date(t).toLocaleDateString('zh-CN')
+}
 
 
 export default function WorkspacePage() {
@@ -18,6 +35,7 @@ export default function WorkspacePage() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
+  const createInputRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(() => {
     listWorkspaces()
@@ -101,55 +119,87 @@ export default function WorkspacePage() {
       {/* 新建工作区 */}
       <div className="flex items-center gap-2.5 mb-8">
         <input
+          ref={createInputRef}
           type="text"
           value={newName}
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
           placeholder="输入工作区名称..."
-          className="flex-1 px-4 py-2.5 text-[13px] transition-colors duration-200"
+          aria-label="工作区名称"
+          className="flex-1 px-4 py-2.5 text-[13px] transition-all duration-200 placeholder-gray-600"
           style={{
             borderRadius: 'var(--seed-radius, 12px)',
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
             color: 'var(--text-primary)',
             outline: 'none',
+            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+          }}
+          onFocus={e => {
+            e.currentTarget.style.borderColor = 'var(--accent)'
+            e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-subtle)'
+          }}
+          onBlur={e => {
+            e.currentTarget.style.borderColor = 'var(--border)'
+            e.currentTarget.style.boxShadow = 'none'
           }}
         />
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="px-5 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-50 transition-all duration-200 shrink-0 btn-glow sheen"
+          aria-busy={creating}
+          className="px-5 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shrink-0 btn-glow sheen press inline-flex items-center justify-center gap-2"
           style={{
             backgroundColor: 'var(--accent)',
             color: '#fff',
             transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
           }}
         >
-          {creating ? '创建中...' : '新建工作区'}
+          {creating && (
+            <span
+              className="w-3.5 h-3.5 border-2 rounded-full animate-spin"
+              style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }}
+              aria-hidden="true"
+            />
+          )}
+          {creating ? '创建中…' : '新建工作区'}
         </button>
       </div>
 
       {/* 工作区列表 */}
       {workspaces.length === 0 ? (
-        <div className="text-center py-16">
+        <div className="text-center py-16 animate-reveal-up">
           <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            className="group/empty w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-reveal-scale transition-transform duration-500 hover:scale-105"
             style={{
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border)',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
             }}
           >
             <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"
               strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-              style={{ color: 'var(--text-muted)' }}>
+              className="transition-transform duration-500 group-hover/empty:scale-110"
+              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}>
               <rect x="2" y="7" width="20" height="14" rx="2" />
               <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
             </svg>
           </div>
-          <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>暂无工作区</p>
-          <p className="text-[12px] mt-1" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
+          <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>暂无工作区</p>
+          <p className="text-[12px] mt-1 mb-5" style={{ color: 'var(--text-muted)' }}>
             创建一个工作区，开始组织你的论文
           </p>
+          <button
+            onClick={() => createInputRef.current?.focus()}
+            className="px-5 py-2.5 text-[13px] font-medium rounded-full transition-all duration-200 btn-glow sheen press"
+            style={{
+              backgroundColor: 'var(--accent)',
+              color: '#fff',
+              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            }}
+          >
+            + 新建工作区
+          </button>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
@@ -160,7 +210,7 @@ export default function WorkspacePage() {
               tabIndex={0}
               onClick={() => navigate(`/workspace/${ws.id}`)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
-              className="relative p-5 cursor-pointer card-hover press spotlight focus-glow transition-all group flex flex-col gap-4"
+              className="relative p-5 cursor-pointer hover-lift press spotlight focus-glow group flex flex-col gap-4"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
@@ -177,8 +227,11 @@ export default function WorkspacePage() {
                 </span>
                 <button
                   onClick={(e) => handleDelete(ws.id, e)}
-                  className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] rounded-full transition-all duration-200"
+                  aria-label={`删除工作区 ${ws.name}`}
+                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 px-2.5 py-1 text-[11px] rounded-full transition-all duration-200 press"
                   style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)'; e.currentTarget.style.borderColor = 'var(--error)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)' }}
                 >
                   删除
                 </button>
@@ -188,11 +241,15 @@ export default function WorkspacePage() {
                   {ws.name}
                 </h3>
                 <p className="text-[12px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                  更新于 {new Date(ws.updated_at).toLocaleDateString('zh-CN')}
+                  更新于 {formatRelativeTime(ws.updated_at)}
                 </p>
               </div>
               <div className="flex items-center">
-                <span className="text-[11px] px-2.5 py-1 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                  <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
                   {ws.paper_count} 篇论文
                 </span>
               </div>

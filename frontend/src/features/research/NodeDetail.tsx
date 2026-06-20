@@ -52,8 +52,10 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
         <div className="flex items-center justify-between">
           <h3 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>节点详情</h3>
           <button
+            type="button"
             onClick={onClose}
-            className="text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+            aria-label="关闭节点详情"
+            className="focus-glow press text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
             style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
           >
             关闭
@@ -128,9 +130,10 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
           {/* 未解读的论文：提供按需「图谱速读」 */}
           {node.meta.paper_id && readLevel === 'none' && (
             <button
+              type="button"
               onClick={handleDigest}
               disabled={digesting}
-              className="block w-full text-center py-2 text-[12px] font-medium rounded-full transition-colors mt-1 disabled:opacity-50"
+              className="focus-glow press block w-full text-center py-2 text-[12px] font-medium rounded-full transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ border: '1px solid var(--success)', color: 'var(--success)' }}
             >
               {digesting ? '速读中…' : '速读这篇（轻量，省 token）'}
@@ -140,7 +143,7 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
           {node.meta.paper_id && (
             <Link
               to={`/reader/${node.meta.paper_id}`}
-              className="block w-full text-center py-2 text-[12px] font-medium rounded-full transition-opacity hover:opacity-90 mt-1"
+              className="focus-glow press block w-full text-center py-2 text-[12px] font-medium rounded-full transition-opacity hover:opacity-90 mt-1"
               style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
             >
               查看论文精读 &rarr;

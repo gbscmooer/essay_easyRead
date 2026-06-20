@@ -113,7 +113,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
           </p>
           <button
             onClick={onStartAnalysis}
-            className="px-6 py-2.5 text-[13px] font-medium rounded-full transition-all duration-200"
+            className="px-6 py-2.5 text-[13px] font-medium rounded-full transition-all duration-200 focus-glow press"
             style={{
               backgroundColor: 'var(--accent)',
               color: '#ffffff',
@@ -159,7 +159,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
               tabIndex={isActive ? 0 : -1}
               onClick={() => setActiveTab(tab.key)}
               onKeyDown={handleTabKeyDown}
-              className="px-3 py-1.5 text-[13px] transition-all duration-200 rounded-full relative"
+              className="px-3 py-1.5 text-[13px] transition-all duration-200 rounded-full relative focus-glow press"
               title={`${tab.label} (${i + 1})`}
               style={{
                 color: isActive ? 'var(--accent)' : 'var(--text-muted)',
@@ -180,8 +180,10 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
             <button
               onClick={() => setShowReanalyzeConfirm(true)}
               aria-label="重新分析"
-              className="px-2.5 py-1.5 mr-1 text-[12px] rounded-full transition-all duration-200"
+              className="px-2.5 py-1.5 mr-1 text-[12px] rounded-full transition-all duration-200 focus-glow press"
               style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
               title="全部重新分析"
             >
               <svg className="w-3 h-3 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -200,7 +202,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                 onMouseDown={() => setShowReanalyzeConfirm(false)}
               >
                 <div
-                  className="w-[340px] p-6 shadow-2xl"
+                  className="w-[340px] p-6 shadow-2xl animate-reveal-scale"
                   style={{
                     backgroundColor: 'var(--bg-elevated)',
                     border: '1px solid var(--border)',
@@ -232,7 +234,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                   <div className="flex justify-end gap-2.5">
                     <button
                       onClick={() => setShowReanalyzeConfirm(false)}
-                      className="px-4 py-2 text-[13px] rounded-full transition-all duration-200"
+                      className="px-4 py-2 text-[13px] rounded-full transition-all duration-200 focus-glow press"
                       style={{
                         color: 'var(--text-secondary)',
                         backgroundColor: 'transparent',
@@ -244,7 +246,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                     </button>
                     <button
                       onClick={() => { setShowReanalyzeConfirm(false); onReanalyze() }}
-                      className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200"
+                      className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200 focus-glow press"
                       style={{
                         backgroundColor: 'var(--accent)',
                         color: '#fff',

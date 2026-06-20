@@ -71,13 +71,13 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
           onChange={e => setNewContent(e.target.value)}
           placeholder="添加笔记…"
           rows={2}
-          className="flex-1 text-[13px] px-3 py-2.5 rounded-xl resize-none focus:outline-none leading-relaxed"
+          className="flex-1 text-[13px] px-3 py-2.5 rounded-xl resize-none focus:outline-none focus-glow leading-relaxed"
           style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
         />
         <button
           onClick={handleCreate}
           disabled={!newContent.trim()}
-          className="self-end px-4 py-2 text-[13px] font-medium rounded-full transition-opacity disabled:opacity-40 hover:opacity-90"
+          className="self-end px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 focus-glow press"
           style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
         >
           添加
@@ -85,7 +85,17 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       </div>
 
       {notes.length === 0 && (
-        <p className="text-[12px] text-center py-6" style={{ color: 'var(--text-muted)' }}>暂无笔记</p>
+        <div className="flex flex-col items-center gap-2.5 py-8 animate-reveal-fade">
+          <div
+            className="w-10 h-10 rounded-2xl flex items-center justify-center"
+            style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </div>
+          <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>暂无笔记</p>
+        </div>
       )}
 
       {notes.map(note => (
@@ -95,25 +105,26 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
           style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
         >
           {editingId === note.id ? (
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 animate-reveal-fade">
               <textarea
                 value={editContent}
                 onChange={e => setEditContent(e.target.value)}
                 rows={3}
-                className="w-full text-[13px] px-3 py-2 rounded-lg resize-none focus:outline-none leading-relaxed"
+                className="w-full text-[13px] px-3 py-2 rounded-lg resize-none focus:outline-none focus-glow leading-relaxed"
                 style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
               />
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setEditingId(null)}
-                  className="text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+                  className="text-[12px] px-3 py-1.5 rounded-full transition-all duration-200 hover:opacity-80 focus-glow press"
                   style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
                 >
                   取消
                 </button>
                 <button
                   onClick={() => handleUpdate(note.id)}
-                  className="text-[12px] px-3 py-1.5 rounded-full font-medium transition-opacity hover:opacity-90"
+                  disabled={!editContent.trim()}
+                  className="text-[12px] px-3 py-1.5 rounded-full font-medium transition-all duration-200 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed focus-glow press"
                   style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
                 >
                   保存
@@ -130,14 +141,14 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
                 <div className="flex gap-3">
                   <button
                     onClick={() => { setEditingId(note.id); setEditContent(note.content) }}
-                    className="text-[11px] transition-colors hover:opacity-80"
+                    className="text-[11px] transition-colors hover:opacity-80 focus-glow rounded px-1 -mx-1"
                     style={{ color: 'var(--text-muted)' }}
                   >
                     编辑
                   </button>
                   <button
                     onClick={() => handleDelete(note.id)}
-                    className="text-[11px] transition-colors hover:opacity-80"
+                    className="text-[11px] transition-colors hover:opacity-80 focus-glow rounded px-1 -mx-1"
                     style={{ color: 'var(--error)' }}
                   >
                     删除

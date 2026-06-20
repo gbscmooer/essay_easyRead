@@ -44,17 +44,21 @@ export function RagQueryBox({ wsId }: RagQueryBoxProps) {
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleQuery()}
             placeholder="输入你的问题…"
-            className="flex-1 px-3 py-2 text-[12px] rounded-lg focus:outline-none"
+            aria-label="跨论文问答输入"
+            className="flex-1 px-3 py-2 text-[12px] rounded-lg focus:outline-none transition-colors duration-200"
             style={{
               backgroundColor: 'var(--bg-elevated)',
               border: '1px solid var(--border)',
               color: 'var(--text-primary)',
             }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)' }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
           />
           <button
+            type="button"
             onClick={handleQuery}
             disabled={loading || !question.trim()}
-            className="px-3.5 py-2 text-[12px] font-medium rounded-full transition-opacity disabled:opacity-50 hover:opacity-90"
+            className="focus-glow press px-3.5 py-2 text-[12px] font-medium rounded-full transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
             style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
           >
             {loading ? '…' : '提问'}

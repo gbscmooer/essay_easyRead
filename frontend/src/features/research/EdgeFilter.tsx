@@ -25,25 +25,32 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>边类型</span>
-      {EDGE_OPTIONS.map(opt => (
-        <Tooltip key={opt.kind} content={opt.hint}>
-          <button
-            onClick={() => toggle(opt.kind)}
-            className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full border transition-colors ${
-              selected.has(opt.kind) ? 'font-medium' : 'opacity-50'
-            }`}
-            style={
-              selected.has(opt.kind)
-                ? { borderColor: opt.color, color: opt.color, backgroundColor: `${opt.color}15` }
-                : { borderColor: 'var(--border)', color: 'var(--text-muted)' }
-            }
-          >
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: opt.color }} />
-            {opt.label}
-          </button>
-        </Tooltip>
-      ))}
+      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+        边类型{selected.size > 0 ? ` · ${selected.size}` : ''}
+      </span>
+      {EDGE_OPTIONS.map(opt => {
+        const on = selected.has(opt.kind)
+        return (
+          <Tooltip key={opt.kind} content={opt.hint}>
+            <button
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(opt.kind)}
+              className={`focus-glow press flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full border transition-all duration-200 ${
+                on ? 'font-medium' : 'opacity-60 hover:opacity-100'
+              }`}
+              style={
+                on
+                  ? { borderColor: opt.color, color: opt.color, backgroundColor: `${opt.color}15` }
+                  : { borderColor: 'var(--border)', color: 'var(--text-muted)' }
+              }
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: on ? opt.color : 'var(--text-muted)' }} />
+              {opt.label}
+            </button>
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }

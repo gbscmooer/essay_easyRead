@@ -73,7 +73,10 @@ export function ToastContainer() {
                 WebkitBackdropFilter: 'blur(20px) saturate(180%)',
               }}
             >
-              <span className="shrink-0 mt-0.5" style={{ color: c.accent }}>
+              <span
+                className="shrink-0 mt-0.5 flex items-center justify-center w-5 h-5 rounded-full"
+                style={{ color: c.accent, backgroundColor: c.subtle }}
+              >
                 {ICONS[t.type]}
               </span>
               <p className="text-[13px] flex-1 leading-relaxed" style={{ color: 'var(--text-primary)' }}>
@@ -81,12 +84,20 @@ export function ToastContainer() {
               </p>
               <button
                 onClick={() => dismiss(t.id)}
-                className="shrink-0 p-1 rounded-md transition-all duration-200 opacity-50 hover:opacity-100"
+                className="press focus-glow shrink-0 p-1 rounded-md transition-all duration-200 opacity-50 hover:opacity-100"
                 style={{
                   color: 'var(--text-muted)',
                   backgroundColor: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--text-muted)'
                 }}
                 aria-label="关闭"
               >

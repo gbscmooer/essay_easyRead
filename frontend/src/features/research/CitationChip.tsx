@@ -10,10 +10,10 @@ export function CitationChip({ citation, index }: CitationChipProps) {
   return (
     <Link
       to={`/reader/${citation.paper_id}`}
-      className="block px-3.5 py-2.5 rounded-xl transition-all duration-200"
+      className="focus-glow block px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:-translate-y-px"
       style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+      onMouseEnter={e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = 'var(--accent)'; t.style.boxShadow = '0 4px 14px -6px rgba(0,0,0,0.25)' }}
+      onMouseLeave={e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = 'var(--border)'; t.style.boxShadow = 'none' }}
     >
       <div className="flex items-start gap-2">
         <span className="text-[11px] font-mono font-semibold shrink-0 mt-px tabular-nums" style={{ color: 'var(--accent)' }}>

@@ -124,15 +124,19 @@ export default function CodePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex flex-col items-center justify-center gap-3 h-full animate-reveal-fade">
         <LoadingSpinner size="lg" />
+        <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>正在加载代码与分析…</p>
       </div>
     )
   }
 
   if (error || !paper) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex flex-col items-center justify-center gap-2 h-full animate-reveal-fade">
+        <svg className="w-8 h-8 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error)' }} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+        </svg>
         <p className="text-[13px]" style={{ color: 'var(--error)' }}>{error || '论文不存在'}</p>
       </div>
     )
@@ -149,8 +153,10 @@ export default function CodePage() {
               href={paper.code_url.startsWith('http') ? paper.code_url : `https://${paper.code_url}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200"
+              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200 press focus-glow"
               style={{ color: 'var(--text-muted)' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.backgroundColor = '' }}
             >
               原始仓库 ↗
             </a>
@@ -158,16 +164,19 @@ export default function CodePage() {
           {paper.code_status === 'ready' && (
             <button
               onClick={() => { if (paper?.code_path) openInVSCode(paper.code_path) }}
-              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200"
+              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200 press focus-glow"
               style={{ color: 'var(--text-muted)' }}
               title="在 VSCode 中打开"
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.backgroundColor = '' }}
             >
               VSCode ↗
             </button>
           )}
           {cloneStatus && (
-            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full"
-              style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}>
+            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
+              style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+              title="正在从远程仓库拉取代码，请稍候…">
               <div className="w-3 h-3 border-[1.5px] rounded-full animate-spin"
                 style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
               {cloneStatus}
@@ -176,15 +185,17 @@ export default function CodePage() {
           {!analysis && !isAnalyzing && !cloneStatus && (
             <button
               onClick={handleAnalyze}
-              className="px-4 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200"
+              className="px-4 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200 press focus-glow hover-lift"
               style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+              title="克隆代码仓库并运行 AI 代码分析"
             >
               开始分析
             </button>
           )}
           {isAnalyzing && !cloneStatus && (
-            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full"
-              style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}>
+            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
+              style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+              title="AI 正在分析代码结构与论文映射，请稍候…">
               <div className="w-3 h-3 border-[1.5px] rounded-full animate-spin"
                 style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
               正在分析...
@@ -202,9 +213,12 @@ export default function CodePage() {
               <h3 className="text-label" style={{ color: 'var(--text-muted)' }}>文件</h3>
               <button
                 onClick={() => setLeftCollapsed(true)}
-                className="p-1 rounded-md transition-all duration-200"
+                className="p-1 rounded-md transition-all duration-200 press focus-glow"
                 style={{ color: 'var(--text-muted)' }}
                 title="收起文件栏"
+                aria-label="收起文件栏"
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.backgroundColor = '' }}
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -219,11 +233,14 @@ export default function CodePage() {
         {leftCollapsed && (
           <button
             onClick={() => setLeftCollapsed(false)}
-            className="absolute left-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200"
+            className="absolute left-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200 focus-glow group"
             style={{ backgroundColor: 'var(--bg-surface)', borderRight: '1px solid var(--border)' }}
             title="展开文件栏"
+            aria-label="展开文件栏"
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+            <svg className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
@@ -232,17 +249,23 @@ export default function CodePage() {
         {/* 左侧拖拽条 */}
         {!leftCollapsed && (
           <div
-            className="shrink-0 cursor-col-resize transition-colors duration-200 group flex items-center justify-center"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整文件栏宽度"
+            title="拖拽调整文件栏宽度"
+            className="shrink-0 cursor-col-resize transition-all duration-200 group flex items-center justify-center relative"
             style={{ width: 4, backgroundColor: 'var(--border)' }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent)'; e.currentTarget.style.opacity = '0.5' }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--border)'; e.currentTarget.style.opacity = '1' }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--accent-subtle)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--border)'; e.currentTarget.style.boxShadow = '' }}
             onMouseDown={(e) => {
               e.preventDefault()
               dragType.current = 'left'
               document.body.style.cursor = 'col-resize'
               document.body.style.userSelect = 'none'
             }}
-          />
+          >
+            <span className="absolute h-8 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
+          </div>
         )}
 
         {/* 中间：代码查看器 */}
@@ -253,28 +276,37 @@ export default function CodePage() {
         {/* 右侧拖拽条 */}
         {!rightCollapsed && (
           <div
-            className="shrink-0 cursor-col-resize transition-colors duration-200 group flex items-center justify-center"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整分析栏宽度"
+            title="拖拽调整分析栏宽度"
+            className="shrink-0 cursor-col-resize transition-all duration-200 group flex items-center justify-center relative"
             style={{ width: 4, backgroundColor: 'var(--border)' }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent)'; e.currentTarget.style.opacity = '0.5' }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--border)'; e.currentTarget.style.opacity = '1' }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--accent-subtle)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--border)'; e.currentTarget.style.boxShadow = '' }}
             onMouseDown={(e) => {
               e.preventDefault()
               dragType.current = 'right'
               document.body.style.cursor = 'col-resize'
               document.body.style.userSelect = 'none'
             }}
-          />
+          >
+            <span className="absolute h-8 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
+          </div>
         )}
 
         {/* 右侧展开 */}
         {rightCollapsed && (
           <button
             onClick={() => setRightCollapsed(false)}
-            className="absolute right-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200"
+            className="absolute right-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200 focus-glow group"
             style={{ backgroundColor: 'var(--bg-surface)', borderLeft: '1px solid var(--border)' }}
             title="展开分析栏"
+            aria-label="展开分析栏"
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
+            <svg className="w-3.5 h-3.5 transition-transform duration-200 group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
