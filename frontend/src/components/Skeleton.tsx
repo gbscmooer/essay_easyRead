@@ -61,16 +61,12 @@ export function SkeletonCircle({
   )
 }
 
-/* 卡片骨架 — 模拟论文卡片（贴合 HomePage 最近解析卡片布局） */
+/* 列表骨架 — 模拟论文列表行 */
 export function SkeletonCard({ className = '', style }: SkeletonBase) {
   return (
     <div
-      className={`skeleton-pulse p-5 ${className}`}
-      style={{
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--seed-radius, 12px)',
-        ...style,
-      }}
+      className={`skeleton-pulse py-5 list-row ${className}`}
+      style={style}
     >
       {/* 标题（两行） */}
       <SkeletonLine width="92%" height={13} style={{ marginBottom: 8 }} />

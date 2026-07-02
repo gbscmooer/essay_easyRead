@@ -40,12 +40,10 @@ export default function AIModelSection({
 
   return (
     <div
-      className="rounded-xl border p-5 space-y-4"
+      className="panel-section space-y-4"
       style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderColor: keyMissing
-          ? 'color-mix(in srgb, var(--error) 50%, transparent)'
-          : 'var(--border)',
+        borderLeft: keyMissing ? '3px solid var(--error)' : undefined,
+        paddingLeft: keyMissing ? '0.75rem' : undefined,
       }}
     >
       <div>

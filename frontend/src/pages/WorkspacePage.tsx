@@ -202,7 +202,7 @@ export default function WorkspacePage() {
           </button>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+        <div className="stagger">
           {workspaces.map((ws, i) => (
             <div
               key={ws.id}
@@ -210,49 +210,33 @@ export default function WorkspacePage() {
               tabIndex={0}
               onClick={() => navigate(`/workspace/${ws.id}`)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
-              className="relative p-5 cursor-pointer hover-lift press spotlight focus-glow group flex flex-col gap-4"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--seed-radius, 12px)',
-                '--i': i,
-              } as CSSProperties}
+              className="relative list-row card-hover press focus-glow group flex items-center gap-4"
+              style={{ '--i': i } as CSSProperties}
             >
-              <div className="flex items-start justify-between">
-                <span
-                  className="flex items-center justify-center w-11 h-11 rounded-2xl text-[16px] font-semibold"
-                  style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
-                >
-                  {(ws.name.trim()[0] || '·').toUpperCase()}
-                </span>
-                <button
-                  onClick={(e) => handleDelete(ws.id, e)}
-                  aria-label={`删除工作区 ${ws.name}`}
-                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 px-2.5 py-1 text-[11px] rounded-full transition-all duration-200 press"
-                  style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)'; e.currentTarget.style.borderColor = 'var(--error)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                >
-                  删除
-                </button>
-              </div>
-              <div>
+              <span
+                className="flex items-center justify-center w-10 h-10 rounded-md text-[15px] font-semibold shrink-0"
+                style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
+              >
+                {(ws.name.trim()[0] || '·').toUpperCase()}
+              </span>
+              <div className="flex-1 min-w-0">
                 <h3 className="text-[15px] font-medium truncate" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                   {ws.name}
                 </h3>
-                <p className="text-[12px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                  更新于 {formatRelativeTime(ws.updated_at)}
+                <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  更新于 {formatRelativeTime(ws.updated_at)} · {ws.paper_count} 篇论文
                 </p>
               </div>
-              <div className="flex items-center">
-                <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                  <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  </svg>
-                  {ws.paper_count} 篇论文
-                </span>
-              </div>
+              <button
+                onClick={(e) => handleDelete(ws.id, e)}
+                aria-label={`删除工作区 ${ws.name}`}
+                className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 px-2.5 py-1 text-[11px] rounded-md transition-all duration-200 press shrink-0"
+                style={{ color: 'var(--text-muted)' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
+              >
+                删除
+              </button>
             </div>
           ))}
         </div>

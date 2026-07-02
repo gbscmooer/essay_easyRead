@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.24.0'
+const APP_VERSION = '1.24.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-06-20',
+  date: '2026-07-02',
   changes: [
-    '全站 UI 重设计基线：对标 claude.ai 暖纸 + 黏土橙风格，macOS Finder 风可折叠侧栏 + 毛玻璃二级导航 + 首页粒子/打字机 Hero',
-    '统一 seed token 主题系统与签名缓动动效，骨架屏/加载态/空态/错误态体系化',
-    '全前端人机交互打磨：hover/focus/过渡、可访问性(aria/focus-visible)、间距与字号层级一致性（不改动任何功能）',
+    '全站去卡片化：列表行/分隔线替代圆角方框，首页统计横条、论文库与工作区改平面列表',
+    '全局样式收敛：禁用聚光与悬停抬升，card-hover 改为淡色背景反馈，圆角收窄至 6px',
+    '分析 Tab 与设置页统一 panel-section / content-section 布局，功能不变',
   ],
 }
 

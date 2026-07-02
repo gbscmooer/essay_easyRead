@@ -27,11 +27,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
 
   return (
     <div
-      className="rounded-xl border p-5 space-y-4"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderColor: 'var(--border)',
-      }}
+      className="panel-section space-y-4"
     >
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>

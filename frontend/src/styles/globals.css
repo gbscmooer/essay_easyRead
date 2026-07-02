@@ -24,7 +24,7 @@
   --seed-accent: #cc785c;
   --seed-accent-rgb: 204, 120, 92;
   --seed-muted: #8a8478;
-  --seed-radius: 12px;
+  --seed-radius: 6px;
 
   /* 衬线 display 字体 —— 仅暖纸主题启用，营造印刷/编辑质感 */
   --font-display: 'Source Serif 4 Variable', 'Source Serif 4', Georgia, 'Songti SC', 'Times New Roman', serif;
@@ -78,7 +78,7 @@
   --seed-accent: #60a5fa;
   --seed-accent-rgb: 96, 165, 250;
   --seed-muted: #707070;
-  --seed-radius: 12px;
+  --seed-radius: 6px;
 
   /* Derived — surface stepping */
   --bg-base: var(--seed-bg);
@@ -358,26 +358,20 @@ select:focus-visible {
 }
 
 /* ============================================================
- * 卡片 Hover 效果 — 表面微提升
+ * 行级 Hover — 平面化，无抬升/阴影
  * ============================================================ */
 .card-hover {
-  transition:
-    border-color 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    box-shadow 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: background-color 0.15s var(--spring-ease), color 0.15s var(--spring-ease);
 }
 .card-hover:hover {
-  border-color: var(--border-light) !important;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.05),
-    0 8px 24px -6px rgba(0, 0, 0, 0.10);
-  transform: translateY(-2px);
+  background-color: color-mix(in srgb, var(--accent-subtle) 55%, transparent) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
-.card-hover:active { transform: translateY(-1px) scale(0.995); }
-[data-mode="dark"] .card-hover:hover {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.25),
-    0 8px 24px -6px rgba(0, 0, 0, 0.22);
+.card-hover:active {
+  background-color: var(--accent-subtle) !important;
+  transform: none !important;
 }
 
 /* ============================================================
@@ -595,18 +589,15 @@ select:focus-visible {
   animation-delay: calc(var(--stagger-step, 55ms) * var(--i, 0));
 }
 
-/* 悬停抬升 — 比 card-hover 更明显，用于磁贴/特性卡 */
+/* 行级悬停 — 与 card-hover 一致，保留类名兼容 */
 .hover-lift {
-  transition:
-    transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94),
-    box-shadow 0.28s cubic-bezier(0.25,0.46,0.45,0.94),
-    border-color 0.28s cubic-bezier(0.25,0.46,0.45,0.94);
-  will-change: transform;
+  transition: background-color 0.15s var(--spring-ease);
 }
 .hover-lift:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 14px 36px -10px rgba(0,0,0,0.18);
-  border-color: var(--border-light);
+  transform: none;
+  box-shadow: none;
+  background-color: color-mix(in srgb, var(--accent-subtle) 55%, transparent);
+  border-color: transparent;
 }
 
 /* 按压反馈 — 任意可点元素加 .press */
@@ -680,21 +671,9 @@ select:focus-visible {
 [data-mode="dark"] .app-aurora::before { opacity: 0.34; }
 [data-mode="dark"] .app-aurora::after  { opacity: 0.26; }
 
-/* 聚光卡片 —— 光晕跟随鼠标（JS 写入 --mx/--my） */
-.spotlight { position: relative; isolation: isolate; }
-.spotlight::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%),
-              rgba(var(--seed-accent-rgb), 0.16), transparent 60%);
-  opacity: 0;
-  transition: opacity 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
-  pointer-events: none;
-}
-.spotlight:hover::before { opacity: 1; }
+/* 聚光效果已弃用 — 保留类名避免破坏布局 */
+.spotlight { position: relative; }
+.spotlight::before { display: none; }
 
 /* 辉光按钮 —— 强调色光晕 + 上浮 */
 .btn-glow {
@@ -733,6 +712,59 @@ select:focus-visible {
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================
+ * 平面布局 — 替代卡片容器
+ * ============================================================ */
+.panel-section {
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--border);
+}
+.panel-section:first-child,
+.panel-section.first {
+  border-top: none;
+  padding-top: 0;
+}
+
+.list-row {
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 0.15s var(--spring-ease);
+  background: transparent;
+  border-radius: 0;
+}
+.list-row:hover {
+  background-color: color-mix(in srgb, var(--accent-subtle) 50%, transparent);
+}
+.list-row:active {
+  background-color: var(--accent-subtle);
+}
+
+.content-section {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+.content-section:last-child {
+  border-bottom: none;
+}
+
+.stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.stat-strip > * {
+  flex: 1 1 0;
+  min-width: 120px;
+  padding: 1rem 1.25rem;
+  border-right: 1px solid var(--border);
+}
+.stat-strip > *:last-child {
+  border-right: none;
 }
 
 /* 无障碍：尊重系统「减少动态效果」，一键降级所有动效 */

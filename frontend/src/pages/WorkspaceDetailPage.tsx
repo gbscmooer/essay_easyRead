@@ -474,14 +474,12 @@ function PaperCard({ paper, workspaceId, variant, selected, onToggleSelect, onNa
   const isDiscovered = variant === 'discovered'
   return (
     <div
-      className="p-4 group transition-all duration-200 cursor-pointer card-hover press spotlight"
+      className="list-row group card-hover press"
       style={{
-        backgroundColor: isDiscovered ? 'transparent' : 'var(--bg-surface)',
-        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
-        borderStyle: isDiscovered ? 'dashed' : 'solid',
-        borderRadius: 'var(--seed-radius, 12px)',
-        boxShadow: selected ? '0 0 0 1px var(--accent)' : undefined,
-        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        borderBottomStyle: isDiscovered ? 'dashed' : 'solid',
+        backgroundColor: selected ? 'var(--accent-subtle)' : undefined,
+        borderLeft: selected ? '2px solid var(--accent)' : undefined,
+        paddingLeft: selected ? 'calc(0.875rem - 2px)' : undefined,
       }}
       role="button"
       tabIndex={0}

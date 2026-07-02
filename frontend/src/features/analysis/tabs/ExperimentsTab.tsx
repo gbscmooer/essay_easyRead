@@ -196,7 +196,7 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
   const clickable = !!pageNum && !!onJumpToPage
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div className="content-section overflow-hidden">
       {/* 图表标题 */}
       <div className="px-4 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between gap-2">
@@ -349,7 +349,7 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
       {experiments.ablation && (
         <section>
           <h2 className="text-heading text-[15px] mb-2.5" style={{ color: 'var(--text-primary)' }}>消融实验</h2>
-          <div className="rounded-xl p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="content-section">
             <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{experiments.ablation}</p>
           </div>
         </section>

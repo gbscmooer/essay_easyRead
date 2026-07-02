@@ -69,7 +69,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
   }
 
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+    <div className="panel-section space-y-4">
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>解读提示词</h2>
         <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>

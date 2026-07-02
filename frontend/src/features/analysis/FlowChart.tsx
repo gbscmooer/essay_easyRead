@@ -141,7 +141,7 @@ export function FlowChart({ chart }: FlowChartProps) {
 
   if (error) {
     return (
-      <div className="rounded-xl p-4 overflow-auto" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="py-4 overflow-auto" style={{ borderTop: '1px solid var(--border)' }}>
         <p className="text-[13px] mb-2" style={{ color: 'var(--error)' }}>流程图渲染失败</p>
         <pre className="text-[12px] whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{chart}</pre>
       </div>
@@ -149,7 +149,7 @@ export function FlowChart({ chart }: FlowChartProps) {
   }
 
   return (
-    <div ref={containerRef} className="mermaid rounded-xl p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+    <div ref={containerRef} className="mermaid py-4 overflow-auto flex justify-center" style={{ borderTop: '1px solid var(--border)' }}>
       {svg ? (
         <div dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }} />
       ) : (

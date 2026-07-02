@@ -68,8 +68,8 @@ export function InterviewTab({ result }: InterviewTabProps) {
           return (
             <div
               key={idx}
-              className="rounded-xl overflow-hidden transition-all duration-200"
-              style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
+              className="content-section overflow-hidden transition-all duration-200"
+              style={{ transitionTimingFunction: SPRING }}
             >
               {/* 问题 */}
               <button
@@ -140,7 +140,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
 
                   {/* 解释 — surface-tint 高亮 */}
                   {explanation && (
-                    <div className="ml-9 rounded-xl p-3.5" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--border)' }}>
+                    <div className="ml-9 py-3" style={{ backgroundColor: 'var(--accent-subtle)' }}>
                       <p className="text-label mb-1.5" style={{ color: 'var(--accent)' }}>深入解释</p>
                       <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
                         {explanation}

@@ -22,10 +22,7 @@ interface SectionProps {
 
 /* ── 通用样式常量 ─────────────────────────────────── */
 
-const CARD: React.CSSProperties = {
-  backgroundColor: 'var(--bg-surface)',
-  borderColor: 'var(--border)',
-}
+const CARD: React.CSSProperties = {}
 
 const LABEL: React.CSSProperties = { color: 'var(--text-muted)' }
 
@@ -66,7 +63,7 @@ function PillButton({
 
 export function EmbeddingSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -234,7 +231,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
 
 export function ResearchProviderSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
           深度研究 — 论文扩展源
@@ -389,7 +386,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
 
 export function RerankerSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -497,7 +494,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
 
 export function SimilaritySection({ config, setConfig, simProviders }: SectionProps & { simProviders: string[] }) {
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
           论文级相似度计算（Similarity Provider）
@@ -563,7 +560,7 @@ export function SimilaritySection({ config, setConfig, simProviders }: SectionPr
 
 export function ArxivExpandSection({ config, setConfig }: SectionProps) {
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -709,7 +706,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
         : 'var(--error, #ef4444)'
 
   return (
-    <div className="rounded-xl border p-5 space-y-4" style={CARD}>
+    <div className="panel-section space-y-4" style={CARD}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>

@@ -101,8 +101,7 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
       {notes.map(note => (
         <div
           key={note.id}
-          className="rounded-xl p-3.5"
-          style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
+          className="list-row"
         >
           {editingId === note.id ? (
             <div className="space-y-2.5 animate-reveal-fade">

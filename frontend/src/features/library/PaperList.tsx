@@ -325,8 +325,7 @@ export const PaperList = memo(function PaperList({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.paper_id) } }}
                 role="button"
                 tabIndex={0}
-                className="p-4 rounded-xl cursor-pointer card-hover hover-lift press spotlight focus-glow transition-all"
-                style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                className="list-row card-hover press focus-glow"
               >
                 <h3 className="text-sm font-medium mb-1 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                   <span className="truncate">
@@ -385,11 +384,7 @@ export const PaperList = memo(function PaperList({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
                 role="button"
                 tabIndex={0}
-                className="flex items-center justify-between p-4 rounded-xl cursor-pointer card-hover hover-lift press spotlight focus-glow group"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border)',
-                }}
+                className="flex items-center justify-between list-row card-hover press focus-glow group"
               >
                 <div className="flex-1 min-w-0 mr-4">
                   <h3 className="text-sm font-medium truncate mb-1" style={{ color: 'var(--text-primary)' }}>

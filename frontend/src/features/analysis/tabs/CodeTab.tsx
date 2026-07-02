@@ -55,7 +55,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
         <h2 className="text-heading text-[15px] mb-3.5" style={{ color: 'var(--text-primary)' }}>代码仓库</h2>
 
         {codeUrl ? (
-          <div className="rounded-xl p-5 space-y-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="panel-section space-y-3.5">
             <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--success)' }}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
@@ -133,7 +133,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
             </div>
           </div>
         ) : (
-          <div className="rounded-xl p-6 text-center space-y-3.5 flex flex-col items-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="content-section text-center space-y-3.5 flex flex-col items-center">
             <div
               className="w-11 h-11 rounded-2xl flex items-center justify-center"
               style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}

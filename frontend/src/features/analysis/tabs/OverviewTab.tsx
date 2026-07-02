@@ -225,8 +225,8 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* One-sentence contribution — surface-tinted highlight (no left-border accent card) */}
       {result.one_sentence && (
         <div
-          className="rounded-2xl p-5"
-          style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--border)' }}
+          className="py-4"
+          style={{ backgroundColor: 'var(--accent-subtle)' }}
         >
           <p className="text-label mb-2" style={{ color: 'var(--accent)' }}>核心一句</p>
           <p className="text-[15px] leading-relaxed" style={{ color: 'var(--text-primary)', letterSpacing: '-0.005em' }}>
@@ -371,16 +371,16 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
         </div>
 
         {relatedPapers.length > 0 ? (
-          <div className="space-y-2.5">
+          <div>
             {relatedPapers.map((paper, idx) => {
               const selected = importMode && selectedIndices.has(idx)
               return (
                 <div
                   key={idx}
-                  className="rounded-xl p-4 transition-all duration-200"
+                  className="list-row transition-all duration-200"
                   style={selected
-                    ? { backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent)', transitionTimingFunction: SPRING }
-                    : { backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
+                    ? { backgroundColor: 'var(--accent-subtle)', borderLeft: '2px solid var(--accent)', paddingLeft: 'calc(0.875rem - 2px)', transitionTimingFunction: SPRING }
+                    : { transitionTimingFunction: SPRING }}
                 >
                   <div className="flex items-start gap-3">
                     {/* Checkbox (import mode only) */}
@@ -457,8 +457,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
           </div>
         ) : relatedStatus === 'failed' && !isRefreshing ? (
           <div
-            className="text-center py-8 rounded-xl"
-            style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
+            className="text-center py-8"
           >
             <p className="text-[13px] mb-1" style={{ color: 'var(--error)' }}>相关论文搜索超时或失败</p>
             <p className="text-[12px] mb-3" style={{ color: 'var(--text-muted)' }}>不影响其他分析结果，可手动重试</p>
@@ -491,7 +490,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
         {/* Import progress */}
         {isImporting && importProgress && (
-          <div className="mt-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="mt-3 content-section">
             <div className="flex items-center gap-2.5 mb-2.5">
               <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
               <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
@@ -512,7 +511,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
 
         {/* Import results summary — subtle text tints */}
         {importResults && !isImporting && (
-          <div className="mt-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="mt-3 content-section">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>导入完成</span>
               <button
@@ -587,10 +586,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
                     key={ws.id}
                     onClick={() => handleImportToWorkspace(ws.id)}
                     disabled={isImporting}
-                    className="w-full text-left px-3.5 py-2.5 rounded-xl transition-all duration-200 disabled:opacity-50"
-                    style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
-                    onMouseEnter={e => { if (!isImporting) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)' }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+                    className="w-full text-left list-row card-hover transition-all duration-200 disabled:opacity-50"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{ws.name}</span>

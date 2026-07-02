@@ -193,13 +193,7 @@ function TypewriterText({
 function StatTile({ label, value, hint, i }: { label: string; value: number; hint?: string; i: number }) {
   return (
     <div
-      className="relative p-4 spotlight card-hover overflow-hidden"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--seed-radius, 12px)',
-        '--i': i,
-      } as CSSProperties}
+      style={{ '--i': i } as CSSProperties}
     >
       <div className="text-display text-[30px] leading-none tabular-nums" style={{ color: 'var(--text-primary)' }}>
         {value}
@@ -217,15 +211,10 @@ function QuickTile({ icon, title, desc, onClick, i }: { icon: ReactNode; title: 
   return (
     <button
       onClick={onClick}
-      className="group w-full flex items-center gap-3.5 p-4 text-left spotlight card-hover press focus-glow"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--seed-radius, 12px)',
-        '--i': i,
-      } as CSSProperties}
+      className="group w-full flex items-center gap-3.5 py-3.5 text-left list-row card-hover press focus-glow"
+      style={{ '--i': i } as CSSProperties}
     >
-      <span className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+      <span className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
         {icon}
       </span>
       <span className="flex-1 min-w-0">
@@ -350,7 +339,7 @@ export default function HomePage() {
       </div>
 
       {/* 统计带 */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 stagger">
+      <div className="stat-strip mb-6 stagger">
         <StatTile i={0} label="论文库" value={stats.papers} hint="已上传精读" />
         <StatTile i={1} label="工作区" value={stats.workspaces} hint={`${stats.wsPapers} 篇藏书`} />
         <StatTile i={2} label="扩展发现" value={stats.expanded} hint="深度研究联网" />
@@ -379,11 +368,11 @@ export default function HomePage() {
           </div>
 
           {loading ? (
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
           ) : recentPapers.length > 0 ? (
-            <div className="grid sm:grid-cols-2 gap-3 stagger">
+            <div className="stagger">
               {recentPapers.map((paper, i) => {
                 const m = statusMeta(paper.status)
                 return (
@@ -393,13 +382,8 @@ export default function HomePage() {
                     tabIndex={0}
                     onClick={() => navigate(`/reader/${paper.id}`)}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/reader/${paper.id}`) } }}
-                    className="p-5 cursor-pointer card-hover press focus-glow spotlight transition-all"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--seed-radius, 12px)',
-                      '--i': i,
-                    } as CSSProperties}
+                    className="list-row card-hover press focus-glow"
+                    style={{ '--i': i } as CSSProperties}
                   >
                     <h3 className="text-[13px] font-medium mb-2 line-clamp-2 leading-snug" style={{ color: 'var(--text-primary)' }}>
                       {paper.title || paper.filename}
@@ -422,9 +406,9 @@ export default function HomePage() {
           ) : (
             <div
               className="flex flex-col items-center justify-center text-center py-14 px-6"
-              style={{ border: '1px dashed var(--border-light)', borderRadius: 'var(--seed-radius, 12px)' }}
+              style={{ borderBottom: '1px dashed var(--border-light)' }}
             >
-              <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+              <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ color: 'var(--accent)' }}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                 </svg>
@@ -439,7 +423,7 @@ export default function HomePage() {
         <div className="space-y-6">
           <section>
             <p className="text-label mb-4" style={{ color: 'var(--text-muted)' }}>快捷入口</p>
-            <div className="space-y-2.5 stagger">
+            <div className="space-y-0 stagger">
               <QuickTile
                 i={0}
                 title="论文库"
@@ -472,20 +456,15 @@ export default function HomePage() {
                   查看全部 &rarr;
                 </button>
               </div>
-              <div className="space-y-2 stagger">
+              <div className="stagger">
                 {recentWorkspaces.slice(0, 4).map((ws, i) => (
                   <button
                     key={ws.id}
                     onClick={() => navigate(`/workspace/${ws.id}`)}
-                    className="group w-full flex items-center gap-3 p-3.5 text-left spotlight card-hover press focus-glow"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--seed-radius, 12px)',
-                      '--i': i,
-                    } as CSSProperties}
+                    className="group w-full flex items-center gap-3 py-3 text-left list-row card-hover press focus-glow"
+                    style={{ '--i': i } as CSSProperties}
                   >
-                    <span className="shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-[13px] font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                    <span className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md text-[13px] font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
                       {ws.name.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="flex-1 min-w-0">
