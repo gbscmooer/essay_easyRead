@@ -340,7 +340,8 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         except Exception as e:
             logger.warning(f"auto tagging failed for paper {paper_id}: {e}")
 
-        update_paper_status(session, paper_id, "done")
+        with Session(engine) as session:
+            update_paper_status(session, paper_id, "done")
 
         # 主体已落库，断点缓存不再需要
         clear_cache(paper_id)

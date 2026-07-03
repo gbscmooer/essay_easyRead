@@ -690,7 +690,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
       setFpInstalled(resp.findpapers_installed)
       setResults(prev => ({ ...prev, ...Object.fromEntries(resp.results.map(r => [r.database, r])) }))
     } catch (e) {
-      setTestError((e as { detail?: string })?.detail || '测试失败')
+      setTestError(e instanceof Error ? e.message : '测试失败')
     } finally {
       setTesting(prev => ({ ...prev, ...Object.fromEntries(dbs.map(d => [d, false])) }))
     }

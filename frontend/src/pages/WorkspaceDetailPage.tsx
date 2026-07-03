@@ -33,7 +33,7 @@ import { WorkspaceInnovationPanel } from '@/features/workspace/WorkspaceInnovati
 export default function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const workspaceId = Number(id)
+  const workspaceId = Number(id) || 0
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null)
   const [insights, setInsights] = useState<WorkspaceInsightResponse | null>(null)

@@ -289,7 +289,7 @@ def build_workspace_reading_plan(
     selected = _target_closure(target_paper_id, profiles, prereq_map)
 
     if not graph_available or not edges:
-        selected = _target_closure(target_paper_id, profiles, defaultdict(set))
+        selected = set(profiles)
     stages_by_pid = _layered_order(selected, profiles, scores, prereq_map)
     total_stages = max(stages_by_pid.values(), default=0)
     stage_papers: dict[int, list[WorkspaceReadingPlanPaper]] = defaultdict(list)

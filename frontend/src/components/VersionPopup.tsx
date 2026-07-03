@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.26.0'
+const APP_VERSION = '1.26.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-07-03',
   changes: [
-    '工作区新增自适应阅读路径：按引用前置、年份和图谱权重分阶段推荐阅读顺序',
-    '工作区新增综述矩阵：自动汇总研究任务、方法、数据集、基线、贡献和局限性',
-    '新增 Agent Tools 与 MCP 服务，支持外部 Agent 检索论文、图谱邻域和证据片段',
-    '深度研究流增加心跳与完成态回放，提升 SSE 断线重连稳定性',
+    '修复 PDF 解析完成后误标为失败的问题（自动打标签后会话已关闭）',
+    '修复深度研究 RAG 问答在 OpenAI 兼容 API 下无法调用的问题',
+    '深度研究启动时拦截 pending 任务，重启后自动清理孤儿 run，避免双 pipeline 竞态',
+    '修复无引文图谱时阅读路径只显示单篇论文的问题',
   ],
 }
 

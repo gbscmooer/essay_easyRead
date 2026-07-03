@@ -67,11 +67,11 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
         if not ws:
             raise HTTPException(404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
 
-        # 拒绝同时存在 running 任务
+        # 拒绝同时存在未结束任务（pending 窗口内连点也会命中，避免双 pipeline 竞态）
         existing = session.exec(
             select(ResearchRun)
             .where(ResearchRun.workspace_id == ws_id)
-            .where(ResearchRun.status == "running")
+            .where(ResearchRun.status.in_(["running", "pending"]))
         ).first()
         if existing:
             raise HTTPException(409, detail={"detail": "已有运行中的研究任务", "code": "RESEARCH_RUNNING"})
@@ -279,7 +279,7 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
                                 tgt_node = paper_nodes.get(tgt_id)
                                 if src_node and tgt_node:
                                     cites_relations.append(f"《{src_node.get('label')}》引用了《{tgt_node.get('label')}》")
-                        except ValueError:
+                        except (ValueError, TypeError):
                             pass
 
                 for hit in hits:
@@ -297,7 +297,7 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
                             try:
                                 if int(top_node["id"]) != pid:
                                     top_paper_info = f"，该聚类代表性文献为《{top_node['label']}》（影响力: {top_node['importance']}）"
-                            except ValueError:
+                            except (ValueError, TypeError, KeyError):
                                 pass
                         
                         context_item = (
@@ -310,12 +310,15 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
                 if graph_contexts:
                     graph_context_str = "\n【学术文献网络拓扑与聚类上下文】:\n" + "\n".join(graph_contexts)
                 if cites_relations:
-                    graph_context_str += "\n\n【文献引用关系】:\n" + "\n".join(cites_relations)
+                    if graph_context_str:
+                        graph_context_str += "\n\n【文献引用关系】:\n" + "\n".join(cites_relations)
+                    else:
+                        graph_context_str = "\n【文献引用关系】:\n" + "\n".join(cites_relations)
         except Exception as ge:
             logger.warning(f"Graph context enhancement failed: {ge}")
 
     # 调用 LLM 用 hits 生成回答
-    from ..services.ai_analyzer import _create_client
+    from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format, _extract_text
     from ..services.ai_config import get_analysis_config
     cfg = get_analysis_config()
     context = "\n\n".join(
@@ -327,18 +330,46 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         f"必须使用中文，并用 [编号] 标注引用。\n\n问题：{req.question}\n\n"
         f"资料：\n{context}\n{graph_context_str}"
     )
-    client = _create_client(cfg["api_key"], cfg["base_url"])
-    try:
-        msg = await client.messages.create(
-            model=cfg["model"], max_tokens=2048,
-            system="你是学术研究助手，必须基于提供的资料与文献网络关系回答，引用编号写在文末。",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
-        answer = msg.content[0].text.strip()
+    system_msg = "你是学术研究助手，必须基于提供的资料与文献网络关系回答，引用编号写在文末。"
+    api_key = cfg.get("api_key", "")
+    base_url = cfg.get("base_url", "")
+    model = cfg.get("model", "")
 
-    finally:
-        await client.close()
+    if not api_key:
+        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
+
+    try:
+        if _is_openai_format(base_url):
+            client = _create_openai_client(api_key, base_url)
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    max_tokens=2048,
+                    temperature=0.2,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                answer = (resp.choices[0].message.content or "").strip()
+            finally:
+                await client.close()
+        else:
+            client = _create_client(api_key, base_url)
+            try:
+                msg = await client.messages.create(
+                    model=model,
+                    max_tokens=2048,
+                    system=system_msg,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                )
+                answer = _extract_text(msg).strip()
+            finally:
+                await client.close()
+    except Exception as e:
+        logger.error(f"RAG query failed: {e}")
+        raise HTTPException(status_code=500, detail={"detail": f"AI 回答生成失败: {str(e)}", "code": "LLM_ERROR"})
 
     return RagQueryResponse(
         answer=answer,

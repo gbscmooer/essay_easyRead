@@ -39,12 +39,12 @@ class EventBus:
     async def publish(self, evt: StreamEvent):
         if self._closed:
             return
-        for q in self._subscribers:
+        for q in list(self._subscribers):
             await q.put(evt)
 
     async def close(self):
         self._closed = True
-        for q in self._subscribers:
+        for q in list(self._subscribers):
             await q.put(None)
 
 

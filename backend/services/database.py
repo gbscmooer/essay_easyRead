@@ -185,10 +185,10 @@ def init_db(database_url: str) -> None:
 
 
 def reconcile_interrupted_runs(engine=None) -> int:
-    """启动自愈：把上次进程被杀时残留为 running 的研究任务标记为 failed。
+    """启动自愈：把上次进程被杀时残留为 running/pending 的研究任务标记为 failed。
 
     进程刚启动，内存里不可能有真正在跑的 pipeline 任务（后台任务随进程一起死了）；
-    任何仍是 running 的 ResearchRun 都是上次异常退出（kill / 崩溃 / 重启）留下的孤儿。
+    任何仍是 running 或 pending 的 ResearchRun 都是上次异常退出留下的孤儿。
     不重置的话：①前端 getLatestRun 会一直把 UI 锁成「运行中」且无进度；
     ②create_run 会因「已有运行中任务」永远返回 409，连新任务都发不起。
 
@@ -198,17 +198,18 @@ def reconcile_interrupted_runs(engine=None) -> int:
     if engine is None:
         engine = get_engine()
     now = datetime.now(timezone.utc)
+    orphan_statuses = ("running", "pending")
     # 用 Core 批量 UPDATE（而非逐个 ORM flush）：单条 SQL，且不触发 FK 依赖排序，
     # 即使在「未 import 全部模型」的孤立调用下也能安全执行。
     from sqlalchemy import update as _sa_update
     with Session(engine) as session:
         ids = session.exec(
-            select(ResearchRun.id).where(ResearchRun.status == "running")
+            select(ResearchRun.id).where(ResearchRun.status.in_(orphan_statuses))
         ).all()
         if ids:
             session.exec(
                 _sa_update(ResearchRun)
-                .where(ResearchRun.status == "running")
+                .where(ResearchRun.status.in_(orphan_statuses))
                 .values(
                     status="failed",
                     error_message="后端重启导致任务中断（启动时自动标记为失败）",

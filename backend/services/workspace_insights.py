@@ -38,7 +38,7 @@ def _priority(level: str) -> int:
 
 
 def _paper_id_from_node(node_id: str) -> int | None:
-    if not node_id.startswith("paper:"):
+    if not isinstance(node_id, str) or not node_id.startswith("paper:"):
         return None
     try:
         return int(node_id.split(":", 1)[1])
@@ -239,6 +239,7 @@ def build_workspace_insights(workspace_id: int) -> WorkspaceInsightResponse:
         top_papers = sorted(
             paper_records,
             key=lambda p: (_priority(p.read_level), p.year or 0, p.paper_id),
+            reverse=True,
         )[:_TOP_LIMIT]
         bridge_papers = []
 

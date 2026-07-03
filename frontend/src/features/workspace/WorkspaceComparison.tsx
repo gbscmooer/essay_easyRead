@@ -102,12 +102,12 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
 
     setPaperAId(prev => (prev !== null && paperMap.has(prev) ? prev : firstPaperId))
     setPaperBId(prev => {
-      if (prev !== null && paperMap.has(prev) && prev !== (paperAId ?? firstPaperId)) {
+      if (prev !== null && paperMap.has(prev) && prev !== firstPaperId) {
         return prev
       }
       return secondPaperId
     })
-  }, [papers, firstPaperId, secondPaperId, paperMap, paperAId])
+  }, [papers, firstPaperId, secondPaperId, paperMap])
 
   useEffect(() => {
     if (!comparison) return
