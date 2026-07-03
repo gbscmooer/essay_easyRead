@@ -56,10 +56,10 @@ curl http://localhost:8000/api/analysis/{paper_id} > system_result.json
 
 ```bash
 # 单篇评估
-python -m backend.tests.evaluate --paper-id resnet --system-result system_result.json
+python -m backend.tests.evaluation.evaluate --paper-id resnet --system-result system_result.json
 
 # 与 baseline 对比
-python -m backend.tests.evaluate --paper-id resnet --system-result system_result.json --baseline-result baseline_result.json
+python -m backend.tests.evaluation.evaluate --paper-id resnet --system-result system_result.json --baseline-result baseline_result.json
 ```
 
 ### 4. 输出示例

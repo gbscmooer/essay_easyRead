@@ -6,6 +6,7 @@ EventBus — 进程内事件总线
 """
 
 import asyncio
+from contextlib import suppress
 from typing import AsyncIterator
 from ...models.schemas import StreamEvent
 
@@ -20,16 +21,24 @@ class EventBus:
     def subscribe(self) -> AsyncIterator[StreamEvent]:
         q: asyncio.Queue = asyncio.Queue()
         self._subscribers.append(q)
+        if self._closed:
+            q.put_nowait(None)
         return self._iter(q)
 
     async def _iter(self, q):
-        while True:
-            evt = await q.get()
-            if evt is None:
-                return
-            yield evt
+        try:
+            while True:
+                evt = await q.get()
+                if evt is None:
+                    return
+                yield evt
+        finally:
+            with suppress(ValueError):
+                self._subscribers.remove(q)
 
     async def publish(self, evt: StreamEvent):
+        if self._closed:
+            return
         for q in self._subscribers:
             await q.put(evt)
 

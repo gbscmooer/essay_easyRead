@@ -20,15 +20,55 @@ const API_BASE = '/api'  // Vite proxy 会转发到后端
 /**
  * 解析错误响应体，抛出结构化错误
  */
+function normalizeErrorBody(body: unknown, fallbackDetail: string, fallbackCode: string) {
+  if (!body || typeof body !== 'object') {
+    return { detail: fallbackDetail, code: fallbackCode }
+  }
+
+  const payload = body as Record<string, unknown>
+  const rawDetail = payload.detail
+
+  if (typeof rawDetail === 'string') {
+    return {
+      detail: rawDetail || fallbackDetail,
+      code: typeof payload.code === 'string' ? payload.code : fallbackCode,
+    }
+  }
+
+  if (rawDetail && typeof rawDetail === 'object' && !Array.isArray(rawDetail)) {
+    const nested = rawDetail as Record<string, unknown>
+    return {
+      detail: typeof nested.detail === 'string' ? nested.detail : fallbackDetail,
+      code: typeof nested.code === 'string' ? nested.code : fallbackCode,
+    }
+  }
+
+  if (Array.isArray(rawDetail) && rawDetail.length > 0) {
+    const first = rawDetail[0] as Record<string, unknown>
+    const msg = typeof first?.msg === 'string' ? first.msg : fallbackDetail
+    const loc = Array.isArray(first?.loc) ? first.loc.join('.') : ''
+    return {
+      detail: loc ? `${loc}: ${msg}` : msg,
+      code: typeof payload.code === 'string' ? payload.code : fallbackCode,
+    }
+  }
+
+  return {
+    detail: fallbackDetail,
+    code: typeof payload.code === 'string' ? payload.code : fallbackCode,
+  }
+}
+
 async function parseError(res: Response): Promise<never> {
   let detail = res.statusText || 'Unknown Error'
   let code = String(res.status)
   try {
     const text = await res.text()
     if (text) {
-      const body: ApiError = JSON.parse(text)
-      detail = body.detail || detail
-      code = body.code || code
+      const body = JSON.parse(text) as ApiError | Record<string, unknown>
+      const parsed = normalizeErrorBody(body, detail, code)
+      detail = parsed.detail
+      code = parsed.code
     }
   } catch {
     // 响应体不是 JSON，使用默认错误信息

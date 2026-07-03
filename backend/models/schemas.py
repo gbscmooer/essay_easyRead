@@ -218,6 +218,107 @@ class WorkspaceInsightResponse(BaseModel):
     updated_at: datetime
 
 
+class WorkspaceReadingPlanPaper(BaseModel):
+    """阅读路径中的论文节点。"""
+
+    paper_id: int
+    title: str
+    venue: Optional[str] = None
+    year: Optional[int] = None
+    source: str = "uploaded"
+    read_level: str = "none"
+    detail_level: str = "metadata"
+    cluster_label: Optional[str] = None
+    stage: int
+    score: float = 0.0
+    prerequisites: list[int] = []
+    reason: str = ""
+
+
+class WorkspaceReadingPlanStage(BaseModel):
+    """阅读路径阶段。"""
+
+    stage: int
+    label: str
+    objective: str
+    papers: list[WorkspaceReadingPlanPaper] = []
+
+
+class WorkspaceReadingPlanEdge(BaseModel):
+    """阅读路径依赖边。"""
+
+    source_paper_id: int
+    target_paper_id: int
+    kind: str
+    weight: float = 1.0
+    reason: str = ""
+
+
+class WorkspaceReadingPlanResponse(BaseModel):
+    """工作区自适应阅读路径响应。"""
+
+    workspace_id: int
+    target_paper_id: Optional[int] = None
+    graph_available: bool
+    strategy: str
+    coverage: dict
+    stages: list[WorkspaceReadingPlanStage] = []
+    edges: list[WorkspaceReadingPlanEdge] = []
+    updated_at: datetime
+
+
+class WorkspaceSurveyMatrixRow(BaseModel):
+    """工作区综述矩阵中的单篇论文。"""
+
+    paper_id: int
+    title: str
+    venue: Optional[str] = None
+    year: Optional[int] = None
+    detail_level: str = "metadata"
+    task: str = ""
+    method: str = ""
+    datasets: list[str] = []
+    baselines: list[str] = []
+    contributions: list[str] = []
+    limitations: str = ""
+    code_concepts: list[str] = []
+
+
+class WorkspaceSurveyCluster(BaseModel):
+    """工作区综述中的子方向聚合。"""
+
+    label: str
+    paper_count: int
+    paper_ids: list[int] = []
+    years: list[int] = []
+    common_methods: list[str] = []
+    datasets: list[str] = []
+    summary: str = ""
+
+
+class WorkspaceSurveyDraftSection(BaseModel):
+    """自动综述草稿片段。"""
+
+    key: str
+    title: str
+    content: str
+
+
+class WorkspaceSurveyResponse(BaseModel):
+    """工作区综述与对比矩阵响应。"""
+
+    workspace_id: int
+    paper_count: int
+    detail_counts: dict[str, int]
+    topics: list[str] = []
+    datasets: list[str] = []
+    baselines: list[str] = []
+    matrix: list[WorkspaceSurveyMatrixRow] = []
+    clusters: list[WorkspaceSurveyCluster] = []
+    draft_sections: list[WorkspaceSurveyDraftSection] = []
+    updated_at: datetime
+
+
 class WorkspaceComparisonPaper(BaseModel):
     """工作区论文对比中的单篇论文摘要。"""
 
@@ -343,3 +444,56 @@ class RagQueryResponse(BaseModel):
     """RAG 问答响应"""
     answer: str
     citations: list[RagCitation]
+
+
+# ============================================================
+# Agent Tool / MCP 相关 Schema
+# ============================================================
+
+
+class AgentToolDescriptor(BaseModel):
+    """可供 MCP 或外部 Agent 调用的工具描述。"""
+
+    name: str
+    description: str
+    input_schema: dict
+
+
+class AgentToolManifestResponse(BaseModel):
+    """Agent 工具清单。"""
+
+    tools: list[AgentToolDescriptor]
+
+
+class PaperSearchRequest(BaseModel):
+    """Agent 论文检索请求。"""
+
+    query: str = Field(..., min_length=1, max_length=1000)
+    workspace_id: Optional[int] = None
+    limit: int = Field(10, ge=1, le=50)
+    include_expanded: bool = True
+
+
+class EvidenceRequest(BaseModel):
+    """Agent 证据片段检索请求。"""
+
+    query: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(5, ge=1, le=20)
+    paper_ids: Optional[list[int]] = None
+
+
+class GraphNeighborsRequest(BaseModel):
+    """Agent 图谱邻域请求。"""
+
+    paper_id: int
+    depth: int = Field(1, ge=1, le=2)
+    limit: int = Field(50, ge=1, le=200)
+    edge_kinds: Optional[list[str]] = None
+
+
+class DevBriefRequest(BaseModel):
+    """基于论文证据生成开发任务 brief。"""
+
+    goal: str = Field(..., min_length=1, max_length=4000)
+    top_k: int = Field(6, ge=1, le=20)
+    paper_ids: Optional[list[int]] = None

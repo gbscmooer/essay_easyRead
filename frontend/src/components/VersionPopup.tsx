@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.25.0'
+const APP_VERSION = '1.26.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-07-03',
   changes: [
-    '工作区新增论文对比：可比较研究问题、方法、实验、代码映射与推荐阅读顺序',
-    '工作区新增研究洞察：展示子方向、关键论文、桥梁论文与下一步阅读建议',
-    '深度研究新增 cross_encoder 相似度 Provider，支持使用 reranker 精排图谱候选边',
-    '论文分析完成后自动生成标签，标签栏会在解析结束后刷新',
+    '工作区新增自适应阅读路径：按引用前置、年份和图谱权重分阶段推荐阅读顺序',
+    '工作区新增综述矩阵：自动汇总研究任务、方法、数据集、基线、贡献和局限性',
+    '新增 Agent Tools 与 MCP 服务，支持外部 Agent 检索论文、图谱邻域和证据片段',
+    '深度研究流增加心跳与完成态回放，提升 SSE 断线重连稳定性',
   ],
 }
 

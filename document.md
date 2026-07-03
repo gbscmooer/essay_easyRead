@@ -34,12 +34,29 @@
 3. pipeline 依次执行 `collect -> expand -> chunk -> embed -> graph -> persist`
 4. `/api/research/workspaces/{ws_id}/graph` 返回图谱快照
 5. `/api/research/workspaces/{ws_id}/query` 提供 RAG 问答
+6. `/api/research/runs/{run_id}/stream` 订阅进程内事件总线；15 秒无事件时发送 SSE 注释心跳；已完成任务回放 `graph_ready/done`；数据库残留但当前进程无事件总线的任务返回 `error` 事件
 
 ### 2.3 工作区洞察链路
 
 1. `/api/workspaces/{workspace_id}/insights` 读取工作区论文与最新图谱
 2. 统计阅读层级、来源、聚类、关键论文、桥梁论文
 3. 前端工作区详情页展示阅读建议与图谱摘要
+
+### 2.4 工作区智能规划链路
+
+1. `/api/workspaces/{workspace_id}/reading-plan` 读取工作区论文画像与最新图谱
+2. 将引用边转换为阅读前置关系，结合年份、解读层级、图谱重要性分阶段排序
+3. `/api/workspaces/{workspace_id}/survey` 读取论文画像生成综述草稿、主题聚合与对比矩阵
+4. 前端工作区详情页展示阅读路径、覆盖统计、综述片段和矩阵
+
+### 2.5 Agent 工具链路
+
+1. MCP 客户端通过 `python -m backend.mcp_server` 启动 stdio 服务
+2. MCP `tools/list` 返回论文检索、证据检索、图谱读取、开发 brief 工具
+3. 工具调用进入 `services/agent_tools.py`
+4. `agent_tools` 只读取 `Paper`、`AnalysisResult`、`ResearchGraph`、向量索引和工作区关联
+5. HTTP 客户端可通过 `/api/agent-tools/*` 使用同一组工具
+6. `/api/agent-tools/workflow/langgraph-spec` 返回论文驱动开发工作流规范
 
 ## 3. 统一约定
 
@@ -178,6 +195,8 @@
 | POST | `/api/workspaces` | `name` | `WorkspaceResponse` | 200 |
 | GET | `/api/workspaces/{workspace_id}` | 路径参数 | `WorkspaceDetailResponse` | 200/404 |
 | GET | `/api/workspaces/{workspace_id}/insights` | 路径参数 | `WorkspaceInsightResponse` | 200/404 |
+| GET | `/api/workspaces/{workspace_id}/reading-plan` | `target_paper_id` 可选 | `WorkspaceReadingPlanResponse` | 200/404 |
+| GET | `/api/workspaces/{workspace_id}/survey` | 路径参数 | `WorkspaceSurveyResponse` | 200/404 |
 | POST | `/api/workspaces/{workspace_id}/compare` | `paper_a_id/paper_b_id` | `WorkspaceComparisonResponse` | 200/400/404 |
 | PUT | `/api/workspaces/{workspace_id}` | `name` | `WorkspaceResponse` | 200/404 |
 | DELETE | `/api/workspaces/{workspace_id}` | 路径参数 | `{"message": ...}` | 200/404 |
@@ -226,6 +245,40 @@
 | WS | `/api/terminal/ws` | PTY 终端 | 101/4003/4029 |
 | POST | `/api/system/open-vscode` | `{"message": ...}` 或 `{"error": ...}` | 200 |
 
+### 5.8 Agent Tools / MCP
+
+| 方法 | 路径 | 主要参数 | 返回 | 状态码 |
+|---|---|---|---|---|
+| GET | `/api/agent-tools/manifest` | 无 | `AgentToolManifestResponse` | 200 |
+| GET | `/api/agent-tools/workspaces` | 无 | 工作区列表 | 200 |
+| GET | `/api/agent-tools/workspaces/{workspace_id}/papers` | 路径参数 | 工作区论文列表 | 200/404 |
+| POST | `/api/agent-tools/papers/search` | `query/workspace_id/limit/include_expanded` | 论文检索结果 | 200/400/404 |
+| GET | `/api/agent-tools/papers/{paper_id}` | 路径参数 | 论文结构化上下文 | 200/404 |
+| GET | `/api/agent-tools/workspaces/{workspace_id}/graph` | 路径参数 | 图谱快照 | 200/404 |
+| POST | `/api/agent-tools/workspaces/{workspace_id}/graph/neighbors` | `paper_id/depth/limit/edge_kinds` | 图谱邻域 | 200/400/404 |
+| POST | `/api/agent-tools/workspaces/{workspace_id}/evidence` | `query/top_k/paper_ids` | 证据片段列表 | 200/400/404 |
+| POST | `/api/agent-tools/workspaces/{workspace_id}/dev-brief` | `goal/top_k/paper_ids` | 论文证据约束开发 brief | 200/400/404 |
+| GET | `/api/agent-tools/workflow/langgraph-spec` | 无 | LangGraph 工作流规范 | 200 |
+
+#### 5.8.1 MCP stdio
+
+| 启动命令 | 工具来源 |
+|---|---|
+| `python -m backend.mcp_server` | `services/agent_tools.py` |
+
+MCP 工具：
+
+| 工具名 | 功能 | 参数 |
+|---|---|---|
+| `paper_search` | 检索本地论文库或工作区论文 | `query/workspace_id/limit/include_expanded` |
+| `paper_get` | 获取单篇论文结构化上下文 | `paper_id` |
+| `paper_retrieve_evidence` | 从工作区向量索引检索证据片段 | `workspace_id/query/top_k/paper_ids` |
+| `graph_get` | 获取工作区图谱快照 | `workspace_id` |
+| `graph_neighbors` | 获取图谱中某论文邻域 | `workspace_id/paper_id/depth/limit/edge_kinds` |
+| `dev_brief` | 生成论文证据约束的开发 brief | `workspace_id/goal/top_k/paper_ids` |
+
+兼容旧工具名：`list_workspaces`、`list_papers_in_workspace`、`get_paper_analysis`、`get_citation_graph`、`query_workspace_rag`。
+
 ## 6. 前端结构
 
 ### 6.1 页面
@@ -234,7 +287,7 @@
 - `ReaderPage`：PDF 预览、解析结果、标签、笔记、标注
 - `LibraryPage`：论文库检索、筛选、全文搜索
 - `WorkspacePage`：工作区列表
-- `WorkspaceDetailPage`：工作区论文管理、洞察
+- `WorkspaceDetailPage`：工作区论文管理、洞察、阅读路径、综述矩阵
 - `ResearchPage`：图谱构建、RAG、节点/边详情
 - `CodePage`：代码分析与终端
 - `SettingsPage`：模型、主题、研究配置
@@ -245,6 +298,7 @@
 - `PdfViewer`
 - `GraphCanvas`
 - `WorkspaceInsights`
+- `WorkspaceInnovationPanel`
 - `WorkspaceComparison`
 - `TagManager`
 - `NotesPanel`

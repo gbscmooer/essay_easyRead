@@ -75,6 +75,99 @@ export interface WorkspaceInsightResponse {
   updated_at: string
 }
 
+export interface WorkspaceReadingPlanPaper {
+  paper_id: number
+  title: string
+  venue: string | null
+  year: number | null
+  source: 'uploaded' | 'expanded' | 'promoted'
+  read_level: 'full' | 'digest' | 'none'
+  detail_level: 'full' | 'digest' | 'metadata'
+  cluster_label: string | null
+  stage: number
+  score: number
+  prerequisites: number[]
+  reason: string
+}
+
+export interface WorkspaceReadingPlanStage {
+  stage: number
+  label: string
+  objective: string
+  papers: WorkspaceReadingPlanPaper[]
+}
+
+export interface WorkspaceReadingPlanEdge {
+  source_paper_id: number
+  target_paper_id: number
+  kind: string
+  weight: number
+  reason: string
+}
+
+export interface WorkspaceReadingPlanResponse {
+  workspace_id: number
+  target_paper_id: number | null
+  graph_available: boolean
+  strategy: string
+  coverage: {
+    paper_count: number
+    total_workspace_papers: number
+    full: number
+    digest: number
+    none: number
+    citation_edges: number
+    graph_nodes: number
+  }
+  stages: WorkspaceReadingPlanStage[]
+  edges: WorkspaceReadingPlanEdge[]
+  updated_at: string
+}
+
+export interface WorkspaceSurveyMatrixRow {
+  paper_id: number
+  title: string
+  venue: string | null
+  year: number | null
+  detail_level: 'full' | 'digest' | 'metadata'
+  task: string
+  method: string
+  datasets: string[]
+  baselines: string[]
+  contributions: string[]
+  limitations: string
+  code_concepts: string[]
+}
+
+export interface WorkspaceSurveyCluster {
+  label: string
+  paper_count: number
+  paper_ids: number[]
+  years: number[]
+  common_methods: string[]
+  datasets: string[]
+  summary: string
+}
+
+export interface WorkspaceSurveyDraftSection {
+  key: 'overview' | 'methods' | 'experiments' | 'limitations'
+  title: string
+  content: string
+}
+
+export interface WorkspaceSurveyResponse {
+  workspace_id: number
+  paper_count: number
+  detail_counts: Record<string, number>
+  topics: string[]
+  datasets: string[]
+  baselines: string[]
+  matrix: WorkspaceSurveyMatrixRow[]
+  clusters: WorkspaceSurveyCluster[]
+  draft_sections: WorkspaceSurveyDraftSection[]
+  updated_at: string
+}
+
 export interface WorkspaceComparisonPaper {
   paper_id: number
   title: string
@@ -134,6 +227,18 @@ export async function getWorkspace(id: number): Promise<WorkspaceDetail> {
 
 export async function getWorkspaceInsights(id: number): Promise<WorkspaceInsightResponse> {
   return get<WorkspaceInsightResponse>(`/workspaces/${id}/insights`)
+}
+
+export async function getWorkspaceReadingPlan(
+  id: number,
+  targetPaperId?: number | null,
+): Promise<WorkspaceReadingPlanResponse> {
+  const query = targetPaperId ? `?target_paper_id=${targetPaperId}` : ''
+  return get<WorkspaceReadingPlanResponse>(`/workspaces/${id}/reading-plan${query}`)
+}
+
+export async function getWorkspaceSurvey(id: number): Promise<WorkspaceSurveyResponse> {
+  return get<WorkspaceSurveyResponse>(`/workspaces/${id}/survey`)
 }
 
 export async function compareWorkspacePapers(

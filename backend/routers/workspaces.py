@@ -13,7 +13,12 @@ from datetime import datetime, timezone
 
 from ..models.workspace import Workspace, WorkspacePaper
 from ..models.paper import Paper
-from ..models.schemas import WorkspaceComparisonResponse, WorkspaceInsightResponse
+from ..models.schemas import (
+    WorkspaceComparisonResponse,
+    WorkspaceInsightResponse,
+    WorkspaceReadingPlanResponse,
+    WorkspaceSurveyResponse,
+)
 from ..services.database import get_engine
 
 logger = logging.getLogger(__name__)
@@ -160,6 +165,45 @@ async def get_workspace_insights(workspace_id: int) -> WorkspaceInsightResponse:
     except ValueError:
         raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
     return insights
+
+
+# ============================================================
+# GET /api/workspaces/{workspace_id}/reading-plan
+# ============================================================
+@router.get("/{workspace_id}/reading-plan", response_model=WorkspaceReadingPlanResponse)
+async def get_workspace_reading_plan(
+    workspace_id: int,
+    target_paper_id: int | None = None,
+) -> WorkspaceReadingPlanResponse:
+    """获取工作区自适应阅读路径。"""
+    from ..services.workspace_planner import build_workspace_reading_plan
+
+    try:
+        return build_workspace_reading_plan(workspace_id, target_paper_id=target_paper_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "workspace not found":
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+        if message == "paper not in workspace":
+            raise HTTPException(status_code=404, detail={"detail": "论文不在该工作区中", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": message, "code": "BAD_REQUEST"})
+
+
+# ============================================================
+# GET /api/workspaces/{workspace_id}/survey
+# ============================================================
+@router.get("/{workspace_id}/survey", response_model=WorkspaceSurveyResponse)
+async def get_workspace_survey(workspace_id: int) -> WorkspaceSurveyResponse:
+    """获取工作区综述草稿与对比矩阵。"""
+    from ..services.workspace_planner import build_workspace_survey
+
+    try:
+        return build_workspace_survey(workspace_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "workspace not found":
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": message, "code": "BAD_REQUEST"})
 
 
 # ============================================================

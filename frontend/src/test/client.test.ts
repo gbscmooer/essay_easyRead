@@ -43,6 +43,33 @@ describe('API Client', () => {
 
       await expect(get('/papers/999')).rejects.toThrow('Paper not found')
     })
+
+    it('should unwrap nested FastAPI detail errors', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        mockResponse(
+          { detail: { detail: '工作区不存在', code: 'NOT_FOUND' } },
+          { ok: false, status: 404, statusText: 'Not Found' },
+        ),
+      )
+
+      await expect(get('/workspaces/999')).rejects.toMatchObject({
+        message: '工作区不存在',
+        code: 'NOT_FOUND',
+      })
+    })
+
+    it('should show the first validation error location', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        mockResponse(
+          { detail: [{ loc: ['body', 'query'], msg: 'String should have at least 1 character' }] },
+          { ok: false, status: 422, statusText: 'Unprocessable Entity' },
+        ),
+      )
+
+      await expect(get('/agent-tools/papers/search')).rejects.toThrow(
+        'body.query: String should have at least 1 character',
+      )
+    })
   })
 
   describe('post', () => {

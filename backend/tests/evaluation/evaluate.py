@@ -102,6 +102,42 @@ def evaluate_field(field_name: str, field_type: str, metric: str, predicted, gro
     return 0.0
 
 
+def _text(value) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _extract_system_field(system_result: dict, field_name: str):
+    """Extract a field from current AnalysisResponse, including evaluation aliases."""
+
+    if field_name in system_result:
+        return system_result.get(field_name)
+
+    if field_name == "method_summary":
+        method = system_result.get("method") if isinstance(system_result.get("method"), dict) else {}
+        parts = [_text(method.get("overview")), _text(method.get("pipeline"))]
+        for module in method.get("key_modules") or []:
+            if not isinstance(module, dict):
+                continue
+            parts.append(" ".join(
+                part for part in (
+                    _text(module.get("name")),
+                    _text(module.get("role")),
+                    _text(module.get("innovation")),
+                ) if part
+            ))
+        return " ".join(part for part in parts if part)
+
+    if field_name == "experiments_datasets":
+        experiments = system_result.get("experiments") if isinstance(system_result.get("experiments"), dict) else {}
+        return experiments.get("datasets")
+
+    if field_name == "main_result":
+        experiments = system_result.get("experiments") if isinstance(system_result.get("experiments"), dict) else {}
+        return experiments.get("main_results")
+
+    return None
+
+
 def evaluate(paper_id: str, system_result: dict, ground_truth_data: dict) -> dict:
     """评估一篇论文的系统输出"""
     # 找到对应的 ground truth
@@ -123,8 +159,8 @@ def evaluate(paper_id: str, system_result: dict, ground_truth_data: dict) -> dic
 
     for f in fields:
         field_name = f["field"]
-        # 从系统结果中提取字段（支持嵌套）
-        predicted = system_result.get(field_name)
+        # 从系统结果中提取字段（支持当前 AnalysisResponse 的嵌套结构和评估别名）
+        predicted = _extract_system_field(system_result, field_name)
         ground_truth = gt.get(field_name)
 
         score = evaluate_field(field_name, f["type"], f["metric"], predicted, ground_truth)

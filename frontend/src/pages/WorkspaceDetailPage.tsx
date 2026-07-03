@@ -9,6 +9,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   getWorkspace,
   getWorkspaceInsights,
+  getWorkspaceReadingPlan,
+  getWorkspaceSurvey,
   updateWorkspace,
   addPaperToWorkspace,
   removePaperFromWorkspace,
@@ -16,6 +18,8 @@ import {
   type WorkspaceDetail,
   type WorkspacePaper,
   type WorkspaceInsightResponse,
+  type WorkspaceReadingPlanResponse,
+  type WorkspaceSurveyResponse,
 } from '@/api/workspaces'
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
@@ -23,6 +27,7 @@ import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 import { WorkspaceInsights } from '@/features/workspace/WorkspaceInsights'
 import { WorkspaceComparison } from '@/features/workspace/WorkspaceComparison'
+import { WorkspaceInnovationPanel } from '@/features/workspace/WorkspaceInnovationPanel'
 
 
 export default function WorkspaceDetailPage() {
@@ -32,8 +37,11 @@ export default function WorkspaceDetailPage() {
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null)
   const [insights, setInsights] = useState<WorkspaceInsightResponse | null>(null)
+  const [readingPlan, setReadingPlan] = useState<WorkspaceReadingPlanResponse | null>(null)
+  const [survey, setSurvey] = useState<WorkspaceSurveyResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [insightsLoading, setInsightsLoading] = useState(true)
+  const [innovationLoading, setInnovationLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [showAddPaper, setShowAddPaper] = useState(false)
@@ -48,6 +56,7 @@ export default function WorkspaceDetailPage() {
     if (!workspaceId) return
     if (showLoading) setLoading(true)
     setInsightsLoading(true)
+    setInnovationLoading(true)
     try {
       const ws = await getWorkspace(workspaceId)
       setWorkspace(ws)
@@ -66,6 +75,20 @@ export default function WorkspaceDetailPage() {
       setInsights(null)
     } finally {
       setInsightsLoading(false)
+    }
+
+    try {
+      const [planData, surveyData] = await Promise.all([
+        getWorkspaceReadingPlan(workspaceId),
+        getWorkspaceSurvey(workspaceId),
+      ])
+      setReadingPlan(planData)
+      setSurvey(surveyData)
+    } catch {
+      setReadingPlan(null)
+      setSurvey(null)
+    } finally {
+      setInnovationLoading(false)
     }
   }, [workspaceId, navigate])
 
@@ -312,6 +335,7 @@ export default function WorkspaceDetailPage() {
       </div>
 
       <WorkspaceComparison workspaceId={workspaceId} papers={workspace.papers} />
+      <WorkspaceInnovationPanel plan={readingPlan} survey={survey} loading={innovationLoading} />
       <WorkspaceInsights insights={insights} loading={insightsLoading} />
 
       {/* 添加论文面板 */}

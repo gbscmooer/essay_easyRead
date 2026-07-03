@@ -29,6 +29,7 @@ from .routers.research import router as research_router
 from .routers.tags import router as tags_router
 from .routers.notes import router as notes_router
 from .routers.annotations import router as annotations_router
+from .routers.agent_tools import router as agent_tools_router
 
 
 @asynccontextmanager
@@ -112,6 +113,7 @@ app.include_router(research_router)
 app.include_router(tags_router)
 app.include_router(notes_router)
 app.include_router(annotations_router)
+app.include_router(agent_tools_router)
 
 
 @app.get("/")
@@ -216,4 +218,3 @@ async def open_vscode(request: Request, req: dict):
     except Exception as e:
         logger.error(f"Failed to open VSCode: {e}")
         return {"error": "打开失败"}
-

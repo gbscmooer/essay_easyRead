@@ -1,0 +1,226 @@
+import asyncio
+import json
+
+import pytest
+
+from sqlmodel import Session
+
+from backend.models.analysis import AnalysisResult
+from backend.models.paper import Paper
+from backend.models.research import ResearchGraph, ResearchRun
+from backend.models.workspace import Workspace, WorkspacePaper
+
+
+@pytest.fixture
+def agent_seed(session: Session):
+    ws = Workspace(name="Agent Workspace")
+    paper_a = Paper(
+        filename="retrieval_augmented_generation.pdf",
+        pdf_path="/tmp/rag.pdf",
+        file_size=100,
+        title="Retrieval Augmented Generation for Code Agents",
+        authors="A. Researcher",
+        venue="NeurIPS",
+        year=2025,
+        status="done",
+        source="uploaded",
+        full_text="retrieval augmented generation evidence grounded code agent",
+    )
+    paper_b = Paper(
+        filename="graph_reasoning.pdf",
+        pdf_path="/tmp/graph.pdf",
+        file_size=100,
+        title="Graph Reasoning for Scientific Literature",
+        authors="B. Scholar",
+        venue="ICML",
+        year=2024,
+        status="done",
+        source="uploaded",
+    )
+    session.add(ws)
+    session.add(paper_a)
+    session.add(paper_b)
+    session.commit()
+    session.refresh(ws)
+    session.refresh(paper_a)
+    session.refresh(paper_b)
+
+    session.add(WorkspacePaper(workspace_id=ws.id, paper_id=paper_a.id))
+    session.add(WorkspacePaper(workspace_id=ws.id, paper_id=paper_b.id))
+    session.add(
+        AnalysisResult(
+            paper_id=paper_a.id,
+            title=paper_a.title,
+            authors=paper_a.authors,
+            venue=paper_a.venue,
+            year=paper_a.year,
+            one_sentence="Uses retrieved paper evidence to ground code-agent development.",
+            problem="Code agents hallucinate implementation details without paper evidence.",
+            key_contributions=["Evidence-grounded coding workflow", "Citation-aware development brief"],
+            outline=[],
+            method={
+                "overview": "Retrieve evidence, load paper context, then build a development brief.",
+                "pipeline": "search -> retrieve -> brief",
+                "key_modules": [],
+            },
+            experiments={"datasets": ["Local paper workspace"], "baselines": ["Ungrounded agent"], "main_results": "", "ablation": ""},
+            code_mapping=[{"concept": "Evidence pack", "likely_implementation": "agent_tools.retrieve_evidence"}],
+            interview_qa=[],
+            limitations="Requires a populated workspace index.",
+            related_papers=[],
+        )
+    )
+    run = ResearchRun(workspace_id=ws.id, mode="local", status="done")
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    session.add(
+        ResearchGraph(
+            workspace_id=ws.id,
+            run_id=run.id,
+            nodes=[
+                {"id": f"paper:{paper_a.id}", "label": paper_a.title, "meta": {"importance": 0.9}},
+                {"id": f"paper:{paper_b.id}", "label": paper_b.title, "meta": {"importance": 0.7}},
+            ],
+            edges=[
+                {"source": f"paper:{paper_a.id}", "target": f"paper:{paper_b.id}", "kind": "cites", "weight": 1.0}
+            ],
+            stats={"node_count": 2, "edge_count": 1},
+        )
+    )
+    session.commit()
+    return {"workspace": ws, "paper_a": paper_a, "paper_b": paper_b}
+
+
+def _patch_shared_engine(monkeypatch, engine):
+    import backend.services.database as database
+
+    monkeypatch.setattr(database, "_shared_engine", engine)
+
+
+def test_agent_tools_search_get_and_graph(monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+
+    from backend.services.agent_tools import get_paper_context, graph_neighbors, search_papers
+
+    ws = agent_seed["workspace"]
+    paper = agent_seed["paper_a"]
+
+    results = search_papers("evidence grounded coding", workspace_id=ws.id, limit=5)
+    assert results["total"] == 1
+    assert results["items"][0]["paper_id"] == paper.id
+    assert "contributions" in results["items"][0]["matched_fields"]
+
+    context = get_paper_context(paper.id)
+    assert context["analysis_available"] is True
+    assert context["profile"]["code_mapping"][0]["concept"] == "Evidence pack"
+
+    neighbors = graph_neighbors(ws.id, paper.id, depth=1, limit=10)
+    assert neighbors["center"]["id"] == f"paper:{paper.id}"
+    assert [node["id"] for node in neighbors["nodes"]] == [f"paper:{paper.id}", f"paper:{agent_seed['paper_b'].id}"]
+    assert neighbors["edges"][0]["kind"] == "cites"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_evidence_uses_existing_vector_index(monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+
+    async def fake_embed_query(text):
+        assert "code agent" in text
+        return [0.1, 0.2]
+
+    def fake_query_workspace(ws_id, vec, top_k=5, paper_ids=None):
+        assert ws_id == agent_seed["workspace"].id
+        assert vec == [0.1, 0.2]
+        return [
+            {
+                "paper_id": agent_seed["paper_a"].id,
+                "paper_title": agent_seed["paper_a"].title,
+                "section_name": "Method",
+                "snippet": "Retrieve evidence before editing code.",
+                "score": 0.91,
+                "chunk_id": "chunk-1",
+            }
+        ]
+
+    monkeypatch.setattr("backend.services.deep_research.embedder.embed_query", fake_embed_query)
+    monkeypatch.setattr("backend.services.deep_research.vector_store.query_workspace", fake_query_workspace)
+
+    from backend.services.agent_tools import retrieve_evidence
+
+    evidence = await retrieve_evidence(agent_seed["workspace"].id, "code agent evidence", top_k=3)
+    assert evidence["evidence"][0]["paper_title"] == agent_seed["paper_a"].title
+    assert evidence["evidence"][0]["source"] == "workspace_vector_index"
+
+
+def test_agent_tools_http_manifest(client):
+    response = client.get("/api/agent-tools/manifest")
+    assert response.status_code == 200
+    names = {tool["name"] for tool in response.json()["tools"]}
+    assert {"paper_search", "paper_get", "paper_retrieve_evidence", "graph_neighbors", "dev_brief"} <= names
+
+
+def test_agent_tools_http_error_shape(client):
+    response = client.get("/api/agent-tools/workspaces/999999/papers")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "工作区不存在", "code": "NOT_FOUND"}
+
+
+def test_mcp_tools_list_contains_new_and_legacy_tools():
+    from backend.mcp_server import handle_request
+
+    result = handle_request("tools/list", {})
+    names = {tool["name"] for tool in result["tools"]}
+    assert "paper_search" in names
+    assert "query_workspace_rag" in names
+
+
+def test_mcp_tool_call_returns_domain_error_without_traceback():
+    from backend.mcp_server import handle_request
+
+    result = handle_request("tools/call", {"name": "paper_get", "arguments": {}})
+
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload == {"detail": "paper_id 不能为空", "code": "BAD_REQUEST"}
+    assert "Traceback" not in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_event_bus_removes_cancelled_subscriber():
+    from backend.services.deep_research.event_bus import EventBus
+
+    bus = EventBus()
+    stream = bus.subscribe()
+    task = asyncio.create_task(stream.__anext__())
+    await asyncio.sleep(0)
+
+    assert len(bus._subscribers) == 1
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await stream.aclose()
+
+    assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_research_stream_heartbeat_keeps_subscription_alive():
+    from backend.models.schemas import StreamEvent
+    from backend.routers.research import _stream_bus_with_heartbeat
+    from backend.services.deep_research.event_bus import EventBus
+
+    bus = EventBus()
+    stream = bus.subscribe()
+    gen = _stream_bus_with_heartbeat(stream, timeout=0.01)
+
+    heartbeat = await gen.__anext__()
+    assert heartbeat == ": keepalive heartbeat\n\n"
+    assert len(bus._subscribers) == 1
+
+    await bus.publish(StreamEvent(event="done", data={"run_id": 1}))
+    event_chunk = await gen.__anext__()
+
+    assert "event: done" in event_chunk
+    assert '"run_id": 1' in event_chunk
+    await gen.aclose()

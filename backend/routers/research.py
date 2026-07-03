@@ -6,6 +6,7 @@ Research 路由
 
 import asyncio
 import logging
+from contextlib import suppress
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
@@ -21,12 +22,41 @@ from ..models.schemas import (
 )
 from ..utils.streaming import format_sse
 from ..services.deep_research.pipeline import run_pipeline
-from ..services.deep_research.event_bus import get_event_bus
+from ..services.deep_research.event_bus import get_event_bus, has_event_bus
 from ..services.deep_research.vector_store import query_workspace, drop_workspace_collection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
+
+
+async def _stream_bus_with_heartbeat(stream_iter, timeout: float = 15.0):
+    """Yield SSE events while keeping the connection alive without cancelling the subscription."""
+
+    next_event = asyncio.create_task(stream_iter.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait({next_event}, timeout=timeout)
+            if not done:
+                yield ": keepalive heartbeat\n\n"
+                continue
+
+            try:
+                evt = next_event.result()
+            except StopAsyncIteration:
+                break
+
+            yield format_sse(evt)
+            next_event = asyncio.create_task(stream_iter.__anext__())
+    finally:
+        if not next_event.done():
+            next_event.cancel()
+            with suppress(asyncio.CancelledError):
+                await next_event
+        aclose = getattr(stream_iter, "aclose", None)
+        if aclose is not None:
+            with suppress(Exception):
+                await aclose()
 
 
 @router.post("/workspaces/{ws_id}/runs", response_model=ResearchRunResponse)
@@ -66,6 +96,9 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
         session.commit()
         session.refresh(run)
         run_id = run.id
+
+    # 提前创建事件总线，避免前端在 pipeline task 获得调度前订阅到“无 bus”状态。
+    get_event_bus(run_id)
 
     # 异步启动 pipeline（不在 HTTP 请求内阻塞）
     asyncio.create_task(run_pipeline(run_id))
@@ -119,10 +152,18 @@ async def stream_run(run_id: int) -> StreamingResponse:
                       "stage": run_current_stage or ""}))
             return
 
-        # 2. 进行中 / 未开始：订阅 event_bus
+        if not has_event_bus(run_id):
+            yield format_sse(StreamEvent(event="error",
+                data={"message": "研究任务未在当前进程中运行，请重新创建任务",
+                      "stage": run_current_stage or ""}))
+            return
+
+        # 2. 进行中 / 未开始：订阅 event_bus，加入 15s 超时 heartbeat 保活
         bus = get_event_bus(run_id)
-        async for evt in bus.subscribe():
-            yield format_sse(evt)
+        stream_iter = bus.subscribe()
+        async for chunk in _stream_bus_with_heartbeat(stream_iter, timeout=15.0):
+            yield chunk
+
 
     return StreamingResponse(
         gen(),
