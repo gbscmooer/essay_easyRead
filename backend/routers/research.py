@@ -187,6 +187,92 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         if not hits:
             raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
 
+    # Graph-RAG context enhancement
+    graph_context_str = ""
+    if req.mode == "graph":
+        try:
+            engine = get_engine()
+            with Session(engine) as session:
+                graph = session.exec(
+                    select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)
+                ).first()
+            if graph and graph.nodes:
+                # Map nodes by paper id
+                paper_nodes = {}
+                for node in graph.nodes:
+                    nid = node.get("id")
+                    if nid is not None:
+                        try:
+                            paper_nodes[int(nid)] = node
+                        except ValueError:
+                            pass
+                
+                # Identify top paper per community
+                community_top_nodes = {}
+                for node in graph.nodes:
+                    nid = node.get("id")
+                    meta = node.get("meta", {})
+                    cluster = meta.get("cluster", -1)
+                    if cluster >= 0:
+                        importance = meta.get("importance", 0.0)
+                        label = node.get("label", "Unknown")
+                        if cluster not in community_top_nodes or importance > community_top_nodes[cluster]["importance"]:
+                            community_top_nodes[cluster] = {"id": nid, "label": label, "importance": importance}
+
+                graph_contexts = []
+                # Check citations between retrieved papers
+                edges = graph.edges or []
+                cites_relations = []
+                retrieved_paper_ids = {h.get("paper_id") for h in hits if h.get("paper_id")}
+                
+                for edge in edges:
+                    src = edge.get("source")
+                    tgt = edge.get("target")
+                    kind = edge.get("kind")
+                    if kind == "cites" and src is not None and tgt is not None:
+                        try:
+                            src_id = int(src)
+                            tgt_id = int(tgt)
+                            if src_id in retrieved_paper_ids and tgt_id in retrieved_paper_ids:
+                                src_node = paper_nodes.get(src_id)
+                                tgt_node = paper_nodes.get(tgt_id)
+                                if src_node and tgt_node:
+                                    cites_relations.append(f"《{src_node.get('label')}》引用了《{tgt_node.get('label')}》")
+                        except ValueError:
+                            pass
+
+                for hit in hits:
+                    pid = hit.get("paper_id")
+                    if pid and pid in paper_nodes:
+                        node = paper_nodes[pid]
+                        meta = node.get("meta", {})
+                        cluster = meta.get("cluster", -1)
+                        cluster_label = meta.get("cluster_label", "")
+                        importance = meta.get("importance", 0.0)
+                        
+                        top_paper_info = ""
+                        if cluster >= 0 and cluster in community_top_nodes:
+                            top_node = community_top_nodes[cluster]
+                            try:
+                                if int(top_node["id"]) != pid:
+                                    top_paper_info = f"，该聚类代表性文献为《{top_node['label']}》（影响力: {top_node['importance']}）"
+                            except ValueError:
+                                pass
+                        
+                        context_item = (
+                            f"- 论文《{hit['paper_title']}》处于研究子方向：『{cluster_label or '未分类'}』"
+                            f"（重要性得分: {importance:.2f}{top_paper_info}）"
+                        )
+                        if context_item not in graph_contexts:
+                            graph_contexts.append(context_item)
+
+                if graph_contexts:
+                    graph_context_str = "\n【学术文献网络拓扑与聚类上下文】:\n" + "\n".join(graph_contexts)
+                if cites_relations:
+                    graph_context_str += "\n\n【文献引用关系】:\n" + "\n".join(cites_relations)
+        except Exception as ge:
+            logger.warning(f"Graph context enhancement failed: {ge}")
+
     # 调用 LLM 用 hits 生成回答
     from ..services.ai_analyzer import _create_client
     from ..services.ai_config import get_analysis_config
@@ -196,18 +282,20 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         for i, h in enumerate(hits)
     )
     prompt = (
-        f"你是一名学术研究助手。基于下列检索到的论文片段回答用户问题。"
-        f"必须使用中文，并用 [编号] 标注引用。\n\n问题：{req.question}\n\n资料：\n{context}"
+        f"你是一名学术研究助手。基于下列检索到的论文片段与学术文献关系回答用户问题。"
+        f"必须使用中文，并用 [编号] 标注引用。\n\n问题：{req.question}\n\n"
+        f"资料：\n{context}\n{graph_context_str}"
     )
     client = _create_client(cfg["api_key"], cfg["base_url"])
     try:
         msg = await client.messages.create(
             model=cfg["model"], max_tokens=2048,
-            system="你是学术研究助手，必须基于提供的资料回答，引用编号写在文末。",
+            system="你是学术研究助手，必须基于提供的资料与文献网络关系回答，引用编号写在文末。",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
         answer = msg.content[0].text.strip()
+
     finally:
         await client.close()
 

@@ -12,11 +12,12 @@ const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
 interface OverviewTabProps {
   result: AnalysisResult
   paperId?: number
+  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'done' | 'failed'
   /** 相关论文模块独立状态：loading 搜索中 / failed 超时或失败 */
   relatedStatus?: 'idle' | 'loading' | 'ok' | 'failed'
 }
 
-export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps) {
+export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: OverviewTabProps) {
   const [relatedPapers, setRelatedPapers] = useState<RelatedPaper[]>(result.related_papers || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [bibtexLoading, setBibtexLoading] = useState(false)
@@ -186,7 +187,7 @@ export function OverviewTab({ result, paperId, relatedStatus }: OverviewTabProps
       {/* Tags + BibTeX export */}
       {paperId && (
         <div className="flex items-center justify-between gap-3">
-          <TagManager paperId={paperId} />
+          <TagManager paperId={paperId} analysisStatus={analysisStatus} />
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={async () => {

@@ -78,7 +78,7 @@ DEFAULT_CONFIG = {
     },
     "similarity": {
         # 论文级相似度计算 provider，对应 backend/services/deep_research/similarity/REGISTRY
-        # 可选：unified（默认）/ bge_centroid / bibcoupling / hybrid / facet_weighted
+        # 可选：unified（默认）/ bge_centroid / bibcoupling / hybrid / facet_weighted / cross_encoder
         "provider": "unified",
         # 每个 provider 的私有配置写在与 name 同名的子对象里：
         # unified：给每篇论文挑最佳主题向量（ChromaDB 质心 > title/abstract embedding），

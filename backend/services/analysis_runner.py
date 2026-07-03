@@ -324,7 +324,23 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
             save_analysis_result(session, paper_id, result)
             if code_url:
                 update_paper_code_url(session, paper_id, code_url)
-            update_paper_status(session, paper_id, "done")
+
+        # 4.5. 自动标签：尽量在主体完成时就落库，便于前端在「已完成」状态下立即显示
+        # 智能标签；失败不影响主流程。
+        try:
+            from .tagging import apply_auto_tags_to_paper
+
+            job.emit(StreamEvent(event="status", data={"status": "analyzing", "message": "正在生成智能标签..."}))
+            applied_tags = await apply_auto_tags_to_paper(paper_id, result, ai_cfg)
+            if applied_tags:
+                job.emit(StreamEvent(
+                    event="status",
+                    data={"status": "analyzing", "message": f"已生成 {len(applied_tags)} 个智能标签"},
+                ))
+        except Exception as e:
+            logger.warning(f"auto tagging failed for paper {paper_id}: {e}")
+
+        update_paper_status(session, paper_id, "done")
 
         # 主体已落库，断点缓存不再需要
         clear_cache(paper_id)

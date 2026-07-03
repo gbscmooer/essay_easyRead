@@ -34,6 +34,91 @@ export interface WorkspaceDetail {
   updated_at: string
 }
 
+export interface WorkspaceInsightPaper {
+  paper_id: number
+  title: string
+  venue: string | null
+  year: number | null
+  source: 'uploaded' | 'expanded' | 'promoted'
+  read_level: 'full' | 'digest' | 'none'
+  importance: number
+  bridge_score: number
+  cluster: number
+  cluster_label: string | null
+  reason: string
+}
+
+export interface WorkspaceClusterSummary {
+  cluster: number
+  label: string
+  paper_count: number
+  unread_count: number
+  digest_count: number
+  full_count: number
+  top_paper_id: number | null
+  top_paper_title: string | null
+  average_importance: number
+}
+
+export interface WorkspaceInsightResponse {
+  workspace_id: number
+  graph_available: boolean
+  paper_count: number
+  read_counts: Record<'full' | 'digest' | 'none', number>
+  source_counts: Record<string, number>
+  modularity: number | null
+  cluster_count: number
+  clusters: WorkspaceClusterSummary[]
+  top_papers: WorkspaceInsightPaper[]
+  bridge_papers: WorkspaceInsightPaper[]
+  next_reads: WorkspaceInsightPaper[]
+  updated_at: string
+}
+
+export interface WorkspaceComparisonPaper {
+  paper_id: number
+  title: string
+  venue: string | null
+  year: number | null
+  source: 'uploaded' | 'expanded' | 'promoted'
+  read_level: 'full' | 'digest' | 'none'
+  detail_level: 'full' | 'digest' | 'metadata'
+}
+
+export interface WorkspaceComparisonSection {
+  key: 'purpose' | 'method' | 'experiments' | 'implementation' | 'metadata'
+  label: string
+  score: number
+  summary: string
+  shared: string[]
+  unique_a: string[]
+  unique_b: string[]
+}
+
+export interface WorkspaceComparisonOrder {
+  first_paper_id: number
+  first_title: string
+  second_paper_id: number
+  second_title: string
+  reason: string
+}
+
+export interface WorkspaceComparisonResponse {
+  workspace_id: number
+  paper_a: WorkspaceComparisonPaper
+  paper_b: WorkspaceComparisonPaper
+  overall_score: number
+  relation: string
+  relation_reason: string
+  shared_topics: string[]
+  same_cluster: boolean
+  cluster_label: string | null
+  direct_edge_kinds: string[]
+  reading_order: WorkspaceComparisonOrder
+  sections: WorkspaceComparisonSection[]
+  updated_at: string
+}
+
 
 export async function listWorkspaces(): Promise<WorkspaceItem[]> {
   return get<WorkspaceItem[]>('/workspaces')
@@ -45,6 +130,21 @@ export async function createWorkspace(name: string): Promise<WorkspaceItem> {
 
 export async function getWorkspace(id: number): Promise<WorkspaceDetail> {
   return get<WorkspaceDetail>(`/workspaces/${id}`)
+}
+
+export async function getWorkspaceInsights(id: number): Promise<WorkspaceInsightResponse> {
+  return get<WorkspaceInsightResponse>(`/workspaces/${id}/insights`)
+}
+
+export async function compareWorkspacePapers(
+  workspaceId: number,
+  paperAId: number,
+  paperBId: number,
+): Promise<WorkspaceComparisonResponse> {
+  return post<WorkspaceComparisonResponse>(`/workspaces/${workspaceId}/compare`, {
+    paper_a_id: paperAId,
+    paper_b_id: paperBId,
+  })
 }
 
 export async function updateWorkspace(id: number, name: string): Promise<WorkspaceItem> {

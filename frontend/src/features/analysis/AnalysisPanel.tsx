@@ -268,7 +268,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
       <div role="tabpanel" id={`panel-${activeTab}`} className="flex-1 overflow-auto px-7 py-6">
         {/* 切 Tab 时按 key 重挂载并淡入上移，内容更有节奏感 */}
         <div key={activeTab} className="animate-reveal-up">
-          {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} relatedStatus={relatedStatus} />}
+          {activeTab === 'overview' && <OverviewTab result={result} paperId={paperId} analysisStatus={status} relatedStatus={relatedStatus} />}
           {activeTab === 'outline' && <OutlineTab result={result} onJumpToPage={onJumpToPage} />}
           {activeTab === 'method' && <MethodTab result={result} />}
           {activeTab === 'experiments' && (

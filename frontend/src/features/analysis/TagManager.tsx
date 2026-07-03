@@ -5,9 +5,10 @@ import { toast } from '@/hooks/useToast'
 
 interface TagManagerProps {
   paperId: number
+  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'done' | 'failed'
 }
 
-export function TagManager({ paperId }: TagManagerProps) {
+export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [paperTags, setPaperTags] = useState<Tag[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
@@ -32,6 +33,12 @@ export function TagManager({ paperId }: TagManagerProps) {
   }, [paperId])
 
   useEffect(() => { fetchTags() }, [fetchTags])
+
+  useEffect(() => {
+    if (analysisStatus === 'done') {
+      fetchTags()
+    }
+  }, [analysisStatus, fetchTags])
 
 
   // Auto-focus input when dropdown opens

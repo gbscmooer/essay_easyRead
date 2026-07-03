@@ -11,6 +11,7 @@
 from .base import SimilarityProvider
 from .bge_centroid import BgeCentroidProvider
 from .bibcoupling import BibCouplingProvider
+from .cross_encoder import CrossEncoderProvider
 from .hybrid import HybridProvider
 from .facet_weighted import FacetWeightedProvider
 from .unified import UnifiedProvider
@@ -19,6 +20,7 @@ REGISTRY: dict[str, type] = {
     "unified": UnifiedProvider,          # 新默认：全量主题向量 + 可解释 facet detail
     "bge_centroid": BgeCentroidProvider,
     "bibcoupling": BibCouplingProvider,
+    "cross_encoder": CrossEncoderProvider,
     "hybrid": HybridProvider,
     "facet_weighted": FacetWeightedProvider,
 }

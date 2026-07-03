@@ -6,11 +6,23 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getWorkspace, updateWorkspace, addPaperToWorkspace, removePaperFromWorkspace, promotePaper, type WorkspaceDetail, type WorkspacePaper } from '@/api/workspaces'
+import {
+  getWorkspace,
+  getWorkspaceInsights,
+  updateWorkspace,
+  addPaperToWorkspace,
+  removePaperFromWorkspace,
+  promotePaper,
+  type WorkspaceDetail,
+  type WorkspacePaper,
+  type WorkspaceInsightResponse,
+} from '@/api/workspaces'
 import { listPapers } from '@/api/papers'
 import type { Paper } from '@/types'
 import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
+import { WorkspaceInsights } from '@/features/workspace/WorkspaceInsights'
+import { WorkspaceComparison } from '@/features/workspace/WorkspaceComparison'
 
 
 export default function WorkspaceDetailPage() {
@@ -19,7 +31,9 @@ export default function WorkspaceDetailPage() {
   const workspaceId = Number(id)
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null)
+  const [insights, setInsights] = useState<WorkspaceInsightResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [insightsLoading, setInsightsLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [showAddPaper, setShowAddPaper] = useState(false)
@@ -30,15 +44,32 @@ export default function WorkspaceDetailPage() {
   const [batchRemoveConfirm, setBatchRemoveConfirm] = useState(false)
   const [singleRemoveConfirm, setSingleRemoveConfirm] = useState<(() => void) | null>(null)
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async (showLoading = false) => {
     if (!workspaceId) return
-    getWorkspace(workspaceId)
-      .then(ws => { setWorkspace(ws); setEditName(ws.name) })
-      .catch(() => navigate('/workspace'))
-      .finally(() => setLoading(false))
+    if (showLoading) setLoading(true)
+    setInsightsLoading(true)
+    try {
+      const ws = await getWorkspace(workspaceId)
+      setWorkspace(ws)
+      setEditName(ws.name)
+    } catch {
+      navigate('/workspace')
+      return
+    } finally {
+      if (showLoading) setLoading(false)
+    }
+
+    try {
+      const data = await getWorkspaceInsights(workspaceId)
+      setInsights(data)
+    } catch {
+      setInsights(null)
+    } finally {
+      setInsightsLoading(false)
+    }
   }, [workspaceId, navigate])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refresh(true) }, [refresh])
 
   const handleRename = async () => {
     const name = editName.trim()
@@ -279,6 +310,9 @@ export default function WorkspaceDetailPage() {
           </div>
         </button>
       </div>
+
+      <WorkspaceComparison workspaceId={workspaceId} papers={workspace.papers} />
+      <WorkspaceInsights insights={insights} loading={insightsLoading} />
 
       {/* 添加论文面板 */}
       {showAddPaper && (

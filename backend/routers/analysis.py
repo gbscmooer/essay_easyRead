@@ -8,7 +8,7 @@ import asyncio
 import logging
 import httpx
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -481,7 +481,7 @@ async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnecti
 
 class TextActionRequest(BaseModel):
     text: str
-    action: str  # "translate" | "summarize"
+    action: Literal["translate", "summarize"]  # "translate" | "summarize"
 
 class TextActionResponse(BaseModel):
     result: str

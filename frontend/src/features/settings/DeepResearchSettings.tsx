@@ -540,12 +540,10 @@ export function SimilaritySection({ config, setConfig, simProviders }: SectionPr
         >
           <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
             <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-              未来可扩展（已在 base.py 列出 TODO）：
+              当前可用：
             </span><br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>specter2 / scincl</span> —— 科研论文专用 embedding，用引用对训练，区分研究主题更准<br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>bibcoupling</span> —— 两篇论文共享引用的 Jaccard，捕获"被同一领域引用"<br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>hybrid</span> —— 多信号融合<br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>cross_encoder</span> —— 复用 BAAI/bge-reranker-v2-m3 当 cross-encoder
+            ·  <span style={{ color: 'var(--text-secondary)' }}>unified / bge_centroid / bibcoupling / hybrid / facet_weighted / cross_encoder</span><br />
+            ·  <span style={{ color: 'var(--text-secondary)' }}>specter2 / scincl</span> 等后续可继续扩展
           </p>
         </div>
       </div>

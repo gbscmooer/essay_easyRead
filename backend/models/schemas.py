@@ -167,6 +167,110 @@ class CodeSummaryResponse(BaseModel):
 
 
 # ============================================================
+# Workspace 研究洞察 Schema
+# ============================================================
+
+
+class WorkspaceInsightPaper(BaseModel):
+    """工作区洞察中的单篇论文。"""
+
+    paper_id: int
+    title: str
+    venue: Optional[str] = None
+    year: Optional[int] = None
+    source: str = "uploaded"
+    read_level: str = "none"
+    importance: float = 0.0
+    bridge_score: float = 0.0
+    cluster: int = -1
+    cluster_label: Optional[str] = None
+    reason: str = ""
+
+
+class WorkspaceClusterSummary(BaseModel):
+    """工作区图谱中的子方向汇总。"""
+
+    cluster: int
+    label: str
+    paper_count: int
+    unread_count: int
+    digest_count: int
+    full_count: int
+    top_paper_id: Optional[int] = None
+    top_paper_title: Optional[str] = None
+    average_importance: float = 0.0
+
+
+class WorkspaceInsightResponse(BaseModel):
+    """工作区洞察响应。"""
+
+    workspace_id: int
+    graph_available: bool
+    paper_count: int
+    read_counts: dict[str, int]
+    source_counts: dict[str, int]
+    modularity: Optional[float] = None
+    cluster_count: int = 0
+    clusters: list[WorkspaceClusterSummary] = []
+    top_papers: list[WorkspaceInsightPaper] = []
+    bridge_papers: list[WorkspaceInsightPaper] = []
+    next_reads: list[WorkspaceInsightPaper] = []
+    updated_at: datetime
+
+
+class WorkspaceComparisonPaper(BaseModel):
+    """工作区论文对比中的单篇论文摘要。"""
+
+    paper_id: int
+    title: str
+    venue: Optional[str] = None
+    year: Optional[int] = None
+    source: str = "uploaded"
+    read_level: str = "none"
+    detail_level: str = "metadata"
+
+
+class WorkspaceComparisonSection(BaseModel):
+    """论文对比中的单个分析维度。"""
+
+    key: str
+    label: str
+    score: float = 0.0
+    summary: str = ""
+    shared: list[str] = []
+    unique_a: list[str] = []
+    unique_b: list[str] = []
+
+
+class WorkspaceComparisonOrder(BaseModel):
+    """论文对比推荐阅读顺序。"""
+
+    first_paper_id: int
+    first_title: str
+    second_paper_id: int
+    second_title: str
+    reason: str = ""
+
+
+class WorkspaceComparisonResponse(BaseModel):
+    """工作区内两篇论文的结构化对比结果。"""
+
+    workspace_id: int
+    paper_a: WorkspaceComparisonPaper
+    paper_b: WorkspaceComparisonPaper
+    overall_score: float = 0.0
+    relation: str = ""
+    relation_reason: str = ""
+    shared_topics: list[str] = []
+    same_cluster: bool = False
+    cluster_label: Optional[str] = None
+    direct_edge_kinds: list[str] = []
+    reading_order: WorkspaceComparisonOrder
+    sections: list[WorkspaceComparisonSection] = []
+    updated_at: datetime
+
+
+# ============================================================
 # Research 相关 Schema
 # ============================================================
 
@@ -222,6 +326,8 @@ class RagQueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     top_k: int = Field(5, ge=1, le=20)
     paper_ids: Optional[list[int]] = None
+    mode: str = "vector"
+
 
 
 class RagCitation(BaseModel):

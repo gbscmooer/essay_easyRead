@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from ..models.workspace import Workspace, WorkspacePaper
 from ..models.paper import Paper
+from ..models.schemas import WorkspaceComparisonResponse, WorkspaceInsightResponse
 from ..services.database import get_engine
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,11 @@ class WorkspaceDetailResponse(BaseModel):
 
 class AddPaperRequest(BaseModel):
     paper_id: int
+
+
+class WorkspaceCompareRequest(BaseModel):
+    paper_a_id: int
+    paper_b_id: int
 
 
 # ============================================================
@@ -139,6 +145,43 @@ async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
             id=ws.id, name=ws.name, papers=papers,
             created_at=ws.created_at, updated_at=ws.updated_at,
         )
+
+
+# ============================================================
+# GET /api/workspaces/{workspace_id}/insights
+# ============================================================
+@router.get("/{workspace_id}/insights", response_model=WorkspaceInsightResponse)
+async def get_workspace_insights(workspace_id: int) -> WorkspaceInsightResponse:
+    """获取工作区研究洞察。"""
+    from ..services.workspace_insights import build_workspace_insights
+
+    try:
+        insights = build_workspace_insights(workspace_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+    return insights
+
+
+# ============================================================
+# POST /api/workspaces/{workspace_id}/compare
+# ============================================================
+@router.post("/{workspace_id}/compare", response_model=WorkspaceComparisonResponse)
+async def compare_workspace_papers(workspace_id: int, req: WorkspaceCompareRequest) -> WorkspaceComparisonResponse:
+    """比较工作区内两篇论文。"""
+    from ..services.workspace_comparison import build_workspace_comparison
+
+    try:
+        comparison = build_workspace_comparison(workspace_id, req.paper_a_id, req.paper_b_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "workspace not found":
+            raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+        if message in {"paper not in workspace", "paper not found"}:
+            raise HTTPException(status_code=404, detail={"detail": "论文不在该工作区中", "code": "NOT_FOUND"})
+        if message == "papers must be different":
+            raise HTTPException(status_code=400, detail={"detail": "请选择两篇不同的论文", "code": "BAD_REQUEST"})
+        raise HTTPException(status_code=400, detail={"detail": message, "code": "BAD_REQUEST"})
+    return comparison
 
 
 # ============================================================

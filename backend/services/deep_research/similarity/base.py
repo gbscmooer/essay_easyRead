@@ -10,7 +10,7 @@ SimilarityProvider — 论文级相似度计算的抽象接口
   * specter2 / scincl  —— 科研论文专用 embedding（用引用对训练）
   * bibcoupling        —— 共享引用 Jaccard
   * hybrid             —— 多信号融合
-  * cross_encoder      —— 用 reranker (BAAI/bge-reranker-v2-m3) 当 cross-encoder
+  * cross_encoder      —— 候选对先语义召回，再用 reranker 精排
 - 通过本接口，任何新方法只需实现 `score_pairs`，注册到 `__init__.py` 即可启用。
 """
 

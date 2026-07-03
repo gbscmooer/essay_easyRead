@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '1.24.1'
+const APP_VERSION = '1.25.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-07-02',
+  date: '2026-07-03',
   changes: [
-    '全站去卡片化：列表行/分隔线替代圆角方框，首页统计横条、论文库与工作区改平面列表',
-    '全局样式收敛：禁用聚光与悬停抬升，card-hover 改为淡色背景反馈，圆角收窄至 6px',
-    '分析 Tab 与设置页统一 panel-section / content-section 布局，功能不变',
+    '工作区新增论文对比：可比较研究问题、方法、实验、代码映射与推荐阅读顺序',
+    '工作区新增研究洞察：展示子方向、关键论文、桥梁论文与下一步阅读建议',
+    '深度研究新增 cross_encoder 相似度 Provider，支持使用 reranker 精排图谱候选边',
+    '论文分析完成后自动生成标签，标签栏会在解析结束后刷新',
   ],
 }
 
