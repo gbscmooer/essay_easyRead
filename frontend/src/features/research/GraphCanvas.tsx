@@ -154,6 +154,8 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   const linkColor = useCallback((link: any) => {
     if (link.kind === 'cites') return '#ef4444'
     if (link.kind === 'similar') return '#3b82f6'
+    if (link.kind === 'bibcoupling') return '#f59e0b'
+    if (link.kind === 'cocitation') return '#a855f7'
     if (link.kind === 'shared-method') return '#10b981'
     if (link.kind === 'uses-dataset') return '#8b5cf6'
     return '#4b5563'

@@ -15,6 +15,8 @@ from typing import Optional
 
 import httpx
 
+from .paper_identity import normalize_title
+
 logger = logging.getLogger(__name__)
 
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -243,7 +245,50 @@ async def generate_relevance_descriptions(
 # Deep Research 扩展：论文 ID 解析 + 引用列表
 # ============================================================
 
-S2_REF_FIELDS = "title,year,citationCount,externalIds,openAccessPdf,authors"
+S2_REF_FIELDS = "title,year,citationCount,externalIds,openAccessPdf,authors,abstract"
+S2_RECOMMEND_BASE = "https://api.semanticscholar.org/recommendations/v1"
+
+
+async def _safe_rate_limited_get(url: str, params: dict, timeout: float = 15.0) -> dict | None:
+    """带速率限制的 GET；429/超时/网络错误返回 None，不抛异常。"""
+    try:
+        return await _rate_limited_get(url, params, timeout=timeout)
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Semantic Scholar HTTP error: {e.response.status_code if e.response else 'unknown'}")
+        return None
+    except httpx.TimeoutException:
+        logger.warning("Semantic Scholar request timed out")
+        return None
+    except Exception as e:
+        logger.warning(f"Semantic Scholar request failed: {e}")
+        return None
+
+
+def _format_s2_authors(authors_raw: list[dict] | None) -> str | None:
+    names = [a.get("name", "") for a in (authors_raw or []) if a.get("name")]
+    if not names:
+        return None
+    if len(names) > 3:
+        return ", ".join(names[:3]) + " et al."
+    return ", ".join(names)
+
+
+def _map_s2_recall_paper(s2_paper: dict) -> dict:
+    """将 S2 论文对象映射为 recall 构建所需的扁平 dict。"""
+    external_ids = s2_paper.get("externalIds") or {}
+    oa = s2_paper.get("openAccessPdf") or {}
+    return {
+        "s2_id": s2_paper.get("paperId"),
+        "title": s2_paper.get("title") or "",
+        "year": s2_paper.get("year"),
+        "citation_count": s2_paper.get("citationCount") or 0,
+        "doi": external_ids.get("DOI"),
+        "arxiv_id": external_ids.get("ArXiv"),
+        "pdf_url": oa.get("url"),
+        "is_open_access": bool(oa.get("url")),
+        "authors": _format_s2_authors(s2_paper.get("authors")),
+        "abstract": s2_paper.get("abstract"),
+    }
 
 
 async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Optional[str]:
@@ -265,7 +310,7 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
             data = await _rate_limited_get(f"{S2_BASE}/paper/search",
                 params={"query": title, "fields": "paperId,title", "limit": 1})
             arr = data.get("data") or []
-            if arr:
+            if arr and normalize_title(arr[0].get("title")) == normalize_title(title):
                 return arr[0].get("paperId")
         except Exception as e:
             logger.debug(f"S2 title search failed for '{title}': {e}")
@@ -274,10 +319,12 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
 
 async def get_paper_references(s2_paper_id: str, limit: int = 50) -> list[dict]:
     """返回结构化 references 列表，包含 openAccessPdf 信息"""
-    data = await _rate_limited_get(
+    data = await _safe_rate_limited_get(
         f"{S2_BASE}/paper/{s2_paper_id}/references",
         params={"fields": f"citedPaper.{S2_REF_FIELDS}", "limit": limit},
     )
+    if not data:
+        return []
     results = []
     for item in data.get("data") or []:
         cited = item.get("citedPaper") or {}
@@ -294,4 +341,55 @@ async def get_paper_references(s2_paper_id: str, limit: int = 50) -> list[dict]:
             "arxiv_id": ext.get("ArXiv"),
             "pdf_url": oa.get("url"),
         })
+    return results
+
+
+async def get_paper_citations(s2_paper_id: str, limit: int = 50) -> list[dict]:
+    """返回 citing papers 列表（正向引文）。"""
+    data = await _safe_rate_limited_get(
+        f"{S2_BASE}/paper/{s2_paper_id}/citations",
+        params={"fields": f"citingPaper.{S2_REF_FIELDS}", "limit": limit},
+    )
+    if not data:
+        return []
+    results = []
+    for item in data.get("data") or []:
+        citing = item.get("citingPaper") or {}
+        mapped = _map_s2_recall_paper(citing)
+        if mapped.get("title"):
+            results.append(mapped)
+    return results
+
+
+async def get_paper_recommendations(s2_paper_id: str, limit: int = 50) -> list[dict]:
+    """返回 S2 推荐论文列表。"""
+    data = await _safe_rate_limited_get(
+        f"{S2_RECOMMEND_BASE}/papers/forpaper/{s2_paper_id}",
+        params={"fields": S2_REF_FIELDS, "limit": limit},
+    )
+    if not data:
+        return []
+    results = []
+    for paper in data.get("recommendedPapers") or []:
+        mapped = _map_s2_recall_paper(paper)
+        if mapped.get("title"):
+            results.append(mapped)
+    return results
+
+
+async def search_works(query: str, limit: int = 20) -> list[dict]:
+    """关键词检索论文，返回 recall 扁平 dict 列表。"""
+    if not query or not query.strip():
+        return []
+    data = await _safe_rate_limited_get(
+        f"{S2_BASE}/paper/search",
+        params={"query": query.strip(), "fields": S2_REF_FIELDS, "limit": limit},
+    )
+    if not data:
+        return []
+    results = []
+    for paper in data.get("data") or []:
+        mapped = _map_s2_recall_paper(paper)
+        if mapped.get("title"):
+            results.append(mapped)
     return results

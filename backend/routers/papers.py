@@ -88,6 +88,8 @@ async def upload_paper(file: UploadFile = File(...)) -> PaperResponse:
     engine = get_engine()
     with Session(engine) as session:
         paper_id = create_paper(session, file.filename, pdf_path, len(content))
+        from ..services.paper_identity import enrich_uploaded_paper
+        enrich_uploaded_paper(session, paper_id)
         paper = get_paper(session, paper_id)
 
     # 自动索引：后台提取全文 + 基本元数据（不跑 LLM，不阻塞上传响应）
@@ -108,6 +110,7 @@ async def upload_paper(file: UploadFile = File(...)) -> PaperResponse:
         index_status=paper.index_status or "none",
         error_message=paper.error_message,
         code_url=paper.code_url,
+        code_path=paper.code_path,
         code_status=paper.code_status or "none",
         created_at=paper.created_at,
         updated_at=paper.updated_at,
@@ -162,6 +165,7 @@ async def get_papers_list(
             index_status=p.get("index_status", "none"),
             error_message=p["error_message"],
             code_url=p.get("code_url"),
+            code_path=p.get("code_path"),
             code_status=p.get("code_status", "none"),
             source=p.get("source", "uploaded"),
             level=p.get("level", 1),
@@ -351,6 +355,7 @@ async def get_paper_detail(paper_id: int) -> PaperResponse:
         index_status=paper.index_status or "none",
         error_message=paper.error_message,
         code_url=paper.code_url,
+        code_path=paper.code_path,
         code_status=paper.code_status or "none",
         created_at=paper.created_at,
         updated_at=paper.updated_at,

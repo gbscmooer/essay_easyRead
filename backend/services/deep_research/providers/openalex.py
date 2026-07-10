@@ -10,14 +10,19 @@ import asyncio
 import logging
 import time
 from typing import Optional
-from urllib.parse import quote
 
 import httpx
+
+from ....models.recall import RecallCandidate, RecallSource, build_recall_candidate, format_authors
+from ...paper_identity import normalize_title
 
 logger = logging.getLogger(__name__)
 
 OA_BASE = "https://api.openalex.org"
-WORK_FIELDS = "id,title,publication_year,cited_by_count,doi,ids,open_access,primary_location,locations"
+WORK_FIELDS = (
+    "id,title,publication_year,cited_by_count,doi,ids,open_access,"
+    "primary_location,locations,abstract_inverted_index,authorships"
+)
 
 
 class OpenAlexProvider:
@@ -60,6 +65,21 @@ class OpenAlexProvider:
                 await asyncio.sleep(1.0 * (attempt + 1))
         return {}
 
+    async def _safe_get(self, path: str, params: dict | None = None) -> dict | None:
+        """GET 请求；失败返回 None，不抛异常。"""
+        try:
+            data = await self._get(path, params)
+            return data if data else None
+        except httpx.TimeoutException:
+            logger.warning("OpenAlex request timed out")
+            return None
+        except httpx.HTTPError as e:
+            logger.warning(f"OpenAlex HTTP error: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"OpenAlex request failed: {e}")
+            return None
+
     async def find_paper_id(self, title: str, doi: str = "", arxiv_id: str = "") -> Optional[str]:
         # 1) DOI 最准
         if doi:
@@ -87,7 +107,7 @@ class OpenAlexProvider:
                     "select": "id,title",
                 })
                 arr = data.get("results") or []
-                if arr:
+                if arr and normalize_title(arr[0].get("title")) == normalize_title(title):
                     return _strip_id(arr[0]["id"])
             except Exception as e:
                 logger.debug(f"OpenAlex title search failed: {e}")
@@ -139,6 +159,103 @@ class OpenAlexProvider:
             })
         return results
 
+    async def get_paper_citations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
+        try:
+            wid = paper_id.lstrip("W")
+            data = await self._safe_get("/works", {
+                "filter": f"cites:W{wid}",
+                "per-page": min(limit, 50),
+                "sort": "cited_by_count:desc",
+                "select": WORK_FIELDS,
+            })
+            if not data:
+                return []
+            return self._works_to_candidates(
+                data.get("results") or [],
+                source=RecallSource.FORWARD_CIT,
+                seed_paper_id=paper_id,
+                seed_relation="cited_by",
+                limit=limit,
+            )
+        except Exception as e:
+            logger.warning(f"OpenAlex get_paper_citations failed: {e}")
+            return []
+
+    async def get_recommendations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
+        try:
+            wid = paper_id.lstrip("W")
+            work = await self._safe_get(f"/works/W{wid}", {"select": "related_works"})
+            if not work:
+                return []
+            related_ids = work.get("related_works") or []
+            if not related_ids:
+                return []
+            related_ids = related_ids[: min(limit, 50)]
+            oid_csv = "|".join(_strip_id(r) for r in related_ids if r)
+            if not oid_csv:
+                return []
+            data = await self._safe_get("/works", {
+                "filter": f"openalex:{oid_csv}",
+                "per-page": min(len(related_ids), 50),
+                "select": WORK_FIELDS,
+            })
+            if not data:
+                return []
+            return self._works_to_candidates(
+                data.get("results") or [],
+                source=RecallSource.RECOMMEND,
+                seed_paper_id=paper_id,
+                seed_relation="related",
+                limit=limit,
+            )
+        except Exception as e:
+            logger.warning(f"OpenAlex get_recommendations failed: {e}")
+            return []
+
+    async def search_works(self, query: str, limit: int = 20) -> list[RecallCandidate]:
+        try:
+            if not query or not query.strip():
+                return []
+            data = await self._safe_get("/works", {
+                "search": query.strip(),
+                "per-page": min(limit, 50),
+                "sort": "relevance_score:desc",
+                "select": WORK_FIELDS,
+            })
+            if not data:
+                return []
+            return self._works_to_candidates(
+                data.get("results") or [],
+                source=RecallSource.SEARCH,
+                seed_relation="search_match",
+                limit=limit,
+            )
+        except Exception as e:
+            logger.warning(f"OpenAlex search_works failed: {e}")
+            return []
+
+    def _works_to_candidates(
+        self,
+        works: list[dict],
+        *,
+        source: RecallSource,
+        seed_paper_id: str | None = None,
+        seed_relation: str | None = None,
+        limit: int = 50,
+    ) -> list[RecallCandidate]:
+        out: list[RecallCandidate] = []
+        for rank, w in enumerate(works[:limit]):
+            cand = _work_to_candidate(
+                w,
+                source=source,
+                source_rank=rank,
+                seed_paper_id=seed_paper_id,
+                seed_relation=seed_relation,
+            )
+            if cand:
+                out.append(cand)
+        return out
+
     async def aclose(self):
         if self._client is not None:
             await self._client.aclose()
@@ -180,3 +297,64 @@ def _extract_pdf(work: dict) -> Optional[str]:
         if loc.get("pdf_url"):
             return loc["pdf_url"]
     return None
+
+
+def _extract_authors(work: dict) -> str | None:
+    names: list[str] = []
+    for authorship in work.get("authorships") or []:
+        author = authorship.get("author") or {}
+        name = author.get("display_name")
+        if name:
+            names.append(name)
+    return format_authors(names)
+
+
+def _reconstruct_abstract(work: dict) -> str | None:
+    inv = work.get("abstract_inverted_index")
+    if not inv:
+        return None
+    positions: list[tuple[int, str]] = []
+    for word, idxs in inv.items():
+        for i in idxs:
+            positions.append((i, word))
+    if not positions:
+        return None
+    positions.sort()
+    return " ".join(w for _, w in positions)
+
+
+def _work_to_candidate(
+    work: dict,
+    *,
+    source: RecallSource,
+    source_rank: int,
+    seed_paper_id: str | None = None,
+    seed_relation: str | None = None,
+) -> RecallCandidate | None:
+    if not work.get("title"):
+        return None
+    doi_url = work.get("doi") or ""
+    doi = doi_url.replace("https://doi.org/", "") if doi_url else None
+    arxiv = _extract_arxiv(work)
+    pdf_url = _extract_pdf(work)
+    oa = work.get("open_access") or {}
+    openalex_id = _strip_id(work.get("id") or "")
+
+    return build_recall_candidate(
+        title=work["title"],
+        doi=doi,
+        arxiv_id=arxiv,
+        openalex_id=openalex_id,
+        abstract=_reconstruct_abstract(work),
+        year=work.get("publication_year"),
+        authors=_extract_authors(work),
+        source=source,
+        source_rank=source_rank,
+        raw_score=float(work.get("cited_by_count") or 0),
+        seed_paper_id=seed_paper_id,
+        seed_relation=seed_relation,
+        pdf_url=pdf_url,
+        is_open_access=bool(oa.get("is_oa")) if oa else bool(pdf_url),
+        citation_count=work.get("cited_by_count") or 0,
+        provenance=["provider:openalex", f"method:{source.value}"],
+    )

@@ -23,17 +23,20 @@ import logging
 import re
 from typing import Optional
 
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, create_engine
 
 from ....config import settings
 from ....models.paper import Paper
-from ....models.workspace import WorkspacePaper
-from ..arxiv_client import search_by_title as arxiv_search_by_title, get_metadata
+from ..arxiv_client import search_by_title as arxiv_search_by_title
 from ..crossref_client import search_by_title as crossref_search_by_title
 from ..ref_parser import extract_references
 from ..grobid_parser import is_grobid_alive, parse_references as grobid_parse_references
-from ..pdf_downloader import download_pdf
+from ..fusion_ranker import CHANNEL_PDF_REF, tag_channel
+from ..reference_store import resolve_cited_links, upsert_references
+from ....models.recall import RecallCandidate, RecallSource, build_recall_candidate
 from ...ai_config import get_analysis_config, get_arxiv_expand_config
+from ...paper_download import download_for_paper
+from ...paper_identity import PaperWork, find_or_register
 
 logger = logging.getLogger(__name__)
 
@@ -141,31 +144,6 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
 
 
 # ────────────────────────────────────────────────────────────────
-# PDF URL 解析：arXiv → DOI redirect
-# ────────────────────────────────────────────────────────────────
-
-async def _resolve_candidate_pdf_url(candidate: dict) -> Optional[str]:
-    """解析候选论文的 PDF 下载链接。
-
-    优先级：
-    1. arXiv PDF（开放获取，最稳定）
-    2. CrossRef 提供的 PDF 链接
-    3. doi.org 重定向（可能是 publisher 页面，不保证 PDF）
-    """
-    # arXiv 直接构造 PDF URL
-    if candidate.get("arxiv_id"):
-        return f"https://arxiv.org/pdf/{candidate['arxiv_id']}.pdf"
-
-    # DOI：尝试 CrossRef 获取开放获取链接
-    if candidate.get("doi"):
-        from ..crossref_client import get_pdf_url_by_doi
-        url = await get_pdf_url_by_doi(candidate["doi"])
-        return url
-
-    return candidate.get("pdf_url")
-
-
-# ────────────────────────────────────────────────────────────────
 # 引用解析：GROBID（默认）→ 正则回退
 # ────────────────────────────────────────────────────────────────
 
@@ -201,6 +179,283 @@ async def _parse_references_for_seed(pdf_path: str, cfg: dict) -> tuple[list[dic
 
 
 # ────────────────────────────────────────────────────────────────
+# PDF 引用 → RecallCandidate（供融合池）
+# ────────────────────────────────────────────────────────────────
+
+def _pdf_dict_to_recall_candidate(cand: dict, seed_id: int, rank: int) -> RecallCandidate | None:
+    built = build_recall_candidate(
+        title=cand.get("title") or "",
+        doi=cand.get("doi"),
+        arxiv_id=cand.get("arxiv_id"),
+        source=RecallSource.BACKWARD_REF,
+        source_rank=rank,
+        seed_paper_id=str(seed_id),
+        seed_relation="references",
+        pdf_url=cand.get("pdf_url"),
+        year=cand.get("year"),
+        provenance=[
+            f"resolver:{cand.get('source', 'pdf')}",
+            "method:pdf_reference",
+        ],
+    )
+    if not built:
+        return None
+    return tag_channel(built, CHANNEL_PDF_REF)
+
+
+async def _build_pdf_candidates_for_seed(
+    seed: Paper,
+    cfg: dict,
+    *,
+    top_k: int,
+    use_llm: bool,
+    search_cap: int,
+    analysis_cfg: dict,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """解析 seed PDF 引用并构建候选 dict 列表（不下载）。"""
+    if not getattr(seed, "pdf_path", None):
+        return [], [], []
+
+    try:
+        refs, raw_contexts, backend = await _parse_references_for_seed(seed.pdf_path, cfg)
+    except Exception as e:
+        logger.warning(f"arxiv_expand: ref parse failed for paper {seed.id}: {e}")
+        return [], [], []
+
+    if not refs:
+        return [], [], []
+
+    enriched: list[dict] = []
+    if raw_contexts:
+        ref_by_index: dict[int, dict] = {}
+        for r in refs:
+            ref_by_index[r.get("index", -1)] = r
+        for ctx in raw_contexts:
+            m = re.search(r"\d+", ctx.get("ref_id", ""))
+            idx = int(m.group(0)) if m else -1
+            ref = ref_by_index.get(idx)
+            enriched.append({
+                **ctx,
+                "ref_index": idx,
+                "arxiv_id": ref.get("arxiv_id") if ref else None,
+                "doi": ref.get("doi") if ref else None,
+                "title": ref.get("title") if ref else None,
+            })
+
+    ref_inputs: list[dict] = []
+    enriched_by_index: dict[int, list[dict]] = {}
+    for ctx in enriched:
+        idx = ctx.get("ref_index", -1)
+        enriched_by_index.setdefault(idx, []).append(ctx)
+    for ref in refs:
+        idx = ref.get("index", -1)
+        ref_inputs.append({
+            "cited_doi": ref.get("doi"),
+            "cited_arxiv_id": ref.get("arxiv_id"),
+            "cited_title": ref.get("title"),
+            "frequency": ref.get("freq", 1),
+            "contexts": enriched_by_index.get(idx, []),
+            "source": backend,
+            "confidence": 1.0,
+        })
+
+    candidates: list[dict] = []
+    title_queue: list[dict] = []
+
+    for ref in refs:
+        ref_title = ref.get("title") or ref.get("raw_text", "")[:120]
+        if ref.get("arxiv_id"):
+            candidates.append({
+                "arxiv_id": ref["arxiv_id"],
+                "doi": ref.get("doi"),
+                "pdf_url": f"https://arxiv.org/pdf/{ref['arxiv_id']}.pdf",
+                "title": ref_title,
+                "year": None,
+                "source": "direct_arxiv",
+                "freq": ref.get("freq", 0),
+                "ref_index": ref.get("index", 0),
+            })
+        elif ref.get("doi"):
+            candidates.append({
+                "arxiv_id": None,
+                "doi": ref["doi"],
+                "pdf_url": f"https://doi.org/{ref['doi']}",
+                "title": ref_title,
+                "year": None,
+                "source": "direct_doi",
+                "freq": ref.get("freq", 0),
+                "ref_index": ref.get("index", 0),
+            })
+        else:
+            title_queue.append(ref)
+
+    if title_queue:
+        title_queue.sort(key=lambda r: r.get("freq", 0), reverse=True)
+        direct_freqs = sorted((c.get("freq", 0) for c in candidates), reverse=True)
+        bar = direct_freqs[top_k - 1] if len(direct_freqs) >= top_k else -1
+        batch = [r for r in title_queue if r.get("freq", 0) > bar][:search_cap]
+    else:
+        batch = []
+
+    if batch:
+        missing = [i for i, r in enumerate(batch) if not r.get("title")]
+        if missing and use_llm:
+            sub = [batch[i] for i in missing]
+            extracted = await _llm_batch_extract_titles(sub, analysis_cfg)
+            for i, t in zip(missing, extracted):
+                if t:
+                    batch[i] = {**batch[i], "title": t}
+
+        for ref in batch:
+            title = ref.get("title")
+            if not title:
+                continue
+            arxiv_result = await arxiv_search_by_title(title)
+            if arxiv_result and arxiv_result.get("arxiv_id"):
+                candidates.append({
+                    "arxiv_id": arxiv_result["arxiv_id"],
+                    "doi": None,
+                    "pdf_url": (
+                        arxiv_result.get("pdf_url")
+                        or f"https://arxiv.org/pdf/{arxiv_result['arxiv_id']}.pdf"
+                    ),
+                    "title": arxiv_result.get("title") or title,
+                    "year": arxiv_result.get("year"),
+                    "source": "title_arxiv",
+                    "freq": ref.get("freq", 0),
+                    "ref_index": ref.get("index", 0),
+                })
+                continue
+            crossref_result = await crossref_search_by_title(title)
+            if crossref_result and crossref_result.get("doi"):
+                candidates.append({
+                    "arxiv_id": None,
+                    "doi": crossref_result["doi"],
+                    "pdf_url": crossref_result.get("pdf_url") or f"https://doi.org/{crossref_result['doi']}",
+                    "title": crossref_result.get("title") or title,
+                    "year": crossref_result.get("year"),
+                    "source": "title_crossref",
+                    "freq": ref.get("freq", 0),
+                    "ref_index": ref.get("index", 0),
+                })
+
+    seen_keys: set[str] = set()
+    unique_cands: list[dict] = []
+    for c in candidates:
+        key = f"arxiv:{c['arxiv_id']}" if c.get("arxiv_id") else f"doi:{c.get('doi', '')}"
+        if key in seen_keys or (not c.get("arxiv_id") and not c.get("doi")):
+            continue
+        seen_keys.add(key)
+        unique_cands.append(c)
+
+    unique_cands.sort(key=lambda c: (-c.get("freq", 0), c.get("ref_index", 10**9)))
+    return unique_cands[:top_k], enriched, ref_inputs
+
+
+async def collect_pdf_reference_candidates(
+    seeds: list,
+    run_params: dict | None = None,
+) -> tuple[list[RecallCandidate], dict[int, list[dict]]]:
+    """
+    解析 L1 seed PDF 引用，转为 pdf_ref 通道 RecallCandidate（不下载）。
+
+    返回 (candidates, seed_id → enriched_contexts)。
+    """
+    cfg = get_arxiv_expand_config()
+    top_k: int = int((run_params or {}).get("expand_top_k") or cfg.get("top_k", 5))
+    use_llm: bool = bool(cfg.get("use_llm_title", True))
+    max_llm_refs: int = int(cfg.get("max_llm_refs", 15))
+    search_cap: int = max(max_llm_refs, top_k)
+    analysis_cfg = get_analysis_config()
+
+    all_candidates: list[RecallCandidate] = []
+    all_contexts: dict[int, list[dict]] = {}
+
+    for seed in seeds:
+        cands, enriched, ref_inputs = await _build_pdf_candidates_for_seed(
+            seed, cfg, top_k=top_k, use_llm=use_llm, search_cap=search_cap, analysis_cfg=analysis_cfg,
+        )
+        if enriched:
+            all_contexts[seed.id] = enriched
+        if ref_inputs:
+            with Session(_get_engine(), expire_on_commit=False) as s:
+                upsert_references(s, seed.id, ref_inputs)
+                resolve_cited_links(s, citing_paper_id=seed.id)
+        for rank, cand in enumerate(cands):
+            rc = _pdf_dict_to_recall_candidate(cand, seed.id, rank)
+            if rc:
+                all_candidates.append(rc)
+
+    return all_candidates, all_contexts
+
+
+async def _register_pdf_candidate(
+    cand: dict,
+    seed: Paper,
+    ws_id: int,
+    on_paper_added,
+    *,
+    total_added: int,
+    added_ids: set[int],
+    added: list[Paper],
+) -> int:
+    """通过 find_or_register + download_for_paper 登记单条 PDF 引用候选。"""
+    title = cand.get("title") or cand.get("arxiv_id") or cand.get("doi", "untitled")
+    legacy_ext = f"arxiv:{cand['arxiv_id']}" if cand.get("arxiv_id") else f"doi:{cand.get('doi', '')}"
+    work = PaperWork(
+        title=title,
+        doi=cand.get("doi"),
+        arxiv_id=cand.get("arxiv_id"),
+        external_id=legacy_ext,
+        url=cand.get("pdf_url"),
+        source="expanded",
+        level=2,
+        parent_paper_id=seed.id,
+        filename=f"{title[:60]}.pdf",
+    )
+
+    with Session(_get_engine(), expire_on_commit=False) as s:
+        paper, is_new = find_or_register(s, work, workspace_id=ws_id)
+        upsert_references(s, seed.id, [{
+            "cited_paper_id": paper.id,
+            "cited_doi": cand.get("doi"),
+            "cited_arxiv_id": cand.get("arxiv_id"),
+            "cited_title": title,
+            "frequency": cand.get("freq", 1),
+            "source": cand.get("source", "arxiv_expand"),
+        }])
+
+    with Session(_get_engine(), expire_on_commit=False) as s:
+        path = await download_for_paper(s, paper.id)
+        if path:
+            paper = s.get(Paper, paper.id)
+            if paper:
+                paper.status = "indexed"
+                s.add(paper)
+                s.commit()
+                s.refresh(paper)
+
+    with Session(_get_engine(), expire_on_commit=False) as s:
+        paper = s.get(Paper, paper.id)
+
+    if paper.id not in added_ids:
+        added_ids.add(paper.id)
+        added.append(paper)
+        if is_new:
+            total_added += 1
+        await on_paper_added(
+            "paper_added",
+            paper_id=paper.id,
+            title=paper.title,
+            level=paper.level,
+            source_paper_id=seed.id,
+            total_expanded=total_added,
+            is_new=is_new,
+        )
+    return total_added
+
+
+# ────────────────────────────────────────────────────────────────
 # 主阶段
 # ────────────────────────────────────────────────────────────────
 
@@ -211,311 +466,43 @@ async def stage_expand_arxiv(
     run_params: Optional[dict] = None,
 ) -> tuple[list[Paper], dict[int, list[dict]]]:
     """
-    通过解析 seed 论文的参考文献列表扩展工作区。
+    通过解析 seed 论文参考文献扩展工作区（独立 stage，不经 RRF）。
 
-    解析后端：GROBID（默认，结构化、带标题）→ 正则回退。
-    每条引用按下列优先级解析下载链接：
-    1. 引用自带 arXiv ID → arXiv PDF
-    2. 引用自带 DOI → DOI 下载
-    3. 有标题（GROBID 直接给 / 正则后端用 LLM 提）→ arXiv 搜索 / CrossRef 查 DOI
-
-    返回 (所有找到的论文, 引用上下文映射 {seed_id: [enriched_contexts]})。
+    生产路径优先走 collect_pdf_reference_candidates + stage_expand 融合；
+    本函数保留供直接调用与兼容测试。
     """
     logger.info(f"stage_expand_arxiv: start, seeds={len(seeds)}")
 
     cfg = get_arxiv_expand_config()
-    # 优先用本次 run 的 expand_top_k（深度研究控制面板设的「最多下载数」），
-    # 没传则回退到 Settings 里的 arxiv_expand.top_k
     top_k: int = int((run_params or {}).get("expand_top_k") or cfg.get("top_k", 5))
     use_llm: bool = bool(cfg.get("use_llm_title", True))
     max_llm_refs: int = int(cfg.get("max_llm_refs", 15))
-    # 标题搜索的引用条数至少要 >= top_k，否则候选不够填满 top_k
     search_cap: int = max(max_llm_refs, top_k)
-
-    logger.info(
-        f"stage_expand_arxiv: top_k={top_k} (run expand_top_k="
-        f"{(run_params or {}).get('expand_top_k')}) "
-        f"use_llm={use_llm} search_cap={search_cap}"
-    )
-
     analysis_cfg = get_analysis_config()
+
     added: list[Paper] = []
     added_ids: set[int] = set()
     total_added = 0
     all_seed_contexts: dict[int, list[dict]] = {}
 
     for seed in seeds:
-        if not getattr(seed, "pdf_path", None):
-            continue
-
-        # ── Step 1: 解析参考文献（GROBID 默认，正则回退）──
-        try:
-            refs, raw_contexts, backend = await _parse_references_for_seed(seed.pdf_path, cfg)
-        except Exception as e:
-            logger.warning(f"arxiv_expand: ref parse failed for paper {seed.id}: {e}")
-            continue
-
-        if not refs:
-            logger.info(f"arxiv_expand[seed={seed.id}]: no references parsed")
-            continue
-
-        logger.info(
-            f"arxiv_expand[seed={seed.id}]: parsed {len(refs)} references "
-            f"(backend={backend}, contexts={len(raw_contexts)})"
+        cands, enriched, ref_inputs = await _build_pdf_candidates_for_seed(
+            seed, cfg, top_k=top_k, use_llm=use_llm, search_cap=search_cap, analysis_cfg=analysis_cfg,
         )
-
-        # ── Step 1.5: 用 refs 的标识符充实 contexts ──
-        if raw_contexts:
-            ref_by_index: dict[int, dict] = {}
-            for r in refs:
-                ref_by_index[r.get("index", -1)] = r
-            enriched: list[dict] = []
-            for ctx in raw_contexts:
-                m = re.search(r"\d+", ctx.get("ref_id", ""))
-                idx = int(m.group(0)) if m else -1
-                ref = ref_by_index.get(idx)
-                enriched.append({
-                    **ctx,
-                    "ref_index": idx,
-                    "arxiv_id": ref.get("arxiv_id") if ref else None,
-                    "doi": ref.get("doi") if ref else None,
-                    "title": ref.get("title") if ref else None,
-                })
+        if enriched:
             all_seed_contexts[seed.id] = enriched
-
-        # ── Step 2: 分类 — 自带 ID 直接命中 vs 需按标题搜索 ──
-        candidates: list[dict] = []
-        title_queue: list[dict] = []   # 无 arXiv/DOI、需按标题联网搜索的引用
-        direct_arxiv = 0
-        direct_doi = 0
-
-        for ref in refs:
-            ref_title = ref.get("title") or ref.get("raw_text", "")[:120]
-            if ref.get("arxiv_id"):
-                # 优先级 1：引用自带 arXiv ID
-                candidates.append({
-                    "arxiv_id": ref["arxiv_id"],
-                    "doi": ref.get("doi"),
-                    "pdf_url": f"https://arxiv.org/pdf/{ref['arxiv_id']}.pdf",
-                    "title": ref_title,
-                    "year": None,
-                    "source": "direct_arxiv",
-                    "freq": ref.get("freq", 0),
-                    "ref_index": ref.get("index", 0),
-                })
-                direct_arxiv += 1
-            elif ref.get("doi"):
-                # 优先级 2：引用自带 DOI（无 arXiv ID）
-                candidates.append({
-                    "arxiv_id": None,
-                    "doi": ref["doi"],
-                    "pdf_url": f"https://doi.org/{ref['doi']}",
-                    "title": ref_title,
-                    "year": None,
-                    "source": "direct_doi",
-                    "freq": ref.get("freq", 0),
-                    "ref_index": ref.get("index", 0),
-                })
-                direct_doi += 1
-            else:
-                # 优先级 3：按标题搜索（GROBID 已带标题；regex 后端需 LLM 提）
-                title_queue.append(ref)
-
-        # ── Step 3: 按标题搜索 → arXiv + CrossRef ──
-        title_arxiv_found = 0
-        title_crossref_found = 0
-
-        # 频次感知配额：只搜索"有可能进入 top_k"的引用，
-        # 避免在最终会被切掉的引用上浪费 arXiv(3 秒限速) + CrossRef 请求
-        if title_queue:
-            title_queue.sort(key=lambda r: r.get("freq", 0), reverse=True)
-            direct_freqs = sorted((c.get("freq", 0) for c in candidates), reverse=True)
-            # 已有 >= top_k 个直接命中时，门槛 = 第 top_k 名频次；
-            # 只有频次严格高于门槛的引用才可能挤进 top_k。不足 top_k 时取 -1 放行全部。
-            bar = direct_freqs[top_k - 1] if len(direct_freqs) >= top_k else -1
-            batch = [r for r in title_queue if r.get("freq", 0) > bar][:search_cap]
-        else:
-            batch = []
-
-        if batch:
-            # 标题：优先用解析后端直接给的；缺标题的（regex 后端）才走 LLM 提取
-            missing = [i for i, r in enumerate(batch) if not r.get("title")]
-            if missing and use_llm:
-                sub = [batch[i] for i in missing]
-                extracted = await _llm_batch_extract_titles(sub, analysis_cfg)
-                for i, t in zip(missing, extracted):
-                    if t:
-                        batch[i] = {**batch[i], "title": t}
-
-            logger.info(
-                f"arxiv_expand[seed={seed.id}]: title-search {len(batch)} refs "
-                f"(direct_arxiv={direct_arxiv}, direct_doi={direct_doi}, "
-                f"no_id={len(title_queue)}, llm_extract={len(missing) if use_llm else 0})"
-            )
-
-            for ref in batch:
-                title = ref.get("title")
-                if not title:
-                    continue
-
-                # 策略 A：arXiv 标题搜索（含 3 秒限速）
-                arxiv_result = await arxiv_search_by_title(title)
-                if arxiv_result and arxiv_result.get("arxiv_id"):
-                    candidates.append({
-                        "arxiv_id": arxiv_result["arxiv_id"],
-                        "doi": None,
-                        "pdf_url": (
-                            arxiv_result.get("pdf_url")
-                            or f"https://arxiv.org/pdf/{arxiv_result['arxiv_id']}.pdf"
-                        ),
-                        "title": arxiv_result.get("title") or title,
-                        "year": arxiv_result.get("year"),
-                        "source": "title_arxiv",
-                        "freq": ref.get("freq", 0),
-                        "ref_index": ref.get("index", 0),
-                    })
-                    title_arxiv_found += 1
-                    continue  # arXiv 找到了就不用再查 CrossRef
-
-                # 策略 B：arXiv 没找到 → CrossRef 按标题查 DOI
-                crossref_result = await crossref_search_by_title(title)
-                if crossref_result and crossref_result.get("doi"):
-                    candidates.append({
-                        "arxiv_id": None,
-                        "doi": crossref_result["doi"],
-                        "pdf_url": crossref_result.get("pdf_url") or f"https://doi.org/{crossref_result['doi']}",
-                        "title": crossref_result.get("title") or title,
-                        "year": crossref_result.get("year"),
-                        "source": "title_crossref",
-                        "freq": ref.get("freq", 0),
-                        "ref_index": ref.get("index", 0),
-                    })
-                    title_crossref_found += 1
-
-        # ── Step 4: 去重 ──
-        seen_keys: set[str] = set()
-        unique_cands: list[dict] = []
-        for c in candidates:
-            # 用 arXiv ID 或 DOI 作为去重 key
-            key = f"arxiv:{c['arxiv_id']}" if c.get("arxiv_id") else f"doi:{c.get('doi', '')}"
-            if key in seen_keys or (not c.get("arxiv_id") and not c.get("doi")):
-                continue
-            seen_keys.add(key)
-            unique_cands.append(c)
-        candidates = unique_cands
-
-        logger.info(
-            f"arxiv_expand[seed={seed.id}]: {len(candidates)} unique candidates "
-            f"(direct_arxiv={direct_arxiv}, direct_doi={direct_doi}, "
-            f"title_arxiv={title_arxiv_found}, title_crossref={title_crossref_found})"
-        )
-        if not candidates:
-            continue
-
-        # ── Step 5: 按正文引用频次排序取 top_k（频次相同则按引用先后）──
-        candidates.sort(
-            key=lambda c: (-c.get("freq", 0), c.get("ref_index", 10**9))
-        )
-        final_cands = candidates[:top_k]
-        logger.info(
-            f"arxiv_expand[seed={seed.id}]: downloading top {len(final_cands)} candidates"
-        )
-
-        # ── Step 6: 下载 PDF + 注册到数据库 ──
-        for cand in final_cands:
-            ext_id = (
-                f"arxiv:{cand['arxiv_id']}"
-                if cand.get("arxiv_id")
-                else f"doi:{cand.get('doi', '')}"
-            )
-            title = cand.get("title") or cand.get("arxiv_id") or cand.get("doi", "untitled")
-
-            # 去重：已下载过则只补 workspace 关联
+        if ref_inputs:
             with Session(_get_engine(), expire_on_commit=False) as s:
-                existing = s.exec(
-                    select(Paper).where(Paper.external_id == ext_id)
-                ).first()
-                if existing:
-                    wp = s.exec(
-                        select(WorkspacePaper)
-                        .where(WorkspacePaper.workspace_id == ws_id)
-                        .where(WorkspacePaper.paper_id == existing.id)
-                    ).first()
-                    if not wp:
-                        s.add(WorkspacePaper(workspace_id=ws_id, paper_id=existing.id))
-                        s.commit()
-                    if existing.id not in added_ids:
-                        added_ids.add(existing.id)
-                        added.append(existing)
-                    await on_paper_added(
-                        "paper_added",
-                        paper_id=existing.id, title=existing.title,
-                        level=existing.level, source_paper_id=seed.id,
-                        total_expanded=total_added, is_new=False,
-                    )
-                    continue
-
-            # 解析最佳 PDF URL
-            pdf_url = await _resolve_candidate_pdf_url(cand)
-            if not pdf_url:
-                logger.warning(
-                    f"arxiv_expand: no PDF URL for '{title[:50]}' "
-                    f"(arxiv={cand.get('arxiv_id')}, doi={cand.get('doi')})"
-                )
-                continue
-
-            # 下载 PDF
-            local = await download_pdf(pdf_url)
-            if not local:
-                # 如果主 URL 下载失败，尝试备选 URL
-                fallback_url = None
-                if cand.get("arxiv_id") and cand.get("doi"):
-                    # arXiv 失败了试 DOI
-                    fallback_url = f"https://doi.org/{cand['doi']}"
-                elif cand.get("doi") and pdf_url != f"https://doi.org/{cand['doi']}":
-                    # CrossRef link 失败了试 doi.org 重定向
-                    fallback_url = f"https://doi.org/{cand['doi']}"
-
-                if fallback_url and fallback_url != pdf_url:
-                    logger.info(f"arxiv_expand: trying fallback {fallback_url}")
-                    local = await download_pdf(fallback_url)
-
-                if not local:
-                    logger.warning(f"arxiv_expand: PDF download failed: {pdf_url}")
-                    continue
-
-            with Session(_get_engine(), expire_on_commit=False) as s:
-                p = Paper(
-                    filename=f"{title[:60]}.pdf",
-                    pdf_path=local,
-                    file_size=0,
-                    title=title[:255],
-                    year=cand.get("year"),
-                    status="indexed",
-                    source="expanded",
-                    level=2,
-                    parent_paper_id=seed.id,
-                    external_id=ext_id,
-                )
-                s.add(p)
-                s.commit()
-                s.add(WorkspacePaper(workspace_id=ws_id, paper_id=p.id))
-                s.commit()
-                s.refresh(p)
-
-            total_added += 1
-            added_ids.add(p.id)
-            added.append(p)
-            logger.info(
-                f"arxiv_expand: added paper={p.id} '{p.title[:50]}' "
-                f"({cand['source']}, ext_id={ext_id})"
-            )
-            await on_paper_added(
-                "paper_added",
-                paper_id=p.id, title=p.title, level=p.level,
-                source_paper_id=seed.id, total_expanded=total_added,
-                is_new=True,
+                upsert_references(s, seed.id, ref_inputs)
+                resolve_cited_links(s, citing_paper_id=seed.id)
+        for cand in cands:
+            total_added = await _register_pdf_candidate(
+                cand, seed, ws_id, on_paper_added,
+                total_added=total_added, added_ids=added_ids, added=added,
             )
 
-    logger.info(f"arxiv_expand: done, total_added={total_added}, total_returned={len(added)}, seeds_with_contexts={len(all_seed_contexts)}")
+    logger.info(
+        f"arxiv_expand: done, total_added={total_added}, total_returned={len(added)}, "
+        f"seeds_with_contexts={len(all_seed_contexts)}"
+    )
     return added, all_seed_contexts

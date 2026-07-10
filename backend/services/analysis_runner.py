@@ -303,7 +303,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         emit_progress(90, "正在保存主体分析结果...", "analyzing")
         result.setdefault("related_papers", [])
         for key, default in [
-            ("title", ""), ("venue", "Unknown"), ("year", 0),
+            ("title", ""), ("authors", ""), ("venue", "Unknown"), ("year", 0),
             ("one_sentence", ""), ("problem", ""),
             ("key_contributions", []), ("outline", []),
             ("method", {"overview": "", "pipeline": "", "key_modules": []}),
@@ -320,6 +320,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                 result.get("title", ""),
                 result.get("venue", "Unknown"),
                 result.get("year", 0),
+                result.get("authors", ""),
             )
             save_analysis_result(session, paper_id, result)
             if code_url:

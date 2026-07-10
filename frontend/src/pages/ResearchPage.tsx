@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import type { ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
+import type { ResearchMode, ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
+import { get } from '@/api/client'
+import type { AppConfig } from '@/features/settings/config'
 import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
 import { ProgressPanel } from '@/features/research/ProgressPanel'
@@ -18,10 +20,14 @@ export default function ResearchPage() {
   const { id } = useParams<{ id: string }>()
   const wsId = Number(id)
   const [runId, setRunId] = useState<number | null>(null)
+  const [runMode, setRunMode] = useState<ResearchMode | null>(null)
+  const [autoDigest, setAutoDigest] = useState(true)
+  const [ragPaperIds, setRagPaperIds] = useState<number[]>([])
+  const [ragTopN, setRagTopN] = useState(5)
   const [graph, setGraph] = useState<ResearchGraph | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null)
-  const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'shared-method']))
+  const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'bibcoupling', 'cocitation']))
   const [linkDistance, setLinkDistance] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
   const [graphLoading, setGraphLoading] = useState(true)
@@ -41,8 +47,15 @@ export default function ResearchPage() {
   useEffect(() => {
     getGraph(wsId).then(setGraph).catch(() => { toast({ type: 'error', message: '加载图谱失败' }) }).finally(() => setGraphLoading(false))
     getLatestRun(wsId).then(r => {
-      if (r && r.status === 'running') setRunId(r.id)
+      if (r && r.status === 'running') {
+        setRunId(r.id)
+        setRunMode(r.mode)
+      }
     }).catch(() => { toast({ type: 'error', message: '加载研究记录失败' }) })
+    get<AppConfig>('/analysis/config').then(cfg => {
+      setAutoDigest(cfg.research?.auto_digest ?? true)
+      setRagTopN(cfg.reranker?.top_n ?? 5)
+    }).catch(() => { /* 默认 true */ })
   }, [wsId])
 
   useEffect(() => {
@@ -61,6 +74,7 @@ export default function ResearchPage() {
   const onStart = async (body: ResearchRunCreate) => {
     try {
       const run = await createRun(wsId, body)
+      setRunMode(body.mode)
       setRunId(run.id)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '启动失败'
@@ -76,6 +90,7 @@ export default function ResearchPage() {
       await clearResearch(wsId)
       setGraph(null)
       setRunId(null)
+      setRunMode(null)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '清空失败'
       toast({ type: 'error', message })
@@ -91,6 +106,7 @@ export default function ResearchPage() {
         disabled={stream.status === 'running'}
         linkDistance={linkDistance}
         onLinkDistanceChange={setLinkDistance}
+        onSelectedPaperIdsChange={setRagPaperIds}
       />
 
       {(stream.status === 'running' || stream.status === 'failed') && (
@@ -99,7 +115,10 @@ export default function ResearchPage() {
           progressMessage={stream.progressMessage}
           embed={stream.embed}
           papersAdded={stream.papersAdded}
+          recallStats={stream.recallStats}
           error={stream.error}
+          mode={runMode}
+          autoDigest={autoDigest}
         />
       )}
 
@@ -137,7 +156,11 @@ export default function ResearchPage() {
             />
           )}
         </div>
-        <RagQueryBox wsId={wsId} />
+        <RagQueryBox
+          wsId={wsId}
+          paperIds={ragPaperIds.length > 0 ? ragPaperIds : undefined}
+          topN={ragTopN}
+        />
       </div>
 
       <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />

@@ -1,0 +1,22 @@
+{"ext_id": "oa:he2016resnet", "title": "Deep Residual Learning for Image Recognition", "year": 2016, "citation_count": 120000}
+{"ext_id": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016, "citation_count": 18000}
+{"ext_id": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014, "citation_count": 90000}
+{"ext_id": "oa:szegedy2015inception", "title": "Going Deeper with Convolutions", "year": 2015, "citation_count": 45000}
+{"ext_id": "oa:dosovitskiy2021vit", "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale", "year": 2021, "citation_count": 35000}
+{"ext_id": "oa:vaswani2017attention", "title": "Attention Is All You Need", "year": 2017, "citation_count": 110000}
+{"ext_id": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer: An all-MLP Architecture for Vision", "year": 2021, "citation_count": 5000}
+{"ext_id": "oa:liu2021swin", "title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows", "year": 2021, "citation_count": 28000}
+{"ext_id": "oa:carion2020detr", "title": "End-to-End Object Detection with Transformers", "year": 2020, "citation_count": 15000}
+{"ext_id": "oa:ren2015faster", "title": "Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks", "year": 2015, "citation_count": 80000}
+{"ext_id": "oa:lin2017focal", "title": "Focal Loss for Dense Object Detection", "year": 2017, "citation_count": 40000}
+{"ext_id": "oa:redmon2016yolo", "title": "You Only Look Once: Unified, Real-Time Object Detection", "year": 2016, "citation_count": 35000}
+{"ext_id": "oa:radford2021clip", "title": "Learning Transferable Visual Models From Natural Language Supervision", "year": 2021, "citation_count": 22000}
+{"ext_id": "oa:chen2020simclr", "title": "A Simple Framework for Contrastive Learning of Visual Representations", "year": 2020, "citation_count": 18000}
+{"ext_id": "oa:he2020moco", "title": "Momentum Contrast for Unsupervised Visual Representation Learning", "year": 2020, "citation_count": 16000}
+{"ext_id": "oa:jia2021align", "title": "Scaling Up Visual and Vision-Language Representation Learning With Noisy Text Supervision", "year": 2021, "citation_count": 4000}
+{"ext_id": "oa:caron2021dino", "title": "Emerging Properties in Self-Supervised Vision Transformers", "year": 2021, "citation_count": 9000}
+{"ext_id": "oa:chen2021mst", "title": "Exploring Simple Siamese Representation Learning", "year": 2021, "citation_count": 6000}
+{"ext_id": "oa:grill2020byol", "title": "Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning", "year": 2020, "citation_count": 7000}
+{"ext_id": "oa:chen2020simple", "title": "Improved Baselines with Momentum Contrastive Learning", "year": 2020, "citation_count": 3000}
+{"ext_id": "noise:unrelated-nlp", "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding", "year": 2019, "citation_count": 90000}
+{"ext_id": "noise:unrelated-gan", "title": "Generative Adversarial Nets", "year": 2014, "citation_count": 70000}

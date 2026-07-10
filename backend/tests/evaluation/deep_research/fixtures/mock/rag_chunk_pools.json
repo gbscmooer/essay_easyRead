@@ -1,0 +1,58 @@
+{
+  "resnet-residual": {
+    "dense": ["chunk:noise:nlp:0", "chunk:resnet:methods:0", "chunk:resnet:intro:0", "chunk:resnet:methods:1", "chunk:noise:gan:0"],
+    "bm25": ["chunk:resnet:methods:1", "chunk:noise:nlp:0", "chunk:resnet:methods:0", "chunk:resnet:intro:0"],
+    "graph": ["chunk:resnet:intro:0", "chunk:resnet:methods:0", "chunk:noise:gan:0"],
+    "rerank_scores": {
+      "chunk:resnet:methods:0": 0.95,
+      "chunk:resnet:methods:1": 0.92,
+      "chunk:resnet:intro:0": 0.55,
+      "chunk:noise:nlp:0": 0.30,
+      "chunk:noise:gan:0": 0.20
+    }
+  },
+  "vit-patches": {
+    "dense": ["chunk:noise:nlp:0", "chunk:vit:arch:0", "chunk:vit:arch:1", "chunk:noise:gan:0"],
+    "bm25": ["chunk:vit:arch:1", "chunk:vit:arch:0", "chunk:noise:nlp:0"],
+    "graph": ["chunk:vit:arch:0", "chunk:noise:gan:0", "chunk:vit:arch:1"],
+    "rerank_scores": {
+      "chunk:vit:arch:0": 0.94,
+      "chunk:vit:arch:1": 0.90,
+      "chunk:noise:nlp:0": 0.25,
+      "chunk:noise:gan:0": 0.18
+    }
+  },
+  "detr-transformer": {
+    "dense": ["chunk:noise:nlp:0", "chunk:detr:intro:0", "chunk:noise:gan:0", "chunk:noise:nlp:1", "chunk:noise:gan:1"],
+    "bm25": ["chunk:detr:model:0", "chunk:detr:intro:0", "chunk:noise:nlp:0"],
+    "graph": ["chunk:detr:model:0", "chunk:detr:intro:0"],
+    "rerank_scores": {
+      "chunk:detr:model:0": 0.96,
+      "chunk:detr:intro:0": 0.60,
+      "chunk:noise:nlp:0": 0.22,
+      "chunk:noise:gan:0": 0.15
+    }
+  },
+  "clip-contrastive": {
+    "dense": ["chunk:noise:nlp:0", "chunk:clip:training:0", "chunk:clip:training:1", "chunk:clip:intro:0"],
+    "bm25": ["chunk:clip:training:1", "chunk:clip:training:0", "chunk:noise:nlp:0"],
+    "graph": ["chunk:clip:intro:0", "chunk:clip:training:0", "chunk:clip:training:1"],
+    "rerank_scores": {
+      "chunk:clip:training:0": 0.93,
+      "chunk:clip:training:1": 0.91,
+      "chunk:clip:intro:0": 0.50,
+      "chunk:noise:nlp:0": 0.28
+    }
+  },
+  "dino-selfsup": {
+    "dense": ["chunk:noise:nlp:0", "chunk:dino:intro:0", "chunk:noise:gan:0", "chunk:noise:nlp:1", "chunk:noise:gan:1"],
+    "bm25": ["chunk:dino:method:0", "chunk:dino:intro:0", "chunk:noise:nlp:0"],
+    "graph": ["chunk:dino:method:0", "chunk:dino:intro:0"],
+    "rerank_scores": {
+      "chunk:dino:method:0": 0.97,
+      "chunk:dino:intro:0": 0.58,
+      "chunk:noise:nlp:0": 0.24,
+      "chunk:noise:gan:0": 0.16
+    }
+  }
+}

@@ -47,6 +47,7 @@ class PaperResponse(BaseModel):
     index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None
     code_url: Optional[str] = None
+    code_path: Optional[str] = None
     code_status: str = "none"
     source: str = "uploaded"   # uploaded | expanded
     level: int = 1             # 1=用户手动加; 2+=联网扩展下载
@@ -427,8 +428,18 @@ class RagQueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     top_k: int = Field(5, ge=1, le=20)
     paper_ids: Optional[list[int]] = None
-    mode: str = "vector"
+    mode: str = Field("vector", pattern=r"^(vector|hybrid|graph)$")
 
+
+
+class RagCitationDebug(BaseModel):
+    """RAG 检索调试信息（可选，前端默认折叠展示）。"""
+    source_hits: dict[str, float] = Field(default_factory=dict)
+    fused_score: Optional[float] = None
+    rerank_score: Optional[float] = None
+    graph_score: Optional[float] = None
+    chunk_id: Optional[str] = None
+    channel_ranks: dict[str, int] = Field(default_factory=dict)
 
 
 class RagCitation(BaseModel):
@@ -438,12 +449,28 @@ class RagCitation(BaseModel):
     section_name: str
     snippet: str
     score: float
+    download_status: Optional[str] = None   # none | available | failed | unavailable | pending
+    metadata_only: Optional[bool] = None    # True = 无 PDF 正文，仅元数据
+    debug: Optional[RagCitationDebug] = None
+
+
+class RecallChannelStats(BaseModel):
+    """expand 阶段单路召回统计（SSE recall_stats）。"""
+    channel: str
+    hit_count: int = 0
+    failed: int = 0
+    latency_ms: float = 0.0
+    errors: list[str] = Field(default_factory=list)
+    stage: Optional[str] = None
+    error: Optional[str] = None
 
 
 class RagQueryResponse(BaseModel):
     """RAG 问答响应"""
     answer: str
     citations: list[RagCitation]
+    path_evidence: list[dict] = Field(default_factory=list)
+    debug: Optional[list[RagCitationDebug]] = None
 
 
 # ============================================================

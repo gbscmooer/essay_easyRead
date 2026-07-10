@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # cites 之外的边都视作"语义/共现"关系，进语义图（社区 + 枢纽中心性都用它）
 _SEMANTIC_KINDS_EXCLUDE = {"cites"}
 
+# 结构边类型（用于统计/可解释性）
+STRUCTURAL_EDGE_KINDS = frozenset({"bibcoupling", "cocitation", "similar"})
+
 _STOP = set(
     "the a an of to in for on with and or is are this that we our by from at as be using "
     "via towards toward into over under via use uses used based approach method methods model "
@@ -55,8 +58,11 @@ def _split_graphs(nodes: list[dict], edges: list[dict]) -> tuple[nx.DiGraph, nx.
             continue
         w = float(e.get("weight", 1.0) or 1.0)
         if e.get("kind") in _SEMANTIC_KINDS_EXCLUDE:
-            cite.add_edge(s, t, weight=w)            # 方向：父(被引) → 子，保留
+            cite.add_edge(s, t, weight=w)            # 方向：citing → cited
         else:
+            # bridge 仅用于视觉连通，不得进入中心性、社区或后续 PPR seed boost。
+            if e.get("bridge"):
+                continue
             if sem.has_edge(s, t):                   # 同对多种语义关系折叠取最大权
                 sem[s][t]["weight"] = max(sem[s][t]["weight"], w)
             else:
@@ -232,12 +238,21 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         for n in top
     ]
 
+    by_kind: dict[str, int] = defaultdict(int)
+    for e in edges:
+        by_kind[str(e.get("kind", "unknown"))] += 1
+
     n_real = sum(1 for c in communities if len(c) > 1)
     logger.info(
         f"graph analytics v2: {n_real} 子方向(+{len(communities)-n_real} 孤立), "
         f"modularity={modularity:.3f}, top={top_papers[0]['importance'] if top_papers else 0}"
     )
-    return {"clusters": n_real, "top_papers": top_papers, "modularity": round(float(modularity), 4)}
+    return {
+        "clusters": n_real,
+        "top_papers": top_papers,
+        "modularity": round(float(modularity), 4),
+        "edge_counts_by_kind": dict(by_kind),
+    }
 
 
 def _fallback_label(members: set, nodes: list[dict]) -> str:

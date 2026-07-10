@@ -346,7 +346,9 @@ def _section_metadata(profile_a, profile_b) -> WorkspaceComparisonSection:
     if profile_a.year and profile_b.year:
         year_score = max(0.0, 1.0 - min(abs(profile_a.year - profile_b.year), 10) / 10)
     venue_score = 1.0 if profile_a.venue and profile_b.venue and _normalize_text(profile_a.venue) == _normalize_text(profile_b.venue) else 0.0
-    split_authors = lambda text: [item.strip() for item in re.split(r"[,，;；]", text or "") if item.strip()]
+    def split_authors(text: str | None) -> list[str]:
+        return [item.strip() for item in re.split(r"[,，;；]", text or "") if item.strip()]
+
     author_score = _list_jaccard(split_authors(profile_a.authors), split_authors(profile_b.authors))
     score = round(min(1.0, 0.5 * venue_score + 0.35 * year_score + 0.15 * author_score), 4)
     return WorkspaceComparisonSection(

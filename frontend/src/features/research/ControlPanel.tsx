@@ -13,6 +13,7 @@ interface ControlPanelProps {
   disabled: boolean
   linkDistance: number
   onLinkDistanceChange: (v: number) => void
+  onSelectedPaperIdsChange?: (ids: number[]) => void
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -30,7 +31,15 @@ const READ_BADGE: Record<string, { text: string; color: string }> = {
   digest: { text: '已速读', color: '#10b981' },
 }
 
-export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, onLinkDistanceChange }: ControlPanelProps) {
+export function ControlPanel({
+  wsId,
+  onStart,
+  onClear,
+  disabled,
+  linkDistance,
+  onLinkDistanceChange,
+  onSelectedPaperIdsChange,
+}: ControlPanelProps) {
   const [mode, setMode] = useState<ResearchMode>('local')
   const [topK, setTopK] = useState(5)
   const [deep, setDeep] = useState(1)
@@ -68,6 +77,10 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
   }, [wsId])
 
   useEffect(() => { loadPapers(true) }, [loadPapers])
+
+  useEffect(() => {
+    onSelectedPaperIdsChange?.(Array.from(selectedIds))
+  }, [selectedIds, onSelectedPaperIdsChange])
 
   // 轮询后台批量速读进度，直到结束；结束后刷新论文「已速读」标记
   const pollDigest = useCallback(() => {
@@ -378,7 +391,7 @@ export function ControlPanel({ wsId, onStart, onClear, disabled, linkDistance, o
           </label>
         </Tooltip>
 
-        <Tooltip content="调整图谱相似度阈值（控制相似边稀密程度）等高级参数。">
+        <Tooltip content="调整图谱骨架密度 α（控制相似边稀密）等高级参数。">
           <button
             onClick={() => setShowAdvanced(v => !v)}
             className="text-xs transition-colors"

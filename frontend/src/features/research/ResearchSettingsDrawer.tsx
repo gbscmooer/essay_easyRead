@@ -40,7 +40,18 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
           analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
           analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
           ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
-          research: { ...DEFAULT_CONFIG.research, ...(cfg.research ?? {}) },
+          research: {
+            ...DEFAULT_CONFIG.research,
+            ...(cfg.research ?? {}),
+            recall: {
+              ...DEFAULT_CONFIG.research.recall!,
+              ...(cfg.research?.recall ?? {}),
+              weights: {
+                ...DEFAULT_CONFIG.research.recall!.weights,
+                ...(cfg.research?.recall?.weights ?? {}),
+              },
+            },
+          },
           reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
           similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
           arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },

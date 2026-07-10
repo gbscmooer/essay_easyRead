@@ -18,7 +18,7 @@ export interface WorkspacePaper {
   status: string
   code_url: string | null
   code_status: string
-  source?: 'uploaded' | 'expanded' | 'promoted'
+  source?: 'uploaded' | 'expanded'  // promote 后记为 uploaded
   level?: number
   parent_paper_id?: number | null
   read_level?: 'full' | 'digest' | 'none'   // 解读层级（持久化）：已精读 / 已速读 / 未解读
@@ -39,7 +39,7 @@ export interface WorkspaceInsightPaper {
   title: string
   venue: string | null
   year: number | null
-  source: 'uploaded' | 'expanded' | 'promoted'
+  source: 'uploaded' | 'expanded'
   read_level: 'full' | 'digest' | 'none'
   importance: number
   bridge_score: number
@@ -80,7 +80,7 @@ export interface WorkspaceReadingPlanPaper {
   title: string
   venue: string | null
   year: number | null
-  source: 'uploaded' | 'expanded' | 'promoted'
+  source: 'uploaded' | 'expanded'
   read_level: 'full' | 'digest' | 'none'
   detail_level: 'full' | 'digest' | 'metadata'
   cluster_label: string | null
@@ -173,7 +173,7 @@ export interface WorkspaceComparisonPaper {
   title: string
   venue: string | null
   year: number | null
-  source: 'uploaded' | 'expanded' | 'promoted'
+  source: 'uploaded' | 'expanded'
   read_level: 'full' | 'digest' | 'none'
   detail_level: 'full' | 'digest' | 'metadata'
 }

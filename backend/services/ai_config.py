@@ -61,11 +61,40 @@ DEFAULT_CONFIG = {
         "provider": "openalex",       # openalex | semantic_scholar | local
         "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
-        "similarity_threshold": 0.9,  # 图谱相似边阈值（已弃用，相似边改用多尺度骨架提取）
-        "knn_k": 8,                   # 已弃用：旧的全局 kNN 条数；现由 backbone_alpha 取代
+        # 已弃用：相似边改用多尺度骨架提取（backbone_alpha），以下字段仅兼容旧配置
+        "similarity_threshold": 0.9,
+        "knn_k": 8,
         "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
         "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
+        # discovery_v2：多路召回 + RRF 融合扩展（backward/forward/recommend/pdf_ref）
+        # 发布门禁通过前保持实验性关闭；用户可在设置页显式启用。
+        "discovery_v2": False,
+        "recall": {
+            "enabled_sources": ["backward", "forward", "recommend", "pdf_ref", "graph_ppr"],
+            "rrf_k": 60,
+            "weights": {
+                "pdf_ref": 1.0,
+                "backward": 1.0,
+                "forward": 0.9,
+                "recommend": 0.85,
+                "graph_ppr": 0.8,
+            },
+            "candidate_limit": 50,
+        },
+        "hybrid_retrieval": {
+            "rrf_k": 60,
+            "weights": {
+                "dense": 1.0,
+                "bm25": 0.95,
+                "graph_ppr": 0.8,
+            },
+            "graph": {
+                "ppr_alpha": 0.85,
+                "top_k": 50,
+                "bridge_weight_factor": 0.0,
+            },
+        },
     },
     "reranker": {
         "enabled": True,
@@ -178,6 +207,17 @@ def merge_preserving_keys(new_config: dict, prior_config: dict) -> dict:
     return out
 
 
+def _deep_merge_dict(base: dict, override: dict) -> dict:
+    """递归合并配置段，保留嵌套默认值（如 research.recall.weights）。"""
+    out = copy.deepcopy(base)
+    for key, val in override.items():
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
+            out[key] = _deep_merge_dict(out[key], val)
+        else:
+            out[key] = copy.deepcopy(val)
+    return out
+
+
 def load_config() -> dict:
     """加载配置"""
     if not os.path.exists(CONFIG_PATH):
@@ -185,10 +225,15 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             saved = json.load(f)
-        # 合并默认值（防止缺少字段）
+        # 合并默认值（防止缺少字段；嵌套段如 recall / similarity.* 递归合并）
         config = {}
         for key in DEFAULT_CONFIG:
-            config[key] = {**DEFAULT_CONFIG[key], **saved.get(key, {})}
+            default_section = DEFAULT_CONFIG[key]
+            saved_section = saved.get(key, {})
+            if isinstance(default_section, dict) and isinstance(saved_section, dict):
+                config[key] = _deep_merge_dict(default_section, saved_section)
+            else:
+                config[key] = saved_section if key in saved else copy.deepcopy(default_section)
         return config
     except Exception as e:
         logger.warning(f"Failed to load config: {e}")
@@ -269,6 +314,18 @@ def get_embedding_config() -> dict:
 def get_research_config() -> dict:
     """获取深度研究 Provider 配置"""
     return load_config().get("research", DEFAULT_CONFIG["research"])
+
+
+def get_recall_config() -> dict:
+    """获取多路召回 / RRF 融合配置（research.recall 段）。"""
+    research = get_research_config()
+    default_recall = DEFAULT_CONFIG["research"].get("recall", {})
+    saved = research.get("recall") or {}
+    merged = _deep_merge_dict(default_recall, saved)
+    # 旧配置可能缺少 enabled_sources / weights 子键
+    if not merged.get("enabled_sources"):
+        merged["enabled_sources"] = list(default_recall.get("enabled_sources", []))
+    return merged
 
 
 def get_similarity_config() -> dict:

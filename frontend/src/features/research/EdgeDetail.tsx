@@ -12,7 +12,9 @@ const FACET_COLORS: Record<string, string> = {
 const KIND_LABEL: Record<string, string> = {
   similar: '相似',
   cites: '引用',
-  'shared-method': '共享方法',
+  bibcoupling: '文献耦合',
+  cocitation: '共引',
+  'shared-method': '共享方法（已弃用）',
   'uses-dataset': '使用数据集',
 }
 

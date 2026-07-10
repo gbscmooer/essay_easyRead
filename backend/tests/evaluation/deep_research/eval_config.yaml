@@ -1,0 +1,46 @@
+schema_version: deep_research_eval_v2
+
+paths:
+  root: .
+  reports_dir: reports
+
+dataset:
+  seeds_path: datasets/discovery/seeds.jsonl
+  corpus_path: datasets/discovery/corpus.jsonl
+
+metrics:
+  k_values: [5, 10]
+  default_top_k: 10
+
+runners:
+  keyword:
+    enabled: true
+    top_k: 10
+  s2_search:
+    enabled: true
+    top_k: 10
+    fixture: fixtures/mock/s2_search_responses.json
+  current_expand:
+    enabled: true
+    top_k: 5
+    fixture: fixtures/mock/expand_references.json
+  discovery_v2:
+    enabled: true
+    top_k: 10
+    fixture: fixtures/mock/discovery_v2_pools.json
+
+rag:
+  enabled: true
+  queries_path: datasets/rag/queries.jsonl
+  default_top_k: 5
+  runners:
+    fixture: fixtures/mock/rag_chunk_pools.json
+    rag_vector:
+      enabled: true
+      top_k: 5
+    rag_vector_rerank:
+      enabled: true
+      top_k: 5
+    rag_hybrid:
+      enabled: true
+      top_k: 5

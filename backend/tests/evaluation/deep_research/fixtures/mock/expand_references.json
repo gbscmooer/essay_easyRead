@@ -1,0 +1,161 @@
+{
+  "resnet": [
+    {
+      "ext_id": "oa:he2016identity",
+      "title": "Identity Mappings in Deep Residual Networks",
+      "year": 2016,
+      "citation_count": 18000,
+      "pdf_url": "https://mock.local/resnet/identity.pdf",
+      "doi": "10.1007/978-3-319-46493-0_38"
+    },
+    {
+      "ext_id": "oa:simonyan2014vgg",
+      "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition",
+      "year": 2014,
+      "citation_count": 90000,
+      "pdf_url": "https://mock.local/resnet/vgg.pdf",
+      "doi": "10.1007/978-3-319-46493-0_38"
+    },
+    {
+      "ext_id": "oa:szegedy2015inception",
+      "title": "Going Deeper with Convolutions",
+      "year": 2015,
+      "citation_count": 45000,
+      "pdf_url": "https://mock.local/resnet/inception.pdf"
+    },
+    {
+      "ext_id": "noise:paywalled",
+      "title": "High citation but no PDF",
+      "year": 2018,
+      "citation_count": 200000,
+      "pdf_url": null
+    },
+    {
+      "ext_id": "noise:unrelated-nlp",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+      "year": 2019,
+      "citation_count": 90000,
+      "pdf_url": "https://mock.local/noise/bert.pdf"
+    }
+  ],
+  "vit": [
+    {
+      "ext_id": "oa:vaswani2017attention",
+      "title": "Attention Is All You Need",
+      "year": 2017,
+      "citation_count": 110000,
+      "pdf_url": "https://mock.local/vit/attention.pdf"
+    },
+    {
+      "ext_id": "oa:tolstikhin2021mlpmixer",
+      "title": "MLP-Mixer: An all-MLP Architecture for Vision",
+      "year": 2021,
+      "citation_count": 5000,
+      "pdf_url": "https://mock.local/vit/mlpmixer.pdf"
+    },
+    {
+      "ext_id": "oa:liu2021swin",
+      "title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows",
+      "year": 2021,
+      "citation_count": 28000,
+      "pdf_url": "https://mock.local/vit/swin.pdf"
+    },
+    {
+      "ext_id": "noise:paywalled-vit",
+      "title": "Paywalled vision transformer survey",
+      "year": 2022,
+      "citation_count": 50000,
+      "pdf_url": null
+    }
+  ],
+  "detr": [
+    {
+      "ext_id": "oa:ren2015faster",
+      "title": "Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks",
+      "year": 2015,
+      "citation_count": 80000,
+      "pdf_url": "https://mock.local/detr/faster-rcnn.pdf"
+    },
+    {
+      "ext_id": "oa:lin2017focal",
+      "title": "Focal Loss for Dense Object Detection",
+      "year": 2017,
+      "citation_count": 40000,
+      "pdf_url": "https://mock.local/detr/focal.pdf"
+    },
+    {
+      "ext_id": "oa:redmon2016yolo",
+      "title": "You Only Look Once: Unified, Real-Time Object Detection",
+      "year": 2016,
+      "citation_count": 35000,
+      "pdf_url": "https://mock.local/detr/yolo.pdf"
+    },
+    {
+      "ext_id": "noise:paywalled-detr",
+      "title": "Object detection without open PDF",
+      "year": 2019,
+      "citation_count": 60000,
+      "pdf_url": null
+    }
+  ],
+  "clip": [
+    {
+      "ext_id": "oa:chen2020simclr",
+      "title": "A Simple Framework for Contrastive Learning of Visual Representations",
+      "year": 2020,
+      "citation_count": 18000,
+      "pdf_url": "https://mock.local/clip/simclr.pdf"
+    },
+    {
+      "ext_id": "oa:he2020moco",
+      "title": "Momentum Contrast for Unsupervised Visual Representation Learning",
+      "year": 2020,
+      "citation_count": 16000,
+      "pdf_url": "https://mock.local/clip/moco.pdf"
+    },
+    {
+      "ext_id": "oa:jia2021align",
+      "title": "Scaling Up Visual and Vision-Language Representation Learning With Noisy Text Supervision",
+      "year": 2021,
+      "citation_count": 4000,
+      "pdf_url": "https://mock.local/clip/align.pdf"
+    },
+    {
+      "ext_id": "noise:paywalled-clip",
+      "title": "Vision-language model behind paywall",
+      "year": 2020,
+      "citation_count": 30000,
+      "pdf_url": null
+    }
+  ],
+  "dino": [
+    {
+      "ext_id": "oa:chen2021mst",
+      "title": "Exploring Simple Siamese Representation Learning",
+      "year": 2021,
+      "citation_count": 6000,
+      "pdf_url": "https://mock.local/dino/simsiam.pdf"
+    },
+    {
+      "ext_id": "oa:grill2020byol",
+      "title": "Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning",
+      "year": 2020,
+      "citation_count": 7000,
+      "pdf_url": "https://mock.local/dino/byol.pdf"
+    },
+    {
+      "ext_id": "oa:chen2020simple",
+      "title": "Improved Baselines with Momentum Contrastive Learning",
+      "year": 2020,
+      "citation_count": 3000,
+      "pdf_url": "https://mock.local/dino/moco-v2.pdf"
+    },
+    {
+      "ext_id": "noise:paywalled-dino",
+      "title": "Self-supervised survey without PDF",
+      "year": 2021,
+      "citation_count": 12000,
+      "pdf_url": null
+    }
+  ]
+}

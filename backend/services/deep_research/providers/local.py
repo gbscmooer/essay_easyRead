@@ -6,6 +6,8 @@ Local Provider — 关闭联网扩展
 
 from typing import Optional
 
+from ....models.recall import RecallCandidate
+
 
 class LocalProvider:
     name = "local"
@@ -14,4 +16,13 @@ class LocalProvider:
         return None
 
     async def get_paper_references(self, paper_id: str, limit: int = 50) -> list[dict]:
+        return []
+
+    async def get_paper_citations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
+        return []
+
+    async def get_recommendations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
+        return []
+
+    async def search_works(self, query: str, limit: int = 20) -> list[RecallCandidate]:
         return []

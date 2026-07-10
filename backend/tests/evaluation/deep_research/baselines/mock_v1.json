@@ -1,0 +1,113 @@
+{
+  "schema_version": "deep_research_eval_v2",
+  "baseline_kind": "frozen_pre_release_mock",
+  "generated_at": "2026-07-10T14:43:34.483121+00:00",
+  "mode": "mock",
+  "eval_allow_network": false,
+  "discovery": {
+    "dataset": {
+      "seeds": 5,
+      "corpus": 22
+    },
+    "runners": {
+      "keyword": {
+        "aggregate": {
+          "precision@5": 0.48,
+          "recall@5": 0.8,
+          "ndcg@5": 0.8151,
+          "precision@10": 0.24,
+          "recall@10": 0.8,
+          "ndcg@10": 0.8151,
+          "mrr": 1.0,
+          "wrong_id_rate": 0.0,
+          "duplicate_rate": 0.0
+        }
+      },
+      "s2_search": {
+        "aggregate": {
+          "precision@5": 0.6,
+          "recall@5": 1.0,
+          "ndcg@5": 1.0,
+          "precision@10": 0.3,
+          "recall@10": 1.0,
+          "ndcg@10": 1.0,
+          "mrr": 1.0,
+          "wrong_id_rate": 0.3333,
+          "duplicate_rate": 0.0
+        }
+      },
+      "current_expand": {
+        "aggregate": {
+          "precision@5": 0.4,
+          "recall@5": 0.6667,
+          "ndcg@5": 0.7343,
+          "precision@10": 0.2,
+          "recall@10": 0.6667,
+          "ndcg@10": 0.7343,
+          "mrr": 1.0,
+          "wrong_id_rate": 0.0,
+          "duplicate_rate": 0.0
+        }
+      },
+      "discovery_v2": {
+        "aggregate": {
+          "precision@5": 0.6,
+          "recall@5": 1.0,
+          "ndcg@5": 1.0,
+          "precision@10": 0.3,
+          "recall@10": 1.0,
+          "ndcg@10": 1.0,
+          "mrr": 1.0,
+          "wrong_id_rate": 0.3333,
+          "duplicate_rate": 0.0
+        }
+      }
+    }
+  },
+  "rag": {
+    "dataset": {
+      "queries": 5
+    },
+    "runners": {
+      "rag_vector": {
+        "aggregate": {
+          "precision@5": 0.24,
+          "recall@5": 0.6,
+          "ndcg@5": 0.4075,
+          "precision@10": 0.12,
+          "recall@10": 0.6,
+          "ndcg@10": 0.4075,
+          "mrr": 0.3,
+          "wrong_id_rate": 0.0,
+          "duplicate_rate": 0.0
+        }
+      },
+      "rag_vector_rerank": {
+        "aggregate": {
+          "precision@5": 0.24,
+          "recall@5": 0.6,
+          "ndcg@5": 0.6,
+          "precision@10": 0.12,
+          "recall@10": 0.6,
+          "ndcg@10": 0.6,
+          "mrr": 0.6,
+          "wrong_id_rate": 0.0,
+          "duplicate_rate": 0.0
+        }
+      },
+      "rag_hybrid": {
+        "aggregate": {
+          "precision@5": 0.32,
+          "recall@5": 1.0,
+          "ndcg@5": 1.0,
+          "precision@10": 0.16,
+          "recall@10": 1.0,
+          "ndcg@10": 1.0,
+          "mrr": 1.0,
+          "wrong_id_rate": 0.0,
+          "duplicate_rate": 0.0
+        }
+      }
+    }
+  }
+}

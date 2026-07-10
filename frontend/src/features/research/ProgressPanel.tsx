@@ -1,32 +1,76 @@
-import type { ResearchStage } from '@/types'
+import type { ResearchMode, ResearchStage, RecallChannelStats } from '@/types'
 
-const STAGE_LABELS: Record<ResearchStage, string> = {
+const STAGE_LABELS = {
   collect: '收集论文',
   expand: '联网扩展',
+  expand_arxiv: 'arXiv 扩展',
   chunk: '文本切片',
   embed: '向量嵌入',
+  digest: '图谱速读',
   graph: '构建图谱',
   persist: '持久化',
+} satisfies Record<ResearchStage, string>
+
+/** 与 pipeline 实际执行路径对齐：local 跳过 expand*；autoDigest=false 跳过 digest */
+export function getStageOrder(mode?: ResearchMode | null, autoDigest = true): ResearchStage[] {
+  const stages: ResearchStage[] = ['collect']
+  if (mode === 'online') {
+    stages.push('expand')
+  }
+  stages.push('chunk', 'embed')
+  if (autoDigest) {
+    stages.push('digest')
+  }
+  stages.push('graph', 'persist')
+  return stages
 }
 
-const STAGE_ORDER: ResearchStage[] = ['collect', 'expand', 'chunk', 'embed', 'graph', 'persist']
+function isKnownStage(stage: string): stage is ResearchStage {
+  return stage in STAGE_LABELS
+}
+
+const RECALL_CHANNEL_LABELS: Record<string, string> = {
+  backward: '反向引用',
+  forward: '正向引用',
+  recommend: '相关推荐',
+  pdf_ref: 'PDF 引用',
+  graph_ppr: '图谱 PPR',
+}
 
 interface ProgressPanelProps {
-  stage: ResearchStage | null
+  stage: ResearchStage | string | null
   progressMessage: string
   embed: { done: number; total: number }
   papersAdded: { paper_id: number; title: string; total_expanded: number }[]
+  recallStats?: RecallChannelStats[]
   error: string | null
+  mode?: ResearchMode | null
+  autoDigest?: boolean
 }
 
-export function ProgressPanel({ stage, progressMessage, embed, papersAdded, error }: ProgressPanelProps) {
-  const currentIdx = stage ? STAGE_ORDER.indexOf(stage) : -1
+export function ProgressPanel({
+  stage,
+  progressMessage,
+  embed,
+  papersAdded,
+  recallStats = [],
+  error,
+  mode = null,
+  autoDigest = true,
+}: ProgressPanelProps) {
+  const stageOrder = getStageOrder(mode, autoDigest)
+  const knownStage = stage && isKnownStage(stage) ? stage : null
+  // 若当前 stage 不在本轮路径中（例如配置变更），回退到全量顺序以免空白
+  const order = knownStage && !stageOrder.includes(knownStage)
+    ? getStageOrder('online', true)
+    : stageOrder
+  const currentIdx = knownStage ? order.indexOf(knownStage) : -1
 
   return (
     <div className="px-6 py-3.5" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
       {/* 阶段指示器 */}
       <div className="flex items-center gap-1.5 mb-2.5">
-        {STAGE_ORDER.map((s, i) => (
+        {order.map((s, i) => (
           <div key={s} className="flex items-center gap-1.5">
             <div
               className={`w-2 h-2 rounded-full transition-colors ${i === currentIdx ? 'animate-pulse' : ''}`}
@@ -50,7 +94,7 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
             >
               {STAGE_LABELS[s]}
             </span>
-            {i < STAGE_ORDER.length - 1 && (
+            {i < order.length - 1 && (
               <div className="w-3 h-px" style={{ backgroundColor: 'var(--border)' }} />
             )}
           </div>
@@ -76,9 +120,42 @@ export function ProgressPanel({ stage, progressMessage, embed, papersAdded, erro
           </div>
         )}
 
-        {stage === 'expand' && papersAdded.length > 0 && (
+        {(stage === 'expand' || stage === 'expand_arxiv') && papersAdded.length > 0 && (
           <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
             已扩展 {papersAdded.length} 篇论文
+          </span>
+        )}
+
+        {(stage === 'expand' || stage === 'expand_arxiv') && recallStats.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {recallStats.map(stat => {
+              const label = RECALL_CHANNEL_LABELS[stat.channel] ?? stat.channel
+              const ok = (stat.failed ?? 0) === 0
+              return (
+                <span
+                  key={stat.channel}
+                  className="text-[11px] px-2 py-0.5 rounded-full font-mono tabular-nums"
+                  style={{
+                    border: `1px solid ${ok ? 'var(--border)' : 'var(--error)'}`,
+                    color: ok ? 'var(--text-muted)' : 'var(--error)',
+                    backgroundColor: 'var(--bg-elevated)',
+                  }}
+                  title={[
+                    stat.latency_ms ? `耗时 ${Math.round(stat.latency_ms)} ms` : '',
+                    stat.errors?.length ? stat.errors.join('；') : (stat.error ?? ''),
+                  ].filter(Boolean).join(' · ') || undefined}
+                >
+                  {label} {stat.hit_count ?? 0}
+                  {(stat.failed ?? 0) > 0 ? ` · ${stat.failed} 失败` : ''}
+                </span>
+              )
+            })}
+          </div>
+        )}
+
+        {stage && !knownStage && (
+          <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+            当前阶段：{stage}
           </span>
         )}
 

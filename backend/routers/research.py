@@ -9,6 +9,7 @@ import logging
 from contextlib import suppress
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..services.database import get_engine
@@ -18,16 +19,43 @@ from ..models.paper import Paper
 from ..models.schemas import (
     StreamEvent,
     ResearchRunCreate, ResearchRunResponse, ResearchGraphResponse,
-    RagQueryRequest, RagQueryResponse,
+    RagQueryRequest, RagQueryResponse, RagCitation, RagCitationDebug,
 )
 from ..utils.streaming import format_sse
 from ..services.deep_research.pipeline import run_pipeline
 from ..services.deep_research.event_bus import get_event_bus, has_event_bus
-from ..services.deep_research.vector_store import query_workspace, drop_workspace_collection
+from ..services.deep_research.path_context import build_path_context
+from ..services.deep_research.vector_store import drop_workspace_collection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
+
+_COLLECTABLE_PAPER_STATUSES = ("done", "indexed", "pending")
+
+
+def _has_collectable_papers(session: Session, ws_id: int, req: ResearchRunCreate) -> bool:
+    """复用 stage_collect 的论文选择条件，但不运行 pipeline 代码。
+
+    当用户显式传入 paper_ids 时，必须至少有一篇可收集的 L1；
+    不能仅因工作区存在 L2+ 就放行（否则会跑出与勾选无关的图谱）。
+    """
+    base = (
+        select(Paper.id)
+        .join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
+        .where(WorkspacePaper.workspace_id == ws_id)
+        .where(Paper.status.in_(_COLLECTABLE_PAPER_STATUSES))
+    )
+
+    if req.paper_ids:
+        picked_l1 = session.exec(
+            base.where(Paper.id.in_(req.paper_ids)).where(Paper.level == 1)
+        ).first()
+        return picked_l1 is not None
+
+    if not req.include_expanded:
+        return session.exec(base.where(Paper.level == 1)).first() is not None
+    return session.exec(base).first() is not None
 
 
 async def _stream_bus_with_heartbeat(stream_iter, timeout: float = 15.0):
@@ -76,15 +104,9 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
         if existing:
             raise HTTPException(409, detail={"detail": "已有运行中的研究任务", "code": "RESEARCH_RUNNING"})
 
-        # 校验工作区有可用论文
-        done_papers = session.exec(
-            select(Paper)
-            .join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
-            .where(WorkspacePaper.workspace_id == ws_id)
-            .where(Paper.status == "done")
-        ).all()
-        if not done_papers:
-            raise HTTPException(400, detail={"detail": "工作区没有已完成解析的论文", "code": "WORKSPACE_EMPTY"})
+        # 校验工作区有可用论文，保持与 stage_collect/UI 的选择口径一致。
+        if not _has_collectable_papers(session, ws_id, req):
+            raise HTTPException(400, detail={"detail": "工作区没有可用于深度研究的论文", "code": "WORKSPACE_EMPTY"})
 
         run = ResearchRun(
             workspace_id=ws_id,
@@ -93,9 +115,15 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
             params=req.model_dump(),
         )
         session.add(run)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(409, detail={"detail": "已有运行中的研究任务", "code": "RESEARCH_RUNNING"}) from None
         session.refresh(run)
         run_id = run.id
+        if run_id is None:
+            raise HTTPException(500, detail={"detail": "研究任务创建失败", "code": "INTERNAL_ERROR"})
 
     # 提前创建事件总线，避免前端在 pipeline task 获得调度前订阅到“无 bus”状态。
     get_event_bus(run_id)
@@ -105,6 +133,8 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
 
     with Session(engine) as session:
         run = session.get(ResearchRun, run_id)
+        if not run:
+            raise HTTPException(404, detail={"detail": "Run not found", "code": "NOT_FOUND"})
         return ResearchRunResponse.model_validate(run, from_attributes=True)
 
 
@@ -201,119 +231,70 @@ async def latest_run(ws_id: int) -> ResearchRunResponse:
 @router.post("/workspaces/{ws_id}/query", response_model=RagQueryResponse)
 async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     from ..services.deep_research.embedder import embed_query
-    from ..services.deep_research.vector_store import query_workspace as ws_query
-    from ..services.deep_research.reranker import rerank
-    from ..services.ai_config import get_reranker_config
+    from ..services.deep_research.hybrid_retriever import HybridRetriever
+    from ..services.ai_config import get_research_config, get_reranker_config
 
     vec = await embed_query(req.question)
 
     rcfg = get_reranker_config()
-    # rerank 启用时：先召回更大的候选集，再 rerank 取 top_n；否则直接按 req.top_k 走
+    research_cfg = get_research_config()
+    hybrid_cfg = dict(research_cfg.get("hybrid_retrieval") or {})
     use_rerank = bool(rcfg.get("enabled", True))
-    final_k = req.top_k
-    if use_rerank:
-        recall_k = max(int(rcfg.get("candidate_k", 30)), final_k)
-        candidates = ws_query(ws_id, vec, top_k=recall_k, paper_ids=req.paper_ids)
-        if not candidates:
-            raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
-        ranked = await rerank(req.question, [c["snippet"] for c in candidates], top_n=final_k)
-        # ranked 已按 score 降序；若 rerank 失败 _fallback 也会返回原序前 N 条
-        hits = []
-        for r in ranked:
-            base = dict(candidates[r["index"]])
-            base["score"] = r["score"]
-            hits.append(base)
-    else:
-        hits = ws_query(ws_id, vec, top_k=final_k, paper_ids=req.paper_ids)
-        if not hits:
-            raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
+    final_k = max(1, min(20, int(rcfg.get("top_n", req.top_k))))
+    recall_k = max(int(rcfg.get("candidate_k", 30)), final_k) if use_rerank else final_k
 
-    # Graph-RAG context enhancement
-    graph_context_str = ""
+    graph = None
+    engine = get_engine()
     if req.mode == "graph":
         try:
-            engine = get_engine()
             with Session(engine) as session:
-                graph = session.exec(
+                g = session.exec(
                     select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)
                 ).first()
-            if graph and graph.nodes:
-                # Map nodes by paper id
-                paper_nodes = {}
-                for node in graph.nodes:
-                    nid = node.get("id")
-                    if nid is not None:
-                        try:
-                            paper_nodes[int(nid)] = node
-                        except ValueError:
-                            pass
-                
-                # Identify top paper per community
-                community_top_nodes = {}
-                for node in graph.nodes:
-                    nid = node.get("id")
-                    meta = node.get("meta", {})
-                    cluster = meta.get("cluster", -1)
-                    if cluster >= 0:
-                        importance = meta.get("importance", 0.0)
-                        label = node.get("label", "Unknown")
-                        if cluster not in community_top_nodes or importance > community_top_nodes[cluster]["importance"]:
-                            community_top_nodes[cluster] = {"id": nid, "label": label, "importance": importance}
+            if g:
+                graph = {"nodes": g.nodes, "edges": g.edges, "stats": g.stats}
+        except Exception as ge:
+            logger.warning(f"Graph load for hybrid retrieval failed: {ge}")
 
-                graph_contexts = []
-                # Check citations between retrieved papers
-                edges = graph.edges or []
-                cites_relations = []
-                retrieved_paper_ids = {h.get("paper_id") for h in hits if h.get("paper_id")}
-                
-                for edge in edges:
-                    src = edge.get("source")
-                    tgt = edge.get("target")
-                    kind = edge.get("kind")
-                    if kind == "cites" and src is not None and tgt is not None:
-                        try:
-                            src_id = int(src)
-                            tgt_id = int(tgt)
-                            if src_id in retrieved_paper_ids and tgt_id in retrieved_paper_ids:
-                                src_node = paper_nodes.get(src_id)
-                                tgt_node = paper_nodes.get(tgt_id)
-                                if src_node and tgt_node:
-                                    cites_relations.append(f"《{src_node.get('label')}》引用了《{tgt_node.get('label')}》")
-                        except (ValueError, TypeError):
-                            pass
+    retriever = HybridRetriever(ws_id)
+    result = await retriever.retrieve(
+        req.question,
+        vec,
+        top_k=final_k,
+        recall_k=recall_k,
+        paper_ids=req.paper_ids,
+        mode=req.mode,
+        use_rerank=use_rerank,
+        graph=graph,
+        rrf_k=int(hybrid_cfg.get("rrf_k", 60)),
+        weights=dict(hybrid_cfg.get("weights") or {}),
+        graph_config=dict(hybrid_cfg.get("graph") or {}),
+    )
+    hits = result.hits
+    retrieval_debug = result.debug
 
-                for hit in hits:
-                    pid = hit.get("paper_id")
-                    if pid and pid in paper_nodes:
-                        node = paper_nodes[pid]
-                        meta = node.get("meta", {})
-                        cluster = meta.get("cluster", -1)
-                        cluster_label = meta.get("cluster_label", "")
-                        importance = meta.get("importance", 0.0)
-                        
-                        top_paper_info = ""
-                        if cluster >= 0 and cluster in community_top_nodes:
-                            top_node = community_top_nodes[cluster]
-                            try:
-                                if int(top_node["id"]) != pid:
-                                    top_paper_info = f"，该聚类代表性文献为《{top_node['label']}》（影响力: {top_node['importance']}）"
-                            except (ValueError, TypeError, KeyError):
-                                pass
-                        
-                        context_item = (
-                            f"- 论文《{hit['paper_title']}》处于研究子方向：『{cluster_label or '未分类'}』"
-                            f"（重要性得分: {importance:.2f}{top_paper_info}）"
-                        )
-                        if context_item not in graph_contexts:
-                            graph_contexts.append(context_item)
+    if not hits:
+        raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
 
-                if graph_contexts:
-                    graph_context_str = "\n【学术文献网络拓扑与聚类上下文】:\n" + "\n".join(graph_contexts)
-                if cites_relations:
-                    if graph_context_str:
-                        graph_context_str += "\n\n【文献引用关系】:\n" + "\n".join(cites_relations)
-                    else:
-                        graph_context_str = "\n【文献引用关系】:\n" + "\n".join(cites_relations)
+    hit_paper_ids = {int(h["paper_id"]) for h in hits if h.get("paper_id") is not None}
+    paper_statuses: dict[int, str] = {}
+    if hit_paper_ids:
+        with Session(engine) as session:
+            rows = session.exec(select(Paper).where(Paper.id.in_(hit_paper_ids))).all()
+            paper_statuses = {
+                int(p.id): (p.download_status or "none")
+                for p in rows
+                if p.id is not None
+            }
+
+    # Graph-RAG context enhancement: PathRAG 解释性 context，不参与精排
+    graph_context_str = ""
+    path_evidence = []
+    if req.mode == "graph":
+        try:
+            path_context = build_path_context(graph, hits)
+            graph_context_str = path_context.context
+            path_evidence = path_context.evidence or []
         except Exception as ge:
             logger.warning(f"Graph context enhancement failed: {ge}")
 
@@ -374,11 +355,20 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     return RagQueryResponse(
         answer=answer,
         citations=[
-            {"paper_id": h["paper_id"], "paper_title": h["paper_title"],
-             "section_name": h["section_name"], "snippet": h["snippet"][:400],
-             "score": h["score"]}
-            for h in hits
+            RagCitation(
+                paper_id=h["paper_id"],
+                paper_title=h["paper_title"],
+                section_name=h["section_name"],
+                snippet=h["snippet"][:400],
+                score=h["score"],
+                download_status=paper_statuses.get(int(h["paper_id"]), "none"),
+                metadata_only=paper_statuses.get(int(h["paper_id"]), "none") != "available",
+                debug=RagCitationDebug(**d) if (d := (retrieval_debug[i] if i < len(retrieval_debug) else None)) else None,
+            )
+            for i, h in enumerate(hits)
         ],
+        path_evidence=path_evidence,
+        debug=[RagCitationDebug(**d) for d in retrieval_debug] if retrieval_debug else None,
     )
 
 

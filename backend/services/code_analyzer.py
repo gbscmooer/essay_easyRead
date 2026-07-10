@@ -549,6 +549,9 @@ def analyze_imports(repo_path: str, files: list[str]) -> tuple[list[dict], list[
         for imp in file_imports.imports:
             if not imp.module:
                 continue
+            # 类型专用导入不进入运行时依赖图（TYPE_CHECKING / import type）
+            if imp.is_type_only:
+                continue
             target = _resolve_module_to_file(imp.module, rel_path, repo_path, package_root)
             if target and target != rel_path:
                 edges.append({

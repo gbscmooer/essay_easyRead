@@ -222,7 +222,7 @@ export type AnalysisStatus =
 
 export type ResearchMode = 'local' | 'online'
 export type ResearchStatus = 'pending' | 'running' | 'done' | 'failed'
-export type ResearchStage = 'collect' | 'expand' | 'chunk' | 'embed' | 'graph' | 'persist'
+export type ResearchStage = 'collect' | 'expand' | 'expand_arxiv' | 'chunk' | 'embed' | 'digest' | 'graph' | 'persist'
 
 export interface ResearchRunCreate {
   mode: ResearchMode
@@ -258,7 +258,7 @@ export interface ResearchRun {
 }
 
 export type GraphNodeKind = 'paper' | 'method' | 'dataset'
-export type GraphEdgeKind = 'cites' | 'similar' | 'shared-method' | 'uses-dataset'
+export type GraphEdgeKind = 'cites' | 'similar' | 'bibcoupling' | 'cocitation' | 'shared-method' | 'uses-dataset'
 
 export interface GraphNode {
   id: string
@@ -326,17 +326,52 @@ export interface ResearchGraph {
   updated_at: string
 }
 
+export interface RagCitationDebug {
+  source_hits?: Record<string, number>
+  fused_score?: number | null
+  rerank_score?: number | null
+  graph_score?: number | null
+  chunk_id?: string | null
+  channel_ranks?: Record<string, number>
+}
+
 export interface RagCitation {
   paper_id: number
   paper_title: string
   section_name: string
   snippet: string
   score: number
+  download_status?: 'none' | 'available' | 'failed' | 'unavailable' | 'pending' | null
+  metadata_only?: boolean | null
+  debug?: RagCitationDebug | null
+}
+
+export interface RagPathEvidence {
+  type?: string
+  path?: string[]
+  node_ids?: string[]
+  paper_ids?: Array<number | null>
+  edges?: Array<{ source: string; target: string; kind: string; weight: number }>
+  text: string
+  score?: number
 }
 
 export interface RagQueryResponse {
   answer: string
   citations: RagCitation[]
+  path_evidence?: RagPathEvidence[]
+  debug?: RagCitationDebug[]
+}
+
+/** expand 阶段 SSE recall_stats 单路摘要 */
+export interface RecallChannelStats {
+  channel: string
+  hit_count: number
+  failed: number
+  latency_ms?: number
+  errors?: string[]
+  stage?: string
+  error?: string
 }
 
 export interface EmbeddingConfig {

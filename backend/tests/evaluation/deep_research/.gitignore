@@ -1,0 +1,3 @@
+# Offline evaluation reports (regenerated via eval/cli.py)
+reports/
+*.tmp.json

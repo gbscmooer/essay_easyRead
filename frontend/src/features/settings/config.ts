@@ -39,12 +39,49 @@ export interface EmbeddingConfig {
   max_input_chars?: number    // 可选硬字符上限（0=不启用）
 }
 
+export interface RecallWeightsConfig {
+  pdf_ref: number
+  backward: number
+  forward: number
+  recommend: number
+  graph_ppr: number
+}
+
+export interface RecallConfig {
+  enabled_sources: string[]
+  rrf_k: number
+  weights: RecallWeightsConfig
+  candidate_limit: number
+}
+
+export interface HybridRetrievalConfig {
+  rrf_k: number
+  weights: {
+    dense: number
+    bm25: number
+    graph_ppr: number
+  }
+  graph: {
+    ppr_alpha: number
+    top_k: number
+    bridge_weight_factor: number
+  }
+}
+
 export interface ResearchConfig {
   provider: 'openalex' | 'semantic_scholar' | 'local'
   email: string
   api_key: string
+  /** @deprecated 相似边已改用 backbone_alpha 多尺度骨架提取 */
   similarity_threshold: number
-  auto_digest?: boolean   // 深度研究时自动「图谱速读」未解读论文
+  knn_k?: number
+  backbone_alpha?: number
+  link_distance?: number
+  auto_digest?: boolean
+  /** 多路召回 + RRF 融合扩展（discovery v2） */
+  discovery_v2?: boolean
+  recall?: RecallConfig
+  hybrid_retrieval?: HybridRetrievalConfig
 }
 
 export interface RerankerConfig {
@@ -148,7 +185,36 @@ export const DEFAULT_CONFIG: AppConfig = {
     email: '',
     api_key: '',
     similarity_threshold: 0.9,
+    knn_k: 8,
+    backbone_alpha: 0.25,
+    link_distance: 50,
     auto_digest: true,
+    discovery_v2: false,
+    recall: {
+      enabled_sources: ['backward', 'forward', 'recommend', 'pdf_ref', 'graph_ppr'],
+      rrf_k: 60,
+      weights: {
+        pdf_ref: 1.0,
+        backward: 1.0,
+        forward: 0.9,
+        recommend: 0.85,
+        graph_ppr: 0.8,
+      },
+      candidate_limit: 50,
+    },
+    hybrid_retrieval: {
+      rrf_k: 60,
+      weights: {
+        dense: 1.0,
+        bm25: 0.95,
+        graph_ppr: 0.8,
+      },
+      graph: {
+        ppr_alpha: 0.85,
+        top_k: 50,
+        bridge_weight_factor: 0,
+      },
+    },
   },
   reranker: {
     enabled: true,
@@ -160,7 +226,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     top_n: 5,
   },
   similarity: {
-    provider: 'bge_centroid',
+    provider: 'unified',
   },
   arxiv_expand: {
     enabled: true,

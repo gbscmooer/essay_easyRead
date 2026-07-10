@@ -60,7 +60,18 @@ class Paper(SQLModel, table=True):
     source: str = "uploaded"               # uploaded | expanded
     level: int = 1                         # 1 = 用户手动加入工作区; 2 = 联网扩展下载; 3+ = 多跳扩展
     parent_paper_id: Optional[int] = None  # 仅 expanded：seed 论文 id
-    external_id: Optional[str] = None      # S2 paperId 或 arXivId，用于去重
+    external_id: Optional[str] = None      # S2 paperId 或 arXivId，用于去重（历史字段，只读兼容）
+
+    # 论文身份（规范化去重，见 services/paper_identity.py）
+    canonical_id: Optional[str] = None     # doi:/arxiv:/openalex:/s2:/titlefp: 前缀
+    doi: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    openalex_id: Optional[str] = None
+    s2_id: Optional[str] = None
+    title_normalized: Optional[str] = None
+    download_status: str = "none"          # none | pending | available | unavailable | failed
+    match_confidence: Optional[float] = None
+    source_ids: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # 图谱速读（轻量解读）：独立于全量 AnalysisResult 的精读，只抽知识图谱所需的 facet
     # + 一段简短总结，token 成本远低于全量分析。结构见 ai_analyzer.generate_graph_digest：

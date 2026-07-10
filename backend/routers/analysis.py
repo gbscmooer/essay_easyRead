@@ -10,7 +10,7 @@ import httpx
 from datetime import datetime, timezone
 from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 from ..models.schemas import AnalysisResponse, PaperResponse, StreamEvent
 from ..services.database import get_paper, get_analysis, update_paper_status, get_engine
+from ..services.bibtex import format_bibtex
 from ..utils.streaming import format_sse
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -60,15 +61,53 @@ class EmbeddingConfig(BaseModel):
     # 可选的硬字符上限（0=不启用）。token 估算之外再加一道保险，极端长文也不会超。
     max_input_chars: int = 0
 
+class RecallWeightsConfig(BaseModel):
+    """多路召回 RRF 各通道权重。"""
+    pdf_ref: float = 1.0
+    backward: float = 1.0
+    forward: float = 0.9
+    recommend: float = 0.85
+    graph_ppr: float = 0.8
+
+
+class RecallConfig(BaseModel):
+    """联网扩展多路召回 / RRF 融合配置（research.recall）。"""
+    enabled_sources: list[str] = ["backward", "forward", "recommend", "pdf_ref", "graph_ppr"]
+    rrf_k: int = 60
+    weights: RecallWeightsConfig = RecallWeightsConfig()
+    candidate_limit: int = 50
+
+
+class HybridWeightsConfig(BaseModel):
+    dense: float = 1.0
+    bm25: float = 0.95
+    graph_ppr: float = 0.8
+
+
+class GraphRetrievalConfig(BaseModel):
+    ppr_alpha: float = 0.85
+    top_k: int = 50
+    bridge_weight_factor: float = 0.0
+
+
+class HybridRetrievalConfig(BaseModel):
+    rrf_k: int = 60
+    weights: HybridWeightsConfig = HybridWeightsConfig()
+    graph: GraphRetrievalConfig = GraphRetrievalConfig()
+
+
 class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
-    similarity_threshold: float = 0.9
+    similarity_threshold: float = 0.9  # 已弃用：相似边改用 backbone_alpha
     knn_k: int = 8                 # 已弃用：旧的全局 kNN 条数；保留以兼容旧配置
     backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
+    discovery_v2: bool = False     # 发布门禁通过前默认关闭，可显式启用 discovery v2
+    recall: RecallConfig = RecallConfig()
+    hybrid_retrieval: HybridRetrievalConfig = HybridRetrievalConfig()
 
 class RerankerConfig(BaseModel):
     enabled: bool = True
@@ -81,7 +120,7 @@ class RerankerConfig(BaseModel):
 
 class SimilarityConfig(BaseModel):
     """论文级相似度 provider 配置。"""
-    provider: str = "bge_centroid"
+    provider: str = "unified"
 
 class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
@@ -127,17 +166,21 @@ class AppConfig(BaseModel):
 @router.get("/config", response_model=AppConfig)
 async def get_config() -> AppConfig:
     """获取全部配置（API 密钥被掩码）"""
-    from ..services.ai_config import load_config, mask_config
+    from ..services.ai_config import load_config, mask_config, DEFAULT_CONFIG
     config = mask_config(load_config())
     _AE_FIELDS = set(ArxivExpandConfig.model_fields.keys())
     _FP_FIELDS = set(FindpapersConfig.model_fields.keys())
+    research_raw = config.get("research", {})
+    default_research = DEFAULT_CONFIG.get("research", {})
+    recall_raw = {**(default_research.get("recall") or {}), **(research_raw.get("recall") or {})}
+    research_payload = {**default_research, **research_raw, "recall": recall_raw}
     return AppConfig(
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
         analysis_prompt=AnalysisPromptConfig(**config.get("analysis_prompt", {})),
         ui=UIConfig(**config.get("ui", {})),
         embedding=EmbeddingConfig(**config.get("embedding", {})),
-        research=ResearchConfig(**config.get("research", {})),
+        research=ResearchConfig(**research_payload),
         reranker=RerankerConfig(**config.get("reranker", {})),
         similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
@@ -155,19 +198,36 @@ async def list_similarity_providers() -> dict:
 @router.post("/config")
 async def update_config(req: AppConfig) -> dict:
     """保存全部配置"""
-    from ..services.ai_config import save_config, merge_preserving_keys
+    from ..services.ai_config import save_config, merge_preserving_keys, DEFAULT_CONFIG
     from ..services.ai_config import load_config as _load
     prior = _load()
     # similarity：保留 provider 之外的 provider-specific 子对象
     prior_sim = prior.get("similarity", {})
     sim = {**prior_sim, **req.similarity.model_dump()}
+    prior_research = prior.get("research", {})
+    research_dump = req.research.model_dump()
+    research_merged = {**prior_research, **research_dump}
+    # recall 子段深合并，避免只改 provider 时丢失 weights 等嵌套字段
+    prior_recall = prior_research.get("recall") or {}
+    new_recall = research_dump.get("recall") or {}
+    if prior_recall or new_recall:
+        default_recall = DEFAULT_CONFIG.get("research", {}).get("recall", {})
+        research_merged["recall"] = {**default_recall, **prior_recall, **new_recall}
+        w_prior = prior_recall.get("weights") or {}
+        w_new = new_recall.get("weights") or {}
+        if w_prior or w_new:
+            research_merged["recall"]["weights"] = {
+                **(default_recall.get("weights") or {}),
+                **w_prior,
+                **w_new,
+            }
     config = {
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
         "analysis_prompt": req.analysis_prompt.model_dump(),
         "ui": req.ui.model_dump(),
         "embedding": req.embedding.model_dump(),
-        "research": req.research.model_dump(),
+        "research": research_merged,
         "reranker": req.reranker.model_dump(),
         "similarity": sim,
         "arxiv_expand": req.arxiv_expand.model_dump(),
@@ -752,16 +812,15 @@ async def import_related_papers(req: ImportRelatedPapersRequest) -> dict:
     """批量导入相关论文到工作区。
 
     对每篇论文：
-    1. 按标题查重本地论文库
-    2. 若已存在 → 直接关联到工作区
-    3. 若不存在 → 通过 arXiv（优先）/ S2（备选）解析 PDF URL → 下载 → 创建记录 → 关联
+    1. 按 paper_identity 匹配本地论文库（canonical/doi/arxiv/…/fuzzy）
+    2. 若已存在 → 关联到工作区
+    3. 若不存在 → 登记 stub（可无 PDF）→ 尝试下载
+    发现与下载解耦：下载失败时元数据仍保留。
     每篇下载之间设置 3 秒延迟以符合 arXiv 访问规范。
     """
-    import os
-    from ..models.paper import Paper
-    from ..models.workspace import Workspace, WorkspacePaper
-    from ..services.deep_research.pdf_downloader import download_pdf
-    from sqlmodel import select
+    from ..models.workspace import Workspace
+    from ..services.paper_download import download_for_paper
+    from ..services.paper_identity import PaperWork, find_or_register
 
     engine = get_engine()
     results = []
@@ -782,103 +841,41 @@ async def import_related_papers(req: ImportRelatedPapersRequest) -> dict:
         if i > 0:
             await asyncio.sleep(3.0)
 
-        # 1) 按标题精确查重
-        with Session(engine, expire_on_commit=False) as session:
-            existing = session.exec(
-                select(Paper).where(Paper.title == title)
-            ).first()
-
-            if existing:
-                # 已存在 → 关联到工作区（不重复添加）
-                wp = session.exec(
-                    select(WorkspacePaper)
-                    .where(WorkspacePaper.workspace_id == req.workspace_id)
-                    .where(WorkspacePaper.paper_id == existing.id)
-                ).first()
-                if not wp:
-                    session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=existing.id))
-                    session.commit()
-                results.append({
-                    "title": title,
-                    "status": "local",
-                    "paper_id": existing.id,
-                    "message": "从本地论文库导入",
-                })
-                continue
-
-        # 2) 尝试获取 PDF URL
-        pdf_url = await _resolve_pdf_url(paper_item)
-
-        if not pdf_url:
-            results.append({
-                "title": title,
-                "status": "failed",
-                "message": "未找到可下载的 PDF",
-            })
-            continue
-
-        # 3) 下载 PDF
-        local_path = await download_pdf(pdf_url)
-        if not local_path:
-            results.append({
-                "title": title,
-                "status": "failed",
-                "message": "PDF 下载失败",
-            })
-            continue
-
-        # 4) 创建 Paper 记录并关联到工作区
-        file_size = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+        work = PaperWork(
+            title=title,
+            doi=paper_item.doi or None,
+            url=paper_item.url or None,
+            filename=f"{title[:60]}.pdf",
+        )
 
         with Session(engine, expire_on_commit=False) as session:
-            # 再次查重（防止并发导入重复）
-            dup = session.exec(
-                select(Paper).where(Paper.title == title)
-            ).first()
-            if dup:
-                wp = session.exec(
-                    select(WorkspacePaper)
-                    .where(WorkspacePaper.workspace_id == req.workspace_id)
-                    .where(WorkspacePaper.paper_id == dup.id)
-                ).first()
-                if not wp:
-                    session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=dup.id))
-                    session.commit()
-                results.append({
-                    "title": title,
-                    "status": "local",
-                    "paper_id": dup.id,
-                    "message": "从本地论文库导入（并发去重）",
-                })
-                continue
+            paper, is_new = find_or_register(session, work, req.workspace_id)
 
-            ext_id = ""
-            if paper_item.doi:
-                ext_id = f"DOI:{paper_item.doi}"
+        # 尝试下载（已有 PDF 则跳过）
+        with Session(engine, expire_on_commit=False) as download_session:
+            local_path = await download_for_paper(download_session, paper.id)
 
-            p = Paper(
-                filename=f"{title[:60]}.pdf",
-                pdf_path=local_path,
-                file_size=file_size,
-                title=title,
-                status="pending",
-                source="uploaded",
-                level=1,
-                external_id=ext_id or None,
-            )
-            session.add(p)
-            session.commit()
-            session.refresh(p)
-
-            session.add(WorkspacePaper(workspace_id=req.workspace_id, paper_id=p.id))
-            session.commit()
-
-        results.append({
-            "title": title,
-            "status": "downloaded",
-            "paper_id": p.id,
-            "message": "已下载并导入",
-        })
+        if local_path:
+            results.append({
+                "title": title,
+                "status": "downloaded" if is_new else "local",
+                "paper_id": paper.id,
+                "message": "已下载并导入" if is_new else "从本地论文库导入",
+            })
+        elif not is_new:
+            results.append({
+                "title": title,
+                "status": "local",
+                "paper_id": paper.id,
+                "message": "从本地论文库导入（无 PDF）",
+            })
+        else:
+            results.append({
+                "title": title,
+                "status": "registered",
+                "paper_id": paper.id,
+                "message": "已登记元数据，PDF 暂不可用",
+            })
 
     return {"results": results}
 
@@ -980,9 +977,40 @@ async def _resolve_pdf_url(paper_item: ImportPaperItem) -> str | None:
     return None
 
 
-# ============================================================
-# GET /api/analysis/{paper_id}
-# ============================================================
+@router.get("/{paper_id}/bibtex")
+async def get_analysis_bibtex(paper_id: int) -> Response:
+    """Export available paper metadata as BibTeX."""
+    engine = get_engine()
+    try:
+        with Session(engine) as session:
+            paper = get_paper(session, paper_id)
+            try:
+                analysis = get_analysis(session, paper_id)
+            except ValueError:
+                analysis = None
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
+        )
+
+    title = (analysis.title if analysis and analysis.title else paper.title) or ""
+    authors = (analysis.authors if analysis and analysis.authors else paper.authors) or ""
+    venue = (analysis.venue if analysis and analysis.venue else paper.venue) or ""
+    year = analysis.year if analysis and analysis.year else paper.year
+
+    if not title.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"detail": "BibTeX metadata is not ready", "code": "NOT_READY"},
+        )
+
+    return Response(
+        content=format_bibtex(title, authors, venue, year),
+        media_type="text/plain; charset=utf-8",
+    )
+
+
 @router.get("/{paper_id}", response_model=AnalysisResponse)
 async def get_analysis_result(paper_id: int) -> AnalysisResponse:
     """获取论文的完整解析结果"""
@@ -1075,7 +1103,7 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
 
             # 逐字段发送
             fields_order = [
-                "title", "venue", "year", "one_sentence", "problem",
+                "title", "authors", "venue", "year", "one_sentence", "problem",
                 "key_contributions", "outline", "method", "experiments",
                 "code_mapping", "interview_qa", "limitations", "related_papers",
             ]
@@ -1187,7 +1215,17 @@ async def start_analysis(paper_id: int) -> dict:
             if db_paper:
                 pdf_path = db_paper.pdf_path
     if not pdf_path:
-        raise HTTPException(status_code=400, detail={"detail": "PDF file path not found", "code": "NO_PDF"})
+        download_status = getattr(paper, "download_status", None) or "none"
+        if download_status == "failed":
+            detail = "PDF 下载失败，无法开始解析"
+            code = "PDF_DOWNLOAD_FAILED"
+        elif download_status in {"unavailable", "pending", "none"}:
+            detail = "该论文目前只有元数据，PDF 尚不可用"
+            code = "PDF_UNAVAILABLE"
+        else:
+            detail = "PDF file path not found"
+            code = "NO_PDF"
+        raise HTTPException(status_code=400, detail={"detail": detail, "code": code})
 
     from ..services.analysis_runner import get_job, ensure_job
     job = get_job(paper_id)
@@ -1262,6 +1300,7 @@ async def reparse_paper(paper_id: int) -> PaperResponse:
         status=paper.status,
         error_message=paper.error_message,
         code_url=paper.code_url,
+        code_path=paper.code_path,
         code_status=paper.code_status or "none",
         created_at=paper.created_at,
         updated_at=paper.updated_at,

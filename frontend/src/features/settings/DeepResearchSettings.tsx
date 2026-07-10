@@ -10,7 +10,12 @@ import type { Dispatch, SetStateAction } from 'react'
 import { TestButton } from './TestButton'
 import { GrobidPanel } from './GrobidPanel'
 import { post } from '@/api/client'
-import type { AppConfig, EmbeddingConfig } from './config'
+import type {
+  AppConfig,
+  EmbeddingConfig,
+  HybridRetrievalConfig,
+  RecallConfig,
+} from './config'
 
 
 type SetConfigFn = Dispatch<SetStateAction<AppConfig>>
@@ -323,39 +328,6 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         </p>
       )}
 
-      {/* 相似度阈值 */}
-      <div className="pt-2" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="flex items-center justify-between mb-1">
-          <div>
-            <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-              默认相似度阈值
-            </span>
-            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              两篇论文向量余弦相似度超过此值时图谱连一条「相似」边。值越大边越少越精炼。可在每次开始研究时临时调整。
-            </p>
-          </div>
-          <span className="text-xs font-mono ml-4 shrink-0" style={{ color: 'var(--text-secondary)' }}>
-            {config.research.similarity_threshold.toFixed(2)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={0.5}
-          max={0.95}
-          step={0.01}
-          value={config.research.similarity_threshold}
-          onChange={e => setConfig(prev => ({
-            ...prev,
-            research: { ...prev.research, similarity_threshold: Number(e.target.value) },
-          }))}
-          className="w-full h-1 accent-[var(--accent)]"
-        />
-        <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
-          <span>0.50 宽松</span>
-          <span>0.95 严格</span>
-        </div>
-      </div>
-
       <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
         <label className="flex items-start gap-2 cursor-pointer">
           <input
@@ -375,6 +347,294 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
           </span>
         </label>
       </div>
+
+      {/* 已弃用参数：仅展示不回写误导 */}
+      <details className="pt-2 opacity-70" style={{ borderTop: '1px solid var(--border)' }}>
+        <summary className="text-[11px] cursor-pointer select-none" style={{ color: 'var(--text-muted)' }}>
+          已弃用参数（不再影响图谱）
+        </summary>
+        <p className="text-[10px] mt-2" style={{ color: 'var(--text-disabled)' }}>
+          「相似度阈值」与「共享方法边」已被多尺度骨架提取（骨架密度 α）和结构边（文献耦合 / 共引）取代。
+          请在研究页「高级设置」中调整骨架密度 α。
+          {config.research.similarity_threshold != null && (
+            <> 旧配置 similarity_threshold={config.research.similarity_threshold.toFixed(2)} 已忽略。</>
+          )}
+        </p>
+      </details>
+    </div>
+  )
+}
+
+
+// ============================================================
+// 多路召回 / RRF 融合（discovery v2）
+// ============================================================
+
+const RECALL_SOURCE_OPTIONS: { key: string; label: string; hint: string }[] = [
+  { key: 'backward', label: '反向引用', hint: 'seed 论文参考文献列表（被引文献）' },
+  { key: 'forward', label: '正向引用', hint: '引用 seed 的后续论文（施引文献）' },
+  { key: 'recommend', label: '相关推荐', hint: 'Provider 语义相关推荐' },
+  { key: 'pdf_ref', label: 'PDF 引用', hint: 'GROBID/regex 从 PDF 正文解析的引用（需启用 arXiv 扩展）' },
+  { key: 'graph_ppr', label: '图谱 PPR', hint: '复用工作区已有图谱做结构召回；无历史图谱时自动跳过' },
+]
+
+const DEFAULT_RECALL: RecallConfig = {
+  enabled_sources: ['backward', 'forward', 'recommend', 'pdf_ref', 'graph_ppr'],
+  rrf_k: 60,
+  weights: { pdf_ref: 1.0, backward: 1.0, forward: 0.9, recommend: 0.85, graph_ppr: 0.8 },
+  candidate_limit: 50,
+}
+
+function ensureRecall(research: AppConfig['research']): RecallConfig {
+  return {
+    ...DEFAULT_RECALL,
+    ...(research.recall ?? {}),
+    weights: { ...DEFAULT_RECALL.weights, ...(research.recall?.weights ?? {}) },
+  }
+}
+
+const DEFAULT_HYBRID: HybridRetrievalConfig = {
+  rrf_k: 60,
+  weights: { dense: 1.0, bm25: 0.95, graph_ppr: 0.8 },
+  graph: { ppr_alpha: 0.85, top_k: 50, bridge_weight_factor: 0 },
+}
+
+function ensureHybrid(research: AppConfig['research']): HybridRetrievalConfig {
+  return {
+    ...DEFAULT_HYBRID,
+    ...(research.hybrid_retrieval ?? {}),
+    weights: {
+      ...DEFAULT_HYBRID.weights,
+      ...(research.hybrid_retrieval?.weights ?? {}),
+    },
+    graph: {
+      ...DEFAULT_HYBRID.graph,
+      ...(research.hybrid_retrieval?.graph ?? {}),
+    },
+  }
+}
+
+export function RecallSection({ config, setConfig }: SectionProps) {
+  const recall = ensureRecall(config.research)
+  const hybrid = ensureHybrid(config.research)
+  const discoveryOn = config.research.discovery_v2 ?? false
+
+  const patchRecall = (patch: Partial<RecallConfig>) => {
+    setConfig(prev => ({
+      ...prev,
+      research: {
+        ...prev.research,
+        recall: { ...ensureRecall(prev.research), ...patch },
+      },
+    }))
+  }
+
+  const toggleSource = (key: string) => {
+    const next = recall.enabled_sources.includes(key)
+      ? recall.enabled_sources.filter(s => s !== key)
+      : [...recall.enabled_sources, key]
+    patchRecall({ enabled_sources: next })
+  }
+
+  const patchHybrid = (patch: Partial<HybridRetrievalConfig>) => {
+    setConfig(prev => ({
+      ...prev,
+      research: {
+        ...prev.research,
+        hybrid_retrieval: { ...ensureHybrid(prev.research), ...patch },
+      },
+    }))
+  }
+
+  return (
+    <div className="panel-section space-y-4" style={CARD}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            多路召回与 RRF 融合
+          </h2>
+          <p className="text-xs mt-0.5" style={LABEL}>
+            联网扩展时并行拉取多源候选，按 RRF 公式融合：
+            <code className="mx-1 px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+              Σ wₛ/(k+rank)
+            </code>
+            默认 k=60。单源失败不阻断整体流程。
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer shrink-0" style={{ color: 'var(--text-secondary)' }}>
+          <input
+            type="checkbox"
+            checked={discoveryOn}
+            onChange={e => setConfig(prev => ({
+              ...prev,
+              research: { ...prev.research, discovery_v2: e.target.checked },
+            }))}
+            className="accent-[var(--accent)]"
+          />
+          discovery v2
+        </label>
+      </div>
+
+      {!discoveryOn && (
+        <p className="text-[11px] px-3 py-2 rounded-lg" style={{ color: 'var(--warning, #eab308)', backgroundColor: 'color-mix(in srgb, var(--warning, #eab308) 12%, transparent)' }}>
+          discovery v2 尚未通过 live/Scholar 发布门禁，默认关闭；可为实验评测手动启用。
+        </p>
+      )}
+
+      <div>
+        <label className="block text-xs mb-2" style={LABEL}>启用的召回源</label>
+        <div className="flex flex-wrap gap-2">
+          {RECALL_SOURCE_OPTIONS.map(opt => (
+            <label
+              key={opt.key}
+              className="flex items-center gap-1.5 text-xs cursor-pointer px-2.5 py-1.5 rounded-lg border"
+              style={{
+                borderColor: recall.enabled_sources.includes(opt.key) ? 'var(--accent)' : 'var(--border)',
+                color: recall.enabled_sources.includes(opt.key) ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              title={opt.hint}
+            >
+              <input
+                type="checkbox"
+                checked={recall.enabled_sources.includes(opt.key)}
+                onChange={() => toggleSource(opt.key)}
+                className="accent-[var(--accent)]"
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs mb-1" style={LABEL}>RRF 常数 k</label>
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={recall.rrf_k}
+            onChange={e => patchRecall({ rrf_k: Number(e.target.value) || 60 })}
+            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            style={INPUT}
+          />
+          <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
+            越大则排名靠后的候选也有机会入选（更平滑）
+          </p>
+        </div>
+        <div>
+          <label className="block text-xs mb-1" style={LABEL}>融合后候选上限</label>
+          <input
+            type="number"
+            min={5}
+            max={500}
+            value={recall.candidate_limit}
+            onChange={e => patchRecall({ candidate_limit: Number(e.target.value) || 50 })}
+            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            style={INPUT}
+          />
+        </div>
+      </div>
+
+      <details className="group">
+        <summary className="flex items-center gap-1.5 cursor-pointer text-xs select-none" style={{ color: 'var(--text-secondary)' }}>
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          各通道 RRF 权重
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {RECALL_SOURCE_OPTIONS.map(opt => (
+            <div key={opt.key}>
+              <label className="block text-xs mb-1" style={LABEL}>{opt.label}</label>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                step={0.05}
+                value={recall.weights[opt.key as keyof typeof recall.weights] ?? 1}
+                onChange={e => patchRecall({
+                  weights: {
+                    ...recall.weights,
+                    [opt.key]: Number(e.target.value) || 0,
+                  },
+                })}
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
+              />
+            </div>
+          ))}
+        </div>
+      </details>
+
+      <details className="group">
+        <summary className="flex items-center gap-1.5 cursor-pointer text-xs select-none" style={{ color: 'var(--text-secondary)' }}>
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          工作区 Hybrid RAG 参数
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs mb-1" style={LABEL}>Hybrid RRF k</label>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={hybrid.rrf_k}
+              onChange={e => patchHybrid({ rrf_k: Number(e.target.value) || 60 })}
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              style={INPUT}
+            />
+          </div>
+          {([
+            ['dense', 'Dense 权重'],
+            ['bm25', 'BM25 权重'],
+            ['graph_ppr', 'Graph PPR 权重'],
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className="block text-xs mb-1" style={LABEL}>{label}</label>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                step={0.05}
+                value={hybrid.weights[key]}
+                onChange={e => patchHybrid({
+                  weights: { ...hybrid.weights, [key]: Number(e.target.value) || 0 },
+                })}
+                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                style={INPUT}
+              />
+            </div>
+          ))}
+          <div>
+            <label className="block text-xs mb-1" style={LABEL}>PPR α</label>
+            <input
+              type="number"
+              min={0.05}
+              max={0.99}
+              step={0.01}
+              value={hybrid.graph.ppr_alpha}
+              onChange={e => patchHybrid({
+                graph: { ...hybrid.graph, ppr_alpha: Number(e.target.value) || 0.85 },
+              })}
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label className="block text-xs mb-1" style={LABEL}>图召回论文上限</label>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={hybrid.graph.top_k}
+              onChange={e => patchHybrid({
+                graph: { ...hybrid.graph, top_k: Number(e.target.value) || 50 },
+              })}
+              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              style={INPUT}
+            />
+          </div>
+        </div>
+      </details>
     </div>
   )
 }
@@ -837,6 +1097,7 @@ export function DeepResearchSettings({ config, setConfig, simProviders }: {
     <>
       <EmbeddingSection config={config} setConfig={setConfig} />
       <ResearchProviderSection config={config} setConfig={setConfig} />
+      <RecallSection config={config} setConfig={setConfig} />
       <RerankerSection config={config} setConfig={setConfig} />
       <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders || []} />
       <ArxivExpandSection config={config} setConfig={setConfig} />

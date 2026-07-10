@@ -32,4 +32,4 @@ def get_provider(cfg: dict) -> ResearchProvider:
     return LocalProvider()
 
 
-__all__ = ["get_provider", "ResearchProvider"]
+__all__ = ["get_provider", "ResearchProvider", "OpenAlexProvider", "SemanticScholarProvider", "LocalProvider"]

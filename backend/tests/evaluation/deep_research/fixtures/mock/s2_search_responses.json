@@ -1,0 +1,37 @@
+{
+  "resnet": [
+    {"ext_id": "oa:he2016resnet", "paperId": "oa:he2016resnet", "title": "Deep Residual Learning for Image Recognition", "year": 2016},
+    {"ext_id": "oa:he2016identity", "paperId": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016},
+    {"ext_id": "oa:simonyan2014vgg", "paperId": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014},
+    {"ext_id": "s2:wrong-resnet-id", "paperId": "s2:wrong-resnet-id", "title": "Residual Nets (mislinked record)", "year": 2016},
+    {"ext_id": "noise:unrelated-nlp", "paperId": "noise:unrelated-nlp", "title": "BERT: Pre-training of Deep Bidirectional Transformers", "year": 2019}
+  ],
+  "vit": [
+    {"ext_id": "oa:dosovitskiy2021vit", "paperId": "oa:dosovitskiy2021vit", "title": "An Image is Worth 16x16 Words", "year": 2021},
+    {"ext_id": "oa:vaswani2017attention", "paperId": "oa:vaswani2017attention", "title": "Attention Is All You Need", "year": 2017},
+    {"ext_id": "oa:tolstikhin2021mlpmixer", "paperId": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer: An all-MLP Architecture for Vision", "year": 2021},
+    {"ext_id": "s2:wrong-vit-id", "paperId": "s2:wrong-vit-id", "title": "ViT duplicate metadata", "year": 2021},
+    {"ext_id": "oa:liu2021swin", "paperId": "oa:liu2021swin", "title": "Swin Transformer", "year": 2021}
+  ],
+  "detr": [
+    {"ext_id": "oa:carion2020detr", "paperId": "oa:carion2020detr", "title": "End-to-End Object Detection with Transformers", "year": 2020},
+    {"ext_id": "oa:ren2015faster", "paperId": "oa:ren2015faster", "title": "Faster R-CNN", "year": 2015},
+    {"ext_id": "oa:lin2017focal", "paperId": "oa:lin2017focal", "title": "Focal Loss for Dense Object Detection", "year": 2017},
+    {"ext_id": "s2:wrong-detr-id", "paperId": "s2:wrong-detr-id", "title": "DETR mislinked", "year": 2020},
+    {"ext_id": "oa:redmon2016yolo", "paperId": "oa:redmon2016yolo", "title": "You Only Look Once", "year": 2016}
+  ],
+  "clip": [
+    {"ext_id": "oa:radford2021clip", "paperId": "oa:radford2021clip", "title": "CLIP", "year": 2021},
+    {"ext_id": "oa:chen2020simclr", "paperId": "oa:chen2020simclr", "title": "SimCLR", "year": 2020},
+    {"ext_id": "oa:he2020moco", "paperId": "oa:he2020moco", "title": "MoCo", "year": 2020},
+    {"ext_id": "s2:wrong-clip-id", "paperId": "s2:wrong-clip-id", "title": "CLIP duplicate", "year": 2021},
+    {"ext_id": "oa:jia2021align", "paperId": "oa:jia2021align", "title": "ALIGN", "year": 2021}
+  ],
+  "dino": [
+    {"ext_id": "oa:caron2021dino", "paperId": "oa:caron2021dino", "title": "DINO", "year": 2021},
+    {"ext_id": "oa:chen2021mst", "paperId": "oa:chen2021mst", "title": "SimSiam", "year": 2021},
+    {"ext_id": "oa:grill2020byol", "paperId": "oa:grill2020byol", "title": "BYOL", "year": 2020},
+    {"ext_id": "s2:wrong-dino-id", "paperId": "s2:wrong-dino-id", "title": "DINO mislinked", "year": 2021},
+    {"ext_id": "oa:chen2020simple", "paperId": "oa:chen2020simple", "title": "MoCo v2", "year": 2020}
+  ]
+}

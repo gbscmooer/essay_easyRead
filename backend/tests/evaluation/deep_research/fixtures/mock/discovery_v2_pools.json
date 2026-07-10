@@ -1,0 +1,109 @@
+{
+  "resnet": {
+    "backward": [
+      {"ext_id": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016, "citation_count": 18000, "pdf_url": "https://mock.local/resnet/identity.pdf"},
+      {"ext_id": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014, "citation_count": 90000, "pdf_url": "https://mock.local/resnet/vgg.pdf"},
+      {"ext_id": "oa:szegedy2015inception", "title": "Going Deeper with Convolutions", "year": 2015, "citation_count": 45000, "pdf_url": "https://mock.local/resnet/inception.pdf"},
+      {"ext_id": "noise:unrelated-nlp", "title": "BERT: Pre-training of Deep Bidirectional Transformers", "year": 2019, "citation_count": 90000, "pdf_url": "https://mock.local/noise/bert.pdf"}
+    ],
+    "forward": [
+      {"ext_id": "oa:he2016resnet", "title": "Deep Residual Learning for Image Recognition", "year": 2016, "citation_count": 120000, "pdf_url": "https://mock.local/resnet/resnet.pdf"},
+      {"ext_id": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016, "citation_count": 18000, "pdf_url": "https://mock.local/resnet/identity.pdf"},
+      {"ext_id": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014, "citation_count": 90000, "pdf_url": "https://mock.local/resnet/vgg.pdf"},
+      {"ext_id": "s2:wrong-resnet-id", "title": "Residual Nets (mislinked record)", "year": 2016, "citation_count": 500, "pdf_url": "https://mock.local/resnet/wrong.pdf"}
+    ],
+    "recommend": [
+      {"ext_id": "oa:he2016resnet", "title": "Deep Residual Learning for Image Recognition", "year": 2016, "citation_count": 120000, "pdf_url": "https://mock.local/resnet/resnet.pdf"},
+      {"ext_id": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016, "citation_count": 18000, "pdf_url": "https://mock.local/resnet/identity.pdf"},
+      {"ext_id": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014, "citation_count": 90000, "pdf_url": "https://mock.local/resnet/vgg.pdf"}
+    ],
+    "pdf_ref": [
+      {"ext_id": "oa:he2016identity", "title": "Identity Mappings in Deep Residual Networks", "year": 2016, "citation_count": 18000, "pdf_url": "https://mock.local/resnet/identity.pdf"},
+      {"ext_id": "oa:simonyan2014vgg", "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition", "year": 2014, "citation_count": 90000, "pdf_url": "https://mock.local/resnet/vgg.pdf"}
+    ]
+  },
+  "vit": {
+    "backward": [
+      {"ext_id": "oa:vaswani2017attention", "title": "Attention Is All You Need", "year": 2017, "citation_count": 110000, "pdf_url": "https://mock.local/vit/attention.pdf"},
+      {"ext_id": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer: An all-MLP Architecture for Vision", "year": 2021, "citation_count": 5000, "pdf_url": "https://mock.local/vit/mlpmixer.pdf"},
+      {"ext_id": "oa:liu2021swin", "title": "Swin Transformer", "year": 2021, "citation_count": 28000, "pdf_url": "https://mock.local/vit/swin.pdf"}
+    ],
+    "forward": [
+      {"ext_id": "oa:dosovitskiy2021vit", "title": "An Image is Worth 16x16 Words", "year": 2021, "citation_count": 35000, "pdf_url": "https://mock.local/vit/vit.pdf"},
+      {"ext_id": "oa:vaswani2017attention", "title": "Attention Is All You Need", "year": 2017, "citation_count": 110000, "pdf_url": "https://mock.local/vit/attention.pdf"},
+      {"ext_id": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer", "year": 2021, "citation_count": 5000, "pdf_url": "https://mock.local/vit/mlpmixer.pdf"},
+      {"ext_id": "s2:wrong-vit-id", "title": "ViT duplicate metadata", "year": 2021, "citation_count": 200, "pdf_url": "https://mock.local/vit/wrong.pdf"}
+    ],
+    "recommend": [
+      {"ext_id": "oa:dosovitskiy2021vit", "title": "An Image is Worth 16x16 Words", "year": 2021, "citation_count": 35000, "pdf_url": "https://mock.local/vit/vit.pdf"},
+      {"ext_id": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer", "year": 2021, "citation_count": 5000, "pdf_url": "https://mock.local/vit/mlpmixer.pdf"},
+      {"ext_id": "oa:vaswani2017attention", "title": "Attention Is All You Need", "year": 2017, "citation_count": 110000, "pdf_url": "https://mock.local/vit/attention.pdf"}
+    ],
+    "pdf_ref": [
+      {"ext_id": "oa:tolstikhin2021mlpmixer", "title": "MLP-Mixer", "year": 2021, "citation_count": 5000, "pdf_url": "https://mock.local/vit/mlpmixer.pdf"}
+    ]
+  },
+  "detr": {
+    "backward": [
+      {"ext_id": "oa:ren2015faster", "title": "Faster R-CNN", "year": 2015, "citation_count": 80000, "pdf_url": "https://mock.local/detr/faster-rcnn.pdf"},
+      {"ext_id": "oa:lin2017focal", "title": "Focal Loss for Dense Object Detection", "year": 2017, "citation_count": 40000, "pdf_url": "https://mock.local/detr/focal.pdf"},
+      {"ext_id": "oa:redmon2016yolo", "title": "You Only Look Once", "year": 2016, "citation_count": 35000, "pdf_url": "https://mock.local/detr/yolo.pdf"}
+    ],
+    "forward": [
+      {"ext_id": "oa:carion2020detr", "title": "End-to-End Object Detection with Transformers", "year": 2020, "citation_count": 15000, "pdf_url": "https://mock.local/detr/detr.pdf"},
+      {"ext_id": "oa:ren2015faster", "title": "Faster R-CNN", "year": 2015, "citation_count": 80000, "pdf_url": "https://mock.local/detr/faster-rcnn.pdf"},
+      {"ext_id": "oa:lin2017focal", "title": "Focal Loss", "year": 2017, "citation_count": 40000, "pdf_url": "https://mock.local/detr/focal.pdf"},
+      {"ext_id": "s2:wrong-detr-id", "title": "DETR mislinked", "year": 2020, "citation_count": 100, "pdf_url": "https://mock.local/detr/wrong.pdf"}
+    ],
+    "recommend": [
+      {"ext_id": "oa:carion2020detr", "title": "End-to-End Object Detection with Transformers", "year": 2020, "citation_count": 15000, "pdf_url": "https://mock.local/detr/detr.pdf"},
+      {"ext_id": "oa:ren2015faster", "title": "Faster R-CNN", "year": 2015, "citation_count": 80000, "pdf_url": "https://mock.local/detr/faster-rcnn.pdf"},
+      {"ext_id": "oa:lin2017focal", "title": "Focal Loss", "year": 2017, "citation_count": 40000, "pdf_url": "https://mock.local/detr/focal.pdf"}
+    ],
+    "pdf_ref": [
+      {"ext_id": "oa:lin2017focal", "title": "Focal Loss", "year": 2017, "citation_count": 40000, "pdf_url": "https://mock.local/detr/focal.pdf"}
+    ]
+  },
+  "clip": {
+    "backward": [
+      {"ext_id": "oa:chen2020simclr", "title": "SimCLR", "year": 2020, "citation_count": 18000, "pdf_url": "https://mock.local/clip/simclr.pdf"},
+      {"ext_id": "oa:he2020moco", "title": "MoCo", "year": 2020, "citation_count": 16000, "pdf_url": "https://mock.local/clip/moco.pdf"},
+      {"ext_id": "oa:jia2021align", "title": "ALIGN", "year": 2021, "citation_count": 4000, "pdf_url": "https://mock.local/clip/align.pdf"}
+    ],
+    "forward": [
+      {"ext_id": "oa:radford2021clip", "title": "CLIP", "year": 2021, "citation_count": 22000, "pdf_url": "https://mock.local/clip/clip.pdf"},
+      {"ext_id": "oa:chen2020simclr", "title": "SimCLR", "year": 2020, "citation_count": 18000, "pdf_url": "https://mock.local/clip/simclr.pdf"},
+      {"ext_id": "oa:he2020moco", "title": "MoCo", "year": 2020, "citation_count": 16000, "pdf_url": "https://mock.local/clip/moco.pdf"},
+      {"ext_id": "s2:wrong-clip-id", "title": "CLIP duplicate", "year": 2021, "citation_count": 80, "pdf_url": "https://mock.local/clip/wrong.pdf"}
+    ],
+    "recommend": [
+      {"ext_id": "oa:radford2021clip", "title": "CLIP", "year": 2021, "citation_count": 22000, "pdf_url": "https://mock.local/clip/clip.pdf"},
+      {"ext_id": "oa:chen2020simclr", "title": "SimCLR", "year": 2020, "citation_count": 18000, "pdf_url": "https://mock.local/clip/simclr.pdf"},
+      {"ext_id": "oa:he2020moco", "title": "MoCo", "year": 2020, "citation_count": 16000, "pdf_url": "https://mock.local/clip/moco.pdf"}
+    ],
+    "pdf_ref": [
+      {"ext_id": "oa:chen2020simclr", "title": "SimCLR", "year": 2020, "citation_count": 18000, "pdf_url": "https://mock.local/clip/simclr.pdf"}
+    ]
+  },
+  "dino": {
+    "backward": [
+      {"ext_id": "oa:chen2021mst", "title": "SimSiam", "year": 2021, "citation_count": 6000, "pdf_url": "https://mock.local/dino/simsiam.pdf"},
+      {"ext_id": "oa:grill2020byol", "title": "BYOL", "year": 2020, "citation_count": 7000, "pdf_url": "https://mock.local/dino/byol.pdf"},
+      {"ext_id": "oa:chen2020simple", "title": "MoCo v2", "year": 2020, "citation_count": 3000, "pdf_url": "https://mock.local/dino/moco-v2.pdf"}
+    ],
+    "forward": [
+      {"ext_id": "oa:caron2021dino", "title": "DINO", "year": 2021, "citation_count": 9000, "pdf_url": "https://mock.local/dino/dino.pdf"},
+      {"ext_id": "oa:chen2021mst", "title": "SimSiam", "year": 2021, "citation_count": 6000, "pdf_url": "https://mock.local/dino/simsiam.pdf"},
+      {"ext_id": "oa:grill2020byol", "title": "BYOL", "year": 2020, "citation_count": 7000, "pdf_url": "https://mock.local/dino/byol.pdf"},
+      {"ext_id": "s2:wrong-dino-id", "title": "DINO mislinked", "year": 2021, "citation_count": 50, "pdf_url": "https://mock.local/dino/wrong.pdf"}
+    ],
+    "recommend": [
+      {"ext_id": "oa:caron2021dino", "title": "DINO", "year": 2021, "citation_count": 9000, "pdf_url": "https://mock.local/dino/dino.pdf"},
+      {"ext_id": "oa:chen2021mst", "title": "SimSiam", "year": 2021, "citation_count": 6000, "pdf_url": "https://mock.local/dino/simsiam.pdf"},
+      {"ext_id": "oa:grill2020byol", "title": "BYOL", "year": 2020, "citation_count": 7000, "pdf_url": "https://mock.local/dino/byol.pdf"}
+    ],
+    "pdf_ref": [
+      {"ext_id": "oa:grill2020byol", "title": "BYOL", "year": 2020, "citation_count": 7000, "pdf_url": "https://mock.local/dino/byol.pdf"}
+    ]
+  }
+}

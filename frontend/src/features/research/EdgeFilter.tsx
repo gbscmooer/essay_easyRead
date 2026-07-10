@@ -2,9 +2,11 @@ import type { GraphEdgeKind } from '@/types'
 import { Tooltip } from '@/ds-entry'
 
 const EDGE_OPTIONS: { kind: GraphEdgeKind; label: string; color: string; hint: string }[] = [
-  { kind: 'cites', label: '引用', color: '#ef4444', hint: '基于"父论文 → 引用论文"的关系（联网扩展阶段建立）。点亮则在图中显示。' },
-  { kind: 'similar', label: '相似', color: '#3b82f6', hint: '基于两篇论文向量余弦相似度高于阈值。可在"高级设置"中调阈值。' },
-  { kind: 'shared-method', label: '共享方法', color: '#10b981', hint: '两篇论文使用了相同的方法/技术（需启用 LLM 提取，当前为占位）。' },
+  { kind: 'cites', label: '引用', color: '#ef4444', hint: '父论文 → 被引论文（联网扩展阶段建立）。' },
+  { kind: 'similar', label: '相似', color: '#3b82f6', hint: '语义相似度边，由 Similarity Provider + 多尺度骨架提取去噪。' },
+  { kind: 'bibcoupling', label: '文献耦合', color: '#f59e0b', hint: '两篇论文引用了大量相同的外部文献（结构相似）。' },
+  { kind: 'cocitation', label: '共引', color: '#a855f7', hint: '被同一篇论文共同引用（结构相似）。' },
+  { kind: 'shared-method', label: '共享方法', color: '#10b981', hint: '已弃用占位：当前图谱不产出此边类型。' },
 ]
 
 interface EdgeFilterProps {
@@ -24,11 +26,11 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
         边类型{selected.size > 0 ? ` · ${selected.size}` : ''}
       </span>
-      {EDGE_OPTIONS.map(opt => {
+      {EDGE_OPTIONS.filter(opt => opt.kind !== 'shared-method').map(opt => {
         const on = selected.has(opt.kind)
         return (
           <Tooltip key={opt.kind} content={opt.hint}>

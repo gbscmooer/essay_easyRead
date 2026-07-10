@@ -310,7 +310,7 @@ async def promote_paper(workspace_id: int, paper_id: int) -> dict:
     """把"深度研究发现"中的论文（L2+）提升为工作区正式论文（L1）。
 
     - level 设为 1
-    - source 改为 'promoted'（保留 parent_paper_id 作为发现来源溯源）
+    - source 改为 'uploaded'（保留 parent_paper_id 作为发现来源溯源）
     - 仍保留 status（pending / indexed / done）不变
     """
     engine = get_engine()
@@ -326,7 +326,7 @@ async def promote_paper(workspace_id: int, paper_id: int) -> dict:
         if not paper:
             raise HTTPException(status_code=404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
         paper.level = 1
-        paper.source = "promoted"
+        paper.source = "uploaded"
         session.add(paper)
         ws = session.get(Workspace, workspace_id)
         if ws:

@@ -75,6 +75,28 @@ def delete_paper(ws_id: int, paper_id: int):
     col.delete(where={"paper_id": paper_id})
 
 
+def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None) -> list[dict]:
+    """列出工作区全部 chunk（供 BM25 等词法索引构建）。失败返回空列表。"""
+    try:
+        col = get_or_create(ws_id)
+        where = {"paper_id": {"$in": paper_ids}} if paper_ids else None
+        res = col.get(where=where, include=["documents", "metadatas"])
+        ids = res.get("ids") or []
+        docs = res.get("documents") or []
+        metas = res.get("metadatas") or []
+        out: list[dict] = []
+        for cid, doc, meta in zip(ids, docs, metas):
+            out.append({
+                "id": cid,
+                **(meta or {}),
+                "text": doc or "",
+            })
+        return out
+    except Exception as e:
+        logger.warning(f"list_workspace_chunks failed: {e}")
+        return []
+
+
 def query_workspace(ws_id: int, vec: list[float], top_k: int = 5, paper_ids: Optional[list[int]] = None) -> list[dict]:
     col = get_or_create(ws_id)
     where = {"paper_id": {"$in": paper_ids}} if paper_ids else None

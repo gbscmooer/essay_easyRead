@@ -1,0 +1,76 @@
+# Deep research evaluation gates
+# - modes.mock: CI regression gate (achievable on frozen fixtures)
+# - modes.release: aspirational release bar (NOT enforced in CI; requires manual Scholar blind test)
+
+schema_version: deep_research_eval_v2
+
+modes:
+  mock:
+    discovery:
+      keyword:
+        precision@5: {min: 0.40}
+        recall@5: {min: 0.70}
+        mrr: {min: 0.90}
+        wrong_id_rate: {max: 0.05}
+        duplicate_rate: {max: 0.00}
+      s2_search:
+        precision@5: {min: 0.50}
+        recall@5: {min: 0.90}
+        mrr: {min: 0.90}
+        wrong_id_rate: {max: 0.40}
+        duplicate_rate: {max: 0.00}
+      current_expand:
+        precision@5: {min: 0.35}
+        recall@5: {min: 0.60}
+        mrr: {min: 0.90}
+        wrong_id_rate: {max: 0.05}
+        duplicate_rate: {max: 0.00}
+      discovery_v2:
+        precision@5: {min: 0.55}
+        recall@5: {min: 0.90}
+        mrr: {min: 0.90}
+        wrong_id_rate: {max: 0.35}
+        duplicate_rate: {max: 0.00}
+    rag:
+      rag_vector:
+        precision@5: {min: 0.22}
+        recall@5: {min: 0.55}
+        mrr: {min: 0.28}
+        duplicate_rate: {max: 0.00}
+      rag_vector_rerank:
+        precision@5: {min: 0.22}
+        recall@5: {min: 0.55}
+        mrr: {min: 0.55}
+        duplicate_rate: {max: 0.00}
+      rag_hybrid:
+        precision@5: {min: 0.30}
+        recall@5: {min: 0.95}
+        mrr: {min: 0.95}
+        duplicate_rate: {max: 0.00}
+    regression:
+      discovery_v2_vs_current_expand:
+        precision@5: {min_delta: 0.10}
+        recall@5: {min_delta: 0.20}
+        mrr: {min_delta: 0.00}
+      rag_hybrid_vs_rag_vector:
+        recall@5: {min_delta: 0.15}
+        mrr: {min_delta: 0.30}
+
+  release:
+    # 真实发布门槛：需人工 Scholar 盲测对照，不在 CI mock 中宣称达标
+    discovery:
+      discovery_v2:
+        precision@5: {min: 0.55}
+        recall@5: {min: 0.75}
+        mrr: {min: 0.70}
+        wrong_id_rate: {max: 0.08}
+        ndcg@10: {min: 0.72}
+    rag:
+      rag_hybrid:
+        precision@5: {min: 0.60}
+        recall@5: {min: 0.80}
+        mrr: {min: 0.75}
+        ndcg@5: {min: 0.70}
+    notes:
+      scholar_blind_test: "人工收集 20+ seed 查询，双盲对比 discovery_v2 vs Scholar UI，胜率需 >60%"
+      no_auto_crawl: "禁止自动抓取 Google/Scholar 结果作为 test 集"

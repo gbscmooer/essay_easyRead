@@ -4,9 +4,11 @@ Stage 3 — chunk
 对论文进行文本切片：
 - 优先用浅分析的 outline 章节切片（粗粒度）
 - 再用 PDF 全文滑窗切片（细粒度）
+- download_status 非 available 或 PDF 不存在时跳过正文切片
 """
 
 import asyncio
+import os
 from sqlmodel import Session, create_engine, select
 from ....config import settings
 from ....models.analysis import AnalysisResult
@@ -58,7 +60,15 @@ async def stage_chunk(papers, *, citation_contexts: dict[int, list[dict]] | None
                         "text": f"{sec.get('section', '')}: {sec.get('summary', '')}",
                     })
 
-        # PDF 全文滑窗（放线程池避免阻塞事件循环）
+        # PDF 全文滑窗：仅当 download_status=available 且文件存在
+        pdf_ok = (
+            getattr(p, "download_status", "none") == "available"
+            and p.pdf_path
+            and os.path.isfile(p.pdf_path)
+        )
+        if not pdf_ok:
+            continue
+
         try:
             content = await asyncio.to_thread(extract_pdf_content, p.pdf_path)
             full = content.full_text or ""

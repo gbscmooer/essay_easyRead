@@ -31,9 +31,9 @@
 
 1. 工作区聚合论文
 2. `/api/research/workspaces/{ws_id}/runs` 创建研究任务
-3. pipeline 依次执行 `collect -> expand -> chunk -> embed -> graph -> persist`
+3. pipeline 依次执行 `collect -> expand -> chunk -> embed -> digest -> graph -> persist`；`expand` 内部并行执行在线多源召回与 PDF 引用解析，`digest` 可按配置跳过
 4. `/api/research/workspaces/{ws_id}/graph` 返回图谱快照
-5. `/api/research/workspaces/{ws_id}/query` 提供 RAG 问答
+5. `/api/research/workspaces/{ws_id}/query` 提供 RAG 问答；`mode=graph` 时叠加 PathRAG 风格图谱路径证据
 6. `/api/research/runs/{run_id}/stream` 订阅进程内事件总线；15 秒无事件时发送 SSE 注释心跳；已完成任务回放 `graph_ready/done`；数据库残留但当前进程无事件总线的任务返回 `error` 事件
 
 ### 2.3 工作区洞察链路
@@ -94,10 +94,13 @@
 | `index_status` | `none/indexing/indexed/failed` |
 | `status` | `pending/extracting/analyzing/done/failed/indexed` |
 | `code_url/code_status/code_path/code_summary` | 代码仓库信息 |
-| `source` | `uploaded/expanded/promoted` |
+| `source` | `uploaded/expanded` |
 | `level` | 论文层级 |
 | `parent_paper_id` | 扩展来源 |
 | `external_id` | 外部去重 ID |
+| `canonical_id/doi/arxiv_id/openalex_id/s2_id` | 规范化论文身份 |
+| `download_status` | `none/pending/available/unavailable/failed` |
+| `source_ids` | 各 Provider 原始 ID 的可审计映射 |
 | `graph_digest` | 图谱速读摘要 |
 
 ### 4.2 AnalysisResult
@@ -169,6 +172,7 @@
 | POST | `/api/analysis/findpapers/test-databases` | `databases` | 数据库检测 | 200 |
 | POST | `/api/analysis/import-related-papers` | `workspace_id/papers[]` | 导入结果 | 200/404 |
 | GET | `/api/analysis/{paper_id}` | 路径参数 | `AnalysisResponse` | 200/404 |
+| GET | `/api/analysis/{paper_id}/bibtex` | 路径参数 | BibTeX 文本 | 200/400/404 |
 | GET | `/api/analysis/{paper_id}/stream` | 路径参数 | SSE | 200/404 |
 | POST | `/api/analysis/{paper_id}/start` | 路径参数 | 进度信息 | 200/404 |
 | GET | `/api/analysis/{paper_id}/progress` | 路径参数 | 进度信息 | 200/404 |
@@ -213,7 +217,7 @@
 | GET | `/api/research/runs/{run_id}/stream` | 路径参数 | SSE | 200/404 |
 | GET | `/api/research/workspaces/{ws_id}/graph` | 路径参数 | `ResearchGraphResponse` | 200/404 |
 | GET | `/api/research/workspaces/{ws_id}/latest-run` | 路径参数 | `ResearchRunResponse` | 200/404 |
-| POST | `/api/research/workspaces/{ws_id}/query` | `question/top_k/paper_ids` | `RagQueryResponse` | 200/404 |
+| POST | `/api/research/workspaces/{ws_id}/query` | `question/top_k/paper_ids/mode(vector|hybrid|graph)` | `RagQueryResponse(answer/citations/path_evidence/debug)`；citation 含检索来源分数与 PDF 状态 | 200/404 |
 | DELETE | `/api/research/workspaces/{ws_id}` | 路径参数 | `{"message": ...}` | 200 |
 
 ### 5.6 Notes / Tags / Annotations
@@ -305,3 +309,21 @@ MCP 工具：
 - `SelectionPopup`
 - `TerminalPanel`
 - `VersionPopup`
+
+## 7. 深度研究评测验收（P9）
+
+离线 mock 评测位于 `backend/tests/evaluation/deep_research/`，文档见 `docs/DEEP_RESEARCH_EVAL.md`。
+
+```bash
+export EVAL_ALLOW_NETWORK=0
+python -m backend.tests.evaluation.deep_research.eval.cli run --mode mock
+python -m backend.tests.evaluation.deep_research.eval.cli gate --mode mock
+python -m backend.tests.evaluation.deep_research.eval.cli compare \
+  backend/tests/evaluation/deep_research/baselines/mock_v1.json \
+  backend/tests/evaluation/deep_research/reports/mock_gate_report.json
+pytest backend/tests/test_deep_research_eval.py -q
+```
+
+- CI `eval-fast` job 强制执行 mock gate（`EVAL_ALLOW_NETWORK=0`）。
+- mock 门禁仅保证相对冻结基线不回归；真实发布需人工 Scholar 盲测（见文档），禁止自动爬取对照结果。
+- 真实 30+ seed、至少 3 个子领域、双人标注与 Scholar 盲测完成前，`discovery_v2` 默认关闭。

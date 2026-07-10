@@ -43,7 +43,7 @@ def engine(test_db_url):
     from backend.models.paper import Paper
     from backend.models.analysis import AnalysisResult
     from backend.models.code_analysis import CodeAnalysis
-    from backend.models.research import ResearchRun, ResearchGraph
+    from backend.models.research import ResearchRun, ResearchGraph, PaperReference
     from backend.models.workspace import Workspace, WorkspacePaper
     from backend.models.tag import Tag, PaperTag
     from backend.models.note import Note
@@ -51,7 +51,25 @@ def engine(test_db_url):
 
     eng = create_engine(test_db_url, connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(eng)
+    # 生产启动会执行轻量迁移（含 partial unique indexes）；测试环境保持同一 schema 行为。
+    from backend.services.database import _migrate_schema
+    _migrate_schema(eng)
     return eng
+
+
+@pytest.fixture(autouse=True)
+def clean_database(engine):
+    """每个测试前后清空共享测试库，避免提交型 API 测试相互污染。"""
+    from sqlmodel import SQLModel
+
+    def clear_tables():
+        with engine.begin() as connection:
+            for table in reversed(SQLModel.metadata.sorted_tables):
+                connection.execute(table.delete())
+
+    clear_tables()
+    yield
+    clear_tables()
 
 
 @pytest.fixture

@@ -6,16 +6,18 @@ collect → [expand] → chunk → embed → graph → persist
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from sqlmodel import Session, create_engine, select
 
 from ...config import settings
-from ...models.research import ResearchRun
+from ...models.research import ResearchGraph, ResearchRun
 from ...models.schemas import StreamEvent
 from .event_bus import get_event_bus, drop_event_bus
 from .stages.collect import stage_collect
-from .stages.expand import stage_expand
-from .stages.expand_arxiv import stage_expand_arxiv
+from .stages.expand import _discovery_v2_enabled, collect_online_recall, stage_expand
+from .stages.expand_arxiv import collect_pdf_reference_candidates
+from .fusion_ranker import CHANNEL_PDF_REF
 from .stages.chunk import stage_chunk
 from .stages.embed import stage_embed
 from .stages.graph import stage_graph
@@ -130,50 +132,120 @@ async def run_pipeline(run_id: int):
             _set_stage(run_id, "expand")
             await emit("stage_start", stage="expand")
             deep = max(1, int(params.get("deep", 1)))
-            # 多跳扩展：seeds=papers 中的 L1 → L2 → L3 …
-            # collect 已经把已有 L2+ 也带进 papers，但扩展第一跳的 seed 必须是 L1
             seeds_this_hop = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
             all_expanded = []
             seen_ids = {p.id for p in papers}
+
+            from ..ai_config import get_arxiv_expand_config, get_recall_config
+            arxiv_cfg = get_arxiv_expand_config()
+            recall_cfg = get_recall_config()
+            enabled_sources = set(recall_cfg.get("enabled_sources") or [])
+            existing_graph: dict | None = None
+            if "graph_ppr" in enabled_sources:
+                with Session(_eng()) as graph_session:
+                    stored_graph = graph_session.exec(
+                        select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)
+                    ).first()
+                    if stored_graph:
+                        existing_graph = {
+                            "nodes": list(stored_graph.nodes or []),
+                            "edges": list(stored_graph.edges or []),
+                            "stats": dict(stored_graph.stats or {}),
+                        }
+            pdf_pools: dict[str, list] = {}
+            online_recall = None
+            prefetch_jobs: dict[str, asyncio.Task] = {}
+            if _discovery_v2_enabled(params):
+                prefetch_jobs["online"] = asyncio.create_task(
+                    collect_online_recall(seeds_this_hop, params)
+                )
+            if arxiv_cfg.get("enabled", True) and "pdf_ref" in enabled_sources:
+                prefetch_jobs["pdf_ref"] = asyncio.create_task(
+                    collect_pdf_reference_candidates(seeds_this_hop, params)
+                )
+
+            prefetch_started = time.perf_counter()
+            if prefetch_jobs:
+                keys = list(prefetch_jobs)
+                results = await asyncio.gather(
+                    *(prefetch_jobs[key] for key in keys),
+                    return_exceptions=True,
+                )
+                prefetched = dict(zip(keys, results))
+                online_result = prefetched.get("online")
+                if isinstance(online_result, Exception):
+                    logger.warning("online recall prefetch failed (non-fatal): %s", online_result)
+                    online_recall = ({}, [])
+                elif online_result is not None:
+                    online_recall = online_result
+
+                pdf_result = prefetched.get("pdf_ref")
+                if isinstance(pdf_result, Exception):
+                    logger.warning("pdf_ref collect failed (non-fatal): %s", pdf_result)
+                    await emit(
+                        "recall_stats",
+                        stage="expand",
+                        channel="pdf_ref",
+                        hit_count=0,
+                        failed=1,
+                        error=str(pdf_result),
+                        latency_ms=round((time.perf_counter() - prefetch_started) * 1000, 1),
+                    )
+                elif pdf_result is not None:
+                    pdf_cands, pdf_contexts = pdf_result
+                    seed_citation_contexts.update(pdf_contexts)
+                    if pdf_cands:
+                        pdf_pools[CHANNEL_PDF_REF] = pdf_cands
+                    await emit(
+                        "recall_stats",
+                        stage="expand",
+                        channel="pdf_ref",
+                        hit_count=len(pdf_cands),
+                        failed=0,
+                        latency_ms=round((time.perf_counter() - prefetch_started) * 1000, 1),
+                    )
+
+            recall_stats_all: list[dict] = []
             for hop in range(deep):
-                next_level = 2 + hop  # 第 1 跳 → level=2，第 2 跳 → level=3
-                new_papers = await stage_expand(
+                next_level = 2 + hop
+                hop_pdf_pools = pdf_pools if hop == 0 else None
+                new_papers, hop_stats = await stage_expand(
                     ws_id, seeds_this_hop, params,
                     on_paper_added=emit, next_level=next_level,
+                    pdf_pools=hop_pdf_pools,
+                    graph=existing_graph,
+                    online_recall=online_recall if hop == 0 else None,
                 )
+                recall_stats_all.extend(hop_stats)
+                for stat in hop_stats:
+                    await emit("recall_stats", stage="expand", **stat)
                 if not new_papers:
                     break
-                # 去重：expand 现在也会回灌"已存在"的引用论文，避免在 papers 里重复
                 fresh = [p for p in new_papers if p.id not in seen_ids]
                 seen_ids.update(p.id for p in fresh)
                 all_expanded.extend(fresh)
                 seeds_this_hop = fresh
             papers = papers + all_expanded
+            available_count = sum(
+                1 for paper in papers if getattr(paper, "download_status", None) == "available"
+            )
+            failed_count = sum(
+                1 for paper in papers if getattr(paper, "download_status", None) == "failed"
+            )
             _set_stage(run_id, "expand", "running", expanded_count=len(all_expanded))
-            await emit("stage_done", stage="expand",
-                       summary={"total": len(papers), "expanded": len(all_expanded), "deep": deep})
-
-            # arXiv 引用列表扩展（补充来源，与 S2/OpenAlex 互补）
-            from ..ai_config import get_arxiv_expand_config
-            arxiv_cfg = get_arxiv_expand_config()
-            logger.info(f"arxiv_expand enabled={arxiv_cfg.get('enabled', True)}")
-            if arxiv_cfg.get("enabled", True):
-                try:
-                    await emit("stage_start", stage="expand_arxiv")
-                    l1_seeds = [p for p in papers if (getattr(p, "level", 1) or 1) == 1]
-                    logger.info(f"arxiv_expand: l1_seeds={len(l1_seeds)}")
-                    arxiv_papers, arxiv_contexts = await stage_expand_arxiv(ws_id, l1_seeds, emit, run_params=params)
-                    seed_citation_contexts = arxiv_contexts
-                    fresh_arxiv = [p for p in arxiv_papers if p.id not in seen_ids]
-                    seen_ids.update(p.id for p in fresh_arxiv)
-                    all_expanded.extend(fresh_arxiv)
-                    papers = papers + fresh_arxiv
-                    await emit("stage_done", stage="expand_arxiv",
-                               summary={"arxiv_added": len(fresh_arxiv), "total": len(papers)})
-                except Exception as arxiv_err:
-                    logger.exception(f"arxiv_expand stage failed (non-fatal): {arxiv_err}")
-                    await emit("stage_done", stage="expand_arxiv",
-                               summary={"arxiv_added": 0, "total": len(papers), "error": str(arxiv_err)})
+            await emit(
+                "stage_done",
+                stage="expand",
+                summary={
+                    "total": len(papers),
+                    "expanded": len(all_expanded),
+                    "deep": deep,
+                    "recall": recall_stats_all,
+                    "available": available_count,
+                    "metadata_only": len(papers) - available_count,
+                    "download_failed": failed_count,
+                },
+            )
 
         _set_stage(run_id, "chunk")
         await emit("stage_start", stage="chunk")

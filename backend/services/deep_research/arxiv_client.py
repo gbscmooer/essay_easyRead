@@ -119,8 +119,22 @@ def _parse_entry(xml_text: str) -> Optional[dict]:
         except ValueError:
             pass
 
-    return {"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year,
-            "category": _extract_category(entry)}
+    authors = ", ".join(
+        name_el.text.strip()
+        for author_el in entry.findall("atom:author", ns)
+        if (name_el := author_el.find("atom:name", ns)) is not None
+        and name_el.text
+        and name_el.text.strip()
+    )
+
+    return {
+        "arxiv_id": arxiv_id,
+        "pdf_url": pdf_url,
+        "title": title,
+        "authors": authors or None,
+        "year": year,
+        "category": _extract_category(entry),
+    }
 
 
 _STOP_WORDS = frozenset({
@@ -172,8 +186,21 @@ def _parse_entries(xml_text: str, max_entries: int = 5) -> list[dict]:
                 year = int(pub_el.text[:4])
             except ValueError:
                 pass
-        results.append({"arxiv_id": arxiv_id, "pdf_url": pdf_url, "title": title, "year": year,
-                        "category": _extract_category(entry)})
+        authors = ", ".join(
+            name_el.text.strip()
+            for author_el in entry.findall("atom:author", ns)
+            if (name_el := author_el.find("atom:name", ns)) is not None
+            and name_el.text
+            and name_el.text.strip()
+        )
+        results.append({
+            "arxiv_id": arxiv_id,
+            "pdf_url": pdf_url,
+            "title": title,
+            "authors": authors or None,
+            "year": year,
+            "category": _extract_category(entry),
+        })
     return results
 
 

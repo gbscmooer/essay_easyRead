@@ -1,0 +1,5 @@
+{"query_id": "resnet-residual", "query": "How do residual skip connections work in ResNet?", "relevant_chunk_ids": ["chunk:resnet:methods:0", "chunk:resnet:methods:1"]}
+{"query_id": "vit-patches", "query": "How does ViT split an image into patch tokens?", "relevant_chunk_ids": ["chunk:vit:arch:0", "chunk:vit:arch:1"]}
+{"query_id": "detr-transformer", "query": "How does DETR use transformers for object detection?", "relevant_chunk_ids": ["chunk:detr:model:0"]}
+{"query_id": "clip-contrastive", "query": "How does CLIP align image and text representations?", "relevant_chunk_ids": ["chunk:clip:training:0", "chunk:clip:training:1"]}
+{"query_id": "dino-selfsup", "query": "What self-supervised objective does DINO use?", "relevant_chunk_ids": ["chunk:dino:method:0"]}
