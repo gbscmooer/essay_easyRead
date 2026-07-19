@@ -138,8 +138,10 @@ async def test_literature_brief_workflow_soft_fails_evidence(monkeypatch, engine
     )
 
     assert result["status"] == "completed"
+    assert result["harness"]["engine"] == "langgraph"
     assert result["artifacts"]["markdown"]
     assert "Literature Brief" in result["artifacts"]["markdown"]
+    assert "langgraph/literature_brief" in result["artifacts"]["markdown"]
     assert harness_seed["paper_a"].id in result["artifacts"]["selected_paper_ids"]
     steps = {item["step"]: item["status"] for item in result["journal"]}
     assert steps["search_papers"] == "ok"
@@ -161,10 +163,12 @@ async def test_survey_path_workflow(monkeypatch, engine, harness_seed):
     )
 
     assert result["status"] == "completed"
+    assert result["harness"]["engine"] == "langgraph"
     assert result["artifacts"]["reading_plan"] is not None
     assert result["artifacts"]["survey"] is not None
     assert "Reading Path" in result["artifacts"]["markdown"]
     assert "Comparison Matrix" in result["artifacts"]["markdown"]
+    assert "langgraph/survey_path" in result["artifacts"]["markdown"]
     assert any(item["step"] == "reading_plan_build" and item["status"] == "ok" for item in result["journal"])
 
 
@@ -195,3 +199,10 @@ def test_manifest_includes_research_tools(client):
     assert response.status_code == 200
     names = {tool["name"] for tool in response.json()["tools"]}
     assert {"reading_plan_build", "survey_build"} <= names
+
+
+def test_workflow_specs_declare_langgraph_engine(client):
+    response = client.get("/api/agent-tools/workflows")
+    assert response.status_code == 200
+    for item in response.json()["workflows"]:
+        assert item["engine"] == "langgraph"

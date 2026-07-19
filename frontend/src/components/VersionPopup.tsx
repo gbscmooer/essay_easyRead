@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '2.1.0'
+const APP_VERSION = '2.2.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
   date: '2026-07-19',
   changes: [
-    '新增研究 Agent Harness：literature_brief / survey_path 工作流',
-    'Agent 工具新增阅读路径与综述矩阵封装，支持 goal 一键跑通',
-    '提供 /api/agent-tools/runs 与 CLI，输出 journal 与 Markdown 产物',
+    '研究 Agent Harness 迁移至 LangGraph StateGraph 编排',
+    'workflow 规范声明 engine=langgraph，依赖写入 requirements',
+    '保持 /api/agent-tools/runs 与 CLI 契约不变',
   ],
 }
 

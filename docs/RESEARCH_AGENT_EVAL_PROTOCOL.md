@@ -191,18 +191,19 @@ Goal:
 
 ## 8. Harness 试做结论（2026-07-19）
 
-已落地最小可运行 harness（**无需 LLM**）：
+已落地最小可运行 harness（**无需 LLM**），编排引擎为 **LangGraph**：
 
-- 服务：`backend/services/research_harness.py`
+- 服务：`backend/services/research_harness.py`（`StateGraph` + journal reducer）
 - 入口：`POST /api/agent-tools/runs`，CLI：`python -m backend.research_agent`
 - Workflow：`literature_brief`、`survey_path`
 - 新工具：`reading_plan_build`、`survey_build`
+- 依赖：`langgraph>=0.2.0`（`backend/requirements.txt`）
 
 **难度判断（当前）**
 
 | 块 | 难度 | 说明 |
 |----|------|------|
-| 工具封装 + 状态机 + journal/产物 | **低–中** | 复用现有 planner/agent_tools，1 个迭代可跑通 |
+| LangGraph 编排 + journal/产物 | **低–中** | 已从自研状态机迁移，API 契约不变 |
 | 证据检索依赖向量索引 | **中** | 无索引时 soft-fail，不影响主流程 |
 | 真正「只给 goal、自动找网/导入论文」 | **高** | 尚未做 ingest/expand；对照 A 时 B 仍需预置工作区 |
 | 接入 DeepSeek tool-calling 替代 parse_goal | **中** | 编排层已就绪，差模型路由与重试策略 |
@@ -218,3 +219,4 @@ Goal:
 |------|------|------|
 | v0.1 | 2026-07-19 | 阶段 0 初稿：主对照定义、T1–T3、评分表 |
 | v0.2 | 2026-07-19 | 补充 harness 试做结论与难度判断 |
+| v0.3 | 2026-07-19 | harness 编排迁移至 LangGraph |
