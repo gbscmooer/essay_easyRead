@@ -9,7 +9,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ## 技术栈
 
 - **前端**: React 18 + TypeScript + Tailwind CSS + Vite + Recharts + Mermaid + xterm.js + highlight.js
-- **后端**: Python + FastAPI + SQLModel + PyMuPDF/pypdf + Anthropic SDK (MiMo API) + httpx
+- **后端**: Python + FastAPI + SQLModel + PyMuPDF/pypdf + OpenAI/Anthropic SDK（统一 base_url + api_key）+ httpx
 - **数据库**: SQLite（开发环境 `./data/essay_read.db`）
 
 ## 常用命令
@@ -37,7 +37,7 @@ npm run build      # TypeScript 编译 + Vite 构建
 ```
 
 ### 环境变量
-复制 `.env.example` 为 `.env`，填入 `MIMO_API_KEY`（必需）。AI 模型也可在运行时通过 `/settings` 页面配置。
+复制 `.env.example` 为 `.env`，填入 `LLM_API_KEY`（及可选的 `LLM_BASE_URL` / `LLM_MODEL`）。协议仅 OpenAI 兼容或 Anthropic 兼容（由 base_url 判定）。AI 模型也可在运行时通过 `/settings` 页面配置。
 
 ## 架构概览
 

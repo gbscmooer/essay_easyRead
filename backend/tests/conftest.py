@@ -7,7 +7,7 @@ from pathlib import Path
 # Ensure backend package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-os.environ.setdefault("MIMO_API_KEY", "test-key-for-ci")
+os.environ.setdefault("LLM_API_KEY", "test-key-for-ci")
 
 
 @pytest.fixture(scope="session")
@@ -34,7 +34,7 @@ def patch_settings(test_db_url, test_upload_dir):
     from backend.config import settings
     settings.database_url = test_db_url
     settings.upload_dir = test_upload_dir
-    settings.mimo_api_key = "test-key"
+    settings.llm_api_key = "test-key"
 
 
 @pytest.fixture(scope="session")

@@ -26,8 +26,8 @@ DEFAULT_CONFIG = {
     },
     "analysis": {
         "api_key": "",
-        "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
-        "model": "mimo-v2.5-pro",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
         "temperature": 0.1,
         "max_tokens": 16384,
     },
@@ -272,14 +272,14 @@ def get_translate_config() -> dict:
 def get_analysis_config() -> dict:
     """获取解读模型配置"""
     cfg = load_config().get("analysis", DEFAULT_CONFIG["analysis"])
-    # 如果解读配置没有填写 api_key，回退到环境变量中的默认值
+    # 如果解读配置没有填写 api_key，回退到环境变量中的统一 LLM 配置
     if not cfg.get("api_key"):
         from ..config import settings
-        cfg["api_key"] = settings.mimo_api_key
+        cfg["api_key"] = settings.llm_api_key
         if not cfg.get("base_url"):
-            cfg["base_url"] = settings.mimo_base_url
+            cfg["base_url"] = settings.llm_base_url
         if not cfg.get("model"):
-            cfg["model"] = settings.mimo_model
+            cfg["model"] = settings.llm_model
     return cfg
 
 

@@ -2,7 +2,8 @@
 应用配置
 
 使用 pydantic-settings 从环境变量和 .env 文件加载配置。
-所有配置项都有合理的默认值，仅 API Key 为必需。
+LLM 统一为 api_key + base_url + model；协议仅两种：
+OpenAI 兼容 或 Anthropic 兼容（由 base_url 是否含 anthropic 判定）。
 """
 
 import os
@@ -19,18 +20,38 @@ def _resolve_path(path: str) -> str:
     return os.path.join(_PROJECT_ROOT, path)
 
 
+def _apply_legacy_llm_env() -> None:
+    """兼容旧环境变量名，映射到统一的 LLM_*。"""
+    aliases = (
+        ("LLM_API_KEY", ("MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")),
+        ("LLM_BASE_URL", ("MIMO_BASE_URL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL")),
+        ("LLM_MODEL", ("MIMO_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL")),
+    )
+    for canonical, legacy_keys in aliases:
+        if os.environ.get(canonical):
+            continue
+        for key in legacy_keys:
+            value = os.environ.get(key)
+            if value:
+                os.environ[canonical] = value
+                break
+
+
+_apply_legacy_llm_env()
+
+
 class Settings(BaseSettings):
     """
     应用配置项
 
     环境变量优先，.env 文件次之，代码默认值最后。
-    字段名自动映射大写环境变量，如 MIMO_API_KEY → mimo_api_key。
+    字段名自动映射大写环境变量，如 LLM_API_KEY → llm_api_key。
     """
 
-    # MiMo API 配置（Anthropic 格式端点）
-    mimo_api_key: str  # 必需，从环境变量 MIMO_API_KEY 读取
-    mimo_base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"
-    mimo_model: str = "mimo-v2.5-pro"
+    # 统一 LLM 配置（OpenAI 兼容或 Anthropic 兼容，由 base_url 判定协议）
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
 
     # 数据库（相对路径会自动解析为项目根目录下的绝对路径）
     database_url: str = "sqlite:///./data/essay_read.db"

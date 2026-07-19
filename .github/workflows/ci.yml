@@ -44,7 +44,7 @@ jobs:
 
       - name: Run tests
         env:
-          MIMO_API_KEY: test-key-for-ci
+          LLM_API_KEY: test-key-for-ci
         run: |
           cd backend
           python -m pytest tests/ -v --tb=short
@@ -68,6 +68,7 @@ jobs:
       - name: Run mock evaluation + gate
         env:
           EVAL_ALLOW_NETWORK: "0"
+          LLM_API_KEY: test-key-for-ci
         run: |
           python -m backend.tests.evaluation.deep_research.eval.cli run --mode mock
           python -m backend.tests.evaluation.deep_research.eval.cli gate --mode mock

@@ -149,8 +149,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   analysis: {
     api_key: '',
-    base_url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-    model: 'mimo-v2.5-pro',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
     system_prompt: '',
     temperature: 0.1,
     max_tokens: 16384,
