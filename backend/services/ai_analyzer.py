@@ -1,7 +1,7 @@
 """
 AI 分析服务
 
-调用 MiMo API（Anthropic 格式端点）对论文文本进行结构化解析。
+调用统一 LLM 配置（OpenAI 兼容或 Anthropic 兼容）对论文文本进行结构化解析。
 支持真流式输出和增量 JSON 解析。
 
 借鉴 DeepTutor 的重试机制和错误处理模式。
@@ -302,12 +302,7 @@ def _is_openai_format(base_url: str) -> bool:
 
 
 def _create_client(api_key: str, base_url: str):
-    """
-    创建 Anthropic 客户端。
-
-    MiMo 使用 api-key 头而非标准的 x-api-key，
-    通过 default_headers 传递正确的认证格式。
-    """
+    """创建标准 Anthropic Messages API 客户端。"""
     from anthropic import AsyncAnthropic
 
     # 规范化 base_url：去掉末尾的 /v1 或 /（SDK 会自动加 /v1/messages）
@@ -318,15 +313,14 @@ def _create_client(api_key: str, base_url: str):
 
     return AsyncAnthropic(
         api_key=api_key,
-        base_url=base_url,
-        default_headers={"api-key": api_key},
+        base_url=base_url or None,
     )
 
 
 def _create_openai_client(api_key: str, base_url: str):
-    """创建 OpenAI 兼容客户端（DeepSeek / OpenAI / 其他兼容服务）"""
+    """创建 OpenAI Chat Completions 兼容客户端。"""
     from openai import AsyncOpenAI
-    return AsyncOpenAI(api_key=api_key, base_url=base_url)
+    return AsyncOpenAI(api_key=api_key, base_url=base_url or None)
 
 
 def _extract_text(message) -> str:
