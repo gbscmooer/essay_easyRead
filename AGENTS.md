@@ -154,3 +154,17 @@ frontend/src/
 - **代码仓库**: clone 到 `./code_downloads/{paper_id}/`
 - **PDF 截断**: 超过 100k 字符保留前 3 页 + 最后 1 页
 - **配置存储**: AI 配置存储在 `./data/ai_config.json`，通过 SettingsPage 管理
+
+## Cursor Cloud specific instructions
+
+启动脚本会自动运行 update script（创建 `.venv`、`pip install -r backend/requirements.txt`、`npm install --prefix frontend`、缺失时从 `.env.example` 生成 `.env`）。后续 agent 无需重装依赖，只需启动服务。以下为非显而易见的注意事项：
+
+- **Python 环境**: 后端依赖装在项目根目录的 `.venv`（`python3 -m venv .venv`，需系统包 `python3.12-venv`，已在镜像中预装）。运行后端用 `.venv/bin/python -m backend`。`torch`/`sentence-transformers` 体积大，首次安装耗时较长。
+- **后端启动的隐藏要求**: `backend/config.py` 中 `mimo_api_key` 无默认值，**缺少 `MIMO_API_KEY` 后端会直接启动失败**。update script 生成的 `.env` 用的是占位 key（`dev-placeholder-key`），足以让后端启动、PDF 上传、论文库、前端 UI 正常工作；但真正的 AI 解析会返回 `401 Invalid API Key`。要跑通 AI 解析/翻译/深度研究，需要提供真实的 `MIMO_API_KEY`（作为环境变量或写入 `.env`；pydantic-settings 环境变量优先于 `.env`）。
+- **启动服务**: 一键用 `./start.sh`（前端 5173 + 后端 8000 + GROBID）。云环境**无 Docker**，请用 `./start.sh --no-grobid`，或分别启动：根目录 `DEV=true HOST=0.0.0.0 .venv/bin/python -m backend`（`DEV=true` 开启热重载）与 `npm run dev --prefix frontend`。前端 Vite 已把 `/api` 代理到 `http://localhost:8000`。
+- **GROBID 可选**: 深度研究的引用解析依赖 GROBID（Docker，8070 端口）。云环境无 Docker 时会自动回退到正则解析（`ref_parser.py`），不阻塞其余功能。
+- **Lint / Test / Build**（命令来源见 `.github/workflows/ci.yml`）:
+  - 后端 lint: `.venv/bin/ruff check backend/ --select E,F,W --ignore E501,E402,F401,F841,W291,W293`（`ruff` 非 requirements 依赖，需单独 `pip install ruff`）。
+  - 后端测试: `cd backend && MIMO_API_KEY=test-key-for-ci ../.venv/bin/python -m pytest tests/`（测试用桩 key，不发真实网络请求）。
+  - 前端 typecheck: `npm run typecheck --prefix frontend`；前端测试: `npm run test:run --prefix frontend`（`ErrorBoundary.test.tsx` 会故意抛错并打印堆栈，属正常现象）。
+  - 前端生产构建: `npm run build --prefix frontend`（开发用 `npm run dev`）。
