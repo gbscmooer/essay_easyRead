@@ -1,15 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '2.0.0'
+const APP_VERSION = '2.1.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-07-10',
+  date: '2026-07-19',
   changes: [
-    '重构论文身份系统，统一 DOI、arXiv、OpenAlex 与 Semantic Scholar 去重',
-    '新增多源召回、RRF 融合、图谱 PPR 与论文级重排的发现链路',
-    '新增 Dense、BM25、Graph 联合检索及可解释的 Hybrid RAG',
-    '新增离线评测基线、回归门禁与深度研究状态可观测性',
+    '新增研究 Agent Harness：literature_brief / survey_path 工作流',
+    'Agent 工具新增阅读路径与综述矩阵封装，支持 goal 一键跑通',
+    '提供 /api/agent-tools/runs 与 CLI，输出 journal 与 Markdown 产物',
   ],
 }
 

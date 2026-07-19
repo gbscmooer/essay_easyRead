@@ -189,8 +189,32 @@ Goal:
 
 ---
 
-## 8. 变更记录
+## 8. Harness 试做结论（2026-07-19）
+
+已落地最小可运行 harness（**无需 LLM**）：
+
+- 服务：`backend/services/research_harness.py`
+- 入口：`POST /api/agent-tools/runs`，CLI：`python -m backend.research_agent`
+- Workflow：`literature_brief`、`survey_path`
+- 新工具：`reading_plan_build`、`survey_build`
+
+**难度判断（当前）**
+
+| 块 | 难度 | 说明 |
+|----|------|------|
+| 工具封装 + 状态机 + journal/产物 | **低–中** | 复用现有 planner/agent_tools，1 个迭代可跑通 |
+| 证据检索依赖向量索引 | **中** | 无索引时 soft-fail，不影响主流程 |
+| 真正「只给 goal、自动找网/导入论文」 | **高** | 尚未做 ingest/expand；对照 A 时 B 仍需预置工作区 |
+| 接入 DeepSeek tool-calling 替代 parse_goal | **中** | 编排层已就绪，差模型路由与重试策略 |
+| 产品级打赢 Codex 全托管 | **高** | 取决于 ingest + 联网扩展，不只 harness 壳 |
+
+**建议**：继续做 harness，但下一刀优先 `parse_goal` 模型化 + 工作区预置剧本；全自动 ingest 可作为第二阶段，避免范围失控。
+
+---
+
+## 9. 变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v0.1 | 2026-07-19 | 阶段 0 初稿：主对照定义、T1–T3、评分表 |
+| v0.2 | 2026-07-19 | 补充 harness 试做结论与难度判断 |

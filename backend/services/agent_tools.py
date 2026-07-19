@@ -240,6 +240,29 @@ def list_agent_tools() -> list[dict[str, Any]]:
                 "required": ["workspace_id", "goal"],
             },
         },
+        {
+            "name": "reading_plan_build",
+            "description": "Build an adaptive reading plan for a workspace from the persisted research graph and paper profiles.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer"},
+                    "target_paper_id": {"type": "integer", "description": "Optional focus paper; plan closes over prerequisites."},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "survey_build",
+            "description": "Build a workspace survey matrix and draft sections from structured paper profiles.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer"},
+                },
+                "required": ["workspace_id"],
+            },
+        },
     ]
 
 
@@ -626,6 +649,37 @@ async def create_development_brief(
     }
 
 
+def build_reading_plan(workspace_id: int, target_paper_id: Optional[int] = None) -> dict[str, Any]:
+    """Agent-tool wrapper around workspace reading-plan planner."""
+
+    workspace_id = _coerce_int(workspace_id, "workspace_id")
+    target_paper_id = _coerce_optional_int(target_paper_id, "target_paper_id")
+    engine = get_engine()
+    with Session(engine) as session:
+        if not session.get(Workspace, workspace_id):
+            raise AgentToolError("工作区不存在", "NOT_FOUND", 404)
+
+    from .workspace_planner import build_workspace_reading_plan
+
+    plan = build_workspace_reading_plan(workspace_id, target_paper_id=target_paper_id)
+    return plan.model_dump(mode="json")
+
+
+def build_survey(workspace_id: int) -> dict[str, Any]:
+    """Agent-tool wrapper around workspace survey planner."""
+
+    workspace_id = _coerce_int(workspace_id, "workspace_id")
+    engine = get_engine()
+    with Session(engine) as session:
+        if not session.get(Workspace, workspace_id):
+            raise AgentToolError("工作区不存在", "NOT_FOUND", 404)
+
+    from .workspace_planner import build_workspace_survey
+
+    survey = build_workspace_survey(workspace_id)
+    return survey.model_dump(mode="json")
+
+
 async def call_agent_tool(name: str, arguments: dict[str, Any]) -> Any:
     """Dispatch by MCP/HTTP tool name, including backward-compatible aliases."""
 
@@ -663,6 +717,13 @@ async def call_agent_tool(name: str, arguments: dict[str, Any]) -> Any:
             top_k=arguments.get("top_k", 6),
             paper_ids=arguments.get("paper_ids"),
         )
+    if name == "reading_plan_build":
+        return build_reading_plan(
+            workspace_id=_coerce_int(arguments.get("workspace_id"), "workspace_id"),
+            target_paper_id=_coerce_optional_int(arguments.get("target_paper_id"), "target_paper_id"),
+        )
+    if name == "survey_build":
+        return build_survey(_coerce_int(arguments.get("workspace_id"), "workspace_id"))
 
     # Compatibility with the original MCP names.
     if name == "list_workspaces":

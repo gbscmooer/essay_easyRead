@@ -524,3 +524,27 @@ class DevBriefRequest(BaseModel):
     goal: str = Field(..., min_length=1, max_length=4000)
     top_k: int = Field(6, ge=1, le=20)
     paper_ids: Optional[list[int]] = None
+
+
+class ResearchAgentRunRequest(BaseModel):
+    """研究 Agent Harness 运行请求（同 goal 产品级入口）。"""
+
+    workflow: str = Field(..., min_length=1, max_length=64, description="literature_brief | survey_path")
+    goal: str = Field(..., min_length=1, max_length=4000)
+    workspace_id: int = Field(..., ge=1)
+
+
+class ResearchAgentRunResponse(BaseModel):
+    """研究 Agent Harness 运行结果。"""
+
+    run_id: str
+    workflow: str
+    goal: str
+    workspace_id: int
+    status: str
+    started_at: str
+    finished_at: str
+    journal: list[dict] = []
+    artifacts: dict = {}
+    error: Optional[dict] = None
+    harness: dict = {}

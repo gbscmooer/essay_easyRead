@@ -14,9 +14,13 @@ from ..models.schemas import (
     EvidenceRequest,
     GraphNeighborsRequest,
     PaperSearchRequest,
+    ResearchAgentRunRequest,
+    ResearchAgentRunResponse,
 )
 from ..services.agent_tools import (
     AgentToolError,
+    build_reading_plan,
+    build_survey,
     create_development_brief,
     get_paper_context,
     get_workspace_graph,
@@ -28,6 +32,11 @@ from ..services.agent_tools import (
     search_papers,
 )
 from ..services.agent_workflow import get_langgraph_workflow_spec
+from ..services.research_harness import (
+    get_research_workflow_spec,
+    list_research_workflows,
+    run_research_workflow,
+)
 
 
 router = APIRouter(prefix="/api/agent-tools", tags=["agent-tools"])
@@ -150,3 +159,55 @@ async def langgraph_workflow_spec() -> dict:
     """返回论文驱动开发的 LangGraph 工作流规范。"""
 
     return get_langgraph_workflow_spec()
+
+
+@router.get("/workflows")
+async def list_agent_workflows() -> dict:
+    """列出研究 Agent Harness 可运行的 workflow。"""
+
+    return {"workflows": list_research_workflows()}
+
+
+@router.get("/workflows/{workflow_name}")
+async def get_agent_workflow(workflow_name: str) -> dict:
+    """获取单个研究 workflow 规范。"""
+
+    try:
+        return get_research_workflow_spec(workflow_name)
+    except AgentToolError as exc:
+        return _agent_error_response(exc)
+
+
+@router.post("/workspaces/{workspace_id}/reading-plan")
+async def agent_reading_plan(workspace_id: int, target_paper_id: int | None = None) -> dict:
+    """Agent 工具：构建工作区阅读路径。"""
+
+    try:
+        return build_reading_plan(workspace_id, target_paper_id=target_paper_id)
+    except AgentToolError as exc:
+        return _agent_error_response(exc)
+
+
+@router.post("/workspaces/{workspace_id}/survey")
+async def agent_survey(workspace_id: int) -> dict:
+    """Agent 工具：构建工作区综述矩阵。"""
+
+    try:
+        return build_survey(workspace_id)
+    except AgentToolError as exc:
+        return _agent_error_response(exc)
+
+
+@router.post("/runs", response_model=ResearchAgentRunResponse)
+async def run_agent_workflow(req: ResearchAgentRunRequest) -> ResearchAgentRunResponse | JSONResponse:
+    """运行研究 Agent Harness：只接收 goal + workflow + workspace_id。"""
+
+    try:
+        result = await run_research_workflow(
+            workflow=req.workflow,
+            goal=req.goal,
+            workspace_id=req.workspace_id,
+        )
+        return ResearchAgentRunResponse(**result)
+    except AgentToolError as exc:
+        return _agent_error_response(exc)
