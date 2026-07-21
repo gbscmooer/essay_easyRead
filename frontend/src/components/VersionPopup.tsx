@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '2.3.0'
+const APP_VERSION = '2.3.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-07-19',
+  date: '2026-07-21',
   changes: [
-    '统一 LLM 环境变量为 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL',
-    '协议仅保留 OpenAI 兼容与 Anthropic 兼容两种，移除厂商专用配置',
-    '修复 Deep Research mock eval CI 因缺少 API Key 导致的导入失败',
+    '修复旧 .env（MIMO_*/OPENAI_*/ANTHROPIC_*）导致后端启动 ValidationError',
+    '旧变量名从 .env 文件也会正确映射到 LLM_*',
+    '补充 Cursor Cloud 开发环境说明',
   ],
 }
 
