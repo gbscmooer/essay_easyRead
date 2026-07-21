@@ -31,11 +31,11 @@ export default function AIModelSection({
   const keyMissing = !config.api_key.trim()
 
   const handlePresetSelect = (preset: ProviderPreset) => {
-    const updates: Partial<AIModelConfig> = { base_url: preset.base_url }
-    if (preset.models.length === 1) {
-      updates.model = preset.models[0]
-    }
-    onChange({ ...config, ...updates })
+    onChange({
+      ...config,
+      base_url: preset.base_url,
+      model: preset.models[0] ?? '',
+    })
   }
 
   return (

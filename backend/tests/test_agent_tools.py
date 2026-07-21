@@ -144,6 +144,7 @@ async def test_retrieve_evidence_uses_existing_vector_index(monkeypatch, engine,
         ]
 
     monkeypatch.setattr("backend.services.deep_research.embedder.embed_query", fake_embed_query)
+    monkeypatch.setattr("backend.services.deep_research.vector_store.workspace_index_available", lambda _ws_id: True)
     monkeypatch.setattr("backend.services.deep_research.vector_store.query_workspace", fake_query_workspace)
 
     from backend.services.agent_tools import retrieve_evidence
@@ -151,6 +152,54 @@ async def test_retrieve_evidence_uses_existing_vector_index(monkeypatch, engine,
     evidence = await retrieve_evidence(agent_seed["workspace"].id, "code agent evidence", top_k=3)
     assert evidence["evidence"][0]["paper_title"] == agent_seed["paper_a"].title
     assert evidence["evidence"][0]["source"] == "workspace_vector_index"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_evidence_checks_index_before_embedding(monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+    calls = {"embed": 0, "query": 0}
+
+    async def unexpected_embed(_text):
+        calls["embed"] += 1
+        raise AssertionError("embedding model must not load without an index")
+
+    def unexpected_query(*_args, **_kwargs):
+        calls["query"] += 1
+        raise AssertionError("missing index must not be queried or created")
+
+    monkeypatch.setattr("backend.services.deep_research.vector_store.workspace_index_available", lambda _ws_id: False)
+    monkeypatch.setattr("backend.services.deep_research.embedder.embed_query", unexpected_embed)
+    monkeypatch.setattr("backend.services.deep_research.vector_store.query_workspace", unexpected_query)
+
+    from backend.services.agent_tools import AgentToolError, retrieve_evidence
+
+    with pytest.raises(AgentToolError) as exc_info:
+        await retrieve_evidence(agent_seed["workspace"].id, "offline evidence")
+
+    assert exc_info.value.code == "CHROMA_NOT_INITIALIZED"
+    assert calls == {"embed": 0, "query": 0}
+
+
+def test_vector_store_missing_index_check_is_read_only(monkeypatch):
+    from backend.services.deep_research import vector_store
+
+    calls = {"get": 0, "create": 0}
+
+    class MissingCollectionClient:
+        def get_collection(self, _name):
+            calls["get"] += 1
+            raise RuntimeError("collection does not exist")
+
+        def get_or_create_collection(self, **_kwargs):
+            calls["create"] += 1
+            raise AssertionError("read-only check must not create a collection")
+
+    monkeypatch.setattr(vector_store, "_get_client", lambda: MissingCollectionClient())
+
+    assert vector_store.workspace_index_available(12345) is False
+    with pytest.raises(RuntimeError, match="collection does not exist"):
+        vector_store.query_workspace(12345, [0.1, 0.2])
+    assert calls == {"get": 2, "create": 0}
 
 
 def test_agent_tools_http_manifest(client):
@@ -164,6 +213,61 @@ def test_agent_tools_http_error_shape(client):
     response = client.get("/api/agent-tools/workspaces/999999/papers")
     assert response.status_code == 404
     assert response.json() == {"detail": "工作区不存在", "code": "NOT_FOUND"}
+
+
+def test_agent_reading_plan_rejects_paper_outside_workspace(client, monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+
+    response = client.post(
+        f"/api/agent-tools/workspaces/{agent_seed['workspace'].id}/reading-plan",
+        params={"target_paper_id": 999999},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "论文不在该工作区中", "code": "NOT_FOUND"}
+
+
+@pytest.mark.asyncio
+async def test_call_agent_tool_maps_reading_plan_domain_error(monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+
+    from backend.services.agent_tools import AgentToolError, call_agent_tool
+
+    with pytest.raises(AgentToolError) as exc_info:
+        await call_agent_tool(
+            "reading_plan_build",
+            {
+                "workspace_id": agent_seed["workspace"].id,
+                "target_paper_id": 999999,
+            },
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.code == "NOT_FOUND"
+    assert exc_info.value.message == "论文不在该工作区中"
+
+
+def test_mcp_reading_plan_returns_domain_error(monkeypatch, engine, agent_seed):
+    _patch_shared_engine(monkeypatch, engine)
+
+    from backend.mcp_server import handle_request
+
+    result = handle_request(
+        "tools/call",
+        {
+            "name": "reading_plan_build",
+            "arguments": {
+                "workspace_id": agent_seed["workspace"].id,
+                "target_paper_id": 999999,
+            },
+        },
+    )
+
+    assert result["isError"] is True
+    assert json.loads(result["content"][0]["text"]) == {
+        "detail": "论文不在该工作区中",
+        "code": "NOT_FOUND",
+    }
 
 
 def test_mcp_tools_list_contains_new_and_legacy_tools():

@@ -271,14 +271,29 @@ def get_translate_config() -> dict:
 
 def get_analysis_config() -> dict:
     """获取解读模型配置"""
-    cfg = load_config().get("analysis", DEFAULT_CONFIG["analysis"])
+    cfg = dict(load_config().get("analysis", DEFAULT_CONFIG["analysis"]))
     # 如果解读配置没有填写 api_key，回退到环境变量中的统一 LLM 配置
     if not cfg.get("api_key"):
         from ..config import settings
+
+        # load_config 会把缺失字段补成 DEFAULT_CONFIG，因此仅看合并后的
+        # base_url/model 无法区分“用户已保存”与“只是内置默认值”。读取原始段来
+        # 保留 UI 中显式保存的模型，同时让全新安装真正使用 LLM_* 环境变量。
+        saved_analysis: dict = {}
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                raw_analysis = raw.get("analysis", {}) if isinstance(raw, dict) else {}
+                if isinstance(raw_analysis, dict):
+                    saved_analysis = raw_analysis
+            except (OSError, ValueError):
+                pass
+
         cfg["api_key"] = settings.llm_api_key
-        if not cfg.get("base_url"):
+        if not saved_analysis.get("base_url"):
             cfg["base_url"] = settings.llm_base_url
-        if not cfg.get("model"):
+        if not saved_analysis.get("model"):
             cfg["model"] = settings.llm_model
     return cfg
 
