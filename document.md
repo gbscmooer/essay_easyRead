@@ -58,6 +58,15 @@
 5. HTTP 客户端可通过 `/api/agent-tools/*` 使用同一组工具
 6. `/api/agent-tools/workflow/langgraph-spec` 返回论文驱动开发工作流规范
 
+### 2.6 Research Agent Harness 链路
+
+1. 客户端通过 `/api/agent-tools/runs` 或 `python -m backend.research_agent run` 提交 `workflow/goal/workspace_id`
+2. `parse_goal` 默认使用确定性计划；设置 `RESEARCH_AGENT_PLANNER_ENABLED=true` 后通过统一 LLM 配置执行一次有 token/超时上限的结构化 goal 规划，失败自动回退原始 goal
+3. `services/research_harness.py` 用 LangGraph 编排固定 workflow，并通过 `services/agent_tools.py` 调用论文检索、证据检索、阅读计划和综述工具
+4. 每个节点记录结构化 journal；goal planner 与可选证据检索失败按 `soft_fail` 处理，其余领域错误终止 workflow
+5. 成功运行返回 Markdown、goal plan、论文 ID、证据、阅读计划和综述等 artifacts；HTTP 失败按 `{detail, code}` 返回 4xx/5xx，CLI/core 保留完整 failed run
+6. CLI 可将 Markdown 与 journal 写入文件
+
 ## 3. 统一约定
 
 ### 3.1 响应格式
@@ -263,6 +272,11 @@
 | POST | `/api/agent-tools/workspaces/{workspace_id}/evidence` | `query/top_k/paper_ids` | 证据片段列表 | 200/400/404 |
 | POST | `/api/agent-tools/workspaces/{workspace_id}/dev-brief` | `goal/top_k/paper_ids` | 论文证据约束开发 brief | 200/400/404 |
 | GET | `/api/agent-tools/workflow/langgraph-spec` | 无 | LangGraph 工作流规范 | 200 |
+| GET | `/api/agent-tools/workflows` | 无 | Research Agent workflow 列表 | 200 |
+| GET | `/api/agent-tools/workflows/{workflow_name}` | 路径参数 | workflow 规范 | 200/404 |
+| POST | `/api/agent-tools/workspaces/{workspace_id}/reading-plan` | `target_paper_id` 可选 | 工作区阅读计划 | 200/400/404 |
+| POST | `/api/agent-tools/workspaces/{workspace_id}/survey` | 路径参数 | 工作区综述矩阵与草稿 | 200/400/404 |
+| POST | `/api/agent-tools/runs` | `workflow/goal/workspace_id` | workflow journal 与 artifacts；失败 `{detail, code}` | 200/400/404/422/500 |
 
 #### 5.8.1 MCP stdio
 
@@ -280,6 +294,8 @@ MCP 工具：
 | `graph_get` | 获取工作区图谱快照 | `workspace_id` |
 | `graph_neighbors` | 获取图谱中某论文邻域 | `workspace_id/paper_id/depth/limit/edge_kinds` |
 | `dev_brief` | 生成论文证据约束的开发 brief | `workspace_id/goal/top_k/paper_ids` |
+| `reading_plan_build` | 构建工作区阅读计划 | `workspace_id/target_paper_id` |
+| `survey_build` | 构建工作区综述矩阵与草稿 | `workspace_id` |
 
 兼容旧工具名：`list_workspaces`、`list_papers_in_workspace`、`get_paper_analysis`、`get_citation_graph`、`query_workspace_rag`。
 

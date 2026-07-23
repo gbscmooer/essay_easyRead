@@ -65,6 +65,19 @@ def collection_model(ws_id: int) -> Optional[str]:
         return None
 
 
+def workspace_index_available(ws_id: int) -> bool:
+    """Return whether a non-empty index exists without creating a collection.
+
+    Missing/unreadable collections are treated as empty so read-only callers can
+    fail before loading an embedding model or mutating Chroma state.
+    """
+    try:
+        col = _get_client().get_collection(_collection_name(ws_id))
+        return int(col.count()) > 0
+    except Exception:
+        return False
+
+
 def upsert_chunks(ws_id: int, ids: list[str], docs: list[str], embeddings: list[list[float]], metas: list[dict]):
     col = get_or_create(ws_id)
     col.upsert(ids=ids, documents=docs, embeddings=embeddings, metadatas=metas)
@@ -78,7 +91,7 @@ def delete_paper(ws_id: int, paper_id: int):
 def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None) -> list[dict]:
     """列出工作区全部 chunk（供 BM25 等词法索引构建）。失败返回空列表。"""
     try:
-        col = get_or_create(ws_id)
+        col = _get_client().get_collection(_collection_name(ws_id))
         where = {"paper_id": {"$in": paper_ids}} if paper_ids else None
         res = col.get(where=where, include=["documents", "metadatas"])
         ids = res.get("ids") or []
@@ -98,7 +111,8 @@ def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None) -> 
 
 
 def query_workspace(ws_id: int, vec: list[float], top_k: int = 5, paper_ids: Optional[list[int]] = None) -> list[dict]:
-    col = get_or_create(ws_id)
+    # Query is read-only: a missing collection must not create persistent state.
+    col = _get_client().get_collection(_collection_name(ws_id))
     where = {"paper_id": {"$in": paper_ids}} if paper_ids else None
     res = col.query(query_embeddings=[vec], n_results=top_k, where=where,
                     include=["documents", "metadatas", "distances"])

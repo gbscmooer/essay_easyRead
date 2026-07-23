@@ -49,6 +49,29 @@ def _agent_error_response(exc: AgentToolError) -> JSONResponse:
     )
 
 
+def _research_run_failure_response(result: dict) -> JSONResponse | None:
+    """Map a failed harness result to the project's HTTP error contract.
+
+    The harness service deliberately keeps a full failed run payload for CLI
+    and library callers; the HTTP adapter exposes domain failures as 4xx/5xx.
+    """
+    if result.get("status") != "failed" or not isinstance(result.get("error"), dict):
+        return None
+    error = result["error"]
+    code = str(error.get("code") or "INTERNAL_ERROR")
+    status_code = {
+        "BAD_REQUEST": 400,
+        "NOT_FOUND": 404,
+        "NO_PAPERS": 404,
+        "DEPENDENCY_MISSING": 500,
+        "INTERNAL_ERROR": 500,
+    }.get(code, 500)
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": str(error.get("detail") or "研究工作流执行失败"), "code": code},
+    )
+
+
 @router.get("/manifest", response_model=AgentToolManifestResponse)
 async def manifest() -> AgentToolManifestResponse:
     """获取 Agent/MCP 工具清单。"""
@@ -208,6 +231,9 @@ async def run_agent_workflow(req: ResearchAgentRunRequest) -> ResearchAgentRunRe
             goal=req.goal,
             workspace_id=req.workspace_id,
         )
+        failure_response = _research_run_failure_response(result)
+        if failure_response is not None:
+            return failure_response
         return ResearchAgentRunResponse(**result)
     except AgentToolError as exc:
         return _agent_error_response(exc)

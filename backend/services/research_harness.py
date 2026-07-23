@@ -18,6 +18,7 @@ from .agent_tools import AgentToolError, call_agent_tool
 
 
 ToolCaller = Callable[[str, dict[str, Any]], Awaitable[Any] | Any]
+GoalPlanner = Callable[[str, str], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 
 def _utcnow() -> str:
@@ -54,6 +55,7 @@ class ResearchHarnessState(TypedDict, total=False):
     goal: str
     workspace_id: int
     search_query: str
+    goal_plan: Optional[dict[str, Any]]
     search_results: dict[str, Any]
     selected_paper_ids: list[int]
     paper_contexts: list[dict[str, Any]]
@@ -68,13 +70,14 @@ class ResearchHarnessState(TypedDict, total=False):
 WORKFLOW_SPECS: dict[str, dict[str, Any]] = {
     "literature_brief": {
         "name": "literature_brief",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "engine": "langgraph",
         "description": (
             "Search workspace papers, load structured profiles, "
             "optionally retrieve evidence, export a reading brief."
         ),
         "requires_workspace": True,
+        "goal_planner": "optional_llm_with_deterministic_fallback",
         "steps": [
             "parse_goal",
             "search_papers",
@@ -86,13 +89,14 @@ WORKFLOW_SPECS: dict[str, dict[str, Any]] = {
     },
     "survey_path": {
         "name": "survey_path",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "engine": "langgraph",
         "description": (
             "Build reading plan + survey matrix for a workspace "
             "and export a cited draft package."
         ),
         "requires_workspace": True,
+        "goal_planner": "optional_llm_with_deterministic_fallback",
         "steps": [
             "parse_goal",
             "reading_plan_build",
@@ -197,32 +201,69 @@ async def _traced(
         return None, [entry], fatal
 
 
-def build_literature_brief_graph(call_tool: ToolCaller):
+async def _run_goal_planner(
+    *,
+    goal: str,
+    workflow: str,
+    plan_goal: Optional[GoalPlanner],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Run the optional LLM planner and safely fall back to the original goal."""
+
+    from .research_goal_planner import fallback_goal_plan, plan_research_goal
+
+    planner = plan_goal or plan_research_goal
+    plan, journal, _fatal = await _traced(
+        "parse_goal",
+        tool="research_goal_planner",
+        arguments={"workflow": workflow, "goal_chars": len(goal)},
+        soft_fail=True,
+        summary_fn=lambda data: (
+            f"planner={(data or {}).get('planner', 'unknown')} "
+            f"query_chars={len(str((data or {}).get('search_query') or ''))}"
+        ),
+        body=lambda: planner(goal, workflow),
+    )
+    if not isinstance(plan, dict) or not _safe(plan.get("search_query")):
+        plan = fallback_goal_plan(goal, workflow)
+    return plan, journal
+
+
+def build_literature_brief_graph(
+    call_tool: ToolCaller,
+    plan_goal: Optional[GoalPlanner] = None,
+):
     """Compile LangGraph for literature_brief."""
 
     END, StateGraph = _require_langgraph()
 
     async def parse_goal(state: ResearchHarnessState) -> ResearchHarnessState:
         goal = _safe(state.get("goal"))
-        _, journal, fatal = await _traced(
-            "parse_goal",
-            summary_fn=lambda _: "use goal as search_query",
-            body=lambda: {"search_query": goal},
+        plan, journal = await _run_goal_planner(
+            goal=goal,
+            workflow="literature_brief",
+            plan_goal=plan_goal,
         )
-        update: ResearchHarnessState = {"search_query": goal, "journal": journal}
-        if fatal:
-            update["fatal_error"] = fatal
-        return update
+        return {
+            "search_query": _safe(plan.get("search_query")) or goal,
+            "goal_plan": plan,
+            "journal": journal,
+        }
 
     async def search_papers(state: ResearchHarnessState) -> ResearchHarnessState:
         if state.get("fatal_error"):
             return {}
-        goal = state["goal"]
+        goal = _safe(state.get("search_query")) or state["goal"]
         workspace_id = state["workspace_id"]
+        try:
+            # Default 8 matches the pre-planner literature_brief hard limit.
+            target_count = int((state.get("goal_plan") or {}).get("target_paper_count") or 8)
+        except (TypeError, ValueError):
+            target_count = 8
+        target_count = min(max(target_count, 1), 8)
         args = {
             "query": goal,
             "workspace_id": workspace_id,
-            "limit": 8,
+            "limit": target_count,
             "include_expanded": True,
         }
 
@@ -256,7 +297,7 @@ def build_literature_brief_graph(call_tool: ToolCaller):
                     int(item["paper_id"])
                     for item in (listed or [])
                     if item.get("paper_id") is not None
-                ][:8]
+                ][:target_count]
             if not selected:
                 raise AgentToolError(
                     "工作区内没有可用论文，请先导入或关联论文",
@@ -265,7 +306,7 @@ def build_literature_brief_graph(call_tool: ToolCaller):
                 )
             return {
                 "search_results": search,
-                "selected_paper_ids": selected[:8],
+                "selected_paper_ids": selected[:target_count],
                 "_journal_extra": journal_extra,
             }
 
@@ -319,7 +360,7 @@ def build_literature_brief_graph(call_tool: ToolCaller):
             return {}
         args = {
             "workspace_id": state["workspace_id"],
-            "query": state["goal"],
+            "query": _safe(state.get("search_query")) or state["goal"],
             "top_k": 8,
             "paper_ids": state.get("selected_paper_ids"),
         }
@@ -345,6 +386,7 @@ def build_literature_brief_graph(call_tool: ToolCaller):
             workspace_id=state["workspace_id"],
             contexts=state.get("paper_contexts") or [],
             evidence=state.get("evidence"),
+            goal_plan=state.get("goal_plan"),
         )
         _, journal, fatal = await _traced(
             "export_brief",
@@ -371,21 +413,26 @@ def build_literature_brief_graph(call_tool: ToolCaller):
     return graph.compile()
 
 
-def build_survey_path_graph(call_tool: ToolCaller):
+def build_survey_path_graph(
+    call_tool: ToolCaller,
+    plan_goal: Optional[GoalPlanner] = None,
+):
     """Compile LangGraph for survey_path."""
 
     END, StateGraph = _require_langgraph()
 
     async def parse_goal(state: ResearchHarnessState) -> ResearchHarnessState:
-        _, journal, fatal = await _traced(
-            "parse_goal",
-            summary_fn=lambda _: "goal recorded as report title",
-            body=lambda: {"report_title": state.get("goal")},
+        goal = _safe(state.get("goal"))
+        plan, journal = await _run_goal_planner(
+            goal=goal,
+            workflow="survey_path",
+            plan_goal=plan_goal,
         )
-        update: ResearchHarnessState = {"journal": journal}
-        if fatal:
-            update["fatal_error"] = fatal
-        return update
+        return {
+            "search_query": _safe(plan.get("search_query")) or goal,
+            "goal_plan": plan,
+            "journal": journal,
+        }
 
     async def reading_plan_build(state: ResearchHarnessState) -> ResearchHarnessState:
         if state.get("fatal_error"):
@@ -443,6 +490,7 @@ def build_survey_path_graph(call_tool: ToolCaller):
             workspace_id=state["workspace_id"],
             plan=state.get("reading_plan"),
             survey=state.get("survey"),
+            goal_plan=state.get("goal_plan"),
         )
         _, journal, fatal = await _traced(
             "export_survey_package",
@@ -467,11 +515,15 @@ def build_survey_path_graph(call_tool: ToolCaller):
     return graph.compile()
 
 
-def build_research_graph(workflow: str, call_tool: ToolCaller):
+def build_research_graph(
+    workflow: str,
+    call_tool: ToolCaller,
+    plan_goal: Optional[GoalPlanner] = None,
+):
     if workflow == "literature_brief":
-        return build_literature_brief_graph(call_tool)
+        return build_literature_brief_graph(call_tool, plan_goal=plan_goal)
     if workflow == "survey_path":
-        return build_survey_path_graph(call_tool)
+        return build_survey_path_graph(call_tool, plan_goal=plan_goal)
     raise AgentToolError(f"未知 workflow: {workflow}", "NOT_FOUND", 404)
 
 
@@ -511,6 +563,7 @@ def _render_literature_brief(
     workspace_id: int,
     contexts: list[dict[str, Any]],
     evidence: Optional[dict[str, Any]],
+    goal_plan: Optional[dict[str, Any]],
 ) -> str:
     version = WORKFLOW_SPECS["literature_brief"]["version"]
     lines = [
@@ -518,6 +571,8 @@ def _render_literature_brief(
         "",
         f"- Goal: {goal}",
         f"- Workspace: {workspace_id}",
+        f"- Planned query: {_safe((goal_plan or {}).get('search_query')) or goal}",
+        f"- Planner: {_safe((goal_plan or {}).get('planner')) or 'deterministic'}",
         f"- Generated: {_utcnow()}",
         f"- Engine: langgraph/literature_brief@{version}",
         "",
@@ -567,6 +622,11 @@ def _render_literature_brief(
             )
         lines.append("")
 
+    planner_note = (
+        f"- parse_goal 使用 {_safe((goal_plan or {}).get('model')) or 'configured LLM'} 生成检索计划。"
+        if (goal_plan or {}).get("planner") == "llm"
+        else "- parse_goal 使用确定性回退，直接保留原始 goal 作为检索词。"
+    )
     lines.extend(
         [
             "## Follow-up Reading Suggestions",
@@ -579,7 +639,7 @@ def _render_literature_brief(
             "",
             "## Unverified Assumptions",
             "",
-            "- parse_goal 未使用 LLM，直接把 goal 当作检索词；语义改写可能提升召回。",
+            planner_note,
             "",
         ]
     )
@@ -592,6 +652,7 @@ def _render_survey_package(
     workspace_id: int,
     plan: Optional[dict[str, Any]],
     survey: Optional[dict[str, Any]],
+    goal_plan: Optional[dict[str, Any]],
 ) -> str:
     version = WORKFLOW_SPECS["survey_path"]["version"]
     lines = [
@@ -599,6 +660,7 @@ def _render_survey_package(
         "",
         f"- Goal: {goal}",
         f"- Workspace: {workspace_id}",
+        f"- Planner: {_safe((goal_plan or {}).get('planner')) or 'deterministic'}",
         f"- Generated: {_utcnow()}",
         f"- Engine: langgraph/survey_path@{version}",
         "",
@@ -693,6 +755,7 @@ async def run_research_workflow(
     goal: str,
     workspace_id: int,
     call_tool: Optional[ToolCaller] = None,
+    plan_goal: Optional[GoalPlanner] = None,
 ) -> dict[str, Any]:
     if workflow not in WORKFLOW_SPECS:
         raise AgentToolError(f"未知 workflow: {workflow}", "NOT_FOUND", 404)
@@ -713,12 +776,13 @@ async def run_research_workflow(
         "journal": [],
         "selected_paper_ids": [],
         "paper_contexts": [],
+        "goal_plan": None,
         "markdown": "",
         "fatal_error": None,
     }
 
     try:
-        graph = build_research_graph(workflow, tool_caller)
+        graph = build_research_graph(workflow, tool_caller, plan_goal=plan_goal)
         final_state = await graph.ainvoke(initial)
     except AgentToolError as exc:
         return {
@@ -737,6 +801,7 @@ async def run_research_workflow(
                 "survey": None,
                 "evidence": None,
                 "paper_contexts": [],
+                "goal_plan": None,
             },
             "error": {"detail": exc.message, "code": exc.code},
             "harness": {
@@ -762,6 +827,7 @@ async def run_research_workflow(
                 "survey": None,
                 "evidence": None,
                 "paper_contexts": [],
+                "goal_plan": None,
             },
             "error": {"detail": str(exc), "code": "INTERNAL_ERROR"},
             "harness": {
@@ -789,15 +855,17 @@ async def run_research_workflow(
             "survey": final_state.get("survey"),
             "evidence": final_state.get("evidence"),
             "paper_contexts": final_state.get("paper_contexts") or [],
+            "goal_plan": final_state.get("goal_plan"),
         },
         "error": fatal,
         "harness": {
             "engine": "langgraph",
             "llm_required": False,
             "workflow_version": WORKFLOW_SPECS[workflow]["version"],
+            "planner": (final_state.get("goal_plan") or {}).get("planner", "deterministic"),
             "note": (
                 "Orchestration uses LangGraph StateGraph; "
-                "parse_goal currently treats goal text as the search query."
+                "parse_goal uses an optional bounded LLM planner with deterministic fallback."
             ),
         },
     }

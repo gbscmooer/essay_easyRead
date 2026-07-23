@@ -128,6 +128,27 @@ def _patch_shared_engine(monkeypatch, engine):
 @pytest.mark.asyncio
 async def test_literature_brief_workflow_soft_fails_evidence(monkeypatch, engine, harness_seed):
     _patch_shared_engine(monkeypatch, engine)
+    monkeypatch.setattr(
+        "backend.services.deep_research.vector_store.workspace_index_available",
+        lambda _ws_id: False,
+    )
+
+    async def unexpected_embed(_text):
+        raise AssertionError("soft-fail path must not load an embedding model")
+
+    monkeypatch.setattr("backend.services.deep_research.embedder.embed_query", unexpected_embed)
+
+    async def fake_goal_planner(goal, workflow):
+        assert goal == "evidence grounded coding agent"
+        assert workflow == "literature_brief"
+        return {
+            "search_query": "retrieval augmented generation code agents",
+            "keywords": ["RAG", "code agents"],
+            "deliverables": ["literature brief"],
+            "target_paper_count": 5,
+            "planner": "llm",
+            "model": "fake-planner",
+        }
 
     from backend.services.research_harness import run_research_workflow
 
@@ -135,6 +156,7 @@ async def test_literature_brief_workflow_soft_fails_evidence(monkeypatch, engine
         workflow="literature_brief",
         goal="evidence grounded coding agent",
         workspace_id=harness_seed["workspace"].id,
+        plan_goal=fake_goal_planner,
     )
 
     assert result["status"] == "completed"
@@ -143,6 +165,9 @@ async def test_literature_brief_workflow_soft_fails_evidence(monkeypatch, engine
     assert "Literature Brief" in result["artifacts"]["markdown"]
     assert "langgraph/literature_brief" in result["artifacts"]["markdown"]
     assert harness_seed["paper_a"].id in result["artifacts"]["selected_paper_ids"]
+    assert result["artifacts"]["goal_plan"]["planner"] == "llm"
+    assert result["harness"]["planner"] == "llm"
+    assert "Planned query: retrieval augmented generation code agents" in result["artifacts"]["markdown"]
     steps = {item["step"]: item["status"] for item in result["journal"]}
     assert steps["search_papers"] == "ok"
     assert steps["load_paper_contexts"] == "ok"
@@ -172,6 +197,33 @@ async def test_survey_path_workflow(monkeypatch, engine, harness_seed):
     assert any(item["step"] == "reading_plan_build" and item["status"] == "ok" for item in result["journal"])
 
 
+@pytest.mark.asyncio
+async def test_literature_brief_falls_back_when_goal_planner_fails(monkeypatch, engine, harness_seed):
+    _patch_shared_engine(monkeypatch, engine)
+    monkeypatch.setattr(
+        "backend.services.deep_research.vector_store.workspace_index_available",
+        lambda _ws_id: False,
+    )
+
+    async def failing_planner(_goal, _workflow):
+        raise RuntimeError("planner unavailable")
+
+    from backend.services.research_harness import run_research_workflow
+
+    result = await run_research_workflow(
+        workflow="literature_brief",
+        goal="retrieval augmented generation",
+        workspace_id=harness_seed["workspace"].id,
+        plan_goal=failing_planner,
+    )
+
+    assert result["status"] == "completed"
+    assert result["artifacts"]["goal_plan"]["planner"] == "deterministic"
+    assert result["artifacts"]["goal_plan"]["search_query"] == "retrieval augmented generation"
+    parse_entry = next(item for item in result["journal"] if item["step"] == "parse_goal")
+    assert parse_entry["status"] == "soft_fail"
+
+
 def test_research_workflows_http(client, monkeypatch, engine, harness_seed):
     _patch_shared_engine(monkeypatch, engine)
 
@@ -192,6 +244,62 @@ def test_research_workflows_http(client, monkeypatch, engine, harness_seed):
     body = response.json()
     assert body["status"] == "completed"
     assert body["artifacts"]["markdown"]
+
+
+def test_research_workflow_http_maps_missing_workspace_to_404(client, monkeypatch, engine):
+    _patch_shared_engine(monkeypatch, engine)
+
+    response = client.post(
+        "/api/agent-tools/runs",
+        json={
+            "workflow": "survey_path",
+            "goal": "survey package",
+            "workspace_id": 999999,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "工作区不存在", "code": "NOT_FOUND"}
+
+
+def test_research_workflow_http_maps_empty_workspace_to_404(client, monkeypatch, engine, session):
+    _patch_shared_engine(monkeypatch, engine)
+    workspace = Workspace(name="Empty Harness Workspace")
+    session.add(workspace)
+    session.commit()
+    session.refresh(workspace)
+
+    response = client.post(
+        "/api/agent-tools/runs",
+        json={
+            "workflow": "literature_brief",
+            "goal": "survey package",
+            "workspace_id": workspace.id,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "工作区内没有可用论文，请先导入或关联论文",
+        "code": "NO_PAPERS",
+    }
+
+
+def test_research_workflow_cors_preflight(client):
+    from backend.config import settings
+
+    response = client.options(
+        "/api/agent-tools/runs",
+        headers={
+            "Origin": settings.frontend_origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == settings.frontend_origin
+    assert "POST" in response.headers["access-control-allow-methods"]
 
 
 def test_manifest_includes_research_tools(client):

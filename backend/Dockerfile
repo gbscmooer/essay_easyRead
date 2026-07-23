@@ -16,9 +16,9 @@ RUN mkdir -p /app/data /app/uploads /app/code_downloads && \
     adduser --system --ingroup appgroup appuser && \
     chown -R appuser:appgroup /app
 
-ENV LLM_API_KEY=""
-ENV LLM_BASE_URL="https://api.openai.com/v1"
-ENV LLM_MODEL="gpt-4o-mini"
+# LLM_* defaults live in backend.config.Settings.  Keeping canonical values out
+# of the image also lets runtime --env-file MIMO_*/OPENAI_*/ANTHROPIC_* aliases
+# migrate cleanly instead of being shadowed by image-level LLM_* variables.
 ENV DATABASE_URL="sqlite:///./data/essay_read.db"
 ENV UPLOAD_DIR="./uploads"
 ENV HOST="127.0.0.1"

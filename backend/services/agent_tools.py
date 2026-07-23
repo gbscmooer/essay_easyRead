@@ -552,8 +552,15 @@ async def retrieve_evidence(
         if not ws:
             raise AgentToolError("工作区不存在", "NOT_FOUND", 404)
 
+    from .deep_research.vector_store import query_workspace, workspace_index_available
+
+    # Check the persisted index before loading a local embedding model.  On a
+    # fresh/offline install this keeps the harness soft-fail path deterministic
+    # and avoids creating an empty Chroma collection as a side effect of a read.
+    if not workspace_index_available(workspace_id):
+        raise AgentToolError("未构建索引或无命中", "CHROMA_NOT_INITIALIZED", 404)
+
     from .deep_research.embedder import embed_query
-    from .deep_research.vector_store import query_workspace
 
     vec = await embed_query(query)
     hits = query_workspace(workspace_id, vec, top_k=top_k, paper_ids=paper_ids)
@@ -661,7 +668,15 @@ def build_reading_plan(workspace_id: int, target_paper_id: Optional[int] = None)
 
     from .workspace_planner import build_workspace_reading_plan
 
-    plan = build_workspace_reading_plan(workspace_id, target_paper_id=target_paper_id)
+    try:
+        plan = build_workspace_reading_plan(workspace_id, target_paper_id=target_paper_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "workspace not found":
+            raise AgentToolError("工作区不存在", "NOT_FOUND", 404) from exc
+        if message == "paper not in workspace":
+            raise AgentToolError("论文不在该工作区中", "NOT_FOUND", 404) from exc
+        raise AgentToolError(message, "BAD_REQUEST", 400) from exc
     return plan.model_dump(mode="json")
 
 
@@ -676,7 +691,13 @@ def build_survey(workspace_id: int) -> dict[str, Any]:
 
     from .workspace_planner import build_workspace_survey
 
-    survey = build_workspace_survey(workspace_id)
+    try:
+        survey = build_workspace_survey(workspace_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "workspace not found":
+            raise AgentToolError("工作区不存在", "NOT_FOUND", 404) from exc
+        raise AgentToolError(message, "BAD_REQUEST", 400) from exc
     return survey.model_dump(mode="json")
 
 
