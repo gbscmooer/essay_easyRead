@@ -159,6 +159,24 @@ class OpenAlexProvider:
             })
         return results
 
+    async def get_paper_metadata(self, paper_id: str) -> dict | None:
+        """单篇 work 的规范元数据（身份补齐用）：doi / arxiv / title / year。"""
+        wid = paper_id.lstrip("W")
+        work = await self._safe_get(
+            f"/works/W{wid}",
+            {"select": "id,title,publication_year,doi,ids,primary_location,locations"},
+        )
+        if not work:
+            return None
+        doi_url = work.get("doi") or ""
+        return {
+            "openalex_id": _strip_id(work.get("id") or ""),
+            "title": work.get("title"),
+            "year": work.get("publication_year"),
+            "doi": doi_url.replace("https://doi.org/", "") if doi_url else None,
+            "arxiv_id": _extract_arxiv(work),
+        }
+
     async def get_paper_citations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
         try:
             wid = paper_id.lstrip("W")

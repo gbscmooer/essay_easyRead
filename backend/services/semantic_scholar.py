@@ -317,6 +317,29 @@ async def find_s2_paper_id(title: str, doi: str = "", arxiv_id: str = "") -> Opt
     return None
 
 
+async def get_paper_metadata(s2_paper_id: str) -> dict | None:
+    """获取单篇论文的规范元数据（标题修复 / 身份补齐用）。
+
+    s2_paper_id 也接受 ``DOI:...`` / ``arXiv:...`` 形式的外部 ID 路径。
+    """
+    data = await _safe_rate_limited_get(
+        f"{S2_BASE}/paper/{s2_paper_id}",
+        params={"fields": "paperId,title,year,venue,externalIds,authors"},
+    )
+    if not data:
+        return None
+    ext = data.get("externalIds") or {}
+    return {
+        "s2_id": data.get("paperId"),
+        "title": data.get("title"),
+        "year": data.get("year"),
+        "venue": data.get("venue"),
+        "doi": ext.get("DOI"),
+        "arxiv_id": ext.get("ArXiv"),
+        "authors": _format_s2_authors(data.get("authors")),
+    }
+
+
 async def get_paper_references(s2_paper_id: str, limit: int = 50) -> list[dict]:
     """返回结构化 references 列表，包含 openAccessPdf 信息"""
     data = await _safe_rate_limited_get(

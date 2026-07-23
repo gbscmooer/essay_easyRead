@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get, post } from '@/api/client'
-import { digestBatch, digestStatus } from '@/api/research'
+import { digestBatch, digestStatus, startReferenceBackfill, referenceBackfillStatus } from '@/api/research'
 import { toast } from '@/hooks/useToast'
 import { Tooltip } from '@/ds-entry'
 
@@ -48,6 +48,8 @@ export function ControlPanel({
   const [backboneAlpha, setBackboneAlpha] = useState(0.25)
   const [digesting, setDigesting] = useState(false)
   const [digestProgress, setDigestProgress] = useState<{ done: number; total: number } | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [includeExpanded, setIncludeExpanded] = useState(true)
   const [papers, setPapers] = useState<WorkspacePaper[]>([])
   const [expandedCount, setExpandedCount] = useState(0)
@@ -123,6 +125,66 @@ export function ControlPanel({
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId])
+
+  // 轮询引用回填进度；完成后提示重建结果
+  const pollBackfill = useCallback(() => {
+    const tick = async () => {
+      if (!mounted.current) return
+      try {
+        const s = await referenceBackfillStatus(wsId)
+        if (!mounted.current) return
+        if (s.status === 'running') {
+          setBackfillProgress({ done: s.done ?? 0, total: s.total ?? 0, phase: s.phase ?? 'refs' })
+          setTimeout(tick, 2000)
+          return
+        }
+        setBackfilling(false)
+        setBackfillProgress(null)
+        if (s.status === 'done') {
+          const st = s.stats ?? {}
+          toast({
+            type: 'success',
+            message: `引用回填完成：${st.refs_saved ?? 0} 条引用（${st.refs_linked ?? 0} 条链接到本地论文），图谱已重建`,
+          })
+        } else if (s.status === 'failed') {
+          toast({ type: 'error', message: `引用回填失败：${s.error ?? '未知错误'}` })
+        }
+      } catch {
+        if (!mounted.current) return
+        setBackfilling(false)
+        setBackfillProgress(null)
+        toast({ type: 'error', message: '引用回填进度查询失败' })
+      }
+    }
+    setTimeout(tick, 1500)
+  }, [wsId])
+
+  // 进入页面时若后台已有回填在跑，自动接上进度
+  useEffect(() => {
+    let cancelled = false
+    referenceBackfillStatus(wsId).then(s => {
+      if (cancelled || s.status !== 'running') return
+      setBackfilling(true)
+      setBackfillProgress({ done: s.done ?? 0, total: s.total ?? 0, phase: s.phase ?? 'refs' })
+      pollBackfill()
+    }).catch(() => { /* noop */ })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId])
+
+  const handleBackfill = async () => {
+    setBackfilling(true)
+    setBackfillProgress(null)
+    try {
+      await startReferenceBackfill(wsId)
+      toast({ type: 'info', message: '已开始后台回填引用（Semantic Scholar），完成后自动重建图谱' })
+      pollBackfill()
+    } catch (e) {
+      const msg = (e as { detail?: string })?.detail || String(e)
+      toast({ type: 'error', message: `引用回填启动失败：${msg}` })
+      setBackfilling(false)
+    }
+  }
 
   useEffect(() => {
     get<{ research?: { backbone_alpha?: number; link_distance?: number } }>('/analysis/config')
@@ -413,6 +475,23 @@ export function ControlPanel({
             {digesting
               ? (digestProgress ? `速读中 ${digestProgress.done}/${digestProgress.total}…` : '速读中…')
               : '速读未解读论文'}
+          </button>
+        </Tooltip>
+
+        <Tooltip content={'为工作区论文从 Semantic Scholar 回填真实引用关系（cites / 共引 / 文献耦合边的数据来源），完成后自动重建图谱。老工作区（引用体系上线前创建）图谱缺引用边时使用；已有引用的论文自动跳过，可随时中断续跑。'}>
+          <button
+            onClick={handleBackfill}
+            disabled={disabled || backfilling}
+            className="px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+          >
+            {backfilling
+              ? (backfillProgress
+                ? (backfillProgress.phase === 'rebuild'
+                  ? '重建图谱中…'
+                  : `回填引用 ${backfillProgress.done}/${backfillProgress.total}…`)
+                : '回填引用中…')
+              : '修复引用数据'}
           </button>
         </Tooltip>
 

@@ -1,0 +1,87 @@
+{
+  "schema": "real_graph_eval_v1",
+  "tag": "post_fix",
+  "workspace_id": 1,
+  "generated_at": "2026-07-23T07:06:23.290498+00:00",
+  "papers_in_workspace": 179,
+  "paper_references_rows": 6804,
+  "no_mock": true,
+  "structure": {
+    "node_entries": 179,
+    "unique_nodes": 179,
+    "duplicate_entries": 0,
+    "edges_total": 11981,
+    "edges_by_kind": {
+      "cites": 577,
+      "bibcoupling": 6554,
+      "cocitation": 2262,
+      "similar": 2588
+    },
+    "bridge_edges": 0,
+    "ppr_graph_nodes": 179,
+    "ppr_graph_edges": 9088,
+    "dangling_nodes": 1,
+    "dangling_ratio": 0.0056,
+    "wcc_count": 2,
+    "wcc_top5": [
+      178,
+      1
+    ]
+  },
+  "channel_behavior": [
+    {
+      "label": "old(no_reverse,keep_seed)",
+      "trials": 20,
+      "seed_mass_share_mean": 0.1797,
+      "top10_onehop_share_mean": 1.0,
+      "cross_seed_top10_jaccard_mean": 0.368,
+      "distinct_papers_in_top10s": 44,
+      "spearman_ppr_vs_indegree_mean": 0.5195
+    },
+    {
+      "label": "new(reverse+excl_seed)",
+      "trials": 20,
+      "seed_mass_share_mean": 0.0,
+      "top10_onehop_share_mean": 1.0,
+      "cross_seed_top10_jaccard_mean": 0.3689,
+      "distinct_papers_in_top10s": 44,
+      "spearman_ppr_vs_indegree_mean": 0.5879
+    }
+  ],
+  "holdout_citation_recovery": {
+    "resolved_pairs": 577,
+    "masked_pairs": 115,
+    "candidate_pool": 178,
+    "random_baseline_recall": {
+      "@5": 0.0281,
+      "@10": 0.0562,
+      "@20": 0.1124
+    },
+    "arms": {
+      "ppr_old(no_reverse)": {
+        "recall@5": 0.2,
+        "recall@10": 0.4,
+        "recall@20": 0.6435,
+        "mrr": 0.1255,
+        "median_rank": 14,
+        "unreachable": 0
+      },
+      "ppr_new(reverse+excl_seed)": {
+        "recall@5": 0.1913,
+        "recall@10": 0.3913,
+        "recall@20": 0.6174,
+        "mrr": 0.1229,
+        "median_rank": 14,
+        "unreachable": 0
+      },
+      "indegree_baseline": {
+        "recall@5": 0.2522,
+        "recall@10": 0.3565,
+        "recall@20": 0.487,
+        "mrr": 0.1967,
+        "median_rank": 14,
+        "unreachable": 10
+      }
+    }
+  }
+}

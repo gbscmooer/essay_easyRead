@@ -1,0 +1,51 @@
+{
+  "schema": "real_graph_eval_v1",
+  "tag": "pre_fix",
+  "workspace_id": 1,
+  "generated_at": "2026-07-23T06:07:29.146532+00:00",
+  "papers_in_workspace": 179,
+  "paper_references_rows": 0,
+  "no_mock": true,
+  "structure": {
+    "node_entries": 194,
+    "unique_nodes": 179,
+    "duplicate_entries": 15,
+    "edges_total": 330,
+    "edges_by_kind": {
+      "cites": 188,
+      "similar": 142
+    },
+    "bridge_edges": 0,
+    "ppr_graph_nodes": 179,
+    "ppr_graph_edges": 312,
+    "dangling_nodes": 117,
+    "dangling_ratio": 0.6536,
+    "wcc_count": 1,
+    "wcc_top5": [
+      179
+    ]
+  },
+  "channel_behavior": [
+    {
+      "label": "old(no_reverse,keep_seed)",
+      "trials": 20,
+      "seed_mass_share_mean": 0.5458,
+      "top10_onehop_share_mean": 0.57,
+      "cross_seed_top10_jaccard_mean": 0.162,
+      "distinct_papers_in_top10s": 67,
+      "spearman_ppr_vs_indegree_mean": 0.6787
+    },
+    {
+      "label": "new(reverse+excl_seed)",
+      "trials": 20,
+      "seed_mass_share_mean": 0.0,
+      "top10_onehop_share_mean": 0.695,
+      "cross_seed_top10_jaccard_mean": 0.112,
+      "distinct_papers_in_top10s": 90,
+      "spearman_ppr_vs_indegree_mean": 0.5353
+    }
+  ],
+  "holdout_citation_recovery": {
+    "skipped": "resolved in-workspace citation pairs = 0 < 20"
+  }
+}

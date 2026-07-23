@@ -70,3 +70,26 @@ export async function digestStatus(wsId: number): Promise<DigestStatus> {
 export async function digestPaper(paperId: number): Promise<{ paper_id: number; digest: Record<string, unknown> }> {
   return post(`/analysis/digest/${paperId}`, {})
 }
+
+// 引用回填（存量数据修复）——用 Semantic Scholar 为老论文补真实引用边并重建图谱
+export interface BackfillStatus {
+  status: 'idle' | 'running' | 'done' | 'failed'
+  phase?: 'identity' | 'refs' | 'rebuild'
+  done?: number
+  total?: number
+  refs_saved?: number
+  refs_linked?: number
+  titles_fixed?: number
+  errors?: number
+  error?: string
+  stats?: Record<string, number>
+  graph_stats?: Record<string, unknown>
+}
+
+export async function startReferenceBackfill(wsId: number, force = false): Promise<{ status: string }> {
+  return post(`/research/workspaces/${wsId}/backfill-references?force=${force}`, {})
+}
+
+export async function referenceBackfillStatus(wsId: number): Promise<BackfillStatus> {
+  return get<BackfillStatus>(`/research/workspaces/${wsId}/backfill-references/status`)
+}

@@ -99,6 +99,28 @@ EVAL_ALLOW_NETWORK=0 python -m backend.tests.evaluation.deep_research.eval.cli c
 
 当前仓库只完成 mock 门禁；真实 30+ seed、双人标注与 Scholar 盲测尚未归档，因此产品默认不开启 `discovery_v2`，也不宣称优于 Scholar。
 
+## 真实数据评测（零 mock）
+
+`backend/tests/evaluation/deep_research/real_graph_eval.py` 只读真实数据库（ResearchGraph +
+PaperReference），不用任何 fixture、不联网、不调 LLM/embedding，用于验证**图检索通道本身**的有效性
+（mock 门禁只验证 RRF 管道正确性，不构成有效性证据）：
+
+- **结构指标**：重复节点、dangling 占比、连通分量、边类型分布
+- **通道行为**：PPR 质量困在 seed 的比例、Top-10 一跳邻居占比、跨 seed 组 Top-10 Jaccard
+  （霸榜稳定性）、PPR 与入度的 Spearman 相关（区分拓扑信号 vs 单纯数边）
+- **held-out 引用恢复**（核心）：随机遮蔽 20% 已解析 cites 对，用 citing 论文做 seed 跑 PPR，
+  测被遮蔽 cited 论文的 Recall@5/10/20 与 MRR；三臂对比 旧配置 PPR / 新配置 PPR（反向边 +
+  排除 seed）/ 入度基线。bibcoupling / cocitation 在遮蔽后引用集上用生产函数重算，杜绝泄漏。
+
+```bash
+python -m backend.tests.evaluation.deep_research.real_graph_eval --ws 1 \
+    --tag post_fix --out backend/tests/evaluation/deep_research/real_reports/ws1_post_fix.json
+```
+
+`real_reports/` 下的报告作为证据提交进版本库（与 gitignore 的 mock `reports/` 区分）。
+老工作区 PaperReference 为空时，先在研究页点「修复引用数据」（或调
+`POST /api/research/workspaces/{id}/backfill-references`）回填真实引用。
+
 ## 与论文精读评测的关系
 
 `backend/tests/evaluation/evaluate.py` 评估论文精读分析质量；本目录评估深度研究发现与 RAG 检索质量。两者独立。
