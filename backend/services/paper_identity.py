@@ -113,6 +113,53 @@ def normalize_title(title: str | None) -> str | None:
     return s or None
 
 
+# ── 展示标题清洗（PDF 页眉噪声）──────────────────────────────
+# PDF 首页页眉常被元数据抽取误当标题（如 "Published as a conference paper at
+# ICLR 2023"、arXiv 侧边戳）。这类噪声进图谱后会成为假节点标签，且污染标题匹配。
+
+_BANNER_RES = [
+    re.compile(
+        r"^(?:published|accepted|under\s+review)(?:\s+as)?\s+a?\s*"
+        r"(?:conference|workshop)\s+paper"
+        # 会场部分：优先吞到年份（"at ICLR 2023"），否则单 token（"at ICLR"）
+        r"(?:\s+at\s+(?:[\w&\-'.]+\s+){0,5}?\d{4}|\s+at\s+[\w&\-'.]+)?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^arxiv:\s*\d{4}\.\d{4,5}(?:v\d+)?(?:\s*\[[\w.\-]+\])?"
+        r"(?:\s+\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})?",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^proceedings\s+of\s+the\s+[\w .&\-']{0,80}?\d{4}", re.IGNORECASE),
+]
+_BANNER_SEP_RE = re.compile(r"^[\s:;,.|\-–—]+")
+
+
+def clean_display_title(title: str | None) -> str | None:
+    """剥离标题开头的 PDF 页眉噪声；剥离后无实质内容则返回 None（纯噪声标题）。"""
+    if not title or not str(title).strip():
+        return None
+    s = _TITLE_SPACE_RE.sub(" ", str(title).strip())
+    changed = True
+    while changed:
+        changed = False
+        for pat in _BANNER_RES:
+            new = pat.sub("", s)
+            if new != s:
+                s = _BANNER_SEP_RE.sub("", new.strip()).strip()
+                changed = True
+    if len(s) < 4:
+        return None
+    return s
+
+
+def is_junk_title(title: str | None) -> bool:
+    """标题是否为纯页眉噪声（清洗后无实质内容）。"""
+    if not title or not str(title).strip():
+        return False
+    return clean_display_title(title) is None
+
+
 def _title_fingerprint(title: str | None) -> str | None:
     normalized = normalize_title(title)
     if not normalized:

@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '2.4.0'
+const APP_VERSION = '2.5.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-07-21',
+  date: '2026-07-23',
   changes: [
-    'Research Agent 新增可选 LLM goal planner，失败自动确定性回退',
-    '修复旧 .env（空 LLM_* + MIMO_*/OPENAI_*/ANTHROPIC_*）导致配置丢失或启动失败',
-    '证据检索改为只读检查索引，避免无索引时加载嵌入模型或创建空集合',
-    '工作流失败与阅读计划错误统一返回 {detail, code} HTTP 契约',
-    '设置页切换协议预设时同步默认模型',
+    '图谱 PPR 检索修复：引用边补低权反向边导流 dangling 节点，结果剔除 seed 重复投票',
+    'RAG 图谱模式每篇论文限量取代表片段，防止长论文淹没融合排名',
+    '新增「修复引用数据」：从 Semantic Scholar 回填真实引用边并自动重建图谱',
+    '图谱节点标题清洗 PDF 页眉噪声，重复节点去重',
+    '新增真实数据评测（held-out 引用恢复），零 mock 验证图检索有效性',
   ],
 }
 

@@ -127,18 +127,42 @@ def get_graph_paper_scores(
         return {}
 
 
+# graph 通道每篇论文最多贡献的 chunk 数。旧行为（无上限）会把高分论文的全部
+# chunk 平铺进池子，长论文淹没 RRF 排名（一篇 40-chunk 论文独占 rank 1-40）。
+DEFAULT_GRAPH_POOL_PER_PAPER = 3
+
+
 def _graph_chunk_pool(
     paper_scores: dict[int, float],
     chunks_by_paper: dict[int, list[str]],
+    *,
+    per_paper_cap: int = DEFAULT_GRAPH_POOL_PER_PAPER,
+    chunk_scores: dict[str, float] | None = None,
 ) -> list[str]:
+    """按论文 PPR 分数展开 chunk 池。
+
+    - ``per_paper_cap``：每篇论文最多取多少 chunk（<=0 表示不限，复现旧行为）；
+    - ``chunk_scores``：chunk 级参考分（dense/bm25 命中分），论文内部按它降序
+      挑选代表 chunk；缺失分数的 chunk 按目录序兜底排后。
+    """
     papers = sorted(paper_scores.keys(), key=lambda p: (-paper_scores[p], p))
+    ref = chunk_scores or {}
     pool: list[str] = []
     seen: set[str] = set()
     for pid in papers:
-        for cid in chunks_by_paper.get(pid, []):
-            if cid not in seen:
-                seen.add(cid)
-                pool.append(cid)
+        cids = chunks_by_paper.get(pid, [])
+        if ref:
+            order = {c: i for i, c in enumerate(cids)}
+            cids = sorted(cids, key=lambda c: (-ref.get(c, 0.0), order[c]))
+        picked = 0
+        for cid in cids:
+            if cid in seen:
+                continue
+            if per_paper_cap > 0 and picked >= per_paper_cap:
+                break
+            seen.add(cid)
+            pool.append(cid)
+            picked += 1
     return pool
 
 
@@ -207,6 +231,7 @@ class HybridRetriever:
         score_fn: Callable[..., dict[int, float]] | None,
         seed_ids: list[int] | None = None,
         graph_config: dict[str, Any] | None = None,
+        chunk_scores: dict[str, float] | None = None,
     ) -> tuple[list[str], dict[int, float]]:
         paper_scores = get_graph_paper_scores(
             graph,
@@ -242,7 +267,19 @@ class HybridRetriever:
                 if pid is not None:
                     chunks_by_paper.setdefault(int(pid), []).append(cid)
 
-        pool = _graph_chunk_pool(paper_scores, chunks_by_paper)
+        per_paper_cap = DEFAULT_GRAPH_POOL_PER_PAPER
+        if graph_config and "per_paper_chunks" in graph_config:
+            try:
+                per_paper_cap = int(graph_config["per_paper_chunks"])
+            except (TypeError, ValueError):
+                pass
+
+        pool = _graph_chunk_pool(
+            paper_scores,
+            chunks_by_paper,
+            per_paper_cap=per_paper_cap,
+            chunk_scores=chunk_scores,
+        )
         return pool, paper_scores
 
     async def retrieve(
@@ -294,6 +331,7 @@ class HybridRetriever:
                 graph_score_fn,
                 seed_ids=query_seeds or None,
                 graph_config=graph_config,
+                chunk_scores={**bm25_scores, **dense_scores},
             )
             if graph_pool:
                 pools[CHANNEL_GRAPH] = graph_pool

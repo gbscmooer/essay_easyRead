@@ -36,6 +36,15 @@ class GraphRetrieverConfig:
     edge_kinds: frozenset[str] = DEFAULT_PPR_EDGE_KINDS
     bridge_weight_factor: float = 0.0  # 弱桥接边在转移矩阵中的权重倍率（0=不参与结构 boost）
     min_ppr_score: float = 1e-9
+    # cites 边补低权反向边（cited→citing）。引文图中扩展论文往往只有入边（dangling），
+    # PPR 质量到达后只能被 teleport 抽回 seed，无法流向"共同引用它的其他论文"。
+    # 反向边让经典论文成为导流枢纽：seed→经典→(反向)→其他引用者 = 协同过滤信号。
+    # 实测 ws1 图 65% 节点 dangling，是图通道退化的主因之一。0=关闭。
+    cites_reverse_factor: float = 0.25
+    # score_papers_ppr 结果剔除 seed 论文本身。seed 来自 dense 命中，dense/bm25 通道
+    # 已为其投票；图通道再投是重复信息（实测 PPR 质量平均 54.6% 落在 seed 上）。
+    # 剔除后图通道只贡献增量论文。retrieve_from_graph（发现路径）本就剔除 seed，此处对齐。
+    exclude_seeds: bool = True
 
 
 @dataclass
@@ -75,8 +84,22 @@ def build_ppr_graph(
     *,
     edge_kinds: frozenset[str] = DEFAULT_PPR_EDGE_KINDS,
     bridge_weight_factor: float = 0.0,
+    cites_reverse_factor: float = 0.0,
 ) -> nx.DiGraph:
-    """构建 PPR 用的有向加权图（无向语义边双向展开）。"""
+    """构建 PPR 用的有向加权图。
+
+    语义边（similar/bibcoupling/cocitation）在 graph_builder 中已双向存储；
+    cites 边只有 citing→cited 方向。``cites_reverse_factor`` > 0 时为每条
+    cites 边补一条 cited→citing 的低权反向边（权重 = 原权 × 因子，与已有
+    边取 max 合并），让 PPR 质量能穿过只有入边的 dangling 引用节点。
+    """
+
+    def _merge_edge(s: str, t: str, w: float) -> None:
+        if g.has_edge(s, t):
+            g[s][t]["weight"] = max(g[s][t]["weight"], w)
+        else:
+            g.add_edge(s, t, weight=w)
+
     g = nx.DiGraph()
     for n in nodes:
         nid = n.get("id")
@@ -92,10 +115,9 @@ def build_ppr_graph(
         w = _edge_weight(e, bridge_factor=bridge_weight_factor)
         if w <= 0:
             continue
-        if g.has_edge(s, t):
-            g[s][t]["weight"] = max(g[s][t]["weight"], w)
-        else:
-            g.add_edge(s, t, weight=w)
+        _merge_edge(s, t, w)
+        if kind == "cites" and cites_reverse_factor > 0:
+            _merge_edge(t, s, w * cites_reverse_factor)
     return g
 
 
@@ -280,11 +302,15 @@ def score_papers_ppr(
         edges,
         edge_kinds=cfg.edge_kinds,
         bridge_weight_factor=cfg.bridge_weight_factor,
+        cites_reverse_factor=cfg.cites_reverse_factor,
     )
     scores = personalized_pagerank(ppr_g, seeds, alpha=cfg.ppr_alpha)
     if paper_ids is not None:
         allow = set(int(p) for p in paper_ids)
         scores = {pid: sc for pid, sc in scores.items() if pid in allow}
+    if cfg.exclude_seeds:
+        seed_set = set(seeds)
+        scores = {pid: sc for pid, sc in scores.items() if pid not in seed_set}
     return {pid: sc for pid, sc in scores.items() if sc >= cfg.min_ppr_score}
 
 
@@ -311,6 +337,7 @@ def retrieve_from_graph(
             nodes, edges,
             edge_kinds=cfg.edge_kinds,
             bridge_weight_factor=cfg.bridge_weight_factor,
+            cites_reverse_factor=cfg.cites_reverse_factor,
         )
         scores = personalized_pagerank(ppr_g, seeds, alpha=cfg.ppr_alpha)
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)

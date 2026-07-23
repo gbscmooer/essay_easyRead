@@ -20,6 +20,7 @@ from .similarity import get_similarity_provider
 from .graph_analytics import annotate_graph
 from .graphkit import extract_backbone
 from ..ai_config import get_similarity_config
+from ..paper_identity import clean_display_title
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,12 @@ def _build_structural_edges(
 
 def _paper_node(p) -> dict:
     digest = getattr(p, "graph_digest", None) or None
+    # 展示标题清洗：PDF 页眉噪声（"Published as a conference paper at ..."）不进节点标签
+    label = clean_display_title(p.title) or (p.title or p.filename)
     return {
         "id": f"paper:{p.id}",
         "kind": "paper",
-        "label": (p.title or p.filename)[:80],
+        "label": label[:80],
         "meta": {
             "paper_id": p.id,
             "year": p.year,
@@ -143,6 +146,21 @@ async def build_graph(
     session: Session | None = None,
     references: list | None = None,
 ) -> dict:
+    # 防御性去重：同一 paper_id 只建一个节点（旧数据/上游 join 异常曾产生重复节点，
+    # 重复条目会污染前端渲染并使离线分析的度数虚高）。
+    seen_ids: set[int] = set()
+    uniq_papers = []
+    for p in papers:
+        if p.id in seen_ids:
+            continue
+        seen_ids.add(p.id)
+        uniq_papers.append(p)
+    if len(uniq_papers) != len(papers):
+        logger.warning(
+            "graph_builder: dropped %d duplicate paper rows", len(papers) - len(uniq_papers)
+        )
+    papers = uniq_papers
+
     nodes = [_paper_node(p) for p in papers]
     by_id = {p.id: p for p in papers}
     edges: list[dict] = []

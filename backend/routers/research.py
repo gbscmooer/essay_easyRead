@@ -228,6 +228,46 @@ async def latest_run(ws_id: int) -> ResearchRunResponse:
         return ResearchRunResponse.model_validate(run, from_attributes=True)
 
 
+# ── 引用回填（存量数据修复：PaperReference 空表 → 图谱无 cites 边）──────────
+_BACKFILL_JOBS: dict[int, dict] = {}
+
+
+async def _backfill_worker(ws_id: int, force: bool) -> None:
+    from ..services.deep_research.reference_backfill import (
+        backfill_workspace_references,
+        rebuild_workspace_graph,
+    )
+
+    job = _BACKFILL_JOBS[ws_id]
+    try:
+        stats = await backfill_workspace_references(ws_id, force=force, progress=job)
+        job.update({"phase": "rebuild"})
+        graph_stats = await rebuild_workspace_graph(ws_id)
+        job.update({"status": "done", "stats": stats, "graph_stats": graph_stats})
+    except Exception as exc:
+        logger.exception("reference backfill failed for ws %s", ws_id)
+        job.update({"status": "failed", "error": str(exc)})
+
+
+@router.post("/workspaces/{ws_id}/backfill-references")
+async def start_reference_backfill(ws_id: int, force: bool = False) -> dict:
+    """回填工作区论文引用（Semantic Scholar）并重建图谱。后台执行，轮询 status 端点。"""
+    with Session(get_engine()) as session:
+        if not session.get(Workspace, ws_id):
+            raise HTTPException(404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+    job = _BACKFILL_JOBS.get(ws_id)
+    if job and job.get("status") == "running":
+        raise HTTPException(409, detail={"detail": "引用回填已在进行中", "code": "ALREADY_RUNNING"})
+    _BACKFILL_JOBS[ws_id] = {"status": "running", "phase": "identity", "done": 0, "total": 0}
+    asyncio.create_task(_backfill_worker(ws_id, force))
+    return {"status": "started"}
+
+
+@router.get("/workspaces/{ws_id}/backfill-references/status")
+async def reference_backfill_status(ws_id: int) -> dict:
+    return _BACKFILL_JOBS.get(ws_id) or {"status": "idle"}
+
+
 @router.post("/workspaces/{ws_id}/query", response_model=RagQueryResponse)
 async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     from ..services.deep_research.embedder import embed_query
