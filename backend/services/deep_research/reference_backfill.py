@@ -334,7 +334,7 @@ async def backfill_workspace_references(
 async def rebuild_workspace_graph(ws_id: int) -> dict:
     """用现行构图代码重建工作区图谱并持久化。返回图 stats。"""
     from ..ai_config import load_config
-    from .graph_builder import build_graph
+    from .graph_builder import DEFAULT_BACKBONE_ALPHA, DEFAULT_MAP_DENSITY, build_graph
     from .stages.persist import stage_persist
 
     engine = get_engine()
@@ -355,7 +355,8 @@ async def rebuild_workspace_graph(ws_id: int) -> dict:
         ws_id,
         papers,
         enable_shared_method=False,
-        backbone_alpha=float(research_cfg.get("backbone_alpha", 0.25)),
+        map_density=float(research_cfg.get("map_density", DEFAULT_MAP_DENSITY)),
+        backbone_alpha=float(research_cfg.get("backbone_alpha", DEFAULT_BACKBONE_ALPHA)),
     )
     if run_id is not None:
         await stage_persist(ws_id, run_id, graph)

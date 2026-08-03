@@ -1,0 +1,370 @@
+{
+  "workspace": 1,
+  "generated_at": "2026-08-03T07:35:18.987629+00:00",
+  "papers": 179,
+  "citation_pairs": 573,
+  "coverage": {
+    "topic": 178,
+    "purpose": 177,
+    "method": 177,
+    "term": 179,
+    "dataset": 492,
+    "baseline": 98,
+    "bibcoupling": 3277,
+    "cocitation": 1131
+  },
+  "channel_power": [
+    {
+      "channel": "topic",
+      "auc": 0.8882,
+      "mean_pos": 0.7952,
+      "mean_neg": 0.4082,
+      "nonzero_pos_ratio": 1.0,
+      "prior_weight": 0.18,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "purpose",
+      "auc": 0.6429,
+      "mean_pos": 0.5733,
+      "mean_neg": 0.4345,
+      "nonzero_pos_ratio": 0.963,
+      "prior_weight": 0.24,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "method",
+      "auc": 0.5714,
+      "mean_pos": 0.45,
+      "mean_neg": 0.3732,
+      "nonzero_pos_ratio": 0.8961,
+      "prior_weight": 0.16,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "term",
+      "auc": 0.7969,
+      "mean_pos": 0.4912,
+      "mean_neg": 0.1866,
+      "nonzero_pos_ratio": 0.9721,
+      "prior_weight": 0.14,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "dataset",
+      "auc": 0.5956,
+      "mean_pos": 0.1087,
+      "mean_neg": 0.0106,
+      "nonzero_pos_ratio": 0.2147,
+      "prior_weight": 0.06,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "baseline",
+      "auc": 0.5366,
+      "mean_pos": 0.0354,
+      "mean_neg": 0.0018,
+      "nonzero_pos_ratio": 0.0768,
+      "prior_weight": 0.04,
+      "leaks_supervision": false
+    },
+    {
+      "channel": "bibcoupling",
+      "auc": 0.827,
+      "mean_pos": 0.5199,
+      "mean_neg": 0.0727,
+      "nonzero_pos_ratio": 0.7661,
+      "prior_weight": 0.12,
+      "leaks_supervision": true
+    },
+    {
+      "channel": "cocitation",
+      "auc": 0.7031,
+      "mean_pos": 0.2349,
+      "mean_neg": 0.0278,
+      "nonzero_pos_ratio": 0.4607,
+      "prior_weight": 0.06,
+      "leaks_supervision": true
+    }
+  ],
+  "weight_schemes": {
+    "fit_pairs": 286,
+    "test_pairs": 287,
+    "calibration": {
+      "applied": true,
+      "reason": "按 286 对结构证据校准（收缩 λ=0.85）",
+      "shrink": 0.8512,
+      "n_positives": 286,
+      "n_negatives": 7679,
+      "weights": {
+        "topic": 0.296,
+        "purpose": 0.1334,
+        "method": 0.0678,
+        "term": 0.2228
+      },
+      "channels": {
+        "topic": {
+          "auc": 0.8908,
+          "gini": 0.7244,
+          "n_pos": 284
+        },
+        "purpose": {
+          "auc": 0.6602,
+          "gini": 0.2629,
+          "n_pos": 282
+        },
+        "method": {
+          "auc": 0.5879,
+          "gini": 0.1184,
+          "n_pos": 282
+        },
+        "term": {
+          "auc": 0.8003,
+          "gini": 0.5436,
+          "n_pos": 286
+        }
+      }
+    },
+    "schemes": {
+      "prior": {
+        "auc_heldout": 0.8515,
+        "semantic_weights": {
+          "topic": 0.18,
+          "purpose": 0.24,
+          "method": 0.16,
+          "term": 0.14
+        }
+      },
+      "calibrated": {
+        "auc_heldout": 0.8922,
+        "semantic_weights": {
+          "topic": 0.296,
+          "purpose": 0.1334,
+          "method": 0.0678,
+          "term": 0.2228
+        }
+      },
+      "topic_only": {
+        "auc_heldout": 0.8941,
+        "semantic_weights": {
+          "topic": 1.0,
+          "purpose": 0.0,
+          "method": 0.0,
+          "term": 0.0
+        }
+      }
+    }
+  },
+  "production_weights": {
+    "topic": 0.3121,
+    "purpose": 0.1185,
+    "method": 0.0542,
+    "term": 0.2352,
+    "dataset": 0.06,
+    "baseline": 0.04,
+    "bibcoupling": 0.12,
+    "cocitation": 0.06
+  },
+  "weights_vs_map": [
+    {
+      "weights": "prior",
+      "edges": 728,
+      "mean_degree": 8.13,
+      "citation_recall": 0.4485,
+      "precision_lift": 9.81,
+      "modularity": 0.5794,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 8
+    },
+    {
+      "weights": "calibrated",
+      "edges": 715,
+      "mean_degree": 7.99,
+      "citation_recall": 0.5079,
+      "precision_lift": 11.32,
+      "modularity": 0.6361,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 9
+    }
+  ],
+  "sparsifiers": [
+    {
+      "method": "global_threshold@deg4",
+      "target_degree": 4,
+      "edges": 358,
+      "mean_degree": 4.0,
+      "citation_recall": 0.3421,
+      "precision_lift": 15.22,
+      "modularity": 0.7395,
+      "components": 50,
+      "isolated_nodes": 39,
+      "clusters": 15
+    },
+    {
+      "method": "mutual_knn@k2",
+      "target_degree": 4,
+      "edges": 86,
+      "mean_degree": 0.96,
+      "citation_recall": 0.089,
+      "precision_lift": 16.49,
+      "modularity": 0.9622,
+      "components": 96,
+      "isolated_nodes": 54,
+      "clusters": 42
+    },
+    {
+      "method": "backbone@deg4",
+      "target_degree": 4,
+      "edges": 411,
+      "mean_degree": 4.59,
+      "citation_recall": 0.3682,
+      "precision_lift": 14.27,
+      "modularity": 0.7444,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 12
+    },
+    {
+      "method": "global_threshold@deg8",
+      "target_degree": 8,
+      "edges": 716,
+      "mean_degree": 8.0,
+      "citation_recall": 0.4974,
+      "precision_lift": 11.07,
+      "modularity": 0.617,
+      "components": 21,
+      "isolated_nodes": 18,
+      "clusters": 9
+    },
+    {
+      "method": "mutual_knn@k4",
+      "target_degree": 8,
+      "edges": 183,
+      "mean_degree": 2.04,
+      "citation_recall": 0.1675,
+      "precision_lift": 14.59,
+      "modularity": 0.8875,
+      "components": 39,
+      "isolated_nodes": 24,
+      "clusters": 23
+    },
+    {
+      "method": "backbone@deg8",
+      "target_degree": 8,
+      "edges": 715,
+      "mean_degree": 7.99,
+      "citation_recall": 0.5079,
+      "precision_lift": 11.32,
+      "modularity": 0.6361,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 9
+    },
+    {
+      "method": "global_threshold@deg12",
+      "target_degree": 12,
+      "edges": 1074,
+      "mean_degree": 12.0,
+      "citation_recall": 0.6003,
+      "precision_lift": 8.91,
+      "modularity": 0.5433,
+      "components": 13,
+      "isolated_nodes": 11,
+      "clusters": 8
+    },
+    {
+      "method": "mutual_knn@k6",
+      "target_degree": 12,
+      "edges": 299,
+      "mean_degree": 3.34,
+      "citation_recall": 0.2461,
+      "precision_lift": 13.11,
+      "modularity": 0.8156,
+      "components": 19,
+      "isolated_nodes": 12,
+      "clusters": 16
+    },
+    {
+      "method": "backbone@deg12",
+      "target_degree": 12,
+      "edges": 1096,
+      "mean_degree": 12.25,
+      "citation_recall": 0.6143,
+      "precision_lift": 8.93,
+      "modularity": 0.5545,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 7
+    }
+  ],
+  "density": [
+    {
+      "target_degree": 4,
+      "edges": 411,
+      "mean_degree": 4.59,
+      "citation_recall": 0.3682,
+      "precision_lift": 14.27,
+      "modularity": 0.7444,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 12
+    },
+    {
+      "target_degree": 6,
+      "edges": 557,
+      "mean_degree": 6.22,
+      "citation_recall": 0.4415,
+      "precision_lift": 12.63,
+      "modularity": 0.6775,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 9
+    },
+    {
+      "target_degree": 8,
+      "edges": 715,
+      "mean_degree": 7.99,
+      "citation_recall": 0.5079,
+      "precision_lift": 11.32,
+      "modularity": 0.6361,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 9
+    },
+    {
+      "target_degree": 12,
+      "edges": 1096,
+      "mean_degree": 12.25,
+      "citation_recall": 0.6143,
+      "precision_lift": 8.93,
+      "modularity": 0.5545,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 7
+    },
+    {
+      "target_degree": 20,
+      "edges": 1844,
+      "mean_degree": 20.6,
+      "citation_recall": 0.7086,
+      "precision_lift": 6.12,
+      "modularity": 0.4434,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 6
+    },
+    {
+      "target_degree": 40,
+      "edges": 3575,
+      "mean_degree": 39.94,
+      "citation_recall": 0.836,
+      "precision_lift": 3.73,
+      "modularity": 0.3129,
+      "components": 1,
+      "isolated_nodes": 0,
+      "clusters": 5
+    }
+  ]
+}

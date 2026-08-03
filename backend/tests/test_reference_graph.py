@@ -73,6 +73,7 @@ class _EmptyRelations:
     pairs: list = []
     weights: dict = {}
     coverage: dict = {}
+    calibration = None
 
     def explain(self, a, b):
         return {"weight": 0.0, "components": []}

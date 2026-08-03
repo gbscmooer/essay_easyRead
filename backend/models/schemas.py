@@ -387,7 +387,10 @@ class ResearchRunCreate(BaseModel):
     expand_top_k: int = Field(5, ge=1, le=50)
     expand_total_limit: int = Field(50, ge=1, le=500)
     rebuild: bool = False
-    # 多尺度骨架显著性 α（Disparity Filter 去毛球）：越小骨架越稀越严格，越大越密。
+    # 研究地图密度：每篇论文平均连几条关系边。骨架按此目标反解环境关联度地板，
+    # 是与打分尺度无关的密度主控参数。
+    map_density: float = Field(8.0, ge=1.0, le=40.0)
+    # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据（密度由 map_density 控制）。
     backbone_alpha: float = Field(0.25, ge=0.01, le=0.9)
     enable_shared_method: bool = False
 

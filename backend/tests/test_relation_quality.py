@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from backend.services.deep_research.graph_analytics import annotate_graph
+from backend.services.deep_research.graph_builder import DEFAULT_MAP_DENSITY
 from backend.services.deep_research.graphkit import (
     PaperFeatures,
     compute_relations,
@@ -119,9 +120,11 @@ def _adjusted_rand(true_labels, pred_labels) -> float:
     return (sij - expected) / (maximum - expected) if maximum != expected else 0.0
 
 
-def _evaluate(pairs, labels) -> dict:
+def _evaluate(pairs, labels, **backbone_kw) -> dict:
     """跑生产的骨架提取 + 社区检测，返回细分方向 ARI / 骨架边纯度 / 簇数。"""
-    kept = extract_backbone(pairs, alpha=0.25, min_sim=0.05, ensure_connected=True)
+    kw = {"target_degree": DEFAULT_MAP_DENSITY, "alpha": 0.25,
+          "min_sim": 0.05, "ensure_connected": True, **backbone_kw}
+    kept = extract_backbone(pairs, **kw)
     nodes = [{"id": f"paper:{i + 1}", "label": f"p{i + 1}", "meta": {}} for i in range(len(labels))]
     edges = []
     for a, b, w in kept:
@@ -147,12 +150,12 @@ def _evaluate(pairs, labels) -> dict:
     }
 
 
-def _score(weights, papers, vec_table, labels, bib):
+def _score(weights, papers, vec_table, labels, bib, **backbone_kw):
     rel = asyncio.run(compute_relations(
         papers, embed_fn=_fake_embed(vec_table), weights=weights,
         bibcoupling=bib, cocitation=None,
     ))
-    return _evaluate(rel.pairs, labels)
+    return _evaluate(rel.pairs, labels, **backbone_kw)
 
 
 @pytest.fixture(scope="module")
@@ -173,17 +176,52 @@ def test_fused_relations_recover_fine_grained_subfields(corpus):
     assert fused["top1"] >= 0.90, f"最相似邻居常常不是同细分方向: {fused}"
 
 
+TOPIC_ONLY = {"topic": 1.0, "purpose": 0.0, "method": 0.0, "term": 0.0,
+              "dataset": 0.0, "baseline": 0.0, "bibcoupling": 0.0, "cocitation": 0.0}
+
+
 def test_fused_beats_topic_only_baseline(corpus):
-    """回归护栏：只用全文质心（旧算法口径）必然分不出细分方向。"""
+    """同样的地图密度下，多通道融合的骨架边比只用全文质心更贴细分方向。"""
     papers, vec_table, labels, bib = corpus
-    topic_only = {"topic": 1.0, "purpose": 0.0, "method": 0.0, "term": 0.0,
-                  "dataset": 0.0, "baseline": 0.0, "bibcoupling": 0.0, "cocitation": 0.0}
-    baseline = _score(topic_only, papers, vec_table, labels, bib)
+    baseline = _score(TOPIC_ONLY, papers, vec_table, labels, bib)
     fused = _score(None, papers, vec_table, labels, bib)
 
-    assert baseline["clusters"] < N_AREA * N_SUB, "基线本应只能还原大方向"
-    assert fused["ari"] > baseline["ari"] + 0.25, f"融合相对基线提升不足: {fused} vs {baseline}"
-    assert fused["purity"] > baseline["purity"] + 0.15, f"骨架边纯度提升不足: {fused} vs {baseline}"
+    assert fused["purity"] > baseline["purity"] + 0.03, (
+        f"骨架边纯度未超过只用主题向量的口径: {fused} vs {baseline}"
+    )
+    assert fused["ari"] >= baseline["ari"], f"细分方向 ARI 不应低于基线: {fused} vs {baseline}"
+
+
+def test_density_control_prevents_subfield_collapse(corpus):
+    """密度控制本身就是质量手段：毛球密度下细分方向会塌成大方向。
+
+    旧口径（α + "最小边权"当地板，v3.0 行为）在这份语料上留下 231 条边、只剩 2 个大簇；
+    按目标平均度反解地板后同一份分数能还原 4 个细分方向。真实工作区上同样的退化更严重
+    （ws1：平均度 41.8 的毛球）。
+    """
+    papers, vec_table, labels, bib = corpus
+    hairball = _score(TOPIC_ONLY, papers, vec_table, labels, bib,
+                      target_degree=None, baseline="auto")
+    controlled = _score(TOPIC_ONLY, papers, vec_table, labels, bib)
+
+    assert hairball["clusters"] < N_AREA * N_SUB, "旧口径本应塌成大方向"
+    assert controlled["clusters"] == N_AREA * N_SUB
+    assert controlled["purity"] > hairball["purity"] + 0.2, f"{controlled} vs {hairball}"
+
+
+def test_calibration_does_not_hurt_a_corpus_where_prior_is_right(corpus):
+    """自监督校准是自适应机制，不能在"先验本来就对"的语料上帮倒忙。"""
+    papers, vec_table, labels, bib = corpus
+    rel_cal = asyncio.run(compute_relations(
+        papers, embed_fn=_fake_embed(vec_table), bibcoupling=bib, calibrate=True))
+    rel_raw = asyncio.run(compute_relations(
+        papers, embed_fn=_fake_embed(vec_table), bibcoupling=bib, calibrate=False))
+    cal = _evaluate(rel_cal.pairs, labels)
+    raw = _evaluate(rel_raw.pairs, labels)
+
+    assert rel_cal.calibration is not None and rel_cal.calibration.applied
+    assert cal["ari"] >= raw["ari"] - 0.02, f"校准后 ARI 明显变差: {cal} vs {raw}"
+    assert cal["purity"] >= raw["purity"] - 0.02, f"校准后骨架纯度明显变差: {cal} vs {raw}"
 
 
 def test_evidence_channels_contribute_on_top_of_semantics(corpus):

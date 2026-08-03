@@ -72,6 +72,8 @@ export interface ResearchConfig {
   provider: 'openalex' | 'semantic_scholar' | 'local'
   email: string
   api_key: string
+  /** 研究地图密度：每篇论文平均连几条关系边 */
+  map_density?: number
   backbone_alpha?: number
   link_distance?: number
   auto_digest?: boolean
@@ -95,8 +97,11 @@ export type RelationChannelName =
   | 'topic' | 'purpose' | 'method' | 'term'
   | 'dataset' | 'baseline' | 'bibcoupling' | 'cocitation'
 
-/** 论文关联度通道权重（后端 graphkit/relatedness.py 的唯一一套算法） */
+/** 论文关联度配置（后端 graphkit/relatedness.py 的唯一一套算法） */
 export interface RelationsConfig {
+  /** 用工作区自身的引用结构当弱标签，按各语义通道的实际判别力自动调权 */
+  calibrate: boolean
+  /** 通道权重先验；开启校准时它是拟合的起点与证据不足时的兜底 */
   weights: Record<RelationChannelName, number>
 }
 
@@ -186,6 +191,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     provider: 'openalex',
     email: '',
     api_key: '',
+    map_density: 8,
     backbone_alpha: 0.25,
     link_distance: 50,
     auto_digest: true,
@@ -226,6 +232,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     top_n: 5,
   },
   relations: {
+    calibrate: true,
     weights: {
       topic: 0.18,
       purpose: 0.24,

@@ -71,6 +71,7 @@ class _EmptyRelations:
     pairs: list = []
     weights: dict = {}
     coverage: dict = {}
+    calibration = None
 
     def explain(self, a, b):
         return {"weight": 0.0, "components": []}
@@ -265,9 +266,10 @@ def test_bridge_edges_excluded_from_semantic_centrality_graph():
             "bridge": True,
         },
     ]
-    _cite, semantic = _split_graphs(nodes, edges)
+    _cite, semantic, bridges = _split_graphs(nodes, edges)
     assert semantic.has_edge("paper:1", "paper:2")
     assert not semantic.has_edge("paper:2", "paper:3")
+    assert bridges == [("paper:2", "paper:3", 0.5)]
 
 
 def test_expand_cocite_and_bibcoupling_neighbors():

@@ -162,6 +162,7 @@ function useConfigInit() {
         },
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
         relations: {
+          calibrate: cfg.relations?.calibrate ?? DEFAULT_CONFIG.relations.calibrate,
           weights: { ...DEFAULT_CONFIG.relations.weights, ...(cfg.relations?.weights ?? {}) },
         },
         arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },

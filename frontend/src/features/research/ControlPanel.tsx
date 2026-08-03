@@ -45,7 +45,7 @@ export function ControlPanel({
   const [deep, setDeep] = useState(1)
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [backboneAlpha, setBackboneAlpha] = useState(0.25)
+  const [mapDensity, setMapDensity] = useState(8)
   const [digesting, setDigesting] = useState(false)
   const [digestProgress, setDigestProgress] = useState<{ done: number; total: number } | null>(null)
   const [backfilling, setBackfilling] = useState(false)
@@ -187,10 +187,10 @@ export function ControlPanel({
   }
 
   useEffect(() => {
-    get<{ research?: { backbone_alpha?: number; link_distance?: number } }>('/analysis/config')
+    get<{ research?: { map_density?: number; link_distance?: number } }>('/analysis/config')
       .then(cfg => {
-        const savedAlpha = cfg.research?.backbone_alpha
-        if (typeof savedAlpha === 'number') setBackboneAlpha(savedAlpha)
+        const savedDensity = cfg.research?.map_density
+        if (typeof savedDensity === 'number') setMapDensity(savedDensity)
         const savedDist = cfg.research?.link_distance
         if (typeof savedDist === 'number') onLinkDistanceChange(savedDist)
       })
@@ -232,7 +232,7 @@ export function ControlPanel({
       expand_top_k: topK,
       deep,
       rebuild,
-      backbone_alpha: backboneAlpha,
+      map_density: mapDensity,
     })
   }
 
@@ -275,7 +275,7 @@ export function ControlPanel({
         ...fullCfg,
         research: {
           ...(fullCfg.research || {}),
-          backbone_alpha: backboneAlpha,
+          map_density: mapDensity,
           link_distance: linkDistance,
         },
       }
@@ -453,7 +453,7 @@ export function ControlPanel({
           </label>
         </Tooltip>
 
-        <Tooltip content="调整图谱骨架密度 α（控制相似边稀密）等高级参数。">
+        <Tooltip content="调整地图密度（每篇论文平均连几条关系边）等高级参数。">
           <button
             onClick={() => setShowAdvanced(v => !v)}
             className="text-xs transition-colors"
@@ -598,19 +598,19 @@ export function ControlPanel({
       {/* 高级设置面板 */}
       {showAdvanced && (
         <div className="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap" style={{ borderColor: 'var(--border)' }}>
-          <Tooltip content={'多尺度骨架显著性 α（Disparity Filter 去毛球）：只保留相对每篇论文「局部相似度分布」而言异常突出的边，逐节点自适应，比全局 kNN 更干净。α 越小骨架越稀越精炼（只留最显著的关系），越大越密。骨架若裂开会用最强跨块边补成连通图。默认 0.25。'}>
+          <Tooltip content={'地图密度：每篇论文平均连几条关系边。多尺度骨架（Disparity Filter）按这个预算反解阈值，只留相对每篇论文「自己的关联度分布」而言异常突出的边，逐节点自适应；骨架裂开时用最强跨块边补成连通图，不会留下孤立点。调小=只看最强关系、主线清晰；调大=保留更多线索、更接近全貌。默认 8。'}>
             <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>骨架密度 α</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>地图密度</span>
               <input
                 type="range"
-                min={0.05}
-                max={0.6}
-                step={0.05}
-                value={backboneAlpha}
-                onChange={e => setBackboneAlpha(Number(e.target.value))}
+                min={3}
+                max={20}
+                step={1}
+                value={mapDensity}
+                onChange={e => setMapDensity(Number(e.target.value))}
                 className="w-24 h-1 accent-blue-500"
               />
-              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{backboneAlpha.toFixed(2)}</span>
+              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{mapDensity} 边/篇</span>
             </div>
           </Tooltip>
 
