@@ -112,8 +112,8 @@ def _edge_label(edge: dict[str, Any], source: str, target: str) -> str:
         if raw_source == target and raw_target == source:
             return "被引用/反向扩展"
         return "引用相关"
-    if kind == "similar":
-        return "语义相似"
+    if kind in ("related", "similar"):   # similar = v2 及以前持久化图谱的旧名
+        return "关联"
     if kind == "shared-method":
         return "共享方法"
     return str(kind)

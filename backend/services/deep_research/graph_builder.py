@@ -3,30 +3,33 @@ Graph Builder — 知识图谱构建
 
 节点类型：paper
 边类型：
-- cites:         由 PaperReference 表构建的真实引用关系（citing → cited）
-- bibcoupling:   文献耦合（共享参考文献，无向）
-- cocitation:    共引（被相同论文共同引用，无向）
-- similar:       论文级相似度（双向，由 SimilarityProvider 计算）
-- shared-method: 共享方法（占位，未实现）
+- cites:         由 PaperReference 表构建的真实引用关系（citing → cited，有向）
+- related:       论文关联度边（无向，双向存储）。权重来自唯一的关联度算法
+                 （graphkit.relatedness），已融合主题向量 / 研究目的 / 方法 / 术语 /
+                 共享数据集 / 共享 baseline / 文献耦合 / 共引八个通道，
+                 edge.detail 里带完整分解。
+- bibcoupling / cocitation: 仅作为**可视化图层**保留（前端可单独筛选查看结构关系）。
+                 它们的分值已经计入 related 边，社区检测与中心性只看 related，
+                 不再出现"同一对论文多种边按 max 折叠"的尺度打架。
 
-注意：parent_paper_id 仅表示发现/下载谱系，不再用于 cites 边。
+注意：parent_paper_id 仅表示发现/下载谱系，不用于 cites 边。
 """
 
 import logging
 
 from sqlmodel import Session
 
-from .similarity import get_similarity_provider
 from .graph_analytics import annotate_graph
 from .graphkit import extract_backbone
-from ..ai_config import get_similarity_config
+from .paper_relatedness import compute_paper_relations, structural_channels
+from ..ai_config import get_relations_config
 from ..paper_identity import clean_display_title
 
 logger = logging.getLogger(__name__)
 
-# 相似边的最小分数地板：低于此值的对直接当噪声丢弃，不参与骨架的强度统计
-# （避免一堆近乎正交的弱边拉高节点强度分母）。骨架提取是主控，这是兜底。
-MIN_SIMILARITY = 0.05
+# 关联度地板：低于此值的对当噪声丢弃，不参与骨架的强度统计
+# （避免一堆近乎无关的弱边拉高节点强度分母）。骨架提取是主控，这是兜底。
+MIN_RELATEDNESS = 0.05
 
 # Disparity Filter 默认显著性水平 α：越小骨架越稀越严格。可被运行参数覆盖。
 DEFAULT_BACKBONE_ALPHA = 0.25
@@ -48,7 +51,7 @@ def _build_structural_edges(
     *,
     kind: str,
 ) -> list[dict]:
-    """从无向结构对构建双向边（bibcoupling / cocitation）。"""
+    """从无向结构对构建双向边（bibcoupling / cocitation 可视化图层）。"""
     edges: list[dict] = []
     for a, b, weight, shared in pairs:
         detail = {"shared_count": shared, "salton": weight}
@@ -137,8 +140,7 @@ async def build_graph(
     ws_id: int,
     papers,
     *,
-    similarity_threshold: float,
-    enable_shared_method: bool,
+    enable_shared_method: bool = False,
     backbone_alpha: float = DEFAULT_BACKBONE_ALPHA,
     enable_bibcoupling: bool = True,
     enable_cocitation: bool = True,
@@ -182,59 +184,66 @@ async def build_graph(
     cite_edges, cites_count = _build_cites_edges(papers, references or [], by_id)
     edges.extend(cite_edges)
 
-    # 1.5) bibcoupling / cocitation：由 PaperReference 计算结构相似
+    # 2) related 边：唯一的关联度算法。结构信号（文献耦合/共引）作为通道进入分数，
+    #    再由 Disparity Filter 决定留哪些边——结构证据因此参与"选边"，而不只是配色。
+    relations = await compute_paper_relations(
+        papers, ws_id=ws_id, references=references or [],
+    )
+    kept, bridge_keys = _backbone_with_bridges(
+        relations.pairs, alpha=backbone_alpha, floor=MIN_RELATEDNESS,
+    )
+    related_count = 0
+    for a_id, b_id, score in kept:
+        pair_key = (min(a_id, b_id), max(a_id, b_id))
+        detail = relations.explain(a_id, b_id)
+        is_bridge = pair_key in bridge_keys
+        for s, t in ((a_id, b_id), (b_id, a_id)):
+            e = {
+                "source": f"paper:{s}", "target": f"paper:{t}",
+                "kind": "related", "weight": score, "detail": detail,
+            }
+            if is_bridge:
+                e["bridge"] = True
+            edges.append(e)
+            related_count += 1
+
+    # 3) 结构可视化图层：分值已计入 related，此处只为前端能单独筛选查看
     bibcoupling_count = 0
     cocitation_count = 0
-    if references:
-        from .similarity.bibcoupling import build_cites_map, compute_bibliographic_coupling_pairs
-        from .similarity.cocitation import build_cited_by_map, compute_co_citation_pairs
-
-        cites_map = build_cites_map(references, paper_ids)
-        cited_by_map = build_cited_by_map(references, paper_ids)
-
+    if references and (enable_bibcoupling or enable_cocitation):
+        from .graphkit import (
+            build_cited_by_map,
+            build_cites_map,
+            compute_bibliographic_coupling_pairs,
+            compute_co_citation_pairs,
+        )
         if enable_bibcoupling:
-            bc_pairs = compute_bibliographic_coupling_pairs(cites_map)
+            bc_pairs = compute_bibliographic_coupling_pairs(build_cites_map(references, paper_ids))
             bc_edges = _build_structural_edges(bc_pairs, kind="bibcoupling")
             edges.extend(bc_edges)
             bibcoupling_count = len(bc_edges)
-
         if enable_cocitation:
-            cc_pairs = compute_co_citation_pairs(cited_by_map, paper_ids)
+            cc_pairs = compute_co_citation_pairs(
+                build_cited_by_map(references, paper_ids), paper_ids
+            )
             cc_edges = _build_structural_edges(cc_pairs, kind="cocitation")
             edges.extend(cc_edges)
             cocitation_count = len(cc_edges)
 
-    # 2) similar 边：委托给配置的 SimilarityProvider，再用 kNN 稀疏化
-    provider = get_similarity_provider(get_similarity_config())
-    logger.info(f"graph similar edges via provider={provider.name}, backbone_alpha={backbone_alpha}")
-    pairs = await provider.score_pairs(papers, ws_id=ws_id)
-    details: dict = getattr(provider, "details", {}) or {}
-    kept, bridge_keys = _backbone_with_bridges(
-        pairs, alpha=backbone_alpha, floor=max(MIN_SIMILARITY, 0.0),
-    )
-    similar_count = 0
-    for a_id, b_id, sim in kept:
-        pair_key = (min(a_id, b_id), max(a_id, b_id))
-        detail = details.get(pair_key)
-        is_bridge = pair_key in bridge_keys
-        e_ab = {"source": f"paper:{a_id}", "target": f"paper:{b_id}", "kind": "similar", "weight": sim}
-        e_ba = {"source": f"paper:{b_id}", "target": f"paper:{a_id}", "kind": "similar", "weight": sim}
-        if is_bridge:
-            e_ab["bridge"] = True
-            e_ba["bridge"] = True
-        if detail:
-            e_ab["detail"] = detail
-            e_ba["detail"] = detail
-        edges.append(e_ab)
-        edges.append(e_ba)
-        similar_count += 2
-
-    # 3) shared-method 边：占位
     if enable_shared_method:
         logger.warning("shared-method 边生成暂未实现（method_extractor 模块待开发），跳过")
 
-    # 3.5) 图谱分析
+    # 4) 图谱分析：社区 / 中心性只看 related 边（见 graph_analytics）
     analytics = annotate_graph(nodes, edges)
+
+    logger.info(
+        "graph: %d 节点 / %d 边（cites=%d, related=%d, bib=%d, cocite=%d），"
+        "%d 子方向, modularity=%.3f, 通道权重=%s",
+        len(nodes), len(edges), cites_count, related_count,
+        bibcoupling_count, cocitation_count,
+        analytics["clusters"], analytics.get("modularity", 0.0),
+        {k: round(v, 3) for k, v in relations.weights.items()},
+    )
 
     stats = {
         "node_count": len(nodes),
@@ -243,11 +252,15 @@ async def build_graph(
             "cites": cites_count,
             "bibcoupling": bibcoupling_count,
             "cocitation": cocitation_count,
-            "similar": similar_count,
+            "related": related_count,
             "shared-method": 0,
         },
         "clusters": analytics["clusters"],
         "top_papers": analytics["top_papers"],
         "modularity": analytics.get("modularity", 0.0),
+        "relation_channels": {
+            "weights": {k: round(v, 4) for k, v in relations.weights.items()},
+            "coverage": relations.coverage,
+        },
     }
     return {"nodes": nodes, "edges": edges, "stats": stats}

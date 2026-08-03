@@ -1,13 +1,13 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import type { GraphNode, ResearchGraph, GraphEdgeKind, SimilarityDetail, CitationContext } from '@/types'
+import type { GraphNode, ResearchGraph, GraphEdgeKind, RelationDetail, CitationContext } from '@/types'
 
 export interface SelectedEdge {
   sourceLabel: string
   targetLabel: string
   kind: GraphEdgeKind
   weight: number
-  detail?: SimilarityDetail
+  detail?: RelationDetail
   contexts?: CitationContext[]
 }
 
@@ -92,7 +92,11 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
   const graphData = useMemo(() => {
     if (!graph) return { nodes: [], links: [] }
-    const filteredEdges = graph.edges.filter(e => edgeFilter.has(e.kind as GraphEdgeKind))
+    // 旧图谱（v2 及以前）里关系边叫 similar，与 related 同属「关联」筛选项
+    const filteredEdges = graph.edges.filter(e => {
+      const kind = (e.kind === 'similar' ? 'related' : e.kind) as GraphEdgeKind
+      return edgeFilter.has(kind)
+    })
     // 始终显示所有节点（含孤立节点），不因无边而过滤
     const visibleNodes = graph.nodes
 
@@ -153,7 +157,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
   const linkColor = useCallback((link: any) => {
     if (link.kind === 'cites') return '#ef4444'
-    if (link.kind === 'similar') return '#3b82f6'
+    if (link.kind === 'related' || link.kind === 'similar') return '#3b82f6'
     if (link.kind === 'bibcoupling') return '#f59e0b'
     if (link.kind === 'cocitation') return '#a855f7'
     if (link.kind === 'shared-method') return '#10b981'

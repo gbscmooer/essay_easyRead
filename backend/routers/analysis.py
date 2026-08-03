@@ -100,8 +100,6 @@ class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
-    similarity_threshold: float = 0.9  # 已弃用：相似边改用 backbone_alpha
-    knn_k: int = 8                 # 已弃用：旧的全局 kNN 条数；保留以兼容旧配置
     backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
@@ -118,9 +116,20 @@ class RerankerConfig(BaseModel):
     candidate_k: int = 30       # 向量检索召回数
     top_n: int = 5              # rerank 后送 LLM 的条数
 
-class SimilarityConfig(BaseModel):
-    """论文级相似度 provider 配置。"""
-    provider: str = "unified"
+class RelationWeightsConfig(BaseModel):
+    """论文关联度的八个通道权重（见 graphkit/relatedness.py）。"""
+    topic: float = 0.18
+    purpose: float = 0.24
+    method: float = 0.16
+    term: float = 0.14
+    dataset: float = 0.06
+    baseline: float = 0.04
+    bibcoupling: float = 0.12
+    cocitation: float = 0.06
+
+class RelationsConfig(BaseModel):
+    """论文关联度配置（全系统唯一一套算法，无 provider 可选）。"""
+    weights: RelationWeightsConfig = RelationWeightsConfig()
 
 class ArxivExpandConfig(BaseModel):
     """arXiv 引用列表扩展配置。"""
@@ -158,7 +167,7 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig = EmbeddingConfig()
     research: ResearchConfig = ResearchConfig()
     reranker: RerankerConfig = RerankerConfig()
-    similarity: SimilarityConfig = SimilarityConfig()
+    relations: RelationsConfig = RelationsConfig()
     arxiv_expand: ArxivExpandConfig = ArxivExpandConfig()
     findpapers: FindpapersConfig = FindpapersConfig()
 
@@ -182,17 +191,19 @@ async def get_config() -> AppConfig:
         embedding=EmbeddingConfig(**config.get("embedding", {})),
         research=ResearchConfig(**research_payload),
         reranker=RerankerConfig(**config.get("reranker", {})),
-        similarity=SimilarityConfig(**{k: v for k, v in config.get("similarity", {}).items() if k in ("provider",)}),
+        relations=RelationsConfig(
+            weights=RelationWeightsConfig(**(config.get("relations", {}).get("weights") or {}))
+        ),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
         findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
     )
 
 
-@router.get("/similarity/providers")
-async def list_similarity_providers() -> dict:
-    """暴露所有已注册的 similarity provider，供 Settings 下拉使用。"""
-    from ..services.deep_research.similarity import list_providers
-    return {"providers": list_providers()}
+@router.get("/relations/channels")
+async def list_relation_channels() -> dict:
+    """关联度通道元信息（名称/分组/默认权重/说明），供设置页渲染权重编辑器。"""
+    from ..services.deep_research.graphkit import channel_catalog
+    return {"channels": channel_catalog()}
 
 
 @router.post("/config")
@@ -201,9 +212,13 @@ async def update_config(req: AppConfig) -> dict:
     from ..services.ai_config import save_config, merge_preserving_keys, DEFAULT_CONFIG
     from ..services.ai_config import load_config as _load
     prior = _load()
-    # similarity：保留 provider 之外的 provider-specific 子对象
-    prior_sim = prior.get("similarity", {})
-    sim = {**prior_sim, **req.similarity.model_dump()}
+    # relations：权重子段深合并，避免只改一个通道时丢失其他通道
+    default_weights = DEFAULT_CONFIG.get("relations", {}).get("weights", {})
+    relations = {"weights": {
+        **default_weights,
+        **((prior.get("relations") or {}).get("weights") or {}),
+        **req.relations.weights.model_dump(),
+    }}
     prior_research = prior.get("research", {})
     research_dump = req.research.model_dump()
     research_merged = {**prior_research, **research_dump}
@@ -229,7 +244,7 @@ async def update_config(req: AppConfig) -> dict:
         "embedding": req.embedding.model_dump(),
         "research": research_merged,
         "reranker": req.reranker.model_dump(),
-        "similarity": sim,
+        "relations": relations,
         "arxiv_expand": req.arxiv_expand.model_dump(),
         "findpapers": req.findpapers.model_dump(),
     }

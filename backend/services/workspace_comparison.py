@@ -401,7 +401,8 @@ def build_workspace_comparison(workspace_id: int, paper_a_id: int, paper_b_id: i
     overall = sum(section.score * _SECTION_WEIGHTS.get(section.key, 0.0) for section in sections)
     if same_cluster:
         overall += 0.05
-    if "similar" in direct_edge_kinds:
+    has_relation_edge = any(k in ("related", "similar") for k in direct_edge_kinds)  # similar = 旧图谱边名
+    if has_relation_edge:
         overall += 0.05
     if "cites" in direct_edge_kinds:
         overall += 0.03
@@ -425,8 +426,8 @@ def build_workspace_comparison(workspace_id: int, paper_a_id: int, paper_b_id: i
     reason_parts = []
     if same_cluster and cluster_label:
         reason_parts.append(f"同属图谱子方向「{cluster_label}」")
-    if "similar" in direct_edge_kinds:
-        reason_parts.append("图谱中存在直接相似边")
+    if has_relation_edge:
+        reason_parts.append("图谱中存在直接关联边")
     if "cites" in direct_edge_kinds:
         reason_parts.append("图谱中存在直接引用关系")
     if sections[0].shared:

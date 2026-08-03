@@ -27,7 +27,7 @@ export default function ResearchPage() {
   const [graph, setGraph] = useState<ResearchGraph | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null)
-  const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'similar', 'bibcoupling', 'cocitation']))
+  const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'related', 'bibcoupling', 'cocitation']))
   const [linkDistance, setLinkDistance] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
   const [graphLoading, setGraphLoading] = useState(true)

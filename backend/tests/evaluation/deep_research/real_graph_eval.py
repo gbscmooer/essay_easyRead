@@ -228,11 +228,11 @@ def channel_behavior(graph: dict, *, trials: int, cfg: GraphRetrieverConfig, lab
 
 def _eval_graph_from_refs(papers, kept_refs, similar_edges) -> dict:
     """用生产构图函数在遮蔽后的引用集上重建 cites/bibcoupling/cocitation 边。"""
-    from backend.services.deep_research.similarity.bibcoupling import (
+    from backend.services.deep_research.graphkit.structural import (
         build_cites_map,
         compute_bibliographic_coupling_pairs,
     )
-    from backend.services.deep_research.similarity.cocitation import (
+    from backend.services.deep_research.graphkit.structural import (
         build_cited_by_map,
         compute_co_citation_pairs,
     )

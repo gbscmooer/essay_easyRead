@@ -72,9 +72,6 @@ export interface ResearchConfig {
   provider: 'openalex' | 'semantic_scholar' | 'local'
   email: string
   api_key: string
-  /** @deprecated 相似边已改用 backbone_alpha 多尺度骨架提取 */
-  similarity_threshold: number
-  knn_k?: number
   backbone_alpha?: number
   link_distance?: number
   auto_digest?: boolean
@@ -94,8 +91,13 @@ export interface RerankerConfig {
   top_n: number
 }
 
-export interface SimilarityConfig {
-  provider: string
+export type RelationChannelName =
+  | 'topic' | 'purpose' | 'method' | 'term'
+  | 'dataset' | 'baseline' | 'bibcoupling' | 'cocitation'
+
+/** 论文关联度通道权重（后端 graphkit/relatedness.py 的唯一一套算法） */
+export interface RelationsConfig {
+  weights: Record<RelationChannelName, number>
 }
 
 export interface ArxivExpandConfig {
@@ -132,7 +134,7 @@ export interface AppConfig {
   embedding: EmbeddingConfig
   research: ResearchConfig
   reranker: RerankerConfig
-  similarity: SimilarityConfig
+  relations: RelationsConfig
   arxiv_expand: ArxivExpandConfig
   findpapers: FindpapersConfig
 }
@@ -184,8 +186,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     provider: 'openalex',
     email: '',
     api_key: '',
-    similarity_threshold: 0.9,
-    knn_k: 8,
     backbone_alpha: 0.25,
     link_distance: 50,
     auto_digest: true,
@@ -225,8 +225,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     candidate_k: 30,
     top_n: 5,
   },
-  similarity: {
-    provider: 'unified',
+  relations: {
+    weights: {
+      topic: 0.18,
+      purpose: 0.24,
+      method: 0.16,
+      term: 0.14,
+      dataset: 0.06,
+      baseline: 0.04,
+      bibcoupling: 0.12,
+      cocitation: 0.06,
+    },
   },
   arxiv_expand: {
     enabled: true,

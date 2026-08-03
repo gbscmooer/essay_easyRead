@@ -51,10 +51,13 @@ def test_analysis_progress_not_found(client):
     assert r.status_code == 404
 
 
-def test_similarity_providers(client):
-    r = client.get("/api/analysis/similarity/providers")
+def test_relation_channels(client):
+    r = client.get("/api/analysis/relations/channels")
     assert r.status_code == 200
-    assert "providers" in r.json()
+    channels = r.json()["channels"]
+    names = {c["name"] for c in channels}
+    assert {"topic", "purpose", "method", "term", "bibcoupling"} <= names
+    assert all("default_weight" in c and "group" in c for c in channels)
 
 
 def test_export_bibtex_uses_analysis_metadata(client, session, create_paper):

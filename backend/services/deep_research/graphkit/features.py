@@ -31,7 +31,7 @@ class PaperFeatures:
     # —— 引用结构 ——
     cites: set[int] = field(default_factory=set)  # 本文引用到的 paper id 集合（出边）
 
-    # —— 可选：预计算的论文级向量（如 bge_centroid 的 ChromaDB chunk 质心）——
+    # —— 可选：预计算的论文级向量（生产里是 ChromaDB chunk 质心）——
     doc_vector: list[float] | None = None
 
     def topic_text(self) -> str:

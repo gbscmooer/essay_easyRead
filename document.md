@@ -169,7 +169,7 @@
 |---|---|---|---|---|
 | GET | `/api/analysis/config` | 无 | `AppConfig` | 200 |
 | POST | `/api/analysis/config` | `AppConfig` | `{"message": ...}` | 200 |
-| GET | `/api/analysis/similarity/providers` | 无 | `{"providers": [...]}` | 200 |
+| GET | `/api/analysis/relations/channels` | 无 | `{"channels": [...]}` | 200 |
 | GET | `/api/analysis/builtin-analysis-prompt` | 无 | `{"content": ...}` | 200 |
 | GET | `/api/analysis/grobid/status` | 无 | GROBID 状态 | 200 |
 | POST | `/api/analysis/grobid/pull` | 无 | 拉取状态 | 200 |
