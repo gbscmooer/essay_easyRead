@@ -765,21 +765,40 @@ const GROUP_TITLE: Record<RelationChannel['group'], string> = {
   evidence: '证据通道（有数据才加分，缺失记 0）',
 }
 
+// 本地兜底通道表：接口 /analysis/relations/channels 拉不到（后端未起 / 网络失败 / 返回空）
+// 时用它渲染，避免整个区块空白导致用户连权重都改不了。字段与
+// backend/services/deep_research/graphkit/relatedness.py 的 CHANNEL_LABELS /
+// CHANNEL_HINTS / DEFAULT_WEIGHTS 保持一致；接口可用时以接口返回为准。
+const FALLBACK_CHANNELS: RelationChannel[] = [
+  { name: 'topic', label: '主题', group: 'semantic', default_weight: 0.18, hint: '全文/题录主题向量的余弦，粗粒度锚点。' },
+  { name: 'purpose', label: '研究目的', group: 'semantic', default_weight: 0.24, hint: '研究目的文本（问题 + 一句话 + 核心贡献）的语义相似度。' },
+  { name: 'method', label: '方法', group: 'semantic', default_weight: 0.16, hint: '方法文本（overview + pipeline）的语义相似度。' },
+  { name: 'term', label: '术语', group: 'semantic', default_weight: 0.14, hint: 'IDF 加权术语重叠：共享的稀有专名越多越高。' },
+  { name: 'dataset', label: '数据集', group: 'evidence', default_weight: 0.06, hint: '共享实验数据集（冷门数据集权重更高）。' },
+  { name: 'baseline', label: '对比基线', group: 'evidence', default_weight: 0.04, hint: '共享对比基线。' },
+  { name: 'bibcoupling', label: '文献耦合', group: 'evidence', default_weight: 0.12, hint: '引用了相同的参考文献（Salton 归一）。' },
+  { name: 'cocitation', label: '共引', group: 'evidence', default_weight: 0.06, hint: '被相同论文共同引用（Salton 归一）。' },
+]
+
 export function RelationsSection({ config, setConfig }: SectionProps) {
-  const [channels, setChannels] = useState<RelationChannel[]>([])
+  const [channels, setChannels] = useState<RelationChannel[]>(FALLBACK_CHANNELS)
 
   useEffect(() => {
     get<{ channels: RelationChannel[] }>('/analysis/relations/channels')
       .then(r => { if (r?.channels?.length) setChannels(r.channels) })
-      .catch(() => {})
+      .catch(() => {})   // 失败保持兜底列表，区块照常可用
   }, [])
 
   const weights = config.relations.weights
-  const setWeight = (name: RelationChannelName, value: number) =>
+  // 滑条与数值框共用同一个 [0,1] 区间；手输的非法值（NaN / 越界）在这里夹逼，
+  // 免得数值框写进一个滑条表达不了的数。
+  const setWeight = (name: RelationChannelName, value: number) => {
+    const safe = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
     setConfig(prev => ({
       ...prev,
-      relations: { ...prev.relations, weights: { ...prev.relations.weights, [name]: value } },
+      relations: { ...prev.relations, weights: { ...prev.relations.weights, [name]: safe } },
     }))
+  }
 
   // 前端按后端同样的规则预览"实际生效权重"：两组各自组内归一，组间比例固定
   const semanticNames = channels.filter(c => c.group === 'semantic').map(c => c.name)
@@ -823,7 +842,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
                 <input
                   type="range"
                   min={0}
-                  max={0.5}
+                  max={1}
                   step={0.01}
                   value={weights[c.name] ?? c.default_weight}
                   onChange={e => setWeight(c.name, Number(e.target.value))}
