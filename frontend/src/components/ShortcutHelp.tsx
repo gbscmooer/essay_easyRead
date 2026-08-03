@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import '@/styles/overlays.css'
 
 interface Props {
   open: boolean
@@ -13,23 +14,11 @@ const GLOBAL_SHORTCUTS = [
 ]
 
 const READER_SHORTCUTS = [
-  { keys: ['1', '-', '6'], desc: '切换分析 Tab' },
+  { keys: ['1', '—', '6'], desc: '切换分析 Tab' },
 ]
 
-function KeyBadge({ k }: { k: string }) {
-  return (
-    <kbd
-      className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-[11px] font-mono rounded border"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderColor: 'var(--border)',
-        color: 'var(--text-secondary)',
-        boxShadow: '0 1.5px 0 var(--border)',
-      }}
-    >
-      {k}
-    </kbd>
-  )
+function KeyBadge({ keyLabel }: { keyLabel: string }) {
+  return <kbd className="er-key-badge">{keyLabel}</kbd>
 }
 
 export function ShortcutHelp({ open, onClose }: Props) {
@@ -38,30 +27,31 @@ export function ShortcutHelp({ open, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
 
-  // Focus close button on open + trap Tab
   useEffect(() => {
     if (!open) return
     closeRef.current?.focus()
 
-    const handleTab = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || !dialogRef.current) return
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !dialogRef.current) return
       const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
       )
       if (focusable.length === 0) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus() }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
       }
     }
     document.addEventListener('keydown', handleTab)
@@ -72,75 +62,70 @@ export function ShortcutHelp({ open, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[9998] flex items-center justify-center"
+      className="er-shortcuts-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcut-help-title"
       onClick={onClose}
     >
-      <div className="absolute inset-0 animate-reveal-fade" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="shortcut-help-title"
-        className="relative rounded-xl shadow-2xl border p-6 w-[400px] max-h-[80vh] overflow-auto animate-reveal-scale"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-        onClick={e => e.stopPropagation()}
+        className="er-shortcuts-plane"
+        onClick={event => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-5">
-          <h2 id="shortcut-help-title" className="text-base font-semibold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>键盘快捷键</h2>
-          <button
-            ref={closeRef}
-            onClick={onClose}
-            aria-label="关闭"
-            className="press focus-glow flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 opacity-60 hover:opacity-100"
-            style={{ color: 'var(--text-muted)', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+        <header className="er-shortcuts-header">
+          <div>
+            <span>INPUT / KEY REGISTER</span>
+            <h2 id="shortcut-help-title">键盘快捷键</h2>
+          </div>
+          <span aria-hidden="true">?</span>
+          <button ref={closeRef} className="er-overlay-close" type="button" onClick={onClose} aria-label="关闭快捷键帮助">
+            <span aria-hidden="true">×</span>
           </button>
+        </header>
+
+        <div className="er-shortcuts-body">
+          <section aria-labelledby="global-shortcuts-title">
+            <header>
+              <span>01 / GLOBAL</span>
+              <h3 id="global-shortcuts-title">全局</h3>
+            </header>
+            <ol>
+              {GLOBAL_SHORTCUTS.map((shortcut, index) => (
+                <li key={shortcut.desc}>
+                  <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                  <strong>{shortcut.desc}</strong>
+                  <div>
+                    {shortcut.keys.map(keyLabel => <KeyBadge key={keyLabel} keyLabel={keyLabel} />)}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section aria-labelledby="reader-shortcuts-title">
+            <header>
+              <span>02 / READER</span>
+              <h3 id="reader-shortcuts-title">阅读页</h3>
+            </header>
+            <ol>
+              {READER_SHORTCUTS.map((shortcut, index) => (
+                <li key={shortcut.desc}>
+                  <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                  <strong>{shortcut.desc}</strong>
+                  <div>
+                    {shortcut.keys.map(keyLabel => <KeyBadge key={keyLabel} keyLabel={keyLabel} />)}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
         </div>
 
-        <div className="space-y-5">
-          <div>
-            <h3 className="text-[11px] font-semibold uppercase mb-2" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>全局</h3>
-            <div className="space-y-0.5">
-              {GLOBAL_SHORTCUTS.map((s, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md transition-colors"
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                >
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{s.desc}</span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {s.keys.map((k, j) => <KeyBadge key={j} k={k} />)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <h3 className="text-[11px] font-semibold uppercase mb-2" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>阅读页</h3>
-            <div className="space-y-0.5">
-              {READER_SHORTCUTS.map((s, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md transition-colors"
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                >
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{s.desc}</span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {s.keys.map((k, j) => <KeyBadge key={j} k={k} />)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <footer className="er-shortcuts-footer" aria-hidden="true">
+          <span>ESC / CLOSE</span>
+          <span>ER—KEYMAP / 02</span>
+        </footer>
       </div>
     </div>
   )

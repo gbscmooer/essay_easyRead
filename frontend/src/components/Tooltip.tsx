@@ -1,5 +1,14 @@
-import { useState, useRef, useCallback, useLayoutEffect, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
+import '@/styles/overlays.css'
 
 interface TooltipProps {
   content: ReactNode
@@ -12,58 +21,62 @@ interface TooltipProps {
   className?: string
 }
 
-/**
- * 通用 hover tooltip。
- * - 默认 1.5s 才显示，符合"用户犹豫时才弹"的体验
- * - 用 Portal 渲染到 body，避免被父容器 overflow:hidden 裁掉
- * - 跟随触发元素的 rect 自动定位
- */
+/** Delayed, portal-backed tooltip with viewport-aware positioning. */
 export function Tooltip({ content, children, delay = 1500, placement = 'bottom', className }: TooltipProps) {
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  const tooltipId = useId()
   const triggerRef = useRef<HTMLSpanElement | null>(null)
   const tipRef = useRef<HTMLDivElement | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearTimers = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+    timerRef.current = null
+    exitTimerRef.current = null
+  }, [])
 
   const compute = useCallback(() => {
     if (!triggerRef.current) return
-    const r = triggerRef.current.getBoundingClientRect()
-    // 临时定位，等 layout 后再校正水平居中
+    const rect = triggerRef.current.getBoundingClientRect()
     setCoords({
-      top: placement === 'bottom' ? r.bottom + 8 : r.top - 8,
-      left: r.left + r.width / 2,
+      top: placement === 'bottom' ? rect.bottom + 9 : rect.top - 9,
+      left: rect.left + rect.width / 2,
     })
   }, [placement])
 
   const show = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
+    clearTimers()
     timerRef.current = setTimeout(() => {
       compute()
       setOpen(true)
+      timerRef.current = null
     }, delay)
-  }, [delay, compute])
+  }, [clearTimers, compute, delay])
 
   const hide = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
+    clearTimers()
     setOpen(false)
-    // 延迟清除 coords 以允许淡出动画
-    setTimeout(() => setCoords(null), 150)
-  }, [])
+    exitTimerRef.current = setTimeout(() => {
+      setCoords(null)
+      exitTimerRef.current = null
+    }, 150)
+  }, [clearTimers])
 
-  // 显示后校正水平位置（居中对齐 + 视口边界）
+  useEffect(() => clearTimers, [clearTimers])
+
   useLayoutEffect(() => {
     if (!open || !tipRef.current || !coords) return
-    const tipW = tipRef.current.offsetWidth
-    const tipH = tipRef.current.offsetHeight
+    const tipWidth = tipRef.current.offsetWidth
+    const tipHeight = tipRef.current.offsetHeight
     const margin = 8
-    let left = coords.left - tipW / 2
-    let top = placement === 'bottom' ? coords.top : coords.top - tipH
-    left = Math.max(margin, Math.min(left, window.innerWidth - tipW - margin))
-    if (top < margin) top = margin
-    if (top + tipH > window.innerHeight - margin) top = window.innerHeight - tipH - margin
+    let left = coords.left - tipWidth / 2
+    let top = placement === 'bottom' ? coords.top : coords.top - tipHeight
+
+    left = Math.max(margin, Math.min(left, window.innerWidth - tipWidth - margin))
+    top = Math.max(margin, Math.min(top, window.innerHeight - tipHeight - margin))
     tipRef.current.style.left = `${left}px`
     tipRef.current.style.top = `${top}px`
   }, [open, coords, placement])
@@ -73,6 +86,7 @@ export function Tooltip({ content, children, delay = 1500, placement = 'bottom',
       <span
         ref={triggerRef}
         className={className}
+        aria-describedby={open ? tooltipId : undefined}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
@@ -83,25 +97,17 @@ export function Tooltip({ content, children, delay = 1500, placement = 'bottom',
       {coords && createPortal(
         <div
           ref={tipRef}
+          id={tooltipId}
           role="tooltip"
-          className={`fixed z-[9999] pointer-events-none rounded-lg px-3 py-2 text-xs shadow-lg border max-w-xs leading-relaxed transition-[opacity,transform] duration-150 ${open ? 'opacity-100' : 'opacity-0'}`}
-          style={{
-            top: coords.top,
-            left: 0,             // useLayoutEffect 会重写
-            backgroundColor: 'var(--bg-elevated)',
-            color: 'var(--text-primary)',
-            borderColor: 'var(--border)',
-            transformOrigin: placement === 'bottom' ? 'top center' : 'bottom center',
-            transform: open
-              ? 'translateY(0) scale(1)'
-              : `translateY(${placement === 'bottom' ? '-4px' : '4px'}) scale(0.97)`,
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            boxShadow: '0 6px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)',
-          }}
+          className="er-tooltip"
+          data-open={open || undefined}
+          data-placement={placement}
+          style={{ top: coords.top, left: 0 }}
         >
-          {content}
+          <span className="er-tooltip__register" aria-hidden="true" />
+          <span>{content}</span>
         </div>,
-        document.body
+        document.body,
       )}
     </>
   )

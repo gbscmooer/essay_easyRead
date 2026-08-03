@@ -1,10 +1,13 @@
-/**
- * UploadZone 组件
- *
- * PDF 拖放上传 — 磨砂玻璃表面 + 强调色拖入光晕 + 精致进度条。
- */
+/** PDF drag-and-select intake with local validation and upload progress. */
 
-import React, { useState, useRef, useCallback } from 'react'
+import {
+  useCallback,
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from 'react'
 
 interface UploadZoneProps {
   onUpload: (file: File) => void
@@ -16,6 +19,8 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
   const [isDragOver, setIsDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const descriptionId = useId()
+  const statusId = useId()
 
   const validateAndUpload = useCallback((file: File) => {
     setError(null)
@@ -33,171 +38,96 @@ export function UploadZone({ onUpload, isUploading, uploadProgress = 0 }: Upload
     onUpload(file)
   }, [onUpload])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
+  const handleDrop = useCallback((event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault()
     setIsDragOver(false)
     if (isUploading) return
-    const file = e.dataTransfer.files[0]
+
+    const file = event.dataTransfer.files[0]
     if (file) validateAndUpload(file)
   }, [isUploading, validateAndUpload])
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
+  const handleDragOver = useCallback((event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault()
     if (!isUploading) setIsDragOver(true)
   }, [isUploading])
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
+  const handleDragLeave = useCallback((event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    const relatedTarget = event.relatedTarget
+    if (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget)) {
+      setIsDragOver(false)
+    }
   }, [])
 
   const handleClick = useCallback(() => {
     if (!isUploading) inputRef.current?.click()
   }, [isUploading])
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+  const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
     if (file) validateAndUpload(file)
-    e.target.value = ''
+    event.target.value = ''
   }, [validateAndUpload])
 
+  const progress = Math.min(100, Math.max(0, uploadProgress))
+  const status = progress >= 100 ? '上传完成' : `上传中 ${progress}%`
+
   return (
-    <div className="w-full max-w-lg mx-auto">
-      <div
+    <div className="origin-upload">
+      <button
+        className="origin-upload__surface"
+        type="button"
+        data-dragging={isDragOver || undefined}
+        data-uploading={isUploading || undefined}
+        aria-busy={isUploading}
+        aria-disabled={isUploading}
+        aria-describedby={`${descriptionId} ${isUploading ? statusId : ''}`.trim()}
         onClick={handleClick}
         onDrop={handleDrop}
+        onDragEnter={handleDragOver}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        className="flex flex-col items-center justify-center p-12 cursor-pointer transition-all duration-300"
-        style={{
-          borderRadius: 'var(--seed-radius, 12px)',
-          border: isDragOver
-            ? '2px dashed var(--accent)'
-            : isUploading
-            ? '2px dashed var(--border)'
-            : '2px dashed var(--border-light)',
-          backgroundColor: isDragOver
-            ? 'var(--accent-subtle)'
-            : 'color-mix(in srgb, var(--bg-surface) 80%, transparent)',
-          backdropFilter: 'blur(12px) saturate(150%)',
-          WebkitBackdropFilter: 'blur(12px) saturate(150%)',
-          opacity: isUploading ? 0.7 : 1,
-          cursor: isUploading ? 'not-allowed' : 'pointer',
-          boxShadow: isDragOver
-            ? '0 0 40px rgba(var(--seed-accent-rgb, 37, 99, 235), 0.08)'
-            : 'none',
-          transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-        }}
       >
-        {/* 上传图标 */}
-        <div
-          className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-all duration-300"
-          style={{
-            backgroundColor: isDragOver ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <svg
-            width="22"
-            height="22"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: isDragOver ? 'var(--accent)' : 'var(--text-muted)',
-              transition: 'color 0.2s',
-            }}
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
+        <span className="origin-upload__mark" aria-hidden="true">
+          <svg viewBox="0 0 36 48" focusable="false">
+            <path d="M1 1h23l11 11v35H1z" />
+            <path d="M24 1v11h11M18 35V18m0 0-6 6m6-6 6 6" />
           </svg>
-        </div>
+        </span>
 
-        {/* 文字提示 */}
-        {isUploading ? (
-          <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-            <div className="flex items-center gap-2.5">
-              {uploadProgress >= 100 ? (
-                <span
-                  className="w-4 h-4 rounded-full flex items-center justify-center animate-reveal-scale"
-                  style={{ backgroundColor: 'var(--success)' }}
-                  aria-hidden="true"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--bg-base)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </span>
-              ) : (
-                <div
-                  className="w-4 h-4 border-[1.5px] rounded-full animate-spin"
-                  style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
-                />
-              )}
-              <span
-                className="text-[13px]"
-                style={{ color: uploadProgress >= 100 ? 'var(--success)' : 'var(--text-muted)' }}
-              >
-                {uploadProgress < 100 ? `上传中 ${uploadProgress}%` : '上传完成'}
-              </span>
-            </div>
-            <div
-              className="w-full h-1 rounded-full overflow-hidden"
-              style={{ backgroundColor: 'var(--border)' }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${uploadProgress}%`,
-                  backgroundColor: uploadProgress >= 100 ? 'var(--success)' : 'var(--accent)',
-                  transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                }}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <p className="text-[13px] mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-              {isDragOver ? '释放以上传文件' : '拖拽 PDF 到此处，或点击选择文件'}
-            </p>
-            <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
-              仅支持 PDF，最大 50MB
-            </p>
-          </>
-        )}
-      </div>
+        <span className="origin-upload__copy">
+          <span className="origin-upload__register">PDF / SOURCE—01</span>
+          <strong>{isDragOver ? '释放，登记这份文档' : '放入一篇论文'}</strong>
+          <small id={descriptionId}>拖拽至此或按下选择 / PDF / 最大 50 MB</small>
+        </span>
 
-      {/* 错误提示 */}
-      {error && (
-        <div
-          role="alert"
-          className="mt-3 flex items-center justify-center gap-2 px-3 py-2 text-[13px] rounded-lg animate-reveal-up"
-          style={{
-            backgroundColor: 'var(--error-subtle)',
-            color: 'var(--error)',
-            border: '1px solid color-mix(in srgb, var(--error) 28%, transparent)',
-          }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <span>{error}</span>
-        </div>
-      )}
+        <span className="origin-upload__status" id={statusId} aria-live="polite" aria-atomic="true">
+          {isUploading ? (
+            <>
+              <span>{status}</span>
+              <progress max={100} value={progress} aria-label={`上传进度 ${progress}%`} />
+            </>
+          ) : (
+            <>
+              <span>SELECT DOCUMENT</span>
+              <i aria-hidden="true">&#8599;</i>
+            </>
+          )}
+        </span>
+      </button>
 
-      {/* 隐藏的文件输入 */}
+      {error && <p className="origin-upload__error" role="alert">{error}</p>}
+
       <input
         ref={inputRef}
+        className="origin-upload__input"
         type="file"
         accept=".pdf,application/pdf"
+        tabIndex={-1}
+        aria-label="选择 PDF 文件"
         onChange={handleFileChange}
         data-shortcut-upload
-        className="hidden"
       />
     </div>
   )

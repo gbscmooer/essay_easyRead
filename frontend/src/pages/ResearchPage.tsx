@@ -126,7 +126,7 @@ export default function ResearchPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="er-page er-page--research flex flex-col h-full">
       <ControlPanel
         wsId={wsId}
         onStart={onStart}

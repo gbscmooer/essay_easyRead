@@ -3,29 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/jpeg" href="/logo.jpg" />
+    <link rel="icon" type="image/svg+xml" href="/essay-register.svg" />
     <title>Easy Essay</title>
-    <!-- Inter Variable（正文）+ Source Serif 4（暖纸主题 display 大标题） -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css" />
-    <link rel="preload" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/files/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/source-serif-4@5/index.css" />
     <script>
       (function(){
         try {
           var root = document.documentElement;
           var key = localStorage.getItem('essay_theme') || 'light';
 
-          /* Seed token presets — mirror themes.ts LIGHT_SEEDS / DARK_SEEDS */
+          /* First-paint tokens — mirror the constructivist presets in themes.ts. */
           var PRESETS = {
             light: {
-              '--seed-bg':'#f5f3ec','--seed-fg':'#2b2722','--seed-surface':'#fcfbf7',
-              '--seed-accent':'#cc785c','--seed-muted':'#8a8478','--seed-radius':'12px',
-              '--seed-accent-rgb':'204,120,92', mode:'light'
+              '--seed-bg':'#eee9dd','--seed-fg':'#17181b','--seed-surface':'#f7f2e7',
+              '--seed-accent':'#3969a8','--seed-muted':'#707574','--seed-radius':'0px',
+              '--seed-accent-rgb':'57,105,168', mode:'light'
             },
             dark: {
-              '--seed-bg':'#0c0c0e','--seed-fg':'#f0f0f0','--seed-surface':'#1a1a1c',
-              '--seed-accent':'#60a5fa','--seed-muted':'#707070','--seed-radius':'12px',
-              '--seed-accent-rgb':'96,165,250', mode:'dark'
+              '--seed-bg':'#17181b','--seed-fg':'#f7f2e7','--seed-surface':'#222329',
+              '--seed-accent':'#5f83b5','--seed-muted':'#9a9d99','--seed-radius':'0px',
+              '--seed-accent-rgb':'95,131,181', mode:'dark'
             }
           };
 
@@ -43,7 +39,7 @@
                 seeds = {
                   '--seed-bg': s.bg, '--seed-fg': s.fg, '--seed-surface': s.surface,
                   '--seed-accent': s.accent, '--seed-muted': s.muted,
-                  '--seed-radius': s.radius + 'px',
+                  '--seed-radius': '0px',
                   '--seed-accent-rgb': ((acR>>16)&255)+','+((acR>>8)&255)+','+(acR&255)
                 };
                 var bgR = parseInt(s.bg.slice(1),16);
@@ -55,7 +51,7 @@
                 seeds = {
                   '--seed-bg': c.bg_base, '--seed-fg': c.text_primary,
                   '--seed-surface': c.bg_surface, '--seed-accent': c.accent,
-                  '--seed-muted': c.text_muted, '--seed-radius': '12px',
+                  '--seed-muted': c.text_muted, '--seed-radius': '0px',
                   '--bg-base': c.bg_base, '--bg-surface': c.bg_surface,
                   '--bg-elevated': c.bg_elevated, '--border': c.border,
                   '--border-light': c.border_light, '--text-primary': c.text_primary,

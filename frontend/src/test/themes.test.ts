@@ -123,11 +123,15 @@ describe('buildCssVars', () => {
       '--bg-base', '--bg-surface', '--bg-elevated',
       '--border', '--border-light',
       '--text-primary', '--text-secondary', '--text-muted',
+      '--text-disabled',
       '--accent', '--accent-subtle',
       '--success', '--success-subtle',
       '--warning', '--warning-subtle',
       '--error', '--error-subtle',
-      '--code-bg', '--code-fg',
+      '--code-bg', '--code-sidebar-bg', '--code-fg', '--code-text',
+      '--code-text-muted', '--code-text-bright', '--code-selection',
+      '--code-hover', '--code-border', '--code-folder',
+      '--paper', '--paper-bright', '--ink', '--blue', '--signal', '--ochre',
     ]
     for (const key of expectedKeys) {
       expect(vars).toHaveProperty(key)

@@ -214,7 +214,7 @@ export default function WorkspaceDetailPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-8 py-10">
+    <div className="er-page er-page--workspace-detail max-w-3xl mx-auto px-8 py-10">
       {/* 返回链接 */}
       <Link
         to="/workspace"
