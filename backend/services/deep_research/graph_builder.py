@@ -20,7 +20,7 @@ import logging
 from sqlmodel import Session
 
 from .graph_analytics import annotate_graph
-from .graphkit import extract_backbone
+from .graphkit import extract_backbone_with_bridges
 from .paper_relatedness import compute_paper_relations, structural_channels
 from ..ai_config import get_relations_config
 from ..paper_identity import clean_display_title
@@ -31,19 +31,12 @@ logger = logging.getLogger(__name__)
 # （避免一堆近乎无关的弱边拉高节点强度分母）。骨架提取是主控，这是兜底。
 MIN_RELATEDNESS = 0.05
 
-# Disparity Filter 默认显著性水平 α：越小骨架越稀越严格。可被运行参数覆盖。
+# 目标平均度：每篇论文平均连几条关系边。这是地图密度的主控参数（与打分尺度无关），
+# 实测 ws1 上 8 是"可读且不丢结构"的平衡点。可被运行参数覆盖。
+DEFAULT_MAP_DENSITY = 8.0
+
+# Disparity Filter 显著性水平 α：控制"局部显著"的判据（密度由 map_density 控制）。
 DEFAULT_BACKBONE_ALPHA = 0.25
-
-
-def _backbone_with_bridges(
-    pairs: list[tuple[int, int, float]], alpha: float, floor: float,
-) -> tuple[list[tuple[int, int, float]], set[tuple[int, int]]]:
-    """返回骨架边及连通性兜底桥接边键集合 (min_id, max_id)。"""
-    sparse = extract_backbone(pairs, alpha=alpha, min_sim=floor, ensure_connected=False)
-    full = extract_backbone(pairs, alpha=alpha, min_sim=floor, ensure_connected=True)
-    sparse_keys = {(min(a, b), max(a, b)) for a, b, _ in sparse}
-    bridge_keys = {(min(a, b), max(a, b)) for a, b, _ in full} - sparse_keys
-    return full, bridge_keys
 
 
 def _build_structural_edges(
@@ -141,6 +134,7 @@ async def build_graph(
     papers,
     *,
     enable_shared_method: bool = False,
+    map_density: float = DEFAULT_MAP_DENSITY,
     backbone_alpha: float = DEFAULT_BACKBONE_ALPHA,
     enable_bibcoupling: bool = True,
     enable_cocitation: bool = True,
@@ -189,8 +183,11 @@ async def build_graph(
     relations = await compute_paper_relations(
         papers, ws_id=ws_id, references=references or [],
     )
-    kept, bridge_keys = _backbone_with_bridges(
-        relations.pairs, alpha=backbone_alpha, floor=MIN_RELATEDNESS,
+    kept, bridge_keys = extract_backbone_with_bridges(
+        relations.pairs,
+        target_degree=map_density,
+        alpha=backbone_alpha,
+        min_sim=MIN_RELATEDNESS,
     )
     related_count = 0
     for a_id, b_id, score in kept:
@@ -237,10 +234,11 @@ async def build_graph(
     analytics = annotate_graph(nodes, edges)
 
     logger.info(
-        "graph: %d 节点 / %d 边（cites=%d, related=%d, bib=%d, cocite=%d），"
-        "%d 子方向, modularity=%.3f, 通道权重=%s",
-        len(nodes), len(edges), cites_count, related_count,
+        "graph: %d 节点 / %d 边（cites=%d, related=%d[桥 %d], bib=%d, cocite=%d），"
+        "平均度=%.1f, %d 子方向, modularity=%.3f, 通道权重=%s",
+        len(nodes), len(edges), cites_count, related_count, len(bridge_keys),
         bibcoupling_count, cocitation_count,
+        related_count / max(1, len(nodes)),
         analytics["clusters"], analytics.get("modularity", 0.0),
         {k: round(v, 3) for k, v in relations.weights.items()},
     )
@@ -258,9 +256,17 @@ async def build_graph(
         "clusters": analytics["clusters"],
         "top_papers": analytics["top_papers"],
         "modularity": analytics.get("modularity", 0.0),
+        "backbone": {
+            "map_density": map_density,
+            "alpha": backbone_alpha,
+            "mean_degree": round(related_count / max(1, len(nodes)), 2),
+            "bridge_pairs": len(bridge_keys),
+            "candidate_pairs": len(relations.pairs),
+        },
         "relation_channels": {
             "weights": {k: round(v, 4) for k, v in relations.weights.items()},
             "coverage": relations.coverage,
+            "calibration": relations.calibration.to_dict() if relations.calibration else None,
         },
     }
     return {"nodes": nodes, "edges": edges, "stats": stats}

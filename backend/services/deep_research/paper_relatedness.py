@@ -106,7 +106,20 @@ def _doc_centroids(ws_id: int, paper_ids: list[int]) -> dict[int, list[float]]:
     return out
 
 
-def build_paper_features(papers: list, ws_id: int) -> list[PaperFeatures]:
+def _cites_map(references: list | None, paper_ids: set[int]) -> dict[int, set[int]]:
+    """{citing_id: {cited_id}}，只保留两端都在工作区内的引用（权重校准的弱标签来源）。"""
+    out: dict[int, set[int]] = {}
+    for ref in references or []:
+        citing = getattr(ref, "citing_paper_id", None)
+        cited = getattr(ref, "cited_paper_id", None)
+        if citing in paper_ids and cited in paper_ids and citing != cited:
+            out.setdefault(citing, set()).add(cited)
+    return out
+
+
+def build_paper_features(
+    papers: list, ws_id: int, references: list | None = None
+) -> list[PaperFeatures]:
     """Paper 行 → PaperFeatures（facet 优先取精读结果，回退图谱速读 digest）。"""
     pids = [p.id for p in papers]
     with Session(_get_engine()) as s:
@@ -115,6 +128,7 @@ def build_paper_features(papers: list, ws_id: int) -> list[PaperFeatures]:
             for a in s.exec(select(AnalysisResult).where(AnalysisResult.paper_id.in_(pids))).all()
         }
     centroids = _doc_centroids(ws_id, pids)
+    cites = _cites_map(references, set(pids))
 
     feats: list[PaperFeatures] = []
     for p in papers:
@@ -152,6 +166,7 @@ def build_paper_features(papers: list, ws_id: int) -> list[PaperFeatures]:
                 id=p.id, title=p.title or "", year=getattr(p, "year", None),
                 is_analyzed=False, abstract=abstract, doc_vector=centroids.get(p.id),
             ))
+        feats[-1].cites = cites.get(p.id, set())
     return feats
 
 
@@ -174,13 +189,17 @@ async def compute_paper_relations(
     ws_id: int,
     references: list | None = None,
     weights: dict[str, float] | None = None,
+    calibrate: bool | None = None,
 ) -> RelationResult:
     """工作区论文两两关联度（全系统唯一入口）。"""
-    feats = build_paper_features(papers, ws_id)
+    feats = build_paper_features(papers, ws_id, references)
     bib, cocite = structural_channels(references, {p.id for p in papers})
+    cfg = get_relations_config() or {}
     if weights is None:
-        weights = (get_relations_config() or {}).get("weights") or None
+        weights = cfg.get("weights") or None
+    if calibrate is None:
+        calibrate = bool(cfg.get("calibrate", True))
     return await compute_relations(
         feats, embed_fn=embed_texts, weights=weights,
-        bibcoupling=bib, cocitation=cocite,
+        bibcoupling=bib, cocitation=cocite, calibrate=calibrate,
     )

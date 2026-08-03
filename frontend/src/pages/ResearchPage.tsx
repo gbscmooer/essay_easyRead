@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ResearchMode, ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
-import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
+import { ConfirmDialog, LoadingSpinner, Tooltip } from '@/ds-entry'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
 import { get } from '@/api/client'
 import type { AppConfig } from '@/features/settings/config'
@@ -15,6 +15,34 @@ import { ResearchSettingsDrawer } from '@/features/research/ResearchSettingsDraw
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
 import { toast } from '@/hooks/useToast'
+
+const CHANNEL_LABEL: Record<string, string> = {
+  topic: '主题', purpose: '研究目的', method: '方法', term: '术语',
+  dataset: '数据集', baseline: '对比基线', bibcoupling: '文献耦合', cocitation: '共引',
+}
+
+/** 图谱质量摘要：地图密度工作点 + 本次是否按工作区自动调过权。 */
+function graphQualityHint(graph: ResearchGraph): string {
+  const st = graph.stats
+  const lines: string[] = []
+  if (st?.backbone) {
+    lines.push(
+      `多尺度骨架：从 ${st.backbone.candidate_pairs} 对候选里留下 ${Math.round(st.backbone.mean_degree * (st.node_count ?? graph.nodes.length) / 2)} 条关系边`
+      + `（目标密度 ${st.backbone.map_density} 边/篇，实际 ${st.backbone.mean_degree.toFixed(1)}）`
+      + (st.backbone.bridge_pairs ? `，其中 ${st.backbone.bridge_pairs} 条为保证地图连通补的桥接边` : ''),
+    )
+  }
+  if (st?.modularity != null) lines.push(`子方向划分质量 modularity=${st.modularity.toFixed(3)}（越高说明子方向越分明）`)
+  const cal = st?.relation_channels?.calibration
+  if (cal?.applied) {
+    const top = Object.entries(cal.weights).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${CHANNEL_LABEL[k] ?? k} ${(v * 100).toFixed(0)}%`).join(' · ')
+    lines.push(`已按本工作区的 ${cal.n_positives} 对引用证据自动调权：${top}`)
+  } else if (cal) {
+    lines.push(`未自动调权：${cal.reason}`)
+  }
+  return lines.join('\n') || '图谱统计'
+}
 
 export default function ResearchPage() {
   const { id } = useParams<{ id: string }>()
@@ -129,9 +157,13 @@ export default function ResearchPage() {
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
             <div className="flex items-center gap-2.5">
               {graph && (
-                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
-                </span>
+                <Tooltip content={graphQualityHint(graph)}>
+                  <span className="text-[11px] cursor-help" style={{ color: 'var(--text-muted)' }}>
+                    {graph.stats?.node_count ?? graph.nodes.length} 节点 / {graph.stats?.edge_count ?? graph.edges.length} 边
+                    {graph.stats?.backbone?.mean_degree != null && ` · 平均度 ${graph.stats.backbone.mean_degree.toFixed(1)}`}
+                    {graph.stats?.clusters != null && ` · ${graph.stats.clusters} 子方向`}
+                  </span>
+                </Tooltip>
               )}
               <button
                 onClick={() => setShowSettings(true)}

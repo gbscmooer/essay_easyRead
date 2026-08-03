@@ -35,12 +35,21 @@ relatedness — 论文关联度：全系统唯一的一套打分算法（纯函�
 **分位数缩放**（语义通道 q10→q99 拉满，证据通道 0→q90 拉满，都截断到 [0,1]），
 之后权重才真正有意义。
 
+权重自适应（v3.1）
+--------------------------------------------------
+DEFAULT_WEIGHTS 只是**先验**。哪个通道真正管用是随语料变的：ws1（179 篇真实 CV 论文）
+上 topic 的判别力 AUC 0.888、method 只有 0.573（≈随机）；而在"一个大方向下含多个细分
+方向"的语料上恰好相反。因此每次建图会用工作区自己的结构证据（谁引用谁 / 谁与谁共享
+参考文献）作弱监督，按判别力重新分配语义通道的权重，见 `calibration.py`。证据不足时
+原样使用配置权重。
+
 输出
 --------------------------------------------------
 `compute_relations()` 返回 `RelationResult`：
 - `pairs`: [(a, b, score)] 融合分，供骨架提取；
 - `explain(a, b)`: 该对的可解释分解 {weight, components:[...]}，各分量 contribution
   之和恒等于 score（前端进度条据此渲染，不会对不上）。
+- `calibration`: 本次权重校准报告（判别力 / 样本量 / 收缩系数），供设置页解释。
 分解按需生成，不为 O(n²) 对预先物化 dict，大工作区不炸内存。
 """
 
@@ -52,6 +61,7 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
+from .calibration import CalibrationReport, build_supervision, calibrate_weights
 from .features import PaperFeatures
 from .lexical import build_idf, extract_terms, idf_cosine, normalize_entity
 from .vectors import build_topic_vectors
@@ -205,6 +215,7 @@ class RelationResult:
     pairs: list[tuple[int, int, float]]
     weights: dict[str, float]
     coverage: dict[str, int]
+    calibration: CalibrationReport | None = None
     _dense: dict[str, _DenseChannel] = field(default_factory=dict, repr=False)
     _sparse: dict[str, _SparseChannel] = field(default_factory=dict, repr=False)
 
@@ -291,15 +302,18 @@ async def compute_relations(
     weights: dict[str, float] | None = None,
     bibcoupling: dict[tuple[int, int], tuple[float, int]] | None = None,
     cocitation: dict[tuple[int, int], tuple[float, int]] | None = None,
+    calibrate: bool = True,
 ) -> RelationResult:
     """计算工作区内两两论文的关联度。
 
     Args:
         papers: 论文特征（DB 无关）。
         embed_fn: 注入的向量化函数 list[str] -> list[list[float]]。
-        weights: 通道权重覆盖（见 DEFAULT_WEIGHTS）。
+        weights: 通道权重覆盖（见 DEFAULT_WEIGHTS）。作为校准的先验。
         bibcoupling / cocitation: {(min,max): (salton, shared_count)}，由调用方从引用
             关系算好传入（见 structural.py）。缺省表示该通道无数据。
+        calibrate: 是否用工作区自身的结构证据校准语义通道权重（见 calibration.py）。
+            证据不足时自动退回 ``weights``。关掉即为纯先验权重（消融实验用）。
     """
     w = normalize_weights(weights)
     # 去重：同一 paper_id 只算一次（重复行会让 index 与 ids 错位，产出自环对）
@@ -338,12 +352,25 @@ async def compute_relations(
     for sp in sparse.values():
         sp.calibrate()
 
+    # 5) 权重自监督校准：用工作区自身的引用结构当弱标签，按判别力重分配语义通道权重
+    report = _calibrate_semantic_weights(
+        papers, ids, dense, w,
+        bibcoupling=bibcoupling, cocitation=cocitation,
+    ) if calibrate else CalibrationReport(False, "已关闭权重校准", {c: w[c] for c in SEMANTIC})
+    if report.applied:
+        w = {**w, **report.weights}
+        logger.info(
+            "relatedness: 权重校准生效 %s（%s）",
+            {k: round(v, 3) for k, v in report.weights.items()}, report.reason,
+        )
+
     result = RelationResult(
         pairs=[], weights=w,
         coverage={
             **{name: int(ch.defined.sum()) for name, ch in dense.items()},
             **{name: len([1 for v in sp.values.values() if v > 0]) for name, sp in sparse.items()},
         },
+        calibration=report,
         _dense=dense, _sparse=sparse,
     )
 
@@ -361,6 +388,43 @@ async def compute_relations(
         n, len(pairs), result.coverage,
     )
     return result
+
+
+def _calibrate_semantic_weights(
+    papers: list[PaperFeatures],
+    ids: list[int],
+    dense: dict[str, _DenseChannel],
+    weights: dict[str, float],
+    *,
+    bibcoupling: dict[tuple[int, int], tuple[float, int]] | None,
+    cocitation: dict[tuple[int, int], tuple[float, int]] | None,
+) -> CalibrationReport:
+    """用引用结构做弱监督，按判别力重分配**语义**通道的权重。
+
+    证据通道不校准：bibcoupling / cocitation 正是监督信号的来源，自己给自己打分是泄漏。
+    """
+    cites = {p.id: set(p.cites) for p in papers if p.cites}
+    positives, negatives = build_supervision(
+        ids, cites=cites, bibcoupling=bibcoupling, cocitation=cocitation,
+    )
+    prior = {c: weights[c] for c in SEMANTIC}
+    if not positives or not negatives:
+        return CalibrationReport(
+            False, "没有可用的结构证据（引用未回填？），沿用配置权重", prior,
+            n_positives=len(positives), n_negatives=len(negatives),
+        )
+
+    samples: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name, ch in dense.items():
+        if name not in SEMANTIC:
+            continue
+        pos = np.array([ch.norm(a, b) for a, b in positives if ch.has(a, b)], dtype=float)
+        neg = np.array([ch.norm(a, b) for a, b in negatives if ch.has(a, b)], dtype=float)
+        samples[name] = (pos, neg)
+
+    return calibrate_weights(
+        samples, prior, n_positives=len(positives), n_negatives=len(negatives),
+    )
 
 
 # ---------------------------------------------------------------------------

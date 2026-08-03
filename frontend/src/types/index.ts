@@ -232,7 +232,8 @@ export interface ResearchRunCreate {
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean
-  backbone_alpha?: number        // 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
+  map_density?: number           // 研究地图密度：每篇论文平均连几条关系边（骨架按此反解阈值）
+  backbone_alpha?: number        // 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
   enable_shared_method?: boolean
 }
 
@@ -322,11 +323,30 @@ export interface ResearchGraph {
     edge_count: number
     by_kind: Partial<Record<GraphEdgeKind, number>>
     clusters?: number
+    modularity?: number
     top_papers?: { id: string; label: string; importance: number }[]
+    /** 骨架提取的工作点：目标密度、实际平均度、连通兜底桥接边数 */
+    backbone?: {
+      map_density: number
+      alpha: number
+      mean_degree: number
+      bridge_pairs: number
+      candidate_pairs: number
+    }
     /** 本次建图使用的关联度通道权重与各通道覆盖的论文/对数 */
     relation_channels?: {
       weights: Record<string, number>
       coverage: Record<string, number>
+      /** 自监督权重校准报告（用工作区自身引用结构当弱标签） */
+      calibration?: {
+        applied: boolean
+        reason: string
+        shrink: number
+        n_positives: number
+        n_negatives: number
+        weights: Record<string, number>
+        channels: Record<string, { auc: number; gini: number; n_pos: number }>
+      } | null
     }
   }
   updated_at: string

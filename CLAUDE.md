@@ -89,7 +89,8 @@ backend/
 │       ├── providers/         # 外部数据源适配器
 │       └── graphkit/          # 图谱算法纯净核心（无 DB 依赖）
 │           ├── relatedness.py     # ★ 唯一的关联度算法：八通道分位数归一 + 加权融合
-│           ├── backbone.py        # 多尺度骨架提取（Disparity Filter）
+│           ├── calibration.py     # ★ 通道权重自监督校准（工作区引用结构当弱标签）
+│           ├── backbone.py        # 多尺度骨架提取（Disparity Filter + 目标密度反解）
 │           ├── lexical.py         # IDF 加权术语重叠
 │           ├── structural.py      # 文献耦合 / 共引（Salton）
 │           ├── vectors.py         # 论文主题向量
@@ -135,7 +136,9 @@ frontend/src/
 3. **代码仓库分析**: 正则提取代码 URL → clone → 构建文件树 → 静态分析依赖（import_parser）→ AI 分析数据流和论文-代码映射
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ persist → 前端图谱可视化 + RAG 问答
-6. **论文关联度**（图谱关系的唯一算法，`graphkit/relatedness.py`）: 主题向量 / 研究目的 / 方法 / IDF 术语 / 共享数据集 / 共享 baseline / 文献耦合 / 共引 八个通道各自分位数归一 → 加权融合成一个分数 → Disparity Filter 抽骨架 → 该分数同时决定连边、社区划分、节点重要性与图检索。权重在设置页「论文关联度」调整
+6. **论文关联度**（图谱关系的唯一算法，`graphkit/relatedness.py`）: 主题向量 / 研究目的 / 方法 / IDF 术语 / 共享数据集 / 共享 baseline / 文献耦合 / 共引 八个通道各自分位数归一 → 加权融合成一个分数 → 多尺度骨架抽骨架 → 该分数同时决定连边、社区划分、节点重要性与图检索。设置页「论文关联度」调权重先验与是否自动调权
+7. **权重自监督校准**（`graphkit/calibration.py`）: 哪个通道管用随语料变（实测真实工作区 topic 判别力 AUC 0.89、method 0.57≈随机；细分方向语料上恰好相反）。建图时用工作区自身的引用结构（直接引用 + 文献耦合）当弱标签，量出各**语义**通道的判别力（AUC→Gini，扣掉抽样噪声下限），据此重分配语义组权重，再按证据量向先验收缩。证据不足 / 判别力与随机无异 / 权重被调成 0 的通道 → 不动先验
+8. **地图密度控制**（`graphkit/backbone.py`）: 骨架的密度旋钮是**目标平均度** `map_density`（每篇论文平均连几条边），二分反解"环境关联度地板"后再做 Disparity Filter 显著性检验。α 只管局部显著性。这样密度控制与打分尺度无关——v3.0 用 α 当密度旋钮，换了打分口径后在"树"和"毛球"之间没有可用区间
 
 ### 路由
 

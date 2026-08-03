@@ -100,7 +100,8 @@ class ResearchConfig(BaseModel):
     provider: str = "openalex"  # openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
-    backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
+    map_density: float = 8.0       # 研究地图密度：每篇论文平均连几条关系边
+    backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
     discovery_v2: bool = False     # 发布门禁通过前默认关闭，可显式启用 discovery v2
@@ -129,6 +130,8 @@ class RelationWeightsConfig(BaseModel):
 
 class RelationsConfig(BaseModel):
     """论文关联度配置（全系统唯一一套算法，无 provider 可选）。"""
+    # 用工作区自身的引用结构当弱标签校准语义通道权重；关掉即纯用下面的先验权重
+    calibrate: bool = True
     weights: RelationWeightsConfig = RelationWeightsConfig()
 
 class ArxivExpandConfig(BaseModel):
@@ -192,7 +195,9 @@ async def get_config() -> AppConfig:
         research=ResearchConfig(**research_payload),
         reranker=RerankerConfig(**config.get("reranker", {})),
         relations=RelationsConfig(
-            weights=RelationWeightsConfig(**(config.get("relations", {}).get("weights") or {}))
+            calibrate=bool((config.get("relations") or {}).get(
+                "calibrate", DEFAULT_CONFIG["relations"]["calibrate"])),
+            weights=RelationWeightsConfig(**(config.get("relations", {}).get("weights") or {})),
         ),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
         findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
@@ -214,11 +219,14 @@ async def update_config(req: AppConfig) -> dict:
     prior = _load()
     # relations：权重子段深合并，避免只改一个通道时丢失其他通道
     default_weights = DEFAULT_CONFIG.get("relations", {}).get("weights", {})
-    relations = {"weights": {
-        **default_weights,
-        **((prior.get("relations") or {}).get("weights") or {}),
-        **req.relations.weights.model_dump(),
-    }}
+    relations = {
+        "calibrate": bool(req.relations.calibrate),
+        "weights": {
+            **default_weights,
+            **((prior.get("relations") or {}).get("weights") or {}),
+            **req.relations.weights.model_dump(),
+        },
+    }
     prior_research = prior.get("research", {})
     research_dump = req.research.model_dump()
     research_merged = {**prior_research, **research_dump}

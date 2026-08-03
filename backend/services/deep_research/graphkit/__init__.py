@@ -16,10 +16,17 @@ graphkit — 论文图谱算法的纯净核心（decoupled）
     lexical.py      IDF 加权术语重叠
     structural.py   文献耦合 / 共引（Salton）
     relatedness.py  ★ 唯一的关联度算法：多通道分位数归一 + 加权融合 + 可解释分解
-    backbone.py     多尺度骨架提取（Disparity Filter），决定"留哪些边"
+    calibration.py  ★ 通道权重自监督校准：用工作区自身引用结构当弱标签定权重
+    backbone.py     多尺度骨架提取（Disparity Filter + 目标密度反解），决定"留哪些边"
 """
 
-from .backbone import extract_backbone
+from .backbone import extract_backbone, extract_backbone_with_bridges
+from .calibration import (
+    CalibrationReport,
+    build_supervision,
+    calibrate_weights,
+    rank_auc,
+)
 from .features import PaperFeatures
 from .lexical import build_idf, extract_terms, idf_cosine
 from .relatedness import (
@@ -50,5 +57,6 @@ __all__ = [
     "build_cites_map", "compute_bibliographic_coupling_pairs",
     "build_cited_by_map", "compute_co_citation_pairs",
     "co_citation_from_cites_edges", "pair_map",
-    "extract_backbone",
+    "extract_backbone", "extract_backbone_with_bridges",
+    "CalibrationReport", "build_supervision", "calibrate_weights", "rank_auc",
 ]

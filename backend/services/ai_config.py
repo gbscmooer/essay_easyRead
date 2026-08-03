@@ -61,7 +61,8 @@ DEFAULT_CONFIG = {
         "provider": "openalex",       # openalex | semantic_scholar | local
         "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
-        "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
+        "map_density": 8.0,           # 研究地图密度：每篇论文平均连几条关系边（骨架按此反解地板）
+        "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
         "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
         # discovery_v2：多路召回 + RRF 融合扩展（backward/forward/recommend/pdf_ref）
@@ -107,6 +108,9 @@ DEFAULT_CONFIG = {
     # 语义组（topic/purpose/method/term）与证据组（dataset/baseline/bibcoupling/cocitation）
     # 各自按组内比例归一，组间比例固定，改单个权重不会让另一组整体漂移。
     "relations": {
+        # 权重自监督校准：用工作区自身的引用结构（谁引用谁 / 谁与谁共享参考文献）当弱标签，
+        # 按各语义通道的实际判别力重新分配权重；证据不足时自动沿用下面的先验权重。
+        "calibrate": True,
         "weights": {
             "topic": 0.18,        # 全文/题录主题向量余弦（粗粒度锚点）
             "purpose": 0.24,      # 研究目的语义相似
@@ -330,10 +334,11 @@ def get_recall_config() -> dict:
 
 
 def get_relations_config() -> dict:
-    """论文关联度通道权重配置（缺失字段用默认补全）。"""
+    """论文关联度配置：通道权重先验 + 是否自监督校准（缺失字段用默认补全）。"""
     saved = load_config().get("relations") or {}
     weights = {**DEFAULT_CONFIG["relations"]["weights"], **(saved.get("weights") or {})}
-    return {"weights": weights}
+    calibrate = saved.get("calibrate", DEFAULT_CONFIG["relations"]["calibrate"])
+    return {"weights": weights, "calibrate": bool(calibrate)}
 
 
 def get_arxiv_expand_config() -> dict:

@@ -14,6 +14,7 @@ from ...config import settings
 from ...models.research import ResearchGraph, ResearchRun
 from ...models.schemas import StreamEvent
 from .event_bus import get_event_bus, drop_event_bus
+from .graph_builder import DEFAULT_BACKBONE_ALPHA, DEFAULT_MAP_DENSITY
 from .stages.collect import stage_collect
 from .stages.expand import _discovery_v2_enabled, collect_online_recall, stage_expand
 from .stages.expand_arxiv import collect_pdf_reference_candidates
@@ -278,7 +279,8 @@ async def run_pipeline(run_id: int):
         graph = await stage_graph(
             ws_id, papers,
             enable_shared_method=params.get("enable_shared_method", False),
-            backbone_alpha=float(params.get("backbone_alpha", 0.25)),
+            map_density=float(params.get("map_density", DEFAULT_MAP_DENSITY)),
+            backbone_alpha=float(params.get("backbone_alpha", DEFAULT_BACKBONE_ALPHA)),
             citation_contexts=seed_citation_contexts,
         )
         _set_stage(run_id, "graph", "running",

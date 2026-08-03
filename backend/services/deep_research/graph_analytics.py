@@ -53,8 +53,14 @@ _STOP = set(
 # ---------------------------------------------------------------------------
 # 图构造：把 list[edge] 拆成"有向引用图" + "无向关联图"
 # ---------------------------------------------------------------------------
-def _split_graphs(nodes: list[dict], edges: list[dict]) -> tuple[nx.DiGraph, nx.Graph]:
-    """拆成"有向引用图"（奠基性）与"无向关联图"（子方向 + 枢纽性）。"""
+def _split_graphs(
+    nodes: list[dict], edges: list[dict]
+) -> tuple[nx.DiGraph, nx.Graph, list[tuple[str, str, float]]]:
+    """拆成"有向引用图"（奠基性）与"无向关联图"（子方向 + 枢纽性），另返回桥接边。
+
+    桥接边（骨架里仅为连通性保留、统计上不显著的边）不进关联图，免得弱边影响社区划分与
+    中心性；但它们是节点唯一的归属线索，在外面用于给"只有桥接边"的节点兜底分配子方向。
+    """
     cite = nx.DiGraph()
     rel = nx.Graph()
     for n in nodes:
@@ -90,7 +96,8 @@ def _split_graphs(nodes: list[dict], edges: list[dict]) -> tuple[nx.DiGraph, nx.
             else:
                 rel.add_edge(s, t, weight=w)
         logger.info("graph analytics: 骨架为空，回退用 %d 条桥接边计算社区/中心性", len(bridges))
-    return cite, rel
+        bridges = []
+    return cite, rel, bridges
 
 
 def _minmax(scores: dict[str, float]) -> dict[str, float]:
@@ -173,13 +180,20 @@ def _tokenize(text: str) -> list[str]:
     return toks
 
 
-def _label_clusters(id2title: dict[str, str], communities: list[set]) -> dict[int, str]:
+def _same_stem(a: str, b: str) -> bool:
+    """粗略同源判断：graph / graphs、embedding / embeddings 只保留一个，别浪费标签位。"""
+    x, y = (a, b) if len(a) <= len(b) else (b, a)
+    return y.startswith(x) and len(y) - len(x) <= 2
+
+
+def _label_clusters(node_text: dict[str, str], communities: list[set]) -> dict[int, str]:
+    """TF-ICF 关键词：本簇高频 + 跨簇稀有。文本用节点标题 + 速读总结（比只用标题更稳）。"""
     cluster_tokens: list[list[str]] = []
     df: dict[str, int] = defaultdict(int)          # 含某 token 的簇数（cluster frequency）
     for comm in communities:
         toks: list[str] = []
         for nid in comm:
-            toks += _tokenize(id2title.get(nid, ""))
+            toks += _tokenize(node_text.get(nid, ""))
         cluster_tokens.append(toks)
         for tk in set(toks):
             df[tk] += 1
@@ -193,8 +207,14 @@ def _label_clusters(id2title: dict[str, str], communities: list[set]) -> dict[in
         for tk in toks:
             tf[tk] += 1
         scored = {tk: c * math.log(1 + n_clusters / df[tk]) for tk, c in tf.items() if c >= 1}
-        top = sorted(scored, key=scored.get, reverse=True)[:2]
-        labels[ci] = " · ".join(top) if top else ""
+        picked: list[str] = []
+        for tk in sorted(scored, key=scored.get, reverse=True):
+            if any(_same_stem(tk, p) for p in picked):
+                continue
+            picked.append(tk)
+            if len(picked) == 2:
+                break
+        labels[ci] = " · ".join(picked)
     return labels
 
 
@@ -206,7 +226,7 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
     if not nodes:
         return {"clusters": 0, "top_papers": [], "modularity": 0.0}
 
-    cite, rel = _split_graphs(nodes, edges)
+    cite, rel, bridges = _split_graphs(nodes, edges)
 
     foundational = _minmax(_safe_pagerank(cite))   # 有向引用图：奠基性
     centrality = _minmax(_safe_pagerank(rel))      # 无向关联图：子方向内的枢纽性
@@ -218,16 +238,29 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         importance[nid] = 0.6 * foundational.get(nid, 0.0) + 0.4 * centrality.get(nid, 0.0)
     importance = _minmax(importance) if importance else {}
 
-    communities = _merge_small(rel, _detect_communities(rel), min_size=2)
+    communities = [set(c) for c in _merge_small(rel, _detect_communities(rel), min_size=2)]
+    # 骨架里没有任何显著关系边的节点：它挂不进任何子方向。
+    isolated = {n["id"] for n in nodes if rel.degree(n["id"]) == 0}
+
+    # 其中"只有桥接边"的节点，按最强桥接边并进邻居的子方向——地图上它确实挂在某处，
+    # 否则用户会看到一堆"连着线却没有归属"的孤点。真·零边的才是孤立点（cluster=-1）。
+    attach = _bridge_attachments(isolated, bridges)
+    if attach:
+        member_of = {nid: i for i, c in enumerate(communities) for nid in c}
+        for nid, host in attach.items():
+            src, dst = member_of.get(nid), member_of.get(host)
+            if src is None or dst is None or src == dst or host in isolated:
+                continue
+            communities[src].discard(nid)
+            communities[dst].add(nid)
+            member_of[nid] = dst
+            isolated.discard(nid)
+        communities = [c for c in communities if c]
+
     node2cluster: dict[str, int] = {}
     for cid, members in enumerate(communities):
         for nid in members:
-            node2cluster[nid] = cid
-    # 单点（社区只剩自己且无语义边）记为 -1，前端按孤立点处理
-    singletons = {nid for c in communities if len(c) == 1 for nid in c}
-    for nid in singletons:
-        if rel.degree(nid) == 0:
-            node2cluster[nid] = -1
+            node2cluster[nid] = -1 if (len(members) == 1 and nid in isolated) else cid
 
     for n in nodes:
         nid = n["id"]
@@ -237,22 +270,27 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         meta["centrality"] = round(float(centrality.get(nid, 0.0)), 4)
         meta["cluster"] = node2cluster.get(nid, -1)
 
-    id2title = {n["id"]: n.get("label", "") for n in nodes}
-    labels = _label_clusters(id2title, communities)
+    # 簇标签只用标题：CV/ML 标题本身就是领域术语（"anomaly detection" / "few-shot"），
+    # 而速读总结是中文长文本，滑窗 bigram 会切出"棒性""器翻"这类碎片并盖过标题词。
+    node_text = {n["id"]: n.get("label", "") for n in nodes}
+    by_id = {n["id"]: n for n in nodes}
+    labels = _label_clusters(node_text, communities)
     for cid, members in enumerate(communities):
         lbl = labels.get(cid) or _fallback_label(members, nodes)
         for nid in members:
-            if node2cluster.get(nid, -1) >= 0:
-                next(n for n in nodes if n["id"] == nid)["meta"]["cluster_label"] = lbl
+            if node2cluster.get(nid, -1) >= 0 and nid in by_id:
+                by_id[nid].setdefault("meta", {})["cluster_label"] = lbl
 
-    # modularity（社区质量，写进 stats 供 Phase C 评测）
+    # modularity（社区质量，写进 stats 供评测）。注意必须传**完整划分**：
+    # 只挑 len>1 的社区会让 networkx 抛 NotAPartition，旧实现在 except 里静默记 0，
+    # 于是"有孤立点的图 modularity 恒为 0"——这正是之前评测里 modularity 归零的根因。
     try:
-        real = [c for c in communities if len(c) > 1]
         modularity = (
-            nx.community.modularity(rel, real, weight="weight")
-            if real and rel.number_of_edges() else 0.0
+            nx.community.modularity(rel, communities, weight="weight")
+            if communities and rel.number_of_edges() else 0.0
         )
-    except Exception:
+    except Exception as ex:  # pragma: no cover - 数值兜底
+        logger.warning("modularity failed: %s", ex)
         modularity = 0.0
 
     top = sorted(nodes, key=lambda x: x["meta"]["importance"], reverse=True)[:5]
@@ -276,6 +314,18 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         "modularity": round(float(modularity), 4),
         "edge_counts_by_kind": dict(by_kind),
     }
+
+
+def _bridge_attachments(
+    isolated: set[str], bridges: list[tuple[str, str, float]]
+) -> dict[str, str]:
+    """{只有桥接边的节点: 它最强桥接边的对端}。"""
+    best: dict[str, tuple[float, str]] = {}
+    for s, t, w in bridges:
+        for a, b in ((s, t), (t, s)):
+            if a in isolated and w > best.get(a, (-1.0, ""))[0]:
+                best[a] = (w, b)
+    return {nid: host for nid, (_w, host) in best.items()}
 
 
 def _fallback_label(members: set, nodes: list[dict]) -> str:
