@@ -124,26 +124,32 @@ export default function CodePage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 h-full animate-reveal-fade">
+      <div className="er-page er-page--code er-code-state" data-state="loading" role="status" aria-label="正在加载代码与分析">
+        <span className="er-code-state__register" aria-hidden="true">05 / CODE—TRACE / REGISTERING</span>
         <LoadingSpinner size="lg" />
-        <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>正在加载代码与分析…</p>
+        <div>
+          <strong>正在登记代码工作面</strong>
+          <p>正在加载代码与分析…</p>
+        </div>
       </div>
     )
   }
 
   if (error || !paper) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 h-full animate-reveal-fade">
-        <svg className="w-8 h-8 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error)' }} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-        </svg>
-        <p className="text-[13px]" style={{ color: 'var(--error)' }}>{error || '论文不存在'}</p>
+      <div className="er-page er-page--code er-code-state" data-state="error" role="alert">
+        <span className="er-code-state__register" aria-hidden="true">05 / CODE—TRACE / INTERRUPTED</span>
+        <span className="er-code-state__signal" aria-hidden="true">!</span>
+        <div>
+          <strong>代码工作面未建立</strong>
+          <p>{error || '论文不存在'}</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="er-page er-page--code flex flex-col h-full">
       {/* 顶部工具栏 — 紧凑 ghost 风格 */}
       <div className="flex items-center justify-end px-4 py-1.5 shrink-0"
         style={{ backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>

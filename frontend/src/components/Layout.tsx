@@ -1,10 +1,21 @@
 /**
- * 布局组件 — 可折叠左轨导航 + 浮动药丸二级导航
+ * Application frame — route-aware constructivist experience shell.
  *
- * macOS Finder 风格侧边栏：64px 折叠 / 240px 展开。
- * 二级导航（论文/工作区标签）以 frosted glass 浮动工具栏呈现。
+ * Business routes stay unchanged. The shell translates each route into a
+ * small visual state (`data-scene` / `data-route` / `data-motion`) consumed by
+ * the presentation layer, keeping navigation logic and visual rendering
+ * decoupled.
  */
-import { useState, useCallback, useRef, useEffect } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
@@ -12,201 +23,64 @@ import { VersionPopup } from './VersionPopup'
 import { ShortcutHelp } from './ShortcutHelp'
 import { ConfirmDialog } from '@/ds-entry'
 import { hasUnsavedConfig } from '@/hooks/useConfig'
-import { useGlobalShortcuts, setHelpCallback } from '@/hooks/useKeyboardShortcuts'
+import { setHelpCallback, useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
 
 interface LayoutProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
-/* ============================================================
- * 导航数据 & 图标
- * ============================================================ */
+type SceneKey = 'origin' | 'archive' | 'field' | 'process'
 
-const RAIL_W_COLLAPSED = 64
-const RAIL_W_EXPANDED = 240
-
-const navIcons: Record<string, (active: boolean) => React.ReactNode> = {
-  '/': (active) => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={active ? 2 : 1.5}
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  ),
-  '/library': (active) => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={active ? 2 : 1.5}
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  ),
-  '/workspace': (active) => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={active ? 2 : 1.5}
-      strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="7" width="20" height="14" rx="2" />
-      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-      <line x1="2" y1="13" x2="22" y2="13" />
-    </svg>
-  ),
-  '/settings': (active) => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={active ? 2 : 1.5}
-      strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  ),
+interface RouteVisual {
+  index: string
+  route: string
+  scene: SceneKey
+  eyebrow: string
+  title: string
+  register: string
 }
 
 const primaryNav = [
-  { path: '/', label: '首页' },
-  { path: '/library', label: '论文库' },
-  { path: '/workspace', label: '工作区' },
-  { path: '/settings', label: '设置' },
-]
+  { path: '/', index: '00', label: '入口', register: 'ORIGIN' },
+  { path: '/library', index: '01', label: '论文库', register: 'ARCHIVE' },
+  { path: '/workspace', index: '02', label: '工作区', register: 'FIELD' },
+  { path: '/settings', index: '03', label: '设置', register: 'SYSTEM' },
+] as const
 
-const SEED_RADIUS = 'var(--seed-radius, 12px)'
-
-/* ============================================================
- * 左轨导航项 — 含 hover 反馈 + active 强调条 + 焦点光晕
- * ============================================================ */
-
-interface NavRailItemProps {
-  path: string
-  label: string
-  active: boolean
-  collapsed: boolean
-  onClick: (e: React.MouseEvent) => void
+function routeVisual(pathname: string): RouteVisual {
+  if (/^\/reader\//.test(pathname)) {
+    return { index: '04', route: 'reader', scene: 'field', eyebrow: 'PAPER / EVIDENCE SURFACE', title: '论文精读', register: 'READ—PLANE' }
+  }
+  if (/^\/code\//.test(pathname)) {
+    return { index: '05', route: 'code', scene: 'process', eyebrow: 'SOURCE / IMPLEMENTATION MAP', title: '源码分析', register: 'CODE—TRACE' }
+  }
+  if (/^\/workspace\/\d+\/research/.test(pathname)) {
+    return { index: '06', route: 'research', scene: 'field', eyebrow: 'RELATION / RESEARCH MODEL', title: '深度研究', register: 'GRAPH—FIELD' }
+  }
+  if (/^\/workspace\/\d+/.test(pathname)) {
+    return { index: '02', route: 'workspace-detail', scene: 'field', eyebrow: 'COLLECTION / READING FIELD', title: '工作区详情', register: 'SET—INDEX' }
+  }
+  if (pathname === '/library') {
+    return { index: '01', route: 'library', scene: 'archive', eyebrow: 'RECORD / PAPER ARCHIVE', title: '论文档案', register: 'ARCHIVE—PLANE' }
+  }
+  if (pathname === '/workspace') {
+    return { index: '02', route: 'workspace', scene: 'field', eyebrow: 'COLLECTION / RELATION FIELD', title: '研究工作区', register: 'FIELD—SET' }
+  }
+  if (pathname === '/settings') {
+    return { index: '03', route: 'settings', scene: 'process', eyebrow: 'PROTOCOL / SYSTEM CONTROL', title: '系统设置', register: 'CONTROL—AXIS' }
+  }
+  if (pathname === '/') {
+    return { index: '00', route: 'home', scene: 'origin', eyebrow: 'INPUT / RESEARCH ORIGIN', title: '论文研究入口', register: 'SOURCE—PLANE' }
+  }
+  return { index: '99', route: 'not-found', scene: 'archive', eyebrow: 'ROUTE / NOT REGISTERED', title: '未找到页面', register: 'NULL—POINT' }
 }
 
-function NavRailItem({ path, label, active, collapsed, onClick }: NavRailItemProps) {
-  const [hover, setHover] = useState(false)
-
-  const bg = active
-    ? 'var(--accent-subtle)'
-    : hover
-      ? 'var(--bg-elevated)'
-      : 'transparent'
-
-  return (
-    <Link
-      to={path}
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="focus-glow flex items-center gap-3 py-2.5 transition-all duration-200 press"
-      style={{
-        paddingLeft: collapsed ? 0 : 12,
-        paddingRight: collapsed ? 0 : 12,
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        color: active ? 'var(--accent)' : hover ? 'var(--text-primary)' : 'var(--text-secondary)',
-        backgroundColor: bg,
-        borderRadius: SEED_RADIUS,
-        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-        position: 'relative',
-      }}
-      title={collapsed ? label : undefined}
-      aria-current={active ? 'page' : undefined}
-    >
-      {/* Active 指示条 */}
-      {active && (
-        <span
-          className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full transition-all duration-200"
-          style={{
-            width: 3,
-            height: 20,
-            backgroundColor: 'var(--accent)',
-          }}
-        />
-      )}
-      <span className="shrink-0">
-        {navIcons[path]?.(active)}
-      </span>
-      <span
-        className="text-[13px] whitespace-nowrap transition-all duration-200"
-        style={{
-          fontWeight: active ? 500 : 400,
-          opacity: collapsed ? 0 : 1,
-          width: collapsed ? 0 : 'auto',
-          overflow: 'hidden',
-        }}
-      >
-        {label}
-      </span>
-    </Link>
-  )
+function isNavActive(path: string, pathname: string): boolean {
+  if (path === '/') return pathname === '/'
+  if (path === '/library') return pathname === '/library' || /^\/(reader|code)\//.test(pathname)
+  if (path === '/workspace') return pathname.startsWith('/workspace')
+  return pathname.startsWith(path)
 }
-
-/* ============================================================
- * 二级导航药丸 — hover/active/focus 三态清晰区分
- * ============================================================ */
-
-interface PillLinkProps {
-  to: string
-  active: boolean
-  state?: unknown
-  onClick?: (e: React.MouseEvent) => void
-  children: React.ReactNode
-}
-
-function PillLink({ to, active, state, onClick, children }: PillLinkProps) {
-  const [hover, setHover] = useState(false)
-  return (
-    <Link
-      to={to}
-      state={state}
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="focus-glow px-3 py-1.5 text-[13px] transition-all press"
-      style={
-        active
-          ? { backgroundColor: 'var(--accent)', color: '#fff', fontWeight: 500, borderRadius: SEED_RADIUS }
-          : {
-              color: hover ? 'var(--text-primary)' : 'var(--text-muted)',
-              backgroundColor: hover ? 'var(--accent-subtle)' : 'transparent',
-              borderRadius: SEED_RADIUS,
-            }
-      }
-      aria-current={active ? 'page' : undefined}
-    >
-      {children}
-    </Link>
-  )
-}
-
-interface BackLinkProps {
-  to: string
-  label: string
-  onClick: (e: React.MouseEvent) => void
-}
-
-function BackLink({ to, label, onClick }: BackLinkProps) {
-  const [hover, setHover] = useState(false)
-  return (
-    <Link
-      to={to}
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="focus-glow text-[12px] px-2 py-1 transition-all press"
-      style={{
-        color: hover ? 'var(--text-primary)' : 'var(--text-muted)',
-        backgroundColor: hover ? 'var(--accent-subtle)' : 'transparent',
-        borderRadius: SEED_RADIUS,
-      }}
-    >
-      {label} &rarr;
-    </Link>
-  )
-}
-
-/* ============================================================
- * 路由辅助
- * ============================================================ */
 
 function useCurrentPaperId(): number | null {
   const match = useLocation().pathname.match(/^\/(?:reader|code)\/(\d+)/)
@@ -214,245 +88,228 @@ function useCurrentPaperId(): number | null {
 }
 
 function useCurrentWorkspaceId(): number | null {
-  const m = useLocation().pathname.match(/^\/workspace\/(\d+)(?:\/|$)/)
-  return m ? Number(m[1]) : null
+  const match = useLocation().pathname.match(/^\/workspace\/(\d+)(?:\/|$)/)
+  return match ? Number(match[1]) : null
 }
 
-function isNavActive(path: string, pathname: string): boolean {
-  if (path === '/') return pathname === '/'
-  return pathname.startsWith(path)
+function useMotionPreference() {
+  const query = '(prefers-reduced-motion: reduce)'
+  const [systemReduced, setSystemReduced] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  const [override, setOverride] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = () => setSystemReduced(media.matches)
+    update()
+    media.addEventListener?.('change', update)
+    return () => media.removeEventListener?.('change', update)
+  }, [])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (override === null) {
+      root.removeAttribute('data-er-motion-override')
+    } else {
+      root.setAttribute('data-er-motion-override', override ? 'full' : 'reduced')
+    }
+
+    return () => root.removeAttribute('data-er-motion-override')
+  }, [override])
+
+  const enabled = override ?? !systemReduced
+  const toggle = useCallback(() => setOverride(current => !(current ?? !systemReduced)), [systemReduced])
+  return { enabled, source: override === null ? 'system' : 'user', toggle }
 }
 
-/* ============================================================
- * Layout
- * ============================================================ */
+/** Writes a decorative pointer aperture directly to CSS variables on one RAF. */
+function useGridPointer(rootRef: RefObject<HTMLDivElement>, enabled: boolean) {
+  useEffect(() => {
+    const root = rootRef.current
+    const finePointer = window.matchMedia('(pointer: fine)')
+    if (!root || !enabled || !finePointer.matches) return
+
+    let frame = 0
+    let nextX = window.innerWidth * 0.72
+    let nextY = window.innerHeight * 0.32
+
+    const commit = () => {
+      frame = 0
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const columns = width <= 700 ? 6 : width <= 1000 ? 8 : 12
+      const edge = width <= 700 ? 18 : Math.min(64, Math.max(22, width * 0.04))
+      const usableWidth = Math.max(1, width - edge * 2)
+      const xStep = usableWidth / columns
+      const yEdge = Math.min(36, Math.max(20, height * 0.03))
+      const usableHeight = Math.max(1, height - yEdge * 2)
+      const yStep = usableHeight / 8
+      const x = edge + Math.round((nextX - edge) / xStep) * xStep
+      const y = yEdge + Math.round((nextY - yEdge) / yStep) * yStep
+
+      root.style.setProperty('--er-pointer-x', `${Math.min(width - edge, Math.max(edge, x))}px`)
+      root.style.setProperty('--er-pointer-y', `${Math.min(height - yEdge, Math.max(yEdge, y))}px`)
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      nextX = event.clientX
+      nextY = event.clientY
+      if (!frame) frame = requestAnimationFrame(commit)
+    }
+
+    const onResize = () => {
+      if (!frame) frame = requestAnimationFrame(commit)
+    }
+
+    commit()
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('resize', onResize, { passive: true })
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [enabled, rootRef])
+}
+
+interface ContextLinkProps {
+  to: string
+  active: boolean
+  onClick?: (event: ReactMouseEvent) => void
+  children: ReactNode
+}
+
+function ContextLink({ to, active, onClick, children }: ContextLinkProps) {
+  return (
+    <Link className="er-context-link" data-active={active || undefined} aria-current={active ? 'page' : undefined} to={to} onClick={onClick}>
+      {children}
+    </Link>
+  )
+}
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const visual = useMemo(() => routeVisual(location.pathname), [location.pathname])
   const paperId = useCurrentPaperId()
-  const wsId = useCurrentWorkspaceId()
-  const [navCollapsed, setNavCollapsed] = useState(false)
-  const [collapseHover, setCollapseHover] = useState(false)
+  const workspaceId = useCurrentWorkspaceId()
+  const motion = useMotionPreference()
   const [showVersion, setShowVersion] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
   const pendingNavRef = useRef<string | null>(null)
   const pendingNavStateRef = useRef<unknown>(null)
 
-  const railW = navCollapsed ? RAIL_W_COLLAPSED : RAIL_W_EXPANDED
-
+  useGridPointer(rootRef, motion.enabled)
   useGlobalShortcuts(navigate)
 
-  // Register ? shortcut
-  const toggleShortcuts = useCallback(() => setShowShortcuts(v => !v), [])
+  const toggleShortcuts = useCallback(() => setShowShortcuts(value => !value), [])
   useEffect(() => {
     setHelpCallback(toggleShortcuts)
-    return () => { setHelpCallback(null) }
+    return () => setHelpCallback(null)
   }, [toggleShortcuts])
 
-  const toggleVersion = useCallback(() => setShowVersion(v => !v), [])
-  const closeVersion = useCallback(() => setShowVersion(false), [])
-
-  // Navigation guard for unsaved settings
-  const handleNavGuard = useCallback((target: string, e: React.MouseEvent, state?: unknown) => {
-    if (location.pathname.startsWith('/settings') && hasUnsavedConfig()) {
-      e.preventDefault()
-      pendingNavRef.current = target
-      pendingNavStateRef.current = state ?? null
-      setShowUnsavedConfirm(true)
-    }
+  const handleNavGuard = useCallback((target: string, event: ReactMouseEvent, state?: unknown) => {
+    if (!location.pathname.startsWith('/settings') || !hasUnsavedConfig()) return
+    event.preventDefault()
+    pendingNavRef.current = target
+    pendingNavStateRef.current = state ?? null
+    setShowUnsavedConfirm(true)
   }, [location.pathname])
 
-  // Secondary nav items
-  const secondaryItems: React.ReactNode[] = []
-
+  const contextItems: ReactNode[] = []
   if (paperId) {
     const fromPath = (location.state as { from?: string } | null)?.from
-    const wsMatch = fromPath?.match(/^\/workspace\/(\d+)/)
-    const backTo = wsMatch ? `/workspace/${wsMatch[1]}` : '/library'
-    const backLabel = wsMatch ? '返回工作区' : '返回论文库'
-
-    secondaryItems.push(
-      <div key="paper-tabs" className="flex items-center gap-0.5">
-        <PillLink
-          to={`/reader/${paperId}`}
-          state={location.state}
-          active={location.pathname.startsWith('/reader')}
-          onClick={(e) => handleNavGuard(`/reader/${paperId}`, e, location.state)}
-        >
-          论文分析
-        </PillLink>
-        <PillLink
-          to={`/code/${paperId}`}
-          state={location.state}
-          active={location.pathname.startsWith('/code')}
-          onClick={(e) => handleNavGuard(`/code/${paperId}`, e, location.state)}
-        >
-          源码分析
-        </PillLink>
-      </div>,
-      <span key="sep" className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border)' }} />,
-      <BackLink
-        key="back"
-        to={backTo}
-        onClick={(e) => handleNavGuard(backTo, e)}
-        label={backLabel}
-      />,
+    const workspaceMatch = fromPath?.match(/^\/workspace\/(\d+)/)
+    const backTo = workspaceMatch ? `/workspace/${workspaceMatch[1]}` : '/library'
+    contextItems.push(
+      <ContextLink key="reader" to={`/reader/${paperId}`} active={location.pathname.startsWith('/reader')} onClick={event => handleNavGuard(`/reader/${paperId}`, event, location.state)}>论文分析</ContextLink>,
+      <ContextLink key="code" to={`/code/${paperId}`} active={location.pathname.startsWith('/code')} onClick={event => handleNavGuard(`/code/${paperId}`, event, location.state)}>源码分析</ContextLink>,
+      <span className="er-context-divider" key="divider" aria-hidden="true" />,
+      <ContextLink key="back" to={backTo} active={false} onClick={event => handleNavGuard(backTo, event)}>{workspaceMatch ? '返回工作区' : '返回论文库'} ↑</ContextLink>,
     )
-  }
-
-  if (wsId && !paperId) {
-    secondaryItems.push(
-      <PillLink
-        key="ws-detail"
-        to={`/workspace/${wsId}`}
-        active={location.pathname === `/workspace/${wsId}`}
-      >
-        论文列表
-      </PillLink>,
-      <PillLink
-        key="ws-research"
-        to={`/workspace/${wsId}/research`}
-        active={location.pathname.includes('/research')}
-      >
-        深度研究
-      </PillLink>,
+  } else if (workspaceId) {
+    contextItems.push(
+      <ContextLink key="detail" to={`/workspace/${workspaceId}`} active={location.pathname === `/workspace/${workspaceId}`}>论文集合</ContextLink>,
+      <ContextLink key="research" to={`/workspace/${workspaceId}/research`} active={location.pathname.includes('/research')}>深度研究</ContextLink>,
     )
   }
 
   return (
     <ThemeProvider>
-      <div className="flex h-screen relative overflow-hidden" style={{ backgroundColor: 'var(--bg-base)' }}>
+      <div
+        ref={rootRef}
+        className="er-experience"
+        data-scene={visual.scene}
+        data-route={visual.route}
+        data-motion={motion.enabled ? 'full' : 'reduced'}
+        data-motion-source={motion.source}
+      >
+        <a className="er-skip-link" href="#er-main-content">跳到主要内容</a>
 
-        {/* 极光环境背景 */}
-        <div className="app-aurora" aria-hidden="true" />
+        <div className="er-route-wipe" aria-hidden="true"><span /></div>
+        <div className="er-pointer-aperture" aria-hidden="true" />
+        <div className="er-spatial" aria-hidden="true">
+          <i className="er-spatial__mass" />
+          <i className="er-spatial__bar" />
+          <i className="er-spatial__axis" />
+          <span>{visual.register}</span>
+        </div>
 
-        {/* ── 左轨导航 ── */}
-        <nav
-          className="shrink-0 flex flex-col transition-[width] duration-300 relative z-10"
-          style={{
-            width: railW,
-            backgroundColor: 'var(--bg-surface)',
-            borderRight: '1px solid var(--border)',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-          }}
-        >
-          {/* Logo */}
-          <button
-            onClick={toggleVersion}
-            aria-label="Easy Essay"
-            className="focus-glow flex items-center gap-2.5 p-4 cursor-pointer transition-opacity hover:opacity-80 press"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-primary)',
-              justifyContent: navCollapsed ? 'center' : 'flex-start',
-              borderRadius: SEED_RADIUS,
-            }}
-          >
-            <img
-              src="/logo.jpg"
-              alt="Easy Essay"
-              className="w-8 h-8 rounded-lg object-cover shrink-0"
-              style={{
-                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-              }}
-            />
-            <span
-              className="text-[15px] font-semibold whitespace-nowrap transition-all duration-200"
-              style={{
-                opacity: navCollapsed ? 0 : 1,
-                width: navCollapsed ? 0 : 'auto',
-                overflow: 'hidden',
-                letterSpacing: '-0.01em',
-              }}
-            >
-              Easy Essay
-            </span>
+        <header className="er-masthead">
+          <button className="er-brand" type="button" onClick={() => setShowVersion(true)} aria-label="查看 Easy Essay 版本信息">
+            <span className="er-brand__mark" aria-hidden="true">ER</span>
+            <span><strong>EASY ESSAY</strong><small>RESEARCH INTELLIGENCE</small></span>
           </button>
-
-          {/* 分割线 */}
-          <div className="mx-4 my-1" style={{ height: 1, backgroundColor: 'var(--border)' }} />
-
-          {/* 导航项 */}
-          <div className="flex-1 py-2 px-2 space-y-0.5">
-            {primaryNav.map(item => (
-              <NavRailItem
-                key={item.path}
-                path={item.path}
-                label={item.label}
-                active={isNavActive(item.path, location.pathname)}
-                collapsed={navCollapsed}
-                onClick={(e) => handleNavGuard(item.path, e)}
-              />
-            ))}
+          <div className="er-route-meta">
+            <span>{visual.eyebrow}</span>
+            <strong>{visual.title}</strong>
           </div>
+          <button className="er-motion-control" type="button" aria-pressed={motion.enabled} onClick={motion.toggle}>
+            <i aria-hidden="true" />
+            <span>MOTION</span>
+            <strong>{motion.enabled ? 'ACTIVE' : 'PAUSED'}</strong>
+          </button>
+        </header>
 
-          {/* 收起/展开按钮 */}
-          <div className="p-3 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-            <button
-              onClick={() => setNavCollapsed(v => !v)}
-              onMouseEnter={() => setCollapseHover(true)}
-              onMouseLeave={() => setCollapseHover(false)}
-              aria-label={navCollapsed ? '展开侧边栏' : '收起侧边栏'}
-              aria-expanded={!navCollapsed}
-              className="focus-glow w-full flex items-center justify-center p-2 transition-all press"
-              style={{
-                color: collapseHover ? 'var(--text-primary)' : 'var(--text-muted)',
-                backgroundColor: collapseHover ? 'var(--bg-elevated)' : 'transparent',
-                borderRadius: SEED_RADIUS,
-              }}
-              title={navCollapsed ? '展开侧边栏' : '收起侧边栏'}
-            >
-              <svg
-                className="transition-transform duration-300"
-                style={{
-                  transform: navCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                }}
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
+        <aside className="er-route-rail" aria-hidden="true">{visual.index} / {visual.route.toUpperCase()}</aside>
+
+        <div className="er-content">
+          <div className="er-registration-strip">
+            <span>{visual.index}—{visual.register}</span>
+            {contextItems.length > 0 && <nav className="er-context-nav" aria-label="当前内容导航">{contextItems}</nav>}
+            <span>CN / 31.2304°N</span>
           </div>
-        </nav>
-
-        {/* ── 内容区 ── */}
-        <div className="flex-1 flex flex-col min-w-0 relative z-10">
-          {/* 二级导航 — 浮动药丸工具栏 */}
-          {secondaryItems.length > 0 && (
-            <div className="flex justify-center pt-3 shrink-0" style={{ zIndex: 20 }}>
-              <div
-                className="glass-toolbar flex items-center gap-1 px-1.5 py-1"
-                style={{ borderRadius: 'var(--seed-radius, 12px)' }}
-              >
-                {secondaryItems}
-              </div>
-            </div>
-          )}
-
-          {/* 页面内容 */}
-          <main className="flex-1 overflow-auto">
-            {children}
+          <main id="er-main-content" className="er-main" tabIndex={-1}>
+            <div className="er-page-stage" key={location.pathname}>{children}</div>
           </main>
-
-          {/* 底部终端面板 */}
           <TerminalPanel />
         </div>
 
-        {/* 版本信息弹窗 */}
-        {showVersion && <VersionPopup onClose={closeVersion} />}
+        <nav className="er-primary-nav" aria-label="主要导航">
+          {primaryNav.map(item => {
+            const active = isNavActive(item.path, location.pathname)
+            return (
+              <Link
+                key={item.path}
+                className="er-nav-item"
+                data-active={active || undefined}
+                aria-current={active ? 'page' : undefined}
+                to={item.path}
+                onClick={event => handleNavGuard(item.path, event)}
+              >
+                <span>{item.index}</span>
+                <strong>{item.label}</strong>
+                <small>{item.register}</small>
+              </Link>
+            )
+          })}
+        </nav>
 
-        {/* 快捷键帮助 */}
+        {showVersion && <VersionPopup onClose={() => setShowVersion(false)} />}
         <ShortcutHelp open={showShortcuts} onClose={toggleShortcuts} />
-
-        {/* 未保存配置确认 */}
         <ConfirmDialog
           open={showUnsavedConfirm}
           title="未保存的更改"

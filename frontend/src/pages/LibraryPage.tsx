@@ -253,7 +253,7 @@ export default function LibraryPage() {
   }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
 
   return (
-    <div className="max-w-5xl mx-auto h-full flex flex-col">
+    <div className="er-page er-page--library max-w-5xl mx-auto h-full flex flex-col">
       {/* Header */}
       <div className="px-8 pt-8 pb-3 flex items-center justify-between gap-3 shrink-0">
         <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>

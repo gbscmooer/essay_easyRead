@@ -23,6 +23,7 @@ import { createBrowserRouter, Outlet, useLocation } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ToastContainer } from '@/components/ToastContainer'
 import { PageErrorBoundary } from '@/components/PageErrorBoundary'
+import { LoadingSpinner } from '@/ds-entry'
 
 const HomePage = React.lazy(() => import('@/pages/HomePage'))
 const ReaderPage = React.lazy(() => import('@/pages/ReaderPage'))
@@ -36,11 +37,9 @@ const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'))
 
 function LoadingFallback() {
   return (
-    <div className="flex items-center justify-center h-64">
-      <div
-        className="w-8 h-8 border-2 rounded-full animate-spin"
-        style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }}
-      />
+    <div className="er-route-loading" role="status" aria-label="页面加载中">
+      <LoadingSpinner size="lg" />
+      <span>REGISTERING ROUTE</span>
     </div>
   )
 }
@@ -49,7 +48,7 @@ function LoadingFallback() {
 function RouteTransition() {
   const location = useLocation()
   return (
-    <div key={location.pathname} className="h-full animate-reveal-fade">
+    <div key={location.pathname} className="h-full">
       <Outlet />
     </div>
   )

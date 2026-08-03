@@ -186,7 +186,7 @@ export default function ReaderPage() {
   const pdfUrl = paperId ? `/api/papers/${paperId}/pdf` : ''
 
   return (
-    <div ref={containerRef} className="flex h-full relative">
+    <div ref={containerRef} className="er-page er-page--reader flex h-full relative">
       {/* Sidebar overlay */}
       {sidebarOpen && !focusMode && (
         <div

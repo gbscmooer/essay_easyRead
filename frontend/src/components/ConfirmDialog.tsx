@@ -1,7 +1,7 @@
 /**
  * ConfirmDialog 通用确认弹窗
  *
- * 磨砂玻璃遮罩 + 表面提升卡片 + 药丸/幽灵按钮组合。
+ * 硬边注册遮罩 + 语义确认平面。
  * 支持 danger/warning 变体，含焦点捕获和 Escape 关闭。
  */
 
@@ -92,12 +92,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center animate-reveal-fade"
-      style={{
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-      }}
+      className="er-dialog-backdrop"
       onMouseDown={onCancel}
       role="dialog"
       aria-modal="true"
@@ -105,85 +100,40 @@ export function ConfirmDialog({
     >
       <div
         ref={cardRef}
-        className="w-[340px] p-6 shadow-2xl animate-reveal-scale"
-        style={{
-          backgroundColor: 'var(--bg-elevated)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--seed-radius, 12px)',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.16), 0 8px 16px rgba(0,0,0,0.08)',
-        }}
+        className="er-dialog-plane"
+        data-variant={variant}
         onMouseDown={e => e.stopPropagation()}
       >
-        {/* Header: icon + text */}
-        <div className="flex items-start gap-3.5 mb-5">
-          <span
-            className="shrink-0 mt-0.5 flex items-center justify-center w-9 h-9 rounded-full"
-            style={{
-              color: ICON_COLORS[variant],
-              backgroundColor: variant === 'danger' ? 'var(--error-subtle)' : 'var(--warning-subtle)',
-            }}
-          >
+        <span className="er-dialog-code">CONFIRM / {variant.toUpperCase()}</span>
+        <div className="er-dialog-heading">
+          <span className="er-dialog-icon" style={{ color: ICON_COLORS[variant] }}>
             {ICONS[variant]}
           </span>
-          <div className="flex-1 min-w-0">
+          <div>
             <p
               id="confirm-dialog-title"
-              className="text-[14px] font-medium mb-1.5"
-              style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}
+              className="er-dialog-title"
             >
               {title}
             </p>
-            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            <p className="er-dialog-message">
               {message}
             </p>
           </div>
         </div>
 
-        {/* Actions: ghost cancel + pill confirm */}
-        <div className="flex justify-end gap-2.5">
+        <div className="er-dialog-actions">
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="press focus-glow px-4 py-2 text-[13px] rounded-full transition-all duration-200"
-            style={{
-              color: 'var(--text-secondary)',
-              backgroundColor: 'transparent',
-              border: '1px solid var(--border)',
-              cursor: 'pointer',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = 'var(--bg-surface)'
-              e.currentTarget.style.borderColor = 'var(--border-light)'
-              e.currentTarget.style.color = 'var(--text-primary)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = 'transparent'
-              e.currentTarget.style.borderColor = 'var(--border)'
-              e.currentTarget.style.color = 'var(--text-secondary)'
-            }}
+            className="er-dialog-action"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className="press focus-glow px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200"
-            style={{
-              backgroundColor: variant === 'danger' ? 'var(--error)' : 'var(--accent)',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.filter = 'brightness(1.08)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.16)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.filter = 'none'
-              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)'
-            }}
+            className="er-dialog-action er-dialog-action--confirm"
+            data-variant={variant}
           >
             {confirmLabel}
           </button>

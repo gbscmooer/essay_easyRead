@@ -1,5 +1,5 @@
 /**
- * 主题系统 — Seed Token 架构
+ * 主题系统 — 构成主义 Seed Token 架构
  *
  * 6 个 seed token 派生出全部 CSS 变量。
  * Light / Dark 两个内置预设，用户可在此基础上自定义。
@@ -109,9 +109,9 @@ function seedsToColors(seeds: SeedTokens): ThemeColors {
     text_secondary: dark ? mixHex(seeds.fg, seeds.bg, 0.25) : mixHex(seeds.fg, '#ffffff', 0.20),
     text_muted: seeds.muted,
     accent: seeds.accent,
-    success: dark ? '#22c55e' : '#16a34a',
-    warning: dark ? '#eab308' : '#ca8a04',
-    error: dark ? '#ef4444' : '#dc2626',
+    success: dark ? '#7f9f76' : '#557a55',
+    warning: '#d3a52f',
+    error: '#d94a38',
   }
 }
 
@@ -123,7 +123,7 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
     surface: c.bg_surface,
     accent: c.accent,
     muted: c.text_muted,
-    radius: 12,
+    radius: 0,
   }
 }
 
@@ -131,29 +131,29 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
  * 内置预设
  * ============================================================ */
 
-// Claude 暖纸 — 默认外观：暖米白纸感 + 黏土橙强调（对齐 claude.ai/design 编辑风）
+// Experience Lab 构成主义纸面：暖纸、钴蓝、信号红与硬边几何。
 const LIGHT_SEEDS: SeedTokens = {
-  bg: '#f5f3ec',
-  fg: '#2b2722',
-  surface: '#fcfbf7',
-  accent: '#cc785c',
-  muted: '#8a8478',
-  radius: 12,
+  bg: '#eee9dd',
+  fg: '#17181b',
+  surface: '#f7f2e7',
+  accent: '#3969a8',
+  muted: '#707574',
+  radius: 0,
 }
 
 const DARK_SEEDS: SeedTokens = {
-  bg: '#0c0c0e',
-  fg: '#f0f0f0',
-  surface: '#1a1a1c',
-  accent: '#60a5fa',
-  muted: '#707070',
-  radius: 12,
+  bg: '#17181b',
+  fg: '#f7f2e7',
+  surface: '#222329',
+  accent: '#5f83b5',
+  muted: '#9a9d99',
+  radius: 0,
 }
 
 export const BUILTIN_THEMES: Theme[] = [
   {
     id: 'light',
-    name: 'Claude 暖纸',
+    name: '构成纸面',
     builtin: true,
     seeds: LIGHT_SEEDS,
     colors: seedsToColors(LIGHT_SEEDS),
@@ -196,6 +196,7 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
   // 缺省时（如仅传种子）从种子派生。seeds 仍提供 --seed-* 原始令牌与 radius。
   const c = colors ?? seedsToColors(seeds)
   const dark = luminance(c.bg_base) < 0.5
+  const [accentR, accentG, accentB] = hexToRgb(c.accent)
 
   return {
     // Seed tokens (raw)——跟随有效颜色，避免自定义主题改色后漂移
@@ -203,6 +204,7 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
     '--seed-fg': c.text_primary,
     '--seed-surface': c.bg_surface,
     '--seed-accent': c.accent,
+    '--seed-accent-rgb': `${accentR}, ${accentG}, ${accentB}`,
     '--seed-muted': c.text_muted,
     '--seed-radius': `${seeds.radius}px`,
 
@@ -219,6 +221,7 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
     '--text-primary': c.text_primary,
     '--text-secondary': c.text_secondary,
     '--text-muted': c.text_muted,
+    '--text-disabled': dark ? '#666970' : '#9b9b92',
 
     // Accent + subtle variants
     '--accent': c.accent,
@@ -234,7 +237,27 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
 
     // Code area
     '--code-bg': dark ? '#1e1e2e' : '#f6f8fa',
+    '--code-sidebar-bg': dark ? '#1e1e2e' : '#f6f8fa',
     '--code-fg': dark ? '#cdd6f4' : '#1f2328',
+    '--code-text': dark ? '#cccccc' : '#24292f',
+    '--code-text-muted': dark ? '#6a737d' : '#656d76',
+    '--code-text-bright': dark ? '#e8e8e8' : '#1b1f23',
+    '--code-selection': dark ? '#094771' : '#b6d7ff',
+    '--code-hover': dark ? '#2a2d2e' : '#e8e8e8',
+    '--code-border': dark ? '#404040' : '#d0d7de',
+    '--code-folder': dark ? '#dcb67a' : '#9a6700',
+
+    // Structural palette consumed by the migrated experience shell.
+    '--paper': dark ? '#17181b' : '#eee9dd',
+    '--paper-bright': dark ? '#222329' : '#f7f2e7',
+    '--ink': dark ? '#f7f2e7' : '#17181b',
+    '--void': '#17181b',
+    '--blue': dark ? '#5f83b5' : '#3969a8',
+    '--blue-deep': '#292b55',
+    '--signal': '#d94a38',
+    '--red': '#d94a38',
+    '--ochre': '#d3a52f',
+    '--gray': '#8f9594',
   }
 }
 

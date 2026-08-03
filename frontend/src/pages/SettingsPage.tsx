@@ -318,7 +318,7 @@ export function SettingsPage() {
   const allConfigured = translateOk && analysisOk
 
   return (
-    <div className="max-w-2xl mx-auto px-8 py-10">
+    <div className="er-page er-page--settings max-w-2xl mx-auto px-8 py-10">
       {/* Header + Tab Bar */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>

@@ -326,6 +326,67 @@ MCP 工具：
 - `TerminalPanel`
 - `VersionPopup`
 
+### 6.3 视觉呈现分层
+
+- `main.tsx` 按 `globals.css -> experience.css -> pages.css` 的顺序加载全局样式；`HomePage` 在路由模块内单独加载 `home.css`，版本信息、Toast、快捷键帮助和 Tooltip 共享按组件加载的 `overlays.css`。
+- `globals.css` 定义基础令牌、元素基线、旧业务组件继续使用的语义变量和通用 reduced-motion 降级规则。
+- `experience.css` 定义应用壳层、主导航、上下文导航、路由登记信息、对话框、加载状态、场景几何和全局响应式网格。
+- `pages.css` 以 `er-page--*` 路由根类重排 `LibraryPage`、`WorkspacePage`、`WorkspaceDetailPage`、`SettingsPage`、`ReaderPage`、`CodePage`、`ResearchPage` 和 `NotFoundPage` 的生产页面表面，不改变页面组件的业务属性和事件契约。
+- `home.css` 只负责 `HomePage` 与 `UploadZone` 的 Origin 输入面、统计登记带、最近论文、快捷入口和最近工作区布局。
+- `overlays.css` 只负责版本登记平面、系统通知登记条、快捷键登记表和 Portal Tooltip；对应组件继续独立处理焦点捕获、Escape、延时和关闭行为。
+- 呈现层使用暖纸、墨黑、钴蓝、信号红、赭黄、硬边界与登记线；应用壳层统一移除圆角、阴影、玻璃模糊、发光和文字渐变。装饰几何使用 `aria-hidden`，主要内容、导航和操作继续使用语义 DOM。
+- 宽度大于 `1000px` 时使用 12 栏；`<=1000px` 使用 8 栏；`<=700px` 使用 6 栏。壳层、首页和路由页面在同一组断点分别处理栏位、边距、导航密度及 Reader/Code/Research 工作面。
+
+### 6.4 路由视觉状态
+
+`Layout` 保持业务路由不变，并将 `location.pathname` 转换为只供呈现层消费的 `data-scene`、`data-route`、路由编号和登记文本：
+
+| 路径 | `data-route` | `data-scene` | 编号 |
+|---|---|---|---|
+| `/` | `home` | `origin` | `00` |
+| `/library` | `library` | `archive` | `01` |
+| `/workspace` | `workspace` | `field` | `02` |
+| `/workspace/:id` | `workspace-detail` | `field` | `02` |
+| `/workspace/:id/research` | `research` | `field` | `06` |
+| `/reader/:id` | `reader` | `field` | `04` |
+| `/code/:id` | `code` | `process` | `05` |
+| `/settings` | `settings` | `process` | `03` |
+| 未匹配路由 | `not-found` | `archive` | `99` |
+
+- `data-scene` 选择共享空间质量体、轴线和指针孔径变体；`data-route` 选择具体页面工作面。两者不写入论文、工作区、解析或研究状态。
+- 论文路由保留 Reader/Code 上下文切换与来源工作区返回路径；工作区详情保留论文集合/深度研究上下文切换。
+- 设置页未保存离开守卫、全局快捷键、终端面板、版本信息、Toast、错误边界和懒加载路由继续由原组件负责。
+
+### 6.5 主题与 Motion 数据流
+
+```text
+UIConfig.theme / custom_themes / font
+  -> ThemeProvider
+  -> resolveTheme + applyTheme
+  -> <html> CSS 变量 + data-theme + data-mode + --font-ui
+  -> globals / experience / pages / home 呈现层
+
+location.pathname
+  -> Layout.routeVisual
+  -> data-scene + data-route
+  -> 场景几何、登记信息与路由工作面
+
+系统 prefers-reduced-motion + 页面内 Motion 覆盖
+  -> data-motion(full|reduced) + data-motion-source(system|user)
+  -> CSS 动画降级 + 指针 RAF 启停
+```
+
+- 主题以 `bg/fg/surface/accent/muted/radius` 六个 seed token 为输入，派生原有背景、边界、文字、状态和代码区变量，同时输出 `--paper`、`--ink`、`--blue`、`--signal`、`--ochre` 等迁移后的结构色别名；`ThemeColors` 继续作为旧消费方的兼容契约。
+- 内置主题为 `light`（构成纸面，默认）和 `dark`；两个内置主题的 `radius` 均为 `0`。自定义主题仍通过 `custom:<id>` 解析，字体仍由 UI 配置注入。
+- Motion 默认跟随系统偏好，用户操作在当前 `Layout` 生命周期内设置覆盖状态。`data-motion="reduced"` 与 `prefers-reduced-motion: reduce` 都会停止或压缩主要动画并隐藏路由切场与指针孔径；系统媒体查询保留最终 CSS 降级。
+- 细指针且 Motion 有效时，`pointermove` 由单个 `requestAnimationFrame` 合并，按 12/8/6 栏和 8 行吸附后直接写入 `--er-pointer-x/y`，不逐帧触发 React state；resize 会重新量化，卸载会取消 RAF 和监听。粗指针设备隐藏该装饰层。
+
+### 6.6 视觉迁移业务边界
+
+- React Router 路径、页面懒加载、`api/` 请求封装、请求参数、响应类型和后端状态码契约不因视觉迁移改变；迁移不新增接口，也不让 CSS 或装饰层发起网络请求。
+- 首页继续通过 `listPapers`、`listWorkspaces` 读取真实数据，通过 `uploadPaperWithProgress` 上传 PDF，并在成功后进入 `/reader/:id` 的自动分析流程。文件类型、50 MB 上限、上传进度和错误反馈继续由上传组件及页面状态处理。
+- Reader 的 PDF、解析、笔记、标签和标注，Code 的仓库与终端，Research 的图谱、SSE 与 RAG，以及系统 WebSocket 仍由原有页面、feature、hook 和 API 模块管理；呈现层只消费其既有 DOM 状态与 CSS 类。
+
 ## 7. 深度研究评测验收（P9）
 
 离线 mock 评测位于 `backend/tests/evaluation/deep_research/`，文档见 `docs/DEEP_RESEARCH_EVAL.md`。

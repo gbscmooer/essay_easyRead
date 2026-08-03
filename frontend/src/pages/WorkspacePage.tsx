@@ -88,7 +88,7 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-8 py-10">
+    <div className="er-page er-page--workspace max-w-5xl mx-auto px-8 py-10">
       {/* 标题 + 统计 */}
       <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
         <div>

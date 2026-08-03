@@ -1,0 +1,788 @@
+/* Route-specific production surfaces. Business components keep their original
+ * contracts; this layer replaces their former card/pill presentation. */
+
+.er-page::after {
+  position: absolute;
+  z-index: 0;
+  top: 18px;
+  right: var(--er-edge);
+  color: var(--er-muted);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: .18em;
+  pointer-events: none;
+}
+
+.er-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+.er-page--library::after { content: 'ARCHIVE / INDEX—01'; }
+.er-page--workspace::after { content: 'RELATION / FIELD—02'; }
+.er-page--workspace-detail::after { content: 'COLLECTION / SET—02'; }
+.er-page--settings::after { content: 'PROTOCOL / CONTROL—03'; }
+.er-page--not-found::after { content: 'NULL / ROUTE—99'; }
+
+/* Shared hard-edge controls ------------------------------------------------ */
+
+.er-page :where(button, a)[style*='backgroundColor: var(--accent)'],
+.er-page :where(button, a)[style*='background-color: var(--accent)'] {
+  color: #f7f2e7 !important;
+  background: var(--er-blue) !important;
+}
+
+.er-page :where(button, a):not(:disabled) {
+  cursor: pointer;
+}
+
+.er-page :where(button[class*='px-'], a[class*='px-']) {
+  min-height: 34px;
+}
+
+.er-page :where(button[class*='px-'], a[class*='px-']):is(:hover, :focus-visible) {
+  border-color: var(--er-ink) !important;
+}
+
+.er-page mark {
+  padding: 0 2px !important;
+  color: #17181b !important;
+  background: var(--er-ochre) !important;
+}
+
+.er-page :where([class*='rounded-full'], [class*='rounded-lg'], [class*='rounded-xl'], [class*='rounded-2xl'], [class*='rounded-3xl']) {
+  border-radius: 0 !important;
+}
+
+/* Archive / library ------------------------------------------------------- */
+
+.er-page--library {
+  min-height: 0;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.er-page--library > div:first-child {
+  min-height: 112px;
+  padding: 34px 0 18px !important;
+  border-bottom: 6px solid var(--er-red);
+}
+
+.er-page--library > div:first-child h1 {
+  font-size: clamp(42px, 6vw, 86px) !important;
+}
+
+.er-page--library > div:first-child button {
+  min-height: 40px;
+  padding-inline: 16px !important;
+  border: 1px solid var(--er-ink) !important;
+  color: var(--er-paper-bright) !important;
+  background: #17181b !important;
+  font-size: var(--fs-ui) !important;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.er-page--library > div:nth-child(2) {
+  min-height: 0;
+}
+
+.er-page--library > div:nth-child(2) > div:first-child {
+  position: sticky;
+  top: 0;
+  padding: 18px 0 !important;
+  border-bottom: 1px solid var(--er-ink) !important;
+  background: var(--er-paper) !important;
+}
+
+.er-page--library > div:nth-child(2) > div:first-child > div {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) repeat(5, auto);
+  gap: 8px;
+}
+
+.er-page--library > div:nth-child(2) > div:first-child label {
+  min-height: 40px;
+  border: 1px solid var(--er-hairline) !important;
+  background: transparent !important;
+  font-size: var(--fs-meta) !important;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.er-page--library > div:nth-child(2) > .flex-1 {
+  padding: 0 !important;
+  counter-reset: archive-row;
+}
+
+.er-page--library > div:nth-child(2) > .flex-1 > [role='button'] {
+  counter-increment: archive-row;
+  min-height: 92px;
+  padding: 18px 118px 18px 58px !important;
+}
+
+.er-page--library > div:nth-child(2) > .flex-1 > [role='button']::after {
+  position: absolute;
+  top: 20px;
+  left: 8px;
+  color: var(--er-muted);
+  content: counter(archive-row, decimal-leading-zero);
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.er-page--library > div:nth-child(2) > div:last-of-type {
+  border-top-color: var(--er-ink) !important;
+}
+
+.er-page--library > div:last-child {
+  padding: 20px 0 32px !important;
+}
+
+/* Workspace field -------------------------------------------------------- */
+
+.er-page--workspace,
+.er-page--workspace-detail,
+.er-page--settings {
+  isolation: isolate;
+}
+
+.er-page--workspace::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  width: min(34vw, 410px);
+  height: 194px;
+  background: var(--er-blue);
+  content: '';
+  opacity: .16;
+}
+
+.er-page--workspace > div:first-child {
+  min-height: 150px;
+  margin-bottom: 0 !important;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--er-ink);
+}
+
+.er-page--workspace > div:first-child h1 {
+  font-size: clamp(46px, 7vw, 96px) !important;
+}
+
+.er-page--workspace > div:nth-child(2) {
+  gap: 0 !important;
+  margin-bottom: 22px !important;
+  border: 1px solid var(--er-ink);
+  border-left: 7px solid var(--er-red);
+}
+
+.er-page--workspace > div:nth-child(2) input {
+  min-height: 52px;
+  border: 0 !important;
+  padding-inline: 18px !important;
+}
+
+.er-page--workspace > div:nth-child(2) button {
+  align-self: stretch;
+  min-width: 150px;
+  border: 0 !important;
+  border-left: 1px solid var(--er-ink) !important;
+  color: #f7f2e7 !important;
+  background: var(--er-blue) !important;
+  font-size: var(--fs-ui) !important;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.er-page--workspace > .stagger {
+  border-top: 5px solid var(--er-ink);
+}
+
+.er-page--workspace > .stagger > [role='button'] {
+  min-height: 98px;
+  padding: 20px 0 !important;
+}
+
+.er-page--workspace > .stagger > [role='button'] > span:first-of-type {
+  width: 50px !important;
+  height: 50px !important;
+  border: 1px solid var(--er-blue);
+  color: var(--er-blue) !important;
+  background: transparent !important;
+  font-family: Arial, sans-serif;
+  font-size: 22px !important;
+  font-weight: 900 !important;
+}
+
+.er-page--workspace > .stagger h3 {
+  font-size: clamp(17px, 2vw, 24px) !important;
+  font-weight: 800 !important;
+}
+
+/* Workspace detail — continuous dossier plane. */
+.er-page--workspace-detail {
+  max-width: 1180px !important;
+  margin-inline: auto !important;
+}
+
+.er-page--workspace-detail > a:first-child {
+  padding: 8px 0;
+  border-bottom: 1px solid currentColor;
+  font-size: var(--fs-ui) !important;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.er-page--workspace-detail > div:nth-child(2) {
+  min-height: 130px;
+  margin-bottom: 22px !important;
+  padding: 24px 0;
+  border-bottom: 6px solid var(--er-blue);
+}
+
+.er-page--workspace-detail > div:nth-child(2) h1 {
+  font-size: clamp(40px, 6vw, 82px) !important;
+}
+
+.er-page--workspace-detail > div:nth-child(3) {
+  gap: 0 !important;
+  border: 1px solid var(--er-ink);
+}
+
+.er-page--workspace-detail > div:nth-child(3) > button {
+  min-height: 62px;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.er-page--workspace-detail > div:nth-child(3) > button + button {
+  border-left: 1px solid var(--er-ink) !important;
+  color: #f7f2e7 !important;
+  background: var(--er-blue) !important;
+}
+
+.er-page--workspace-detail > div:nth-child(3) > button[style*='linear-gradient'] {
+  background: var(--er-blue) !important;
+}
+
+.er-page--workspace-detail :where(.space-y-2\.5 > *, .space-y-4 > *) {
+  border-radius: 0 !important;
+}
+
+/* Process / settings ----------------------------------------------------- */
+
+.er-page--settings {
+  max-width: 980px !important;
+  margin-inline: auto !important;
+}
+
+.er-page--settings > div:first-child {
+  align-items: end !important;
+  min-height: 112px;
+  margin-bottom: 24px !important;
+  padding-bottom: 18px;
+  border-bottom: 6px solid var(--er-red);
+}
+
+.er-page--settings > div:first-child h1 {
+  font-size: clamp(42px, 6vw, 82px) !important;
+}
+
+.er-page--settings > div:first-child > div,
+.er-page--settings > div:first-child > div > div {
+  gap: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--er-ink);
+  background: transparent !important;
+}
+
+.er-page--settings > div:first-child button {
+  min-height: 40px;
+  border: 0 !important;
+  background: transparent !important;
+  font-size: var(--fs-ui) !important;
+  font-weight: 800 !important;
+  letter-spacing: .08em;
+}
+
+.er-page--settings > div:first-child button + button {
+  border-left: 1px solid var(--er-ink) !important;
+}
+
+.er-page--settings > div:first-child button[style*='var(--accent)'] {
+  color: #f7f2e7 !important;
+  background: #17181b !important;
+}
+
+.er-page--settings :where(.panel-section, section) > h2,
+.er-page--settings :where(.panel-section, section) > div:first-child h2 {
+  font-family: Arial, 'PingFang SC', sans-serif;
+  font-weight: 900;
+}
+
+.er-page--settings > div:last-child {
+  position: sticky;
+  bottom: 0;
+  margin-top: 28px;
+  padding: 16px 0 !important;
+  border-top: 1px solid var(--er-ink);
+  background: var(--er-paper);
+}
+
+.er-page--settings > div:last-child > button {
+  min-height: 46px;
+  min-width: 180px;
+  color: #f7f2e7 !important;
+  background: var(--er-blue) !important;
+  font-size: var(--fs-ui) !important;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+/* Reader — paper plane and evidence plane ------------------------------- */
+
+.er-page--reader {
+  --reader-toolbar: 45px;
+  color: var(--er-ink);
+  background: var(--er-blue-deep);
+}
+
+.er-page--reader > div:nth-last-child(3):not([class*='cursor-col-resize']),
+.er-page--reader > div.flex-1 {
+  background: var(--er-blue-deep);
+}
+
+.er-page--reader > div.flex-1 > div:first-child {
+  min-height: var(--reader-toolbar);
+  border-bottom: 1px solid #17181b !important;
+  color: #f7f2e7;
+  background: #17181b !important;
+}
+
+.er-page--reader > div.flex-1 > div:first-child button {
+  /* inherit 而非硬编码米白：父级背景规则若未命中，前景会跟着回到墨色，
+     不会出现浅底浅字。 */
+  color: inherit !important;
+}
+
+.er-page--reader > div.flex-1 > div:last-child {
+  padding: 10px !important;
+}
+
+.er-page--reader > .cursor-col-resize {
+  width: 5px !important;
+  background: var(--er-red) !important;
+}
+
+.er-page--reader > .overflow-auto.shrink-0 {
+  border-left: 1px solid #17181b;
+  background: var(--er-paper-bright) !important;
+}
+
+.er-page--reader > .overflow-auto.shrink-0::before {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--er-ink);
+  color: var(--er-muted);
+  content: 'EVIDENCE / ANALYSIS—04';
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: .15em;
+}
+
+.er-page--reader .react-pdf__Page {
+  border: 1px solid #17181b;
+}
+
+/* Code — three registered work planes ----------------------------------- */
+
+.er-page--code {
+  /* 这一页的代码平面在两种模式下都是浅色纸面，因此前景 token 必须
+     和 --code-bg 一起被覆盖；只改背景会让深色模式继承米白前景，
+     造成浅底浅字。 */
+  --code-bg: #e5e0d4;
+  --code-sidebar-bg: #17181b;
+  --code-fg: #17181b;
+  --code-text: #17181b;
+  --code-text-muted: #686d6c;
+  --code-text-bright: #101114;
+  --code-selection: #b8c8dc;
+  --code-hover: #d9d5c9;
+  --code-border: #17181b;
+  background: var(--er-paper);
+}
+
+.er-page--code > div:first-child {
+  min-height: 44px;
+  border-bottom: 1px solid #17181b !important;
+  color: #f7f2e7;
+  background: #17181b !important;
+}
+
+.er-page--code > div:first-child :where(a, button, span) {
+  color: inherit !important;
+}
+
+.er-page--code > div:nth-child(2) {
+  border-top: 5px solid var(--er-red);
+}
+
+.er-page--code > div:nth-child(2) > .shrink-0.overflow-auto:first-child {
+  color: #f7f2e7;
+  background: #17181b !important;
+}
+
+.er-page--code > div:nth-child(2) > .shrink-0.overflow-auto:first-child :where(h3, button, span) {
+  color: inherit !important;
+}
+
+.er-page--code [role='separator'] {
+  width: 5px !important;
+  background: var(--er-red) !important;
+}
+
+.er-page--code > div:nth-child(2) > .flex-1 {
+  background: var(--er-paper-bright);
+}
+
+.er-page--code > div:nth-child(2) > .shrink-0.overflow-hidden:last-child {
+  border-left: 1px solid #17181b;
+  background: color-mix(in srgb, var(--er-blue) 14%, var(--er-paper));
+}
+
+.er-code-state {
+  position: relative;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 420px);
+  align-content: center;
+  justify-content: center;
+  gap: 22px;
+  padding: var(--er-edge) !important;
+  overflow: hidden;
+  color: var(--er-ink);
+  background: var(--er-paper) !important;
+}
+
+.er-code-state::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(38vw, 520px);
+  height: 100%;
+  background: color-mix(in srgb, var(--er-blue) 16%, transparent);
+  content: '';
+}
+
+.er-code-state::after {
+  position: absolute;
+  right: var(--er-edge);
+  bottom: 24%;
+  width: min(42vw, 480px);
+  height: 7px;
+  background: var(--er-red);
+  content: '';
+}
+
+.er-code-state > * {
+  position: relative;
+  z-index: 1;
+}
+
+.er-code-state__register {
+  position: absolute;
+  top: var(--er-edge);
+  left: var(--er-edge);
+  color: var(--er-muted);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+
+.er-code-state .er-loader,
+.er-code-state__signal {
+  align-self: start;
+  justify-self: stretch;
+  width: 72px;
+  height: 72px;
+}
+
+.er-code-state__signal {
+  display: grid;
+  place-items: center;
+  color: #f7f2e7;
+  background: var(--er-red);
+  font-family: Arial, sans-serif;
+  font-size: 36px;
+  font-weight: 900;
+}
+
+.er-code-state > div:last-child {
+  align-self: center;
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 6px solid var(--er-ink);
+}
+
+.er-code-state > div:last-child strong {
+  font-family: Arial, 'PingFang SC', sans-serif;
+  font-size: clamp(24px, 4vw, 48px);
+  font-weight: 900;
+  letter-spacing: -.045em;
+}
+
+.er-code-state > div:last-child p {
+  margin: 0;
+  color: var(--er-muted);
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
+/* Relation field / research --------------------------------------------- */
+
+.er-page--research {
+  background: var(--er-blue);
+}
+
+.er-page--research > :first-child {
+  border-bottom: 1px solid #17181b !important;
+  color: #f7f2e7;
+  background: #17181b !important;
+}
+
+.er-page--research > :first-child :where(button, a, span, label) {
+  border-color: rgb(247 242 231 / 34%) !important;
+  color: inherit !important;
+}
+
+.er-page--research > .flex-1 {
+  gap: 0 !important;
+  padding: 18px !important;
+}
+
+.er-page--research > .flex-1 > div:first-child {
+  gap: 0 !important;
+  border: 1px solid #17181b;
+  background: var(--er-paper-bright);
+}
+
+.er-page--research > .flex-1 > div:first-child > div:first-child {
+  min-height: 40px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #17181b;
+}
+
+.er-page--research > .flex-1 > :last-child {
+  min-width: min(360px, 34%);
+  border: 1px solid #17181b !important;
+  border-left: 0 !important;
+  background: var(--er-paper-bright) !important;
+}
+
+/* Not found -------------------------------------------------------------- */
+
+.er-page--not-found {
+  position: relative;
+  overflow: hidden;
+  color: var(--er-paper-bright);
+  background: #17181b;
+}
+
+.er-page--not-found::before {
+  position: absolute;
+  z-index: 0;
+  right: 8%;
+  bottom: -14%;
+  width: min(46vw, 520px);
+  aspect-ratio: 1;
+  background: var(--er-blue);
+  content: '';
+}
+
+.er-page--not-found p,
+.er-page--not-found a {
+  color: inherit !important;
+}
+
+.er-page--not-found a {
+  border: 1px solid var(--er-paper-bright) !important;
+  background: transparent !important;
+}
+
+/* Responsive ------------------------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .er-page--library > div:nth-child(2) > div:first-child > div {
+    grid-template-columns: minmax(220px, 1fr) repeat(3, auto);
+  }
+
+  .er-page--library > div:nth-child(2) > div:first-child label:nth-of-type(2),
+  .er-page--library > div:nth-child(2) > div:first-child select:last-child {
+    display: none;
+  }
+
+  .er-page--reader > .overflow-auto.shrink-0 {
+    width: 42% !important;
+  }
+
+  .er-page--code > div:nth-child(2) > .shrink-0.overflow-auto:first-child {
+    width: 190px !important;
+  }
+
+  .er-page--code > div:nth-child(2) > .shrink-0.overflow-hidden:last-child {
+    width: 280px !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .er-page::after { display: none; }
+
+  .er-page--library > div:first-child {
+    min-height: 88px;
+    padding-top: 22px !important;
+  }
+
+  .er-page--library > div:nth-child(2) > div:first-child > div {
+    display: flex;
+    align-items: center;
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+  }
+
+  .er-page--library > div:nth-child(2) > div:first-child > div > * {
+    flex: 0 0 auto;
+  }
+
+  .er-page--library > div:nth-child(2) > div:first-child > div > div:first-child {
+    flex-basis: min(78vw, 360px);
+    min-width: min(78vw, 360px);
+  }
+
+  .er-page--library > div:nth-child(2) > div:first-child :where(label, select) {
+    white-space: nowrap;
+  }
+
+  .er-page--library > div:nth-child(2) > .flex-1 > [role='button'] {
+    min-height: 112px;
+    padding: 17px 8px 17px 42px !important;
+  }
+
+  .er-page--library > div:nth-child(2) > .flex-1 > [role='button'] > div:last-child {
+    flex-wrap: wrap;
+  }
+
+  .er-page--workspace::before {
+    width: 42%;
+    height: 154px;
+  }
+
+  .er-page--workspace > div:first-child {
+    min-height: 126px;
+  }
+
+  .er-page--workspace > div:nth-child(2) {
+    flex-direction: column;
+  }
+
+  .er-page--workspace > div:nth-child(2) button {
+    min-height: 48px;
+    border-top: 1px solid var(--er-ink) !important;
+    border-left: 0 !important;
+  }
+
+  .er-page--workspace-detail > div:nth-child(3) {
+    flex-direction: column;
+  }
+
+  .er-page--workspace-detail > div:nth-child(3) > button + button {
+    border-top: 1px solid var(--er-ink) !important;
+    border-left: 0 !important;
+  }
+
+  .er-page--settings > div:first-child {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .er-page--settings > div:first-child > div {
+    overflow-x: auto;
+  }
+
+  .er-page--reader {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .er-page--reader > div.flex-1 {
+    min-height: 56vh;
+  }
+
+  .er-page--reader > .cursor-col-resize {
+    display: none !important;
+  }
+
+  .er-page--reader > .overflow-auto.shrink-0 {
+    width: 100% !important;
+    min-height: 46vh;
+    overflow: visible;
+    border-top: 7px solid var(--er-red);
+    border-left: 0;
+  }
+
+  .er-page--code > div:nth-child(2) {
+    overflow-x: auto;
+  }
+
+  .er-page--code > div:nth-child(2) > .shrink-0.overflow-auto:first-child {
+    width: 168px !important;
+  }
+
+  .er-page--code > div:nth-child(2) > .shrink-0.overflow-hidden:last-child {
+    width: 250px !important;
+  }
+
+  .er-code-state {
+    grid-template-columns: 54px minmax(0, 1fr);
+    align-content: start;
+    padding-top: 30vh !important;
+  }
+
+  .er-code-state .er-loader,
+  .er-code-state__signal {
+    width: 54px;
+    height: 54px;
+  }
+
+  .er-code-state > div:last-child strong {
+    font-size: 24px;
+  }
+
+  .er-page--research > .flex-1 {
+    overflow: auto;
+  }
+
+  .er-page--research > .flex-1 > div:first-child {
+    min-height: 52vh;
+  }
+
+  .er-page--research > .flex-1 > :last-child {
+    min-width: 100%;
+    border-top: 7px solid var(--er-red) !important;
+    border-left: 1px solid #17181b !important;
+  }
+}
+
+
+/* 装饰性寄存器文字（P0）：不与功能标签争夺注意力 */
+.er-page::after,
+.er-page--reader > .overflow-auto.shrink-0::before,
+.er-code-state__register {
+  font-weight: var(--deco-weight);
+  opacity: var(--deco-opacity);
+}
