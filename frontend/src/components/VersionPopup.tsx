@@ -1,16 +1,17 @@
 import { useEffect, useRef } from 'react'
 
-const APP_VERSION = '2.5.0'
+const APP_VERSION = '3.0.0'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-07-23',
+  date: '2026-08-03',
   changes: [
-    '图谱 PPR 检索修复：引用边补低权反向边导流 dangling 节点，结果剔除 seed 重复投票',
-    'RAG 图谱模式每篇论文限量取代表片段，防止长论文淹没融合排名',
-    '新增「修复引用数据」：从 Semantic Scholar 回填真实引用边并自动重建图谱',
-    '图谱节点标题清洗 PDF 页眉噪声，重复节点去重',
-    '新增真实数据评测（held-out 引用恢复），零 mock 验证图检索有效性',
+    '知识图谱关系算法重写：只保留一套「论文关联度」，不再有多个可切换的相似度 Provider',
+    '关联度由八个通道融合而成（主题 / 研究目的 / 方法 / 术语 / 数据集 / baseline / 文献耦合 / 共引），细分方向不再被大方向淹没',
+    '文献耦合与共引真正参与选边与社区划分，不再被高分相似边按 max 折叠掉',
+    '新增 IDF 术语通道：共享 MVTec-AD、DINOv2 这类稀有专名会显著拉高关联度',
+    '点击关联边可看八通道分解，各通道贡献之和与总分严格一致',
+    '设置页新增「论文关联度」权重调节，替代原 Similarity Provider 下拉',
   ],
 }
 

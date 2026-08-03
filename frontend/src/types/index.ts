@@ -232,8 +232,6 @@ export interface ResearchRunCreate {
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean
-  similarity_threshold?: number  // 已弃用，相似边改用多尺度骨架提取
-  knn_k?: number                 // 已弃用：旧的全局 kNN 条数，保留兼容
   backbone_alpha?: number        // 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
   enable_shared_method?: boolean
 }
@@ -258,7 +256,8 @@ export interface ResearchRun {
 }
 
 export type GraphNodeKind = 'paper' | 'method' | 'dataset'
-export type GraphEdgeKind = 'cites' | 'similar' | 'bibcoupling' | 'cocitation' | 'shared-method' | 'uses-dataset'
+// related = 论文关联度边（v3 起唯一的关系边）；similar 为 v2 及以前持久化图谱的旧名
+export type GraphEdgeKind = 'cites' | 'related' | 'similar' | 'bibcoupling' | 'cocitation' | 'shared-method' | 'uses-dataset'
 
 export interface GraphNode {
   id: string
@@ -281,19 +280,21 @@ export interface GraphNode {
   }
 }
 
-export interface SimilarityComponent {
-  facet: string            // purpose | method | baseline | dataset
+/** 关联度单通道分解（对应 graphkit/relatedness.py 的八个通道） */
+export interface RelationComponent {
+  facet: string            // topic|purpose|method|term|dataset|baseline|bibcoupling|cocitation
   label: string            // 中文显示名
-  sim: number              // 该维度相似度 [0,1]
-  weight: number           // 归一化后的权重
-  contribution: number     // sim × weight，对综合分的实际贡献
-  reason: string           // 该维度的说明（LLM 理由或共享项描述）
-  shared: string[]         // 共享项（数据集/baseline）
+  sim: number              // 该通道归一化后的分数 [0,1]
+  raw?: number             // 该通道的原始分（余弦 / Jaccard / Salton）
+  weight: number           // 该对论文上该通道的实际生效权重
+  contribution: number     // sim × weight，对总分的实际贡献（各通道之和 = 总分）
+  reason: string           // 该通道的说明（相似度档位或共享项描述）
+  shared: string[]         // 共享项（术语 / 数据集 / baseline）
 }
 
-export interface SimilarityDetail {
-  weight: number                     // 综合相似度
-  components: SimilarityComponent[]   // 各维度分解
+export interface RelationDetail {
+  weight: number                    // 综合关联度
+  components: RelationComponent[]   // 各通道分解
 }
 
 export interface CitationContext {
@@ -307,7 +308,7 @@ export interface GraphEdge {
   target: string
   kind: GraphEdgeKind
   weight: number
-  detail?: SimilarityDetail
+  detail?: RelationDetail
   contexts?: CitationContext[]
 }
 
@@ -319,9 +320,14 @@ export interface ResearchGraph {
   stats: {
     node_count: number
     edge_count: number
-    by_kind: Record<GraphEdgeKind, number>
+    by_kind: Partial<Record<GraphEdgeKind, number>>
     clusters?: number
     top_papers?: { id: string; label: string; importance: number }[]
+    /** 本次建图使用的关联度通道权重与各通道覆盖的论文/对数 */
+    relation_channels?: {
+      weights: Record<string, number>
+      coverage: Record<string, number>
+    }
   }
   updated_at: string
 }

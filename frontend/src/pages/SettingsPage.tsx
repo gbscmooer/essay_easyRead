@@ -19,7 +19,7 @@ import {
   EmbeddingSection,
   ResearchProviderSection,
   RerankerSection,
-  SimilaritySection,
+  RelationsSection,
   ArxivExpandSection,
   FindpapersSection,
 } from '@/features/settings/DeepResearchSettings'
@@ -137,7 +137,6 @@ function LoadingPlaceholder() {
 function useConfigInit() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [loading, setLoading] = useState(true)
-  const [simProviders, setSimProviders] = useState<string[]>(['bge_centroid'])
 
   useEffect(() => {
     get<AppConfig>('/analysis/config')
@@ -162,16 +161,14 @@ function useConfigInit() {
           },
         },
         reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
-        similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
+        relations: {
+          weights: { ...DEFAULT_CONFIG.relations.weights, ...(cfg.relations?.weights ?? {}) },
+        },
         arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
         findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
-
-    get<{ providers: string[] }>('/analysis/similarity/providers')
-      .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
-      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -188,7 +185,7 @@ function useConfigInit() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
-  return { config, setConfig, loading, simProviders }
+  return { config, setConfig, loading }
 }
 
 
@@ -259,11 +256,9 @@ function AppearancePanel({
 function ResearchPanel({
   config,
   setConfig,
-  simProviders,
 }: {
   config: AppConfig
   setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
-  simProviders: string[]
 }) {
   return (
     <Suspense fallback={<LoadingPlaceholder />}>
@@ -271,7 +266,7 @@ function ResearchPanel({
         <EmbeddingSection config={config} setConfig={setConfig} />
         <ResearchProviderSection config={config} setConfig={setConfig} />
         <RerankerSection config={config} setConfig={setConfig} />
-        <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders} />
+        <RelationsSection config={config} setConfig={setConfig} />
         <ArxivExpandSection config={config} setConfig={setConfig} />
         <FindpapersSection config={config} setConfig={setConfig} />
       </div>
@@ -283,7 +278,7 @@ function ResearchPanel({
 /* ── 主页面 ────────────────────────────────────────── */
 
 export function SettingsPage() {
-  const { config, setConfig, loading, simProviders } = useConfigInit()
+  const { config, setConfig, loading } = useConfigInit()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('models')
@@ -368,7 +363,7 @@ export function SettingsPage() {
         <AppearancePanel config={config} setConfig={setConfig} />
       )}
       {activeTab === 'research' && (
-        <ResearchPanel config={config} setConfig={setConfig} simProviders={simProviders} />
+        <ResearchPanel config={config} setConfig={setConfig} />
       )}
 
       {/* 保存按钮 — 始终固定在底部 */}

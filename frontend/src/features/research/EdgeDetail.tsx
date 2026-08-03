@@ -1,16 +1,21 @@
 import type { SelectedEdge } from './GraphCanvas'
 
-// Categorical/semantic colors for graph facets + citation intents (data viz —
-// intentional fixed hues, not UI chrome).
+// Categorical/semantic colors for relation channels + citation intents (data viz —
+// intentional fixed hues, not UI chrome). 与 graphkit/relatedness.py 的八个通道一一对应。
 const FACET_COLORS: Record<string, string> = {
+  topic: '#0ea5e9',
   purpose: '#3b82f6',
   method: '#8b5cf6',
-  baseline: '#f59e0b',
+  term: '#ec4899',
   dataset: '#10b981',
+  baseline: '#f59e0b',
+  bibcoupling: '#eab308',
+  cocitation: '#a855f7',
 }
 
 const KIND_LABEL: Record<string, string> = {
-  similar: '相似',
+  related: '关联',
+  similar: '关联',       // v2 及以前持久化图谱的旧边名
   cites: '引用',
   bibcoupling: '文献耦合',
   cocitation: '共引',
@@ -32,6 +37,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
   const totalContribution = detail
     ? detail.components.reduce((s, c) => s + Math.max(0, c.contribution), 0)
     : 0
+  const isRelation = edge.kind === 'related' || edge.kind === 'similar'
   const contexts = edge.kind === 'cites' ? (edge.contexts ?? []) : []
   // 按意图汇总，用于上下文区块顶部的占比概览
   const intentCounts = contexts.reduce<Record<string, number>>((acc, c) => {
@@ -50,7 +56,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
       >
         <div className="flex items-center justify-between">
           <h3 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>
-            {edge.kind === 'cites' ? '引用详情' : '相似度详情'}
+            {edge.kind === 'cites' ? '引用详情' : '关联度详情'}
           </h3>
           <button
             type="button"
@@ -114,12 +120,12 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
           </div>
         )}
 
-        {/* 综合相似度（仅 similar 边） */}
-        {edge.kind === 'similar' && (
+        {/* 综合关联度（仅关联边） */}
+        {isRelation && (
           <>
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-label" style={{ color: 'var(--text-muted)' }}>综合相似度</span>
+                <span className="text-label" style={{ color: 'var(--text-muted)' }}>综合关联度</span>
                 <span className="text-[19px] font-semibold tabular-nums" style={{ color: 'var(--accent)' }}>
                   {(edge.weight * 100).toFixed(0)}%
                 </span>
@@ -142,7 +148,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
 
             {detail ? (
               <div className="space-y-3">
-                <span className="text-label" style={{ color: 'var(--text-muted)' }}>维度分解</span>
+                <span className="text-label" style={{ color: 'var(--text-muted)' }}>通道分解</span>
                 {detail.components.map(c => (
                   <div key={c.facet} className="space-y-1.5">
                     <div className="flex items-center justify-between text-[12px]">
@@ -172,7 +178,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
               </div>
             ) : (
               <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                该相似边由当前 Provider 计算，未提供维度分解。切换到 facet_weighted 相似度后，点击相似边即可看到「目的 / 方法 / baseline / 数据集」各维度的占比与理由。
+                这条边来自旧版本图谱，没有通道分解。重新运行一次深度研究即可看到「主题 / 研究目的 / 方法 / 术语 / 数据集 / baseline / 文献耦合 / 共引」八个通道各自的贡献与理由。
               </p>
             )}
           </>
@@ -186,9 +192,9 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
         )}
 
         {/* 其他边类型 */}
-        {edge.kind !== 'similar' && edge.kind !== 'cites' && (
+        {!isRelation && edge.kind !== 'cites' && (
           <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            该边为结构关系，无详细分解。
+            该边为结构关系图层（其分值已计入关联度边），无独立分解。
           </p>
         )}
       </div>

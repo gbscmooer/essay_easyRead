@@ -277,7 +277,6 @@ async def run_pipeline(run_id: int):
         await emit("stage_start", stage="graph")
         graph = await stage_graph(
             ws_id, papers,
-            similarity_threshold=params.get("similarity_threshold", 0.78),
             enable_shared_method=params.get("enable_shared_method", False),
             backbone_alpha=float(params.get("backbone_alpha", 0.25)),
             citation_contexts=seed_citation_contexts,

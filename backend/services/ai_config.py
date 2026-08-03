@@ -61,9 +61,6 @@ DEFAULT_CONFIG = {
         "provider": "openalex",       # openalex | semantic_scholar | local
         "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
-        # 已弃用：相似边改用多尺度骨架提取（backbone_alpha），以下字段仅兼容旧配置
-        "similarity_threshold": 0.9,
-        "knn_k": 8,
         "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：越小越稀越精炼
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
         "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
@@ -105,31 +102,20 @@ DEFAULT_CONFIG = {
         "candidate_k": 30,        # 向量检索召回数（送入 rerank 的池子大小）
         "top_n": 5,               # rerank 后送入 LLM 的条数
     },
-    "similarity": {
-        # 论文级相似度计算 provider，对应 backend/services/deep_research/similarity/REGISTRY
-        # 可选：unified（默认）/ bge_centroid / bibcoupling / hybrid / facet_weighted / cross_encoder
-        "provider": "unified",
-        # 每个 provider 的私有配置写在与 name 同名的子对象里：
-        # unified：给每篇论文挑最佳主题向量（ChromaDB 质心 > title/abstract embedding），
-        #   全量连接成研究地图；已解读论文对再挂可解释 facet 分解 detail。
-        #   去噪用互近邻（graph_builder 统一负责），weights 透传给 facet 分解。
-        "unified": {
-            "weights": {
-                "purpose": 0.5,    # 研究目的
-                "method": 0.2,     # 方法
-                "baseline": 0.15,  # 对比基线
-                "dataset": 0.05,   # 数据集
-            },
-        },
-        # facet_weighted：可解释的多维度相似度，权重会自动归一化到 1
-        "facet_weighted": {
-            "weights": {
-                "purpose": 0.5,    # 研究目的
-                "method": 0.2,     # 方法
-                "baseline": 0.15,  # 对比基线
-                "dataset": 0.05,   # 数据集
-            },
-            "use_embedding": True,  # purpose/method 用 embedding 余弦；False 走纯词重叠
+    # 论文关联度：全系统唯一一套算法（backend/services/deep_research/graphkit/relatedness.py）。
+    # 八个通道各自分位数归一后加权求和，同一个分数决定连边 / 社区 / 重要性 / 图检索。
+    # 语义组（topic/purpose/method/term）与证据组（dataset/baseline/bibcoupling/cocitation）
+    # 各自按组内比例归一，组间比例固定，改单个权重不会让另一组整体漂移。
+    "relations": {
+        "weights": {
+            "topic": 0.18,        # 全文/题录主题向量余弦（粗粒度锚点）
+            "purpose": 0.24,      # 研究目的语义相似
+            "method": 0.16,       # 方法语义相似
+            "term": 0.14,         # IDF 加权术语重叠（稀有专名 = 细分方向指纹）
+            "dataset": 0.06,      # 共享数据集
+            "baseline": 0.04,     # 共享对比基线
+            "bibcoupling": 0.12,  # 文献耦合（引同一批文献）
+            "cocitation": 0.06,   # 共引（被同一批论文引用）
         },
     },
     "arxiv_expand": {
@@ -225,7 +211,7 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             saved = json.load(f)
-        # 合并默认值（防止缺少字段；嵌套段如 recall / similarity.* 递归合并）
+        # 合并默认值（防止缺少字段；嵌套段如 recall / relations.weights 递归合并）
         config = {}
         for key in DEFAULT_CONFIG:
             default_section = DEFAULT_CONFIG[key]
@@ -343,9 +329,11 @@ def get_recall_config() -> dict:
     return merged
 
 
-def get_similarity_config() -> dict:
-    """获取论文级相似度计算 Provider 配置"""
-    return load_config().get("similarity", DEFAULT_CONFIG["similarity"])
+def get_relations_config() -> dict:
+    """论文关联度通道权重配置（缺失字段用默认补全）。"""
+    saved = load_config().get("relations") or {}
+    weights = {**DEFAULT_CONFIG["relations"]["weights"], **(saved.get("weights") or {})}
+    return {"weights": weights}
 
 
 def get_arxiv_expand_config() -> dict:

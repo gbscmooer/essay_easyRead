@@ -21,7 +21,6 @@ interface ResearchSettingsDrawerProps {
 export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawerProps) {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [loaded, setLoaded] = useState(false)
-  const [simProviders, setSimProviders] = useState<string[]>(['bge_centroid'])
   const [saving, setSaving] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -53,17 +52,15 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
             },
           },
           reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
-          similarity: { ...DEFAULT_CONFIG.similarity, ...(cfg.similarity ?? {}) },
+          relations: {
+            weights: { ...DEFAULT_CONFIG.relations.weights, ...(cfg.relations?.weights ?? {}) },
+          },
           arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
           findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
         })
         setLoaded(true)
       })
       .catch(() => setLoaded(true))
-
-    get<{ providers: string[] }>('/analysis/similarity/providers')
-      .then(r => { if (r?.providers?.length) setSimProviders(r.providers) })
-      .catch(() => {})
   }, [open])
 
   // Focus close button + Escape handler on open
@@ -119,7 +116,7 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {loaded ? (
-            <DeepResearchSettings config={config} setConfig={setConfig} simProviders={simProviders} />
+            <DeepResearchSettings config={config} setConfig={setConfig} />
           ) : (
             <div className="flex items-center justify-center h-32">
               <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />

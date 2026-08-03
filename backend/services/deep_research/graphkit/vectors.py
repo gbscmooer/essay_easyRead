@@ -16,13 +16,15 @@ embedding 模型）天然一致；但沙盒用 fake_embed（低维）而 fixture
 from __future__ import annotations
 
 import logging
+from typing import Awaitable, Callable
 
 import numpy as np
 
 from .features import PaperFeatures
-from .facets.base import EmbedFn
 
 logger = logging.getLogger(__name__)
+
+EmbedFn = Callable[[list[str]], Awaitable[list[list[float]]]]
 
 
 def _norm(v) -> np.ndarray:

@@ -84,9 +84,16 @@ backend/
 │       ├── crossref_client.py # CrossRef 元数据查询
 │       ├── pdf_downloader.py  # PDF 批量下载
 │       ├── reranker.py        # 搜索结果重排序
+│       ├── paper_relatedness.py # 论文关联度的生产适配层（DB/向量库 → PaperFeatures）
 │       ├── stages/            # 流水线各阶段实现
 │       ├── providers/         # 外部数据源适配器
-│       └── similarity/        # 相似度计算
+│       └── graphkit/          # 图谱算法纯净核心（无 DB 依赖）
+│           ├── relatedness.py     # ★ 唯一的关联度算法：八通道分位数归一 + 加权融合
+│           ├── backbone.py        # 多尺度骨架提取（Disparity Filter）
+│           ├── lexical.py         # IDF 加权术语重叠
+│           ├── structural.py      # 文献耦合 / 共引（Salton）
+│           ├── vectors.py         # 论文主题向量
+│           └── features.py        # PaperFeatures 数据边界
 └── utils/
     └── streaming.py      # SSE 格式化 + Markdown 导出
 ```
@@ -127,7 +134,8 @@ frontend/src/
 2. **SSE 流式推送**: 分析运行在后台任务中，前端连接 `/api/analysis/{id}/stream` 订阅进度；断开只取消订阅，分析继续执行；重连后回放已缓冲事件
 3. **代码仓库分析**: 正则提取代码 URL → clone → 构建文件树 → 静态分析依赖（import_parser）→ AI 分析数据流和论文-代码映射
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
-5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ graph（引文图谱）→ persist → 前端图谱可视化 + RAG 问答
+5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ persist → 前端图谱可视化 + RAG 问答
+6. **论文关联度**（图谱关系的唯一算法，`graphkit/relatedness.py`）: 主题向量 / 研究目的 / 方法 / IDF 术语 / 共享数据集 / 共享 baseline / 文献耦合 / 共引 八个通道各自分位数归一 → 加权融合成一个分数 → Disparity Filter 抽骨架 → 该分数同时决定连边、社区划分、节点重要性与图检索。权重在设置页「论文关联度」调整
 
 ### 路由
 

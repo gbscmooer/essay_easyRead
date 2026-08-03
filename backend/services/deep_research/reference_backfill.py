@@ -354,7 +354,6 @@ async def rebuild_workspace_graph(ws_id: int) -> dict:
     graph = await build_graph(
         ws_id,
         papers,
-        similarity_threshold=float(research_cfg.get("similarity_threshold", 0.78)),
         enable_shared_method=False,
         backbone_alpha=float(research_cfg.get("backbone_alpha", 0.25)),
     )

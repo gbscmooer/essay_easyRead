@@ -20,8 +20,9 @@ SOURCE_GRAPH_PPR = "graph_ppr"
 SOURCE_GRAPH_COCITE = "graph_cocite"
 SOURCE_GRAPH_BIBCOUPLING = "graph_bibcoupling"
 
-# 参与 PPR 的结构边；similar 中的连通性兜底桥接边权重会被压低
-DEFAULT_PPR_EDGE_KINDS = frozenset({"cites", "bibcoupling", "cocitation", "similar"})
+# 参与 PPR 的边；related 中的连通性兜底桥接边权重会被压低。
+# "similar" 是 v2 及以前持久化图谱里的旧边名，保留以便未重建图谱的工作区照常检索。
+DEFAULT_PPR_EDGE_KINDS = frozenset({"cites", "bibcoupling", "cocitation", "related", "similar"})
 
 
 @dataclass
@@ -88,23 +89,25 @@ def build_ppr_graph(
 ) -> nx.DiGraph:
     """构建 PPR 用的有向加权图。
 
-    语义边（similar/bibcoupling/cocitation）在 graph_builder 中已双向存储；
+    关联边（related/bibcoupling/cocitation）在 graph_builder 中已双向存储；
     cites 边只有 citing→cited 方向。``cites_reverse_factor`` > 0 时为每条
-    cites 边补一条 cited→citing 的低权反向边（权重 = 原权 × 因子，与已有
-    边取 max 合并），让 PPR 质量能穿过只有入边的 dangling 引用节点。
-    """
+    cites 边补一条 cited→citing 的低权反向边（权重 = 原权 × 因子），让 PPR
+    质量能穿过只有入边的 dangling 引用节点。
 
-    def _merge_edge(s: str, t: str, w: float) -> None:
-        if g.has_edge(s, t):
-            g[s][t]["weight"] = max(g[s][t]["weight"], w)
-        else:
-            g.add_edge(s, t, weight=w)
+    同一对节点上**不同种类的真实边累加**而非取 max：旧的 max 合并让尺度大的边类型
+    （related ~0.8）永远盖过 Salton（~0.1），结构证据对转移概率毫无影响。
+    但补出来的反向 cites 边是建模手段而非新证据，用 max 合并——既不削弱已有真实边，
+    也不凭空抬高该对的转移概率。
+    """
 
     g = nx.DiGraph()
     for n in nodes:
         nid = n.get("id")
         if nid:
             g.add_node(nid)
+
+    # 第一遍：真实边。同一对上的不同证据（related + bibcoupling + cocitation…）累加。
+    reverse: list[tuple[str, str, float]] = []
     for e in edges:
         kind = e.get("kind", "")
         if kind not in edge_kinds:
@@ -115,9 +118,20 @@ def build_ppr_graph(
         w = _edge_weight(e, bridge_factor=bridge_weight_factor)
         if w <= 0:
             continue
-        _merge_edge(s, t, w)
+        if g.has_edge(s, t):
+            g[s][t]["weight"] += w
+        else:
+            g.add_edge(s, t, weight=w)
         if kind == "cites" and cites_reverse_factor > 0:
-            _merge_edge(t, s, w * cites_reverse_factor)
+            reverse.append((t, s, w * cites_reverse_factor))
+
+    # 第二遍：补出来的反向 cites 边取 max —— 与真实边的先后顺序无关，
+    # 既不削弱已有真实边，也不把该对的转移概率抬高到证据之上。
+    for s, t, w in reverse:
+        if g.has_edge(s, t):
+            g[s][t]["weight"] = max(g[s][t]["weight"], w)
+        else:
+            g.add_edge(s, t, weight=w)
     return g
 
 

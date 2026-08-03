@@ -1,6 +1,11 @@
 # 深度研究 Agent 系统 — 技术设计文档
 
 > 本文档作为开发蓝图，所有路径、表名、字段、函数签名、SSE 事件结构都与现有代码对齐，**不引入 mock 数据，直接接入真实表 / 真实 API**。
+>
+> **v3.0.0 起，文中关于"相似边"的部分已过时**：`similarity_threshold` 阈值连边、
+> `similar` 边类型、可切换的 similarity provider 都已删除。现行做法是唯一一套
+> 「论文关联度」算法（`graphkit/relatedness.py`）：八通道融合成一个分数 → Disparity
+> Filter 抽骨架 → `related` 边。其余章节（流水线阶段、引用解析、RAG、SSE）仍然有效。
 
 ---
 

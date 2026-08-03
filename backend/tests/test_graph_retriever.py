@@ -20,8 +20,8 @@ from backend.services.deep_research.graph_retriever import (
     retrieve_from_graph,
 )
 from backend.services.deep_research.reference_store import ReferenceInput, list_by_citing, upsert_references
-from backend.services.deep_research.similarity.bibcoupling import compute_bibliographic_coupling_pairs
-from backend.services.deep_research.similarity.cocitation import compute_co_citation_pairs
+from backend.services.deep_research.graphkit.structural import compute_bibliographic_coupling_pairs
+from backend.services.deep_research.graphkit.structural import compute_co_citation_pairs
 from backend.services.paper_identity import PaperWork, apply_identity_to_paper, build_canonical_id
 
 
@@ -53,11 +53,6 @@ def _make_paper(
     return p
 
 
-class _EmptySimilarityProvider:
-    name = "empty_test"
-
-    async def score_pairs(self, papers, *, ws_id):
-        return []
 
 
 @pytest.fixture(autouse=True)
@@ -70,11 +65,24 @@ def _cleanup(session):
     session.commit()
 
 
+class _EmptyRelations:
+    """关联度算法的空替身：这些用例只关心 cites / bibcoupling / cocitation 边。"""
+
+    pairs: list = []
+    weights: dict = {}
+    coverage: dict = {}
+
+    def explain(self, a, b):
+        return {"weight": 0.0, "components": []}
+
+
 @pytest.fixture(autouse=True)
-def _mock_similarity(monkeypatch):
+def _mock_relations(monkeypatch):
+    async def _empty(papers, **kwargs):
+        return _EmptyRelations()
+
     monkeypatch.setattr(
-        "backend.services.deep_research.graph_builder.get_similarity_provider",
-        lambda _cfg: _EmptySimilarityProvider(),
+        "backend.services.deep_research.graph_builder.compute_paper_relations", _empty
     )
 
 
@@ -139,7 +147,6 @@ def test_build_graph_adds_bibcoupling_and_cocitation_edges(session):
     ]
     graph = asyncio.run(build_graph(
         1, [paper_a, paper_b, paper_c, paper_d],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=refs,
     ))
@@ -171,7 +178,6 @@ def test_disable_bibcoupling_cocitation_flags(session):
 
     graph = asyncio.run(build_graph(
         1, [paper_a, paper_b, paper_c],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         enable_bibcoupling=False,
         enable_cocitation=False,
@@ -322,7 +328,7 @@ def test_score_papers_ppr_adapter_for_hybrid():
 
 def test_cocitation_approximation_from_cites_edges():
     """数据不足时可用 cites 边近似共引：同一 citing 引用多篇 cited。"""
-    from backend.services.deep_research.similarity.cocitation import co_citation_from_cites_edges
+    from backend.services.deep_research.graphkit.structural import co_citation_from_cites_edges
 
     edges = [
         {"source": "paper:9", "target": "paper:1", "kind": "cites", "weight": 1.0},

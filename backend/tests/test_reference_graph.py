@@ -54,11 +54,6 @@ def _make_paper(
     return p
 
 
-class _EmptySimilarityProvider:
-    name = "empty_test"
-
-    async def score_pairs(self, papers, *, ws_id):
-        return []
 
 
 @pytest.fixture(autouse=True)
@@ -72,11 +67,24 @@ def _cleanup_papers(session):
     session.commit()
 
 
+class _EmptyRelations:
+    """关联度算法的空替身：这些用例只关心 cites / bibcoupling / cocitation 边。"""
+
+    pairs: list = []
+    weights: dict = {}
+    coverage: dict = {}
+
+    def explain(self, a, b):
+        return {"weight": 0.0, "components": []}
+
+
 @pytest.fixture(autouse=True)
-def _mock_similarity(monkeypatch):
+def _mock_relations(monkeypatch):
+    async def _empty(papers, **kwargs):
+        return _EmptyRelations()
+
     monkeypatch.setattr(
-        "backend.services.deep_research.graph_builder.get_similarity_provider",
-        lambda _cfg: _EmptySimilarityProvider(),
+        "backend.services.deep_research.graph_builder.compute_paper_relations", _empty
     )
 
 
@@ -136,7 +144,6 @@ def test_a_and_b_both_cite_c(session):
     papers = [paper_a, paper_b, paper_c]
     graph = asyncio.run(build_graph(
         1, papers,
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=refs,
     ))
@@ -179,7 +186,6 @@ def test_context_attached_to_correct_cites_edge(session):
     ]
     graph = asyncio.run(build_graph(
         1, [paper_a, paper_b, paper_c],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=refs,
     ))
@@ -220,7 +226,6 @@ def test_parent_tree_differs_from_cites_graph(session):
     ]
     graph = asyncio.run(build_graph(
         1, [paper_a, paper_b, paper_c],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=refs,
     ))
@@ -255,7 +260,6 @@ def test_metadata_only_paper_can_be_cited_graph_node(session):
     graph = asyncio.run(build_graph(
         1,
         [citing, metadata_only],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=list_by_citing(session, citing.id),
     ))
@@ -278,7 +282,6 @@ def test_unresolved_cited_skipped_in_graph(session):
     refs = list_by_citing(session, paper_a.id)
     graph = asyncio.run(build_graph(
         1, [paper_a],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         references=refs,
     ))
@@ -294,7 +297,6 @@ def test_build_graph_loads_references_from_session(session):
 
     graph = asyncio.run(build_graph(
         1, [paper_a, paper_c],
-        similarity_threshold=0.78,
         enable_shared_method=False,
         session=session,
     ))

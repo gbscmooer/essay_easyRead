@@ -1,20 +1,22 @@
 /**
  * 深度研究相关设置区块集合
  *
- * Embedding / Research Provider / Reranker / Similarity / arXiv / findpapers
+ * Embedding / Research Provider / Reranker / Relations / arXiv / findpapers
  * 共 6 个子组件，从 SettingsPage 拆出。
  * 只负责渲染与改写传入的 config 切片，保存逻辑由宿主页面处理。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { TestButton } from './TestButton'
 import { GrobidPanel } from './GrobidPanel'
-import { post } from '@/api/client'
+import { get, post } from '@/api/client'
+import { DEFAULT_CONFIG } from './config'
 import type {
   AppConfig,
   EmbeddingConfig,
   HybridRetrievalConfig,
   RecallConfig,
+  RelationChannelName,
 } from './config'
 
 
@@ -348,17 +350,15 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         </label>
       </div>
 
-      {/* 已弃用参数：仅展示不回写误导 */}
+      {/* 已移除参数说明 */}
       <details className="pt-2 opacity-70" style={{ borderTop: '1px solid var(--border)' }}>
         <summary className="text-[11px] cursor-pointer select-none" style={{ color: 'var(--text-muted)' }}>
-          已弃用参数（不再影响图谱）
+          已移除的旧参数
         </summary>
         <p className="text-[10px] mt-2" style={{ color: 'var(--text-disabled)' }}>
-          「相似度阈值」与「共享方法边」已被多尺度骨架提取（骨架密度 α）和结构边（文献耦合 / 共引）取代。
-          请在研究页「高级设置」中调整骨架密度 α。
-          {config.research.similarity_threshold != null && (
-            <> 旧配置 similarity_threshold={config.research.similarity_threshold.toFixed(2)} 已忽略。</>
-          )}
+          「相似度阈值 similarity_threshold」「kNN 条数 knn_k」「共享方法边」已删除：
+          留哪些边由多尺度骨架提取（骨架密度 α，研究页「高级设置」可调）决定，
+          边多重由「论文关联度」的通道权重决定。旧配置里的这些字段会被忽略。
         </p>
       </details>
     </div>
@@ -749,63 +749,123 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
 
 
 // ============================================================
-// 论文级相似度计算（Similarity Provider）
+// 论文关联度（Relations）—— 图谱唯一的关系打分
 // ============================================================
 
-export function SimilaritySection({ config, setConfig, simProviders }: SectionProps & { simProviders: string[] }) {
+interface RelationChannel {
+  name: RelationChannelName
+  label: string
+  group: 'semantic' | 'evidence'
+  default_weight: number
+  hint: string
+}
+
+const GROUP_TITLE: Record<RelationChannel['group'], string> = {
+  semantic: '语义通道（有文本就能算，组内按可用通道归一）',
+  evidence: '证据通道（有数据才加分，缺失记 0）',
+}
+
+export function RelationsSection({ config, setConfig }: SectionProps) {
+  const [channels, setChannels] = useState<RelationChannel[]>([])
+
+  useEffect(() => {
+    get<{ channels: RelationChannel[] }>('/analysis/relations/channels')
+      .then(r => { if (r?.channels?.length) setChannels(r.channels) })
+      .catch(() => {})
+  }, [])
+
+  const weights = config.relations.weights
+  const setWeight = (name: RelationChannelName, value: number) =>
+    setConfig(prev => ({
+      ...prev,
+      relations: { ...prev.relations, weights: { ...prev.relations.weights, [name]: value } },
+    }))
+
+  // 前端按后端同样的规则预览"实际生效权重"：两组各自组内归一，组间比例固定
+  const semanticNames = channels.filter(c => c.group === 'semantic').map(c => c.name)
+  const evidenceNames = channels.filter(c => c.group === 'evidence').map(c => c.name)
+  const sum = (names: RelationChannelName[]) => names.reduce((acc, n) => acc + Math.max(0, weights[n] ?? 0), 0)
+  const semSum = sum(semanticNames)
+  const eviSum = sum(evidenceNames)
+  const semShare = channels.filter(c => c.group === 'semantic').reduce((a, c) => a + c.default_weight, 0)
+  const effective = (c: RelationChannel) => {
+    const raw = Math.max(0, weights[c.name] ?? 0)
+    if (c.group === 'semantic') return semSum > 0 ? (raw / semSum) * (eviSum > 0 ? semShare : 1) : 0
+    return eviSum > 0 ? (raw / eviSum) * (semSum > 0 ? 1 - semShare : 1) : 0
+  }
+
   return (
     <div className="panel-section space-y-4" style={CARD}>
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-          论文级相似度计算（Similarity Provider）
+          论文关联度（知识图谱唯一的关系打分）
         </h2>
         <p className="text-xs mt-0.5" style={LABEL}>
-          深度研究知识图谱中"相似"边的计算方式。可插拔接口，可在{' '}
-          <code
-            className="px-1 rounded"
-            style={{ backgroundColor: 'var(--bg-elevated)' }}
-          >
-            backend/services/deep_research/similarity/
-          </code>{' '}
-          自行新增 provider 并在 REGISTRY 注册。
+          八个通道各自分位数归一后加权求和，<b>同一个分数</b>决定连哪条边、社区怎么分、
+          谁是关键论文、图检索推荐谁。想让图谱更贴细分方向，就调高 研究目的 / 术语 / 文献耦合；
+          想更贴大方向，就调高 主题。算法实现见{' '}
+          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+            backend/services/deep_research/graphkit/relatedness.py
+          </code>
+          。
         </p>
       </div>
 
-      <div>
-        <label className="block text-xs mb-1" style={LABEL}>Provider</label>
-        <select
-          value={config.similarity.provider}
-          onChange={e => setConfig(prev => ({ ...prev, similarity: { ...prev.similarity, provider: e.target.value } }))}
-          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
-          style={INPUT}
-        >
-          {simProviders.map(p => (
-            <option key={p} value={p}>{p}</option>
+      {(['semantic', 'evidence'] as const).map(group => (
+        <div key={group} className="space-y-2">
+          <div className="text-[11px] font-medium" style={LABEL}>{GROUP_TITLE[group]}</div>
+          {channels.filter(c => c.group === group).map(c => (
+            <div key={c.name} className="space-y-1">
+              <div className="flex items-center gap-3">
+                <div className="w-20 shrink-0 text-xs" style={{ color: 'var(--text-primary)' }}>
+                  {c.label}
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.5}
+                  step={0.01}
+                  value={weights[c.name] ?? c.default_weight}
+                  onChange={e => setWeight(c.name, Number(e.target.value))}
+                  className="flex-1"
+                  aria-label={`${c.label} 权重`}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={weights[c.name] ?? c.default_weight}
+                  onChange={e => setWeight(c.name, Number(e.target.value))}
+                  className="w-16 px-2 py-1 text-xs rounded-lg border focus:outline-none tabular-nums"
+                  style={INPUT}
+                  aria-label={`${c.label} 权重数值`}
+                />
+                <div className="w-16 shrink-0 text-[10px] tabular-nums text-right" style={{ color: 'var(--text-disabled)' }}>
+                  实际 {(effective(c) * 100).toFixed(0)}%
+                </div>
+              </div>
+              <p className="text-[10px] leading-relaxed pl-20" style={{ color: 'var(--text-disabled)' }}>
+                {c.hint}
+              </p>
+            </div>
           ))}
-        </select>
-        <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
-          当前默认{' '}
-          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>unified</code>
-          ：给<b>每篇</b>论文挑最佳主题向量（ChromaDB 质心 &gt; title/abstract embedding），
-          全量连成研究地图；已解读论文对再挂可解释的 facet 分解。去噪用<b>互近邻</b>（mutual-kNN）。
-          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>bge_centroid</code>{' '}
-          等旧法保留可切换对比。
-        </p>
-        <div
-          className="mt-3 px-3 py-2 rounded-lg border"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-            borderColor: 'color-mix(in srgb, var(--border) 50%, transparent)',
-          }}
-        >
-          <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-              当前可用：
-            </span><br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>unified / bge_centroid / bibcoupling / hybrid / facet_weighted / cross_encoder</span><br />
-            ·  <span style={{ color: 'var(--text-secondary)' }}>specter2 / scincl</span> 等后续可继续扩展
-          </p>
         </div>
+      ))}
+
+      <div className="flex items-center gap-3">
+        <PillButton
+          active={false}
+          onClick={() => setConfig(prev => ({
+            ...prev,
+            relations: { weights: { ...DEFAULT_CONFIG.relations.weights } },
+          }))}
+        >
+          恢复默认权重
+        </PillButton>
+        <span className="text-[10px]" style={{ color: 'var(--text-disabled)' }}>
+          改完需要重新运行一次深度研究，图谱才会按新权重重建。
+        </span>
       </div>
     </div>
   )
@@ -1088,10 +1148,9 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
 }
 
 /** 组合 6 个子组件的包装组件，供 ResearchSettingsDrawer 等外部使用 */
-export function DeepResearchSettings({ config, setConfig, simProviders }: {
+export function DeepResearchSettings({ config, setConfig }: {
   config: AppConfig
   setConfig: SetConfigFn
-  simProviders?: string[]
 }) {
   return (
     <>
@@ -1099,7 +1158,7 @@ export function DeepResearchSettings({ config, setConfig, simProviders }: {
       <ResearchProviderSection config={config} setConfig={setConfig} />
       <RecallSection config={config} setConfig={setConfig} />
       <RerankerSection config={config} setConfig={setConfig} />
-      <SimilaritySection config={config} setConfig={setConfig} simProviders={simProviders || []} />
+      <RelationsSection config={config} setConfig={setConfig} />
       <ArxivExpandSection config={config} setConfig={setConfig} />
       <FindpapersSection config={config} setConfig={setConfig} />
     </>

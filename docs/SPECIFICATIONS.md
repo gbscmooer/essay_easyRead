@@ -58,7 +58,7 @@ essay_read/
 │   │       ├── reranker.py              # 搜索结果重排序
 │   │       ├── stages/                  # 流水线各阶段实现
 │   │       ├── providers/               # 外部数据源适配器
-│   │       └── similarity/              # 相似度计算
+│   │       └── graphkit/               # 图谱算法核心（relatedness 关联度 / backbone 骨架 / lexical / structural）
 │   └── utils/
 │       ├── __init__.py
 │       └── streaming.py            # SSE 格式化 + Markdown 导出
