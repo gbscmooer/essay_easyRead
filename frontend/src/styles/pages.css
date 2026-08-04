@@ -72,17 +72,8 @@
   font-size: clamp(42px, 6vw, 86px) !important;
 }
 
-.er-page--library > div:first-child button {
-  min-height: 40px;
-  padding-inline: 16px !important;
-  border: 1px solid var(--er-ink) !important;
-  color: var(--er-paper-bright) !important;
-  background: #17181b !important;
-  font-size: var(--fs-ui) !important;
-  font-weight: 800;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
+/* 头部操作按钮已改用 .er-btn--secondary。这里原本把它硬涂成实心墨块，
+   但「重新索引」是次级操作，不该拿到全页唯一的实心质量。 */
 
 .er-page--library > div:nth-child(2) {
   min-height: 0;
@@ -149,12 +140,13 @@
   isolation: isolate;
 }
 
+/* 同装饰层口径：左边界落在栏线上，出血到右缘。 */
 .er-page--workspace::before {
   position: absolute;
   z-index: 0;
   top: 0;
   right: 0;
-  width: min(34vw, 410px);
+  width: calc(var(--er-span-3) + var(--er-edge));
   height: 194px;
   background: var(--er-blue);
   content: '';
@@ -185,17 +177,18 @@
   padding-inline: 18px !important;
 }
 
-.er-page--workspace > div:nth-child(2) button {
+/* 输入框与提交键合成一个单元，按钮嵌在单元边框内，因此不带偏移块 ——
+   浮起的影会溢出边界，把「一个整体」读成「两个拼在一起的零件」。 */
+.er-page--workspace > div:nth-child(2) > .er-btn {
   align-self: stretch;
   min-width: 150px;
   border: 0 !important;
-  border-left: 1px solid var(--er-ink) !important;
-  color: #f7f2e7 !important;
-  background: var(--er-blue) !important;
-  font-size: var(--fs-ui) !important;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
+  border-left: var(--rule-hair) solid var(--er-ink) !important;
+  box-shadow: none !important;
+}
+
+.er-page--workspace > div:nth-child(2) > .er-btn:active {
+  transform: none;
 }
 
 .er-page--workspace > .stagger {
@@ -249,25 +242,12 @@
   font-size: clamp(40px, 6vw, 82px) !important;
 }
 
-.er-page--workspace-detail > div:nth-child(3) {
-  gap: 0 !important;
-  border: 1px solid var(--er-ink);
-}
-
-.er-page--workspace-detail > div:nth-child(3) > button {
+/* 操作区的两个按钮现在各自成形（.er-btn--secondary + .er-relief），不再需要
+   外框把它们粘成一条 —— 外框还会把偏移块裁掉。原先这里用 `button + button`
+   按位置把第二个按钮涂蓝、又用 `[style*='linear-gradient']` 嗅探内联渐变，
+   两种写法都绑死组件内部实现，改一行 JSX 就失效。 */
+.er-page--workspace-detail > div:nth-child(3) > .er-relief {
   min-height: 62px;
-  border: 0 !important;
-  background: transparent !important;
-}
-
-.er-page--workspace-detail > div:nth-child(3) > button + button {
-  border-left: 1px solid var(--er-ink) !important;
-  color: #f7f2e7 !important;
-  background: var(--er-blue) !important;
-}
-
-.er-page--workspace-detail > div:nth-child(3) > button[style*='linear-gradient'] {
-  background: var(--er-blue) !important;
 }
 
 .er-page--workspace-detail :where(.space-y-2\.5 > *, .space-y-4 > *) {
@@ -293,31 +273,10 @@
   font-size: clamp(42px, 6vw, 82px) !important;
 }
 
-.er-page--settings > div:first-child > div,
-.er-page--settings > div:first-child > div > div {
-  gap: 0 !important;
-  padding: 0 !important;
-  border: 1px solid var(--er-ink);
-  background: transparent !important;
-}
-
-.er-page--settings > div:first-child button {
-  min-height: 40px;
-  border: 0 !important;
-  background: transparent !important;
-  font-size: var(--fs-ui) !important;
-  font-weight: 800 !important;
-  letter-spacing: .08em;
-}
-
-.er-page--settings > div:first-child button + button {
-  border-left: 1px solid var(--er-ink) !important;
-}
-
-.er-page--settings > div:first-child button[style*='var(--accent)'] {
-  color: #f7f2e7 !important;
-  background: #17181b !important;
-}
+/* Tab 切换已改用 .er-btn-group（controls.css），分隔线与激活态由控件系统
+   自己负责。原先这里用 `> div:first-child button + button` 按位置画线、
+   再用 `button[style*='var(--accent)']` 嗅探内联样式认激活态 —— 组件一改
+   结构就全崩。 */
 
 .er-page--settings :where(.panel-section, section) > h2,
 .er-page--settings :where(.panel-section, section) > div:first-child h2 {
@@ -334,15 +293,10 @@
   background: var(--er-paper);
 }
 
-.er-page--settings > div:last-child > button {
-  min-height: 46px;
+/* 保存按钮已改用 .er-btn--primary；这里只保留它在这一行里的最小宽度，
+   避免「保存中…」与「保存配置」两个文案长度不同导致按钮跳宽。 */
+.er-page--settings > div:last-child > .er-btn {
   min-width: 180px;
-  color: #f7f2e7 !important;
-  background: var(--er-blue) !important;
-  font-size: var(--fs-ui) !important;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
 }
 
 /* Reader — paper plane and evidence plane ------------------------------- */
@@ -690,19 +644,15 @@
     flex-direction: column;
   }
 
-  .er-page--workspace > div:nth-child(2) button {
+  .er-page--workspace > div:nth-child(2) > .er-btn {
     min-height: 48px;
-    border-top: 1px solid var(--er-ink) !important;
+    border-top: var(--rule-hair) solid var(--er-ink) !important;
     border-left: 0 !important;
   }
 
   .er-page--workspace-detail > div:nth-child(3) {
+    align-items: stretch;
     flex-direction: column;
-  }
-
-  .er-page--workspace-detail > div:nth-child(3) > button + button {
-    border-top: 1px solid var(--er-ink) !important;
-    border-left: 0 !important;
   }
 
   .er-page--settings > div:first-child {

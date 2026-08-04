@@ -100,7 +100,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
           style={{
             width: `${progress}%`,
             backgroundColor: status === 'failed' ? 'var(--error)' : 'var(--accent)',
-            transition: 'width 0.5s cubic-bezier(0.25,0.46,0.45,0.94), background-color 0.3s cubic-bezier(0.25,0.46,0.45,0.94)',
+            transition: 'width 0.5s var(--ease-press), background-color 0.3s var(--ease-press)',
           }}
         />
       </div>
@@ -112,7 +112,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
             className="text-4xl font-light tabular-nums leading-none"
             style={{
               color: 'var(--accent)',
-              transition: 'color 0.3s cubic-bezier(0.25,0.46,0.45,0.94)',
+              transition: 'color 0.3s var(--ease-press)',
             }}
           >
             {progress}%
@@ -144,7 +144,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                   backgroundColor: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
                   color: isDone || isCurrentStep ? 'var(--bg-base)' : 'var(--text-muted)',
                   border: isDone || isCurrentStep ? '1px solid transparent' : '1px solid var(--border)',
-                  transition: 'background-color 0.3s cubic-bezier(0.25,0.46,0.45,0.94), color 0.3s cubic-bezier(0.25,0.46,0.45,0.94)',
+                  transition: 'background-color 0.3s var(--ease-press), color 0.3s var(--ease-press)',
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
                     <div

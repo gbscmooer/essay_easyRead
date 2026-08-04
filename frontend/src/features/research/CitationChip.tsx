@@ -24,7 +24,7 @@ function CitationDebugPanel({ debug }: { debug: RagCitationDebug }) {
           {hits.map(([ch, score]) => (
             <span
               key={ch}
-              className="text-[10px] px-1.5 py-0.5 rounded font-mono tabular-nums"
+              className="text-[11px] px-1.5 py-0.5 font-mono tabular-nums"
               style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
             >
               {SOURCE_LABELS[ch] ?? ch} {score.toFixed(3)}
@@ -59,15 +59,7 @@ function DownloadBadge({ citation }: { citation: RagCitation }) {
       ? '下载中'
       : '仅元数据'
   return (
-    <span
-      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
-      style={{
-        color: 'var(--warning, #eab308)',
-        border: '1px solid color-mix(in srgb, var(--warning, #eab308) 40%, transparent)',
-      }}
-    >
-      {label}
-    </span>
+    <span className="er-tag er-tag--warn shrink-0">{label}</span>
   )
 }
 
@@ -84,10 +76,11 @@ export function CitationChip({ citation, index, showDebug = false, debug }: Cita
   return (
     <Link
       to={`/reader/${citation.paper_id}`}
-      className="focus-glow block px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:-translate-y-px"
+      /* 用 .list-row 的左色条 hover 代替上浮 + 投影：硬边平面里没有「浮起来」
+         这回事，而那段 JS 设的 boxShadow 本来就被全局阴影禁令吃掉了，从来没
+         生效过。 */
+      className="list-row focus-glow block px-3.5 py-2.5"
       style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
-      onMouseEnter={e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = 'var(--accent)'; t.style.boxShadow = '0 4px 14px -6px rgba(0,0,0,0.25)' }}
-      onMouseLeave={e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = 'var(--border)'; t.style.boxShadow = 'none' }}
     >
       <div className="flex items-start gap-2">
         <span className="text-[11px] font-mono font-semibold shrink-0 mt-px tabular-nums" style={{ color: 'var(--accent)' }}>

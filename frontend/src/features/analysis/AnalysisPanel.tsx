@@ -117,7 +117,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
             style={{
               backgroundColor: 'var(--accent)',
               color: '#ffffff',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              transitionTimingFunction: 'var(--ease-press)',
             }}
           >
             开始分析
@@ -165,7 +165,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
                 color: isActive ? 'var(--accent)' : 'var(--text-muted)',
                 backgroundColor: isActive ? 'var(--accent-subtle)' : 'transparent',
                 fontWeight: isActive ? 500 : 400,
-                transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                transitionTimingFunction: 'var(--ease-press)',
               }}
             >
               {tab.label}

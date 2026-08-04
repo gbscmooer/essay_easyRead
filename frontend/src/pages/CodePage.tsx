@@ -183,8 +183,7 @@ export default function CodePage() {
             <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
               style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
               title="正在从远程仓库拉取代码，请稍候…">
-              <div className="w-3 h-3 border-[1.5px] rounded-full animate-spin"
-                style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <LoadingSpinner size="xs" />
               {cloneStatus}
             </span>
           )}
@@ -202,8 +201,7 @@ export default function CodePage() {
             <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
               style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
               title="AI 正在分析代码结构与论文映射，请稍候…">
-              <div className="w-3 h-3 border-[1.5px] rounded-full animate-spin"
-                style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <LoadingSpinner size="xs" />
               正在分析...
             </span>
           )}

@@ -4,7 +4,7 @@
  * 论文库列表，清新学术风格，支持筛选和搜索。
  */
 
-import { useState, useMemo, memo } from 'react'
+import { useState, useMemo, memo, type CSSProperties } from 'react'
 import type { Paper, SearchResult } from '@/types'
 import { ConfirmDialog, Tooltip, SkeletonCard } from '@/ds-entry'
 
@@ -225,7 +225,7 @@ export const PaperList = memo(function PaperList({
                 color: globalSearch ? 'var(--accent)' : 'var(--text-muted)',
                 border: `1px solid ${globalSearch ? 'var(--accent)' : 'var(--border)'}`,
                 backgroundColor: globalSearch ? 'var(--accent-subtle)' : 'transparent',
-                transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                transitionTimingFunction: 'var(--ease-press)',
               }}
             >
               <input
@@ -246,7 +246,7 @@ export const PaperList = memo(function PaperList({
               color: includeExpanded ? 'var(--accent)' : 'var(--text-muted)',
               border: `1px solid ${includeExpanded ? 'var(--accent)' : 'var(--border)'}`,
               backgroundColor: includeExpanded ? 'var(--accent-subtle)' : 'transparent',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              transitionTimingFunction: 'var(--ease-press)',
             }}
             title="开启后，搜索范围一并包含深度研究通过联网下载的相关论文（L2+），默认只搜已加入论文库的论文"
           >
@@ -332,10 +332,10 @@ export const PaperList = memo(function PaperList({
                     <HighlightText text={r.title} query={searchQuery} />
                   </span>
                   {r.source === 'expanded' && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--warning-subtle)', color: 'var(--warning)' }}>联网扩展</span>
+                    <span className="er-tag er-tag--warn shrink-0">联网扩展</span>
                   )}
                   {r.source === 'uploaded' && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)' }}>本地论文</span>
+                    <span className="er-tag shrink-0" style={{ '--tag-accent': 'var(--success)' } as CSSProperties}>本地论文</span>
                   )}
                 </h3>
                 <div className="flex items-center gap-3 text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
@@ -345,7 +345,7 @@ export const PaperList = memo(function PaperList({
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5">
                   {r.matched_fields.map((m, i) => (
-                    <span key={i} className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+                    <span key={i} className="er-tag">
                       {FIELD_LABEL[m.field] ?? m.field}
                       {m.field === 'fulltext' && m.line && (
                         <span style={{ opacity: 0.7 }}> · 第{m.line}行</span>
@@ -376,7 +376,9 @@ export const PaperList = memo(function PaperList({
           </div>
         ) : (
           papers.map(paper => {
-            const { text: statusText, bgColor: statusBg, textColor: statusColor, icon: statusIcon } = statusLabel(paper.status)
+            /* bgColor 不再解构：.er-tag 的底色由 --tag-accent 混出来，
+               不需要单独传一个背景色。 */
+            const { text: statusText, textColor: statusColor, icon: statusIcon } = statusLabel(paper.status)
             return (
               <div
                 key={paper.id}
@@ -393,44 +395,34 @@ export const PaperList = memo(function PaperList({
                   <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
                     {paper.venue && <span>{paper.venue}</span>}
                     {paper.year && <span>{paper.year}</span>}
-                    {paper.category && (
-                      <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
-                        {paper.category}
-                      </span>
-                    )}
+                    {paper.category && <span className="er-tag">{paper.category}</span>}
                     <span>{new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
                   {paper.read_level === 'full' && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-full" style={{ color: '#6366f1', border: '1px solid #6366f1' }}>
-                      已精读
-                    </span>
+                    <span className="er-tag" style={{ '--tag-accent': '#6366f1' } as CSSProperties}>已精读</span>
                   )}
                   {paper.read_level === 'digest' && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-full" style={{ color: '#10b981', border: '1px solid #10b981' }}>
-                      已速读
-                    </span>
+                    <span className="er-tag" style={{ '--tag-accent': '#10b981' } as CSSProperties}>已速读</span>
                   )}
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs rounded-full"
-                    style={{ backgroundColor: statusBg, color: statusColor }}
-                  >
+                  <span className="er-tag" style={{ '--tag-accent': statusColor } as CSSProperties}>
                     <StatusBadgeIcon icon={statusIcon} />
                     {statusText}
                   </span>
+                  {/* hover 变红交给 --btn-accent，不再用 onMouseEnter/onMouseLeave
+                      手写两个分支。 */}
                   <button
+                    type="button"
                     onClick={e => {
                       e.stopPropagation()
                       setDeleteTarget(paper.id)
                     }}
                     aria-label="删除论文"
-                    className="opacity-40 group-hover:opacity-100 hover:!opacity-100 focus-visible:opacity-100 press focus-glow rounded-md px-1.5 py-0.5 text-sm transition-all duration-200"
-                    style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
                     title="删除"
-                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)' }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
+                    className="er-btn er-btn--ghost er-btn--sm opacity-40 group-hover:opacity-100 focus-visible:opacity-100"
+                    style={{ '--btn-accent': 'var(--er-red)' } as CSSProperties}
                   >
                     删除
                   </button>
@@ -448,10 +440,7 @@ export const PaperList = memo(function PaperList({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
             aria-label="上一页"
-            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed press focus-glow transition-all duration-200"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
-            onMouseEnter={e => { if (page > 1) e.currentTarget.style.borderColor = 'var(--border-light)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             上一页
           </button>
@@ -467,10 +456,7 @@ export const PaperList = memo(function PaperList({
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
             aria-label="下一页"
-            className="px-3 py-1.5 text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed press focus-glow transition-all duration-200"
-            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
-            onMouseEnter={e => { if (page < totalPages) e.currentTarget.style.borderColor = 'var(--border-light)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             下一页
           </button>

@@ -102,7 +102,7 @@ function PaperItem({ paper, isActive, onSelect, onRequestDelete }: PaperItemProp
         borderLeft: `3px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
         backgroundColor: bg,
         borderRadius: SEED_RADIUS,
-        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        transitionTimingFunction: 'var(--ease-press)',
       }}
     >
       <div className="flex-1 min-w-0 pl-1">
@@ -181,7 +181,7 @@ export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDel
             border: `1px solid ${searchFocused ? 'var(--accent)' : 'transparent'}`,
             borderRadius: SEED_RADIUS,
             boxShadow: searchFocused ? '0 0 0 3px var(--accent-subtle)' : 'none',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            transitionTimingFunction: 'var(--ease-press)',
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"

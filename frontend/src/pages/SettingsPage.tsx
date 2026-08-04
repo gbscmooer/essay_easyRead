@@ -25,6 +25,7 @@ import {
 } from '@/features/settings/DeepResearchSettings'
 import type { AppConfig } from '@/features/settings/config'
 import { DEFAULT_CONFIG } from '@/features/settings/config'
+import { LoadingSpinner } from '@/ds-entry'
 
 
 /* ── Tab 定义 ─────────────────────────────────────── */
@@ -83,28 +84,18 @@ function TabBar({
   onChange: (key: TabKey) => void
 }) {
   return (
-    <div
-      className="inline-flex items-center gap-1 p-1 rounded-full"
-      style={{
-        backgroundColor: 'var(--bg-elevated)',
-        border: '1px solid var(--border)',
-      }}
-      role="tablist"
-    >
+    <div className="er-btn-group" role="tablist">
       {TABS.map(tab => {
         const isActive = tab.key === active
         return (
           <button
             key={tab.key}
+            type="button"
             role="tab"
             aria-selected={isActive}
+            data-active={isActive || undefined}
             onClick={() => onChange(tab.key)}
-            className="press focus-glow relative flex items-center gap-1.5 px-4 py-1.5 text-[13px] font-medium rounded-full transition-all duration-200"
-            style={{
-              backgroundColor: isActive ? 'var(--accent)' : 'transparent',
-              color: isActive ? '#fff' : 'var(--text-secondary)',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            }}
+            className="er-btn er-btn--ghost"
           >
             <span style={{ opacity: isActive ? 1 : 0.6 }}>{tab.icon}</span>
             {tab.label}
@@ -128,7 +119,7 @@ function LoadingPlaceholder() {
         borderRadius: 'var(--seed-radius, 12px)',
       }}
     >
-      <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+      <LoadingSpinner size="sm" />
     </div>
   )
 }
@@ -308,7 +299,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        <LoadingSpinner size="sm" />
       </div>
     )
   }
@@ -370,22 +361,14 @@ export function SettingsPage() {
       {/* 保存按钮 — 始终固定在底部 */}
       <div className="flex items-center gap-3 pt-6">
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
-          className="press focus-glow inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-          style={{
-            backgroundColor: 'var(--accent)',
-            color: '#fff',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-          }}
+          aria-busy={saving}
+          className="er-btn er-btn--primary er-btn--lg"
         >
-          {saving && (
-            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-          )}
-          {saving ? '保存中...' : '保存配置'}
+          {saving && <LoadingSpinner size="xs" />}
+          {saving ? '保存中…' : '保存配置'}
         </button>
         {saved && (
           <span

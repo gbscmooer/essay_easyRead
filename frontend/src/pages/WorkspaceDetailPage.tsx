@@ -246,8 +246,8 @@ export default function WorkspaceDetailPage() {
               }}
               autoFocus
             />
-            <button onClick={handleRename} className="px-4 py-2 text-[13px] rounded-full font-medium transition-all duration-200" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>保存</button>
-            <button onClick={() => { setEditing(false); setEditName(workspace.name) }} className="px-4 py-2 text-[13px] rounded-full transition-all duration-200" style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}>取消</button>
+            <button type="button" onClick={handleRename} className="er-btn er-btn--primary">保存</button>
+            <button type="button" onClick={() => { setEditing(false); setEditName(workspace.name) }} className="er-btn er-btn--ghost">取消</button>
           </div>
         ) : (
           <div className="flex items-center gap-3">
@@ -292,27 +292,25 @@ export default function WorkspaceDetailPage() {
       {/* 操作区：添加论文 + 深度研究 CTA */}
       <div className="flex items-center gap-3 mb-6">
         <button
+          type="button"
           onClick={handleShowAddPaper}
-          className="px-4 py-2.5 text-[13px] rounded-full transition-all duration-200 shrink-0"
-          style={{
-            backgroundColor: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-secondary)',
-          }}
+          className="er-btn er-btn--secondary er-btn--lg shrink-0"
         >
-          + 从论文库添加
+          从论文库添加
         </button>
 
+        {/* 这一格是双行 CTA，撑不进 .er-btn 的单行盒子，因此只取偏移块语汇
+            （.er-relief），其余按平面处理。渐变与圆角是上一套语言的残留 ——
+            渐变会被硬边语言里的通配符和边框切出脏边。 */}
         <button
+          type="button"
           onClick={() => navigate(`/workspace/${workspaceId}/research`)}
           disabled={workspace.papers.length === 0}
-          className="flex-1 group relative overflow-hidden px-6 py-3.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="er-relief flex-1 group relative px-6 py-3.5 text-left disabled:cursor-not-allowed"
           style={{
-            borderRadius: 'var(--seed-radius, 12px)',
-            border: '1.5px solid var(--accent)',
-            background: 'linear-gradient(135deg, var(--accent-subtle), transparent)',
-            color: 'var(--accent)',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            border: '1px solid var(--er-ink)',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
           }}
         >
           <div className="flex items-center justify-between">

@@ -58,7 +58,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
               style={{
                 backgroundColor: 'var(--accent)',
                 color: 'var(--bg-base)',
-                transition: 'filter 0.2s cubic-bezier(0.25,0.46,0.45,0.94)',
+                transition: 'filter 0.2s var(--ease-press)',
               }}
               onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.06)' }}
               onMouseLeave={e => { e.currentTarget.style.filter = 'none' }}

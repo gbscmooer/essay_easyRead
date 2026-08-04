@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { textAction } from '@/api/textAction'
 import type { AnnotationType } from '@/types'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/ds-entry'
 
 
 interface SelectionPopupProps {
@@ -443,7 +444,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         {/* 加载状态 */}
         {loading && (
           <div className="flex items-center gap-2 px-4 py-3">
-            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+            <LoadingSpinner size="sm" />
             <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {action === 'translate' ? '正在翻译...' : '正在总结...'}
             </span>

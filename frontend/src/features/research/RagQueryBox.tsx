@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { RagQueryResponse } from '@/types'
 import { queryRag } from '@/api/research'
 import { CitationChip } from './CitationChip'
+import { LoadingSpinner } from '@/ds-entry'
 
 type RagMode = 'vector' | 'hybrid' | 'graph'
 
@@ -107,7 +108,7 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
 
         {loading && (
           <div className="flex items-center gap-2">
-            <div className="w-3.5 h-3.5 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+            <LoadingSpinner size="xs" />
             <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>检索中…</span>
           </div>
         )}

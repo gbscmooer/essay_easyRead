@@ -6,8 +6,9 @@ import { listWorkspaces } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import type { WorkspaceItem } from '@/api/workspaces'
 import { TagManager } from '../TagManager'
+import { LoadingSpinner } from '@/ds-entry'
 
-const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+const SPRING = 'var(--ease-press)'
 
 interface OverviewTabProps {
   result: AnalysisResult
@@ -353,7 +354,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                   >
                     {isRefreshing ? (
                       <>
-                        <div className="w-3.5 h-3.5 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+                        <LoadingSpinner size="xs" />
                         搜索中...
                       </>
                     ) : (
@@ -453,7 +454,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
           </div>
         ) : relatedStatus === 'loading' && !isRefreshing ? (
           <div className="flex items-center justify-center gap-2.5 py-8">
-            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+            <LoadingSpinner size="sm" />
             <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>主体分析已完成，正在后台搜索相关论文…</span>
           </div>
         ) : relatedStatus === 'failed' && !isRefreshing ? (
@@ -493,7 +494,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
         {isImporting && importProgress && (
           <div className="mt-3 content-section">
             <div className="flex items-center gap-2.5 mb-2.5">
-              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+              <LoadingSpinner size="sm" />
               <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
                 正在导入… {importProgress.done}/{importProgress.total}
               </span>
@@ -572,7 +573,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
 
             {wsLoading ? (
               <div className="flex items-center justify-center py-8 gap-2.5">
-                <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status"><span className="sr-only">加载中</span></div>
+                <LoadingSpinner size="sm" />
                 <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>加载工作区…</span>
               </div>
             ) : workspaces.length === 0 ? (

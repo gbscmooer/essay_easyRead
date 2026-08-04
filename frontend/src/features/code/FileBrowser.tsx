@@ -93,7 +93,7 @@ function TreeNode({
           style={{
             paddingLeft: `${depth * 16 + 8}px`,
             paddingRight: 8,
-            transition: 'background-color 0.18s cubic-bezier(0.25,0.46,0.45,0.94), color 0.18s cubic-bezier(0.25,0.46,0.45,0.94)',
+            transition: 'background-color 0.18s var(--ease-press), color 0.18s var(--ease-press)',
             color: isSelected ? 'var(--accent)' : 'var(--code-text)',
             backgroundColor: isSelected ? 'var(--code-selection)' : undefined,
             boxShadow: isSelected ? 'inset 2px 0 0 var(--accent)' : undefined,
@@ -138,13 +138,13 @@ function TreeNode({
         aria-expanded={expanded}
         onClick={() => setExpanded(v => !v)}
         className="w-full text-left flex items-center gap-1 py-[2px] text-[13px] ease-spring focus-glow"
-        style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8, color: 'var(--code-text)', transition: 'background-color 0.18s cubic-bezier(0.25,0.46,0.45,0.94)' }}
+        style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: 8, color: 'var(--code-text)', transition: 'background-color 0.18s var(--ease-press)' }}
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--code-hover)' }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '' }}
       >
         <svg
           className={`w-3 h-3 shrink-0 ease-spring ${expanded ? 'rotate-90' : ''}`}
-          style={{ transition: 'transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94)' }}
+          style={{ transition: 'transform 0.2s var(--ease-press)' }}
           fill="currentColor"
           viewBox="0 0 16 16"
         >
