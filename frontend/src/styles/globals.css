@@ -67,12 +67,58 @@
   --deco-opacity: .4;
   --deco-tracking: .14em;
 
-  --ease-register: cubic-bezier(0.22, 1, 0.36, 1);
+  /* ── 动效：缓动族 ──────────────────────────────────────────────
+     一条曲线撑不起一套语言。这五条各自对应印刷机上的一种物理动作，
+     选曲线等于选「这个东西是怎么动的」，而不是「动得快不快」。
+     linear 只保留给真正匀速的东西（进度条推进、扫描线）。 */
+  --ease-register: cubic-bezier(.22, 1, .36, 1);    /* 套准：冲到位后微沉 —— 面板、页面、元素就位 */
+  --ease-press: cubic-bezier(.2, .85, .3, 1);       /* 压印：起步即最快，末端硬停 —— 按下与释放 */
+  --ease-carriage: cubic-bezier(.65, .02, .35, 1);  /* 走纸：两端对称加减速 —— 滑轨、抽屉、擦除 */
+  --ease-exit: cubic-bezier(.45, 0, .85, .35);      /* 退场：持续加速离场，不回弹 */
+  --ease-snap: cubic-bezier(.12, .9, .08, 1);       /* 咬合：几乎瞬时就位 —— 指示条、下划线 */
   --spring-ease: var(--ease-register);
+
+  /* ── 动效：时长档位 ────────────────────────────────────────────
+     按「这是什么层级的变化」取值，不要现场写数字。同一层级的东西
+     必须同速，否则界面会显得各动各的。 */
+  --dur-press: 90ms;    /* 压印、咬合：手指还没离开就该结束 */
+  --dur-tint: 150ms;    /* 换色、描边：hover 的默认速度 */
+  --dur-plane: 240ms;   /* 浮层、提示、下拉 */
+  --dur-page: 380ms;    /* 页面套准 */
+  --dur-run: 560ms;     /* 走纸、路由擦除 */
+
+  /* ── 间距阶梯 ──────────────────────────────────────────────────
+     斐波那契而非 4 的倍数：等差阶梯在紧凑界面里相邻档位区分不开，
+     最后总是退化成「随手加 4px」。递增的间隔本身就是版面节奏。 */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 13px;
+  --s4: 21px;
+  --s5: 34px;
+  --s6: 55px;
+
+  /* ── 描边阶梯 ──────────────────────────────────────────────────
+     硬边语言里，线宽就是层级。四档各有分工，不要出现第五种宽度。 */
+  --rule-hair: 1px;   /* 分隔：同级之间 */
+  --rule-mark: 3px;   /* 标记：活动态、当前项 */
+  --rule-bar: 5px;    /* 强调：区块归属 */
+  --rule-slab: 8px;   /* 结构：平面的顶边、主色条 */
+
+  /* ── 偏移块（relief）────────────────────────────────────────────
+     零模糊的实体投影。这是构成主义的原生语汇（套色错位），不是
+     拟物阴影 —— 全局 box-shadow 禁令刻意为它开了口子。 */
+  --relief-sm: 3px;
+  --relief-md: 5px;
+  --relief-lg: 8px;
+
   --er-edge: clamp(22px, 4vw, 64px);
   --er-gap: clamp(8px, 1vw, 18px);
   --er-rule: 1px solid rgba(23, 24, 27, 0.36);
-  --er-hairline: 1px solid rgba(23, 24, 27, 0.18);
+  /* 颜色，不是 border 简写 —— 必须与 experience.css 的同名 token 同类型。
+     两处类型不一致时后加载的 experience.css 胜出，globals 里所有
+     `border: var(--er-hairline)` 就会解析成 border-style:none，
+     .panel-section / .content-section 的分隔线因此整站不可见。 */
+  --er-hairline: rgba(23, 24, 27, 0.18);
   --er-label-size: var(--fs-label);
   --er-nav-height: 70px;
   --er-mast-height: 68px;
@@ -97,7 +143,7 @@
   --accent-subtle: rgba(95, 131, 181, 0.18);
   --deco-opacity: .44;
   --er-rule: 1px solid rgba(247, 242, 231, 0.34);
-  --er-hairline: 1px solid rgba(247, 242, 231, 0.17);
+  --er-hairline: rgba(247, 242, 231, 0.17);
 }
 
 *,
@@ -105,6 +151,14 @@
 *::after {
   box-sizing: border-box;
   border-radius: 0 !important;
+}
+
+/* 阴影禁令只针对「模糊的拟物阴影」。.er-relief 与 .er-btn 例外 —— 它们用的
+   是零模糊偏移实体块（套色错位），是这套语言本身的语汇，不是要压掉的东西。
+   原先的通配符把两者一起禁了，界面因此只剩绝对平面。 */
+*:not(.er-relief):not(.er-btn),
+*:not(.er-relief):not(.er-btn)::before,
+*:not(.er-relief):not(.er-btn)::after {
   box-shadow: none !important;
 }
 
@@ -202,6 +256,10 @@ canvas {
   outline: 3px solid var(--ochre) !important;
   outline-offset: 3px !important;
   border-radius: 0 !important;
+}
+
+/* 同上：聚焦时也不能把偏移块抹掉，否则键盘用户看到的按钮会比鼠标用户扁一层。 */
+*:not(.er-relief):not(.er-btn):focus-visible {
   box-shadow: none !important;
 }
 
@@ -293,7 +351,9 @@ canvas {
   background: transparent !important;
   color: var(--text-primary) !important;
   box-shadow: none !important;
-  transition: border-color 150ms linear, background-color 150ms linear;
+  transition:
+    border-color var(--dur-tint) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press);
 }
 
 [data-theme] input::placeholder,
@@ -326,7 +386,7 @@ input[type='range'] {
 /* Flat semantic surfaces used by legacy feature components. */
 .glass-panel,
 .glass-toolbar {
-  border: var(--er-hairline);
+  border: 1px solid var(--er-hairline);
   border-radius: 0 !important;
   background: var(--bg-surface);
   box-shadow: none !important;
@@ -336,7 +396,7 @@ input[type='range'] {
 
 .panel-section {
   padding: 1.25rem 0;
-  border-top: var(--er-hairline);
+  border-top: 1px solid var(--er-hairline);
 }
 
 .panel-section:first-child,
@@ -347,7 +407,7 @@ input[type='range'] {
 
 .content-section {
   padding: 1rem 0;
-  border-bottom: var(--er-hairline);
+  border-bottom: 1px solid var(--er-hairline);
   background: transparent;
 }
 
@@ -359,11 +419,13 @@ input[type='range'] {
   position: relative;
   padding: 0.95rem 0;
   border: 0;
-  border-bottom: var(--er-hairline);
+  border-bottom: 1px solid var(--er-hairline);
   border-radius: 0 !important;
   background: transparent;
   cursor: pointer;
-  transition: background-color 120ms linear, color 120ms linear;
+  transition:
+    background-color var(--dur-tint) var(--ease-press),
+    color var(--dur-tint) var(--ease-press);
 }
 
 .list-row::before {
@@ -377,7 +439,9 @@ input[type='range'] {
   opacity: 0;
   transform: scaleY(0);
   transform-origin: bottom;
-  transition: opacity 120ms linear, transform 180ms var(--ease-register);
+  transition:
+    opacity var(--dur-press) var(--ease-snap),
+    transform var(--dur-tint) var(--ease-snap);
 }
 
 .list-row:hover,
@@ -406,7 +470,7 @@ input[type='range'] {
 .stat-strip > * {
   min-width: 0;
   padding: 1.15rem 1.25rem;
-  border-right: var(--er-hairline);
+  border-right: 1px solid var(--er-hairline);
 }
 
 .stat-strip > *:last-child { border-right: 0; }
@@ -414,10 +478,56 @@ input[type='range'] {
 .card-hover,
 .hover-lift,
 .spring-transition {
-  transition: background-color 150ms linear, color 150ms linear, border-color 150ms linear;
+  transition:
+    background-color var(--dur-tint) var(--ease-press),
+    color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
 }
 
-.press:active { transform: translate(2px, 2px) !important; }
+/* ── 偏移块 ────────────────────────────────────────────────────────
+   零模糊实体投影。默认停在 --relief-md，hover 推远、按下归零 ——
+   按钮本体同时移到影位，读起来就是「被压下去」而不是「变了个色」。 */
+.er-relief {
+  --relief-offset: var(--relief-md);
+  --relief-color: var(--accent);
+  box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
+  transition:
+    box-shadow var(--dur-press) var(--ease-press),
+    transform var(--dur-press) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press),
+    color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
+}
+
+.er-relief:hover:not(:disabled):not([aria-disabled='true']) {
+  --relief-offset: var(--relief-lg);
+}
+
+.er-relief:active:not(:disabled):not([aria-disabled='true']) {
+  --relief-offset: 0px;
+  transform: translate(var(--relief-md), var(--relief-md));
+}
+
+.er-relief:disabled,
+.er-relief[aria-disabled='true'] {
+  --relief-offset: 0px;
+}
+
+/* 压印：没有偏移块的可点元素，用一段极短的轴向位移代替。
+   transform 必须写进 transition 属性表，否则位移是瞬跳 —— 这正是
+   之前全站按下反馈「看起来很生硬」的原因。 */
+.press {
+  transition:
+    transform var(--dur-press) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press),
+    color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
+}
+
+.press:active:not(:disabled):not([aria-disabled='true']) {
+  transform: translate(1px, 1px);
+}
+
 .focus-glow:focus-visible { box-shadow: none !important; }
 
 .btn-glow,
@@ -457,16 +567,21 @@ input[type='range'] {
   50% { opacity: 1; }
 }
 
+/* 两条轴各有含义，不要混用：
+   X = 推进方向（路由擦除、列表流入，跟走纸同向）
+   Y = 就位（区块落定到版面上） */
 .animate-reveal-up,
 .animate-reveal-fade,
 .animate-reveal-scale {
-  animation: er-reveal-y 420ms var(--ease-register) both;
+  animation: er-reveal-y var(--dur-page) var(--ease-register) both;
 }
 
 .reveal {
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 420ms linear, transform 520ms var(--ease-register);
+  transition:
+    opacity var(--dur-page) var(--ease-register),
+    transform var(--dur-run) var(--ease-register);
 }
 
 .reveal.is-visible {
@@ -475,15 +590,28 @@ input[type='range'] {
 }
 
 .stagger > * {
-  animation: er-reveal-x 420ms var(--ease-register) both;
-  animation-delay: calc(var(--i, 0) * 45ms);
+  animation: er-reveal-x var(--dur-page) var(--ease-register) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger-step, 45ms));
 }
+
+/* --i 由组件传入时优先；没传时用位置兜底。原先只有 WorkspacePage 传了
+   --i，SettingsPage 的两处 .stagger 全部子元素延迟都是 0，等于没有编排。
+   第 9 项起共用同一延迟，避免长列表末尾等待过久。 */
+.stagger > *:nth-child(1) { --i: 0; }
+.stagger > *:nth-child(2) { --i: 1; }
+.stagger > *:nth-child(3) { --i: 2; }
+.stagger > *:nth-child(4) { --i: 3; }
+.stagger > *:nth-child(5) { --i: 4; }
+.stagger > *:nth-child(6) { --i: 5; }
+.stagger > *:nth-child(7) { --i: 6; }
+.stagger > *:nth-child(8) { --i: 7; }
+.stagger > *:nth-child(n + 9) { --i: 8; }
 
 .dropdown-menu,
 .animate-slide-in,
 .animate-slide-in-y,
 .animate-slide-in-x {
-  animation: er-reveal-y 220ms var(--ease-register) both;
+  animation: er-reveal-y var(--dur-plane) var(--ease-register) both;
 }
 
 .skeleton,
@@ -497,7 +625,7 @@ input[type='range'] {
 .flip-card { perspective: 1200px; }
 .flip-card-inner {
   transform-style: preserve-3d;
-  transition: transform 480ms var(--ease-register);
+  transition: transform var(--dur-run) var(--ease-register);
 }
 .flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
 .flip-card-front,
@@ -572,7 +700,7 @@ input[type='range'] {
 .theme-transitioning *,
 .theme-transitioning *::before,
 .theme-transitioning *::after {
-  transition-duration: 180ms !important;
+  transition-duration: var(--dur-plane) !important;
 }
 
 @media (max-width: 1000px) {
@@ -583,7 +711,7 @@ input[type='range'] {
 
   .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stat-strip > *:nth-child(2) { border-right: 0; }
-  .stat-strip > *:nth-child(-n + 2) { border-bottom: var(--er-hairline); }
+  .stat-strip > *:nth-child(-n + 2) { border-bottom: 1px solid var(--er-hairline); }
 }
 
 @media (max-width: 700px) {

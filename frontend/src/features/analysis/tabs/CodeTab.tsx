@@ -4,8 +4,9 @@ import type { Paper } from '@/types'
 import { getPaper } from '@/api/papers'
 import { extractCodeUrl } from '@/api/code'
 import { toast } from '@/hooks/useToast'
+import { LoadingSpinner } from '@/ds-entry'
 
-const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+const SPRING = 'var(--ease-press)'
 
 interface CodeTabProps {
   paperId?: number
@@ -123,7 +124,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
               )}
               {codeStatus === 'cloning' && (
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                  <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+                  <LoadingSpinner size="sm" />
                   正在克隆…
                 </span>
               )}
@@ -156,7 +157,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
             >
               {searching ? (
                 <>
-                  <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+                  <LoadingSpinner size="xs" />
                   搜索中…
                 </>
               ) : (

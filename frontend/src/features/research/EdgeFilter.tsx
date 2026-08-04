@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { GraphEdgeKind } from '@/types'
 import { Tooltip } from '@/ds-entry'
 
@@ -27,9 +28,12 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
         边类型{selected.size > 0 ? ` · ${selected.size}` : ''}
       </span>
+      {/* 每个开关带自己的强调色（--btn-accent），必须和图谱里对应边的颜色
+          一致 —— 这是图例，不只是按钮。选中/未选的区别由控件系统统一给出，
+          不再靠内联 backgroundColor + opacity 手写两套。 */}
       {EDGE_OPTIONS.filter(opt => opt.kind !== 'shared-method').map(opt => {
         const on = selected.has(opt.kind)
         return (
@@ -38,16 +42,9 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
               type="button"
               aria-pressed={on}
               onClick={() => toggle(opt.kind)}
-              className={`focus-glow press flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full border transition-all duration-200 ${
-                on ? 'font-medium' : 'opacity-60 hover:opacity-100'
-              }`}
-              style={
-                on
-                  ? { borderColor: opt.color, color: opt.color, backgroundColor: `${opt.color}15` }
-                  : { borderColor: 'var(--border)', color: 'var(--text-muted)' }
-              }
+              className="er-btn er-btn--secondary er-btn--sm"
+              style={{ '--btn-accent': opt.color } as CSSProperties}
             >
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: on ? opt.color : 'var(--text-muted)' }} />
               {opt.label}
             </button>
           </Tooltip>

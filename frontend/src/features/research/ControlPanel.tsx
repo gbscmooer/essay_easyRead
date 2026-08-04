@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from 'react'
 import type { ResearchRunCreate, ResearchMode } from '@/types'
 import { getWorkspace, type WorkspacePaper } from '@/api/workspaces'
 import { get, post } from '@/api/client'
@@ -318,7 +318,7 @@ export function ControlPanel({
         {/* 构建范围 */}
         <div className="flex items-center gap-2">
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>构建范围</span>
-          <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+          <div className="er-btn-group">
             {([
               {
                 key: 'local' as ResearchMode,
@@ -333,14 +333,11 @@ export function ControlPanel({
             ]).map(({ key, label, tip }) => (
               <Tooltip key={key} content={tip}>
                 <button
+                  type="button"
                   onClick={() => setMode(key)}
                   disabled={disabled}
-                  className={`px-3 py-1 text-xs transition-colors ${mode === key ? 'font-medium' : ''}`}
-                  style={
-                    mode === key
-                      ? { backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
-                      : { color: 'var(--text-muted)' }
-                  }
+                  aria-pressed={mode === key}
+                  className="er-btn er-btn--ghost er-btn--sm"
                 >
                   {label}
                 </button>
@@ -410,14 +407,11 @@ export function ControlPanel({
           }
         >
           <button
+            type="button"
             onClick={() => setShowPicker(v => !v)}
             disabled={disabled}
-            className="px-3 py-1 text-xs rounded-md border transition-colors"
-            style={{
-              borderColor: 'var(--border)',
-              color: 'var(--text-secondary)',
-              backgroundColor: showPicker ? 'var(--accent-subtle)' : 'transparent',
-            }}
+            aria-expanded={showPicker}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             {pickerLabel}
           </button>
@@ -455,9 +449,10 @@ export function ControlPanel({
 
         <Tooltip content="调整地图密度（每篇论文平均连几条关系边）等高级参数。">
           <button
+            type="button"
             onClick={() => setShowAdvanced(v => !v)}
-            className="text-xs transition-colors"
-            style={{ color: 'var(--text-muted)' }}
+            aria-expanded={showAdvanced}
+            className="er-btn er-btn--ghost er-btn--sm"
           >
             {showAdvanced ? '收起高级设置' : '高级设置'}
           </button>
@@ -467,10 +462,11 @@ export function ControlPanel({
 
         <Tooltip content={'对工作区里未解读的论文做「图谱速读」：只抽知识图谱需要的研究目的/方法/数据集/基线 + 一段简短总结，token 成本远低于全量精读。完成后点「开始研究」重建图谱即可让可解释关系覆盖到这些论文。'}>
           <button
+            type="button"
             onClick={handleDigest}
             disabled={disabled || digesting}
-            className="px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            aria-busy={digesting}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             {digesting
               ? (digestProgress ? `速读中 ${digestProgress.done}/${digestProgress.total}…` : '速读中…')
@@ -480,10 +476,11 @@ export function ControlPanel({
 
         <Tooltip content={'为工作区论文从 Semantic Scholar 回填真实引用关系（cites / 共引 / 文献耦合边的数据来源），完成后自动重建图谱。老工作区（引用体系上线前创建）图谱缺引用边时使用；已有引用的论文自动跳过，可随时中断续跑。'}>
           <button
+            type="button"
             onClick={handleBackfill}
             disabled={disabled || backfilling}
-            className="px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            aria-busy={backfilling}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             {backfilling
               ? (backfillProgress
@@ -496,11 +493,13 @@ export function ControlPanel({
         </Tooltip>
 
         <Tooltip content={'清空该工作区的向量索引和图谱缓存（已上传的 PDF 文件不会删除）。下次点「开始研究」会从零重建。'}>
+          {/* 破坏性，但放在常驻工具条里 —— 用 secondary 而不是 danger：
+              一条永远亮着的红块会把整行的注意力吸走，红留给确认对话框。 */}
           <button
+            type="button"
             onClick={onClear}
             disabled={disabled}
-            className="px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             清空图谱
           </button>
@@ -512,13 +511,10 @@ export function ControlPanel({
             : '在本地论文基础上联网下载被引用的论文，再执行：文本切片 → 向量嵌入 → 构建知识图谱。联网部分不消耗 LLM Token，但会调用 arXiv / Semantic Scholar / OpenAlex 接口。'
         }>
           <button
+            type="button"
             onClick={handleStart}
             disabled={disabled || selectedUsableCount === 0}
-            className="px-4 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: disabled ? 'var(--border)' : 'var(--accent)',
-              color: 'var(--bg-base)',
-            }}
+            className="er-btn er-btn--primary er-btn--sm"
           >
             {startLabel}
           </button>
@@ -539,9 +535,9 @@ export function ControlPanel({
                 </span>
               )}
             </div>
-            <div className="flex gap-3">
-              <button onClick={selectAll} className="text-xs underline" style={{ color: 'var(--text-secondary)' }}>全选可用</button>
-              <button onClick={selectNone} className="text-xs underline" style={{ color: 'var(--text-muted)' }}>清空勾选</button>
+            <div className="flex gap-1">
+              <button type="button" onClick={selectAll} className="er-btn er-btn--ghost er-btn--sm">全选可用</button>
+              <button type="button" onClick={selectNone} className="er-btn er-btn--ghost er-btn--sm">清空勾选</button>
             </div>
           </div>
           <div className="max-h-48 overflow-auto rounded border" style={{ borderColor: 'var(--border)' }}>
@@ -567,24 +563,17 @@ export function ControlPanel({
                       className="accent-blue-500 shrink-0"
                     />
                     <span className="truncate flex-1">{p.title || p.filename}</span>
+                    {/* 原先是 10px 的胶囊标签 —— 10px 在这套语言里是「仅装饰」
+                        档位，不得承载状态信息。.er-tag 落在 11px 功能档。 */}
                     {p.read_level && READ_BADGE[p.read_level] && (
                       <span
-                        className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
-                        style={{
-                          color: READ_BADGE[p.read_level].color,
-                          border: `1px solid ${READ_BADGE[p.read_level].color}`,
-                        }}
+                        className="er-tag shrink-0"
+                        style={{ '--tag-accent': READ_BADGE[p.read_level].color } as CSSProperties}
                       >
                         {READ_BADGE[p.read_level].text}
                       </span>
                     )}
-                    <span
-                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full"
-                      style={{
-                        backgroundColor: p.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-base)',
-                        color: p.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
-                      }}
-                    >
+                    <span className={`er-tag shrink-0 ${p.status === 'failed' ? 'er-tag--signal' : 'er-tag--mute'}`}>
                       {STATUS_LABEL[p.status] ?? p.status}
                     </span>
                   </label>
@@ -631,14 +620,11 @@ export function ControlPanel({
           </Tooltip>
 
           <button
+            type="button"
             onClick={handleSaveAdvanced}
             disabled={saveState === 'saving'}
-            className="px-3 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
-            style={{
-              borderColor: 'var(--border)',
-              backgroundColor: saveState === 'saved' ? 'var(--success-subtle)' : 'transparent',
-              color: saveState === 'saved' ? 'var(--success)' : 'var(--text-secondary)',
-            }}
+            aria-busy={saveState === 'saving'}
+            className="er-btn er-btn--secondary er-btn--sm"
           >
             {saveState === 'saving' ? '保存中…' : saveState === 'saved' ? '已保存' : '保存'}
           </button>

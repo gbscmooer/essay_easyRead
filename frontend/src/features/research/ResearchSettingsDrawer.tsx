@@ -12,6 +12,7 @@ import { toast } from '@/hooks/useToast'
 import { DeepResearchSettings } from '@/features/settings/DeepResearchSettings'
 import { DEFAULT_CONFIG } from '@/features/settings/config'
 import type { AppConfig } from '@/features/settings/config'
+import { LoadingSpinner } from '@/ds-entry'
 
 interface ResearchSettingsDrawerProps {
   open: boolean
@@ -120,7 +121,7 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
             <DeepResearchSettings config={config} setConfig={setConfig} />
           ) : (
             <div className="flex items-center justify-center h-32">
-              <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <LoadingSpinner size="sm" />
             </div>
           )}
         </div>

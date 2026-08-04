@@ -1,0 +1,342 @@
+/*
+ * Essay Read — 控件系统
+ *
+ * v4.0 建立了视觉语言，但没有建立控件系统：全站按钮的唯一共同规则是
+ * `min-height: 34px`，层级靠 `.bg-blue-500` 之类的 Tailwind 映射硬凑，
+ * 内边距散落成 px-2/px-3/px-4 六七种写法。这一层补上缺失的部分。
+ *
+ * 四个语义层级，一页之内只允许出现一个 primary —— 它是这一页的「唯一
+ * 实心质量」，多了就没有主次可言。
+ *
+ * 按下反馈用「压印」而不是缩放：硬边平面被按下去应该是移位，像铅字压
+ * 进纸里；缩放属于圆角/柔性语言，放在这里会打架。
+ */
+
+/* ── 基座 ──────────────────────────────────────────────────────── */
+
+.er-btn {
+  --btn-height: 34px;
+  --btn-pad: var(--s3);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: var(--btn-height);
+  padding: 0 var(--btn-pad);
+  border: var(--rule-hair) solid transparent;
+  color: var(--er-ink);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color var(--dur-tint) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press),
+    box-shadow var(--dur-press) var(--ease-press),
+    transform var(--dur-press) var(--ease-press);
+}
+
+.er-btn > svg {
+  width: 1.15em;
+  height: 1.15em;
+  flex: 0 0 auto;
+}
+
+.er-btn:disabled,
+.er-btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+/* 压印。带偏移块的层级在下面各自覆盖成更完整的版本。 */
+.er-btn:not(:disabled):not([aria-disabled='true']):active {
+  transform: translate(1px, 1px);
+}
+
+/* ── 尺寸档位 ──────────────────────────────────────────────────── */
+
+.er-btn--sm {
+  --btn-height: 28px;
+  --btn-pad: var(--s2);
+  font-size: var(--fs-meta);
+  letter-spacing: .06em;
+}
+
+.er-btn--lg {
+  --btn-height: 44px;
+  --btn-pad: var(--s4);
+  font-size: var(--fs-body);
+  letter-spacing: .1em;
+}
+
+/* 纯图标：正方形，不参与最小宽度与字距 */
+.er-btn--icon {
+  --btn-pad: 0;
+  gap: 0;
+  width: var(--btn-height);
+  min-width: var(--btn-height);
+  letter-spacing: 0;
+}
+
+.er-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+/* ── 层级 1：primary —— 全页唯一的实心质量 ──────────────────────
+   墨块 + 钴蓝偏移块。hover 把影推远（质量抬起），按下时本体移到影位、
+   影归零 —— 一次完整的压印，而不是换个颜色。 */
+
+.er-btn--primary {
+  --relief-offset: var(--relief-md);
+  --relief-color: var(--er-blue);
+  border-color: var(--er-ink);
+  color: var(--er-paper-bright);
+  background: #17181b;
+  box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
+}
+
+[data-mode='dark'] .er-btn--primary {
+  color: #17181b;
+  background: var(--er-ink);
+}
+
+.er-btn--primary:not(:disabled):not([aria-disabled='true']):hover {
+  --relief-offset: var(--relief-lg);
+}
+
+.er-btn--primary:not(:disabled):not([aria-disabled='true']):active {
+  --relief-offset: 0px;
+  transform: translate(var(--relief-md), var(--relief-md));
+}
+
+/* 没有质量的东西不投影 */
+.er-btn--primary:disabled,
+.er-btn--primary[aria-disabled='true'] {
+  --relief-offset: 0px;
+}
+
+/* ── 层级 2：secondary —— 描边 ──────────────────────────────────
+   hover 时填充从左侧推入，和走纸同向；不是整块淡入。 */
+
+.er-btn--secondary {
+  /* 自成层叠上下文，好让填充层用 z-index:-1 落到「背景之上、文字之下」。
+     不能改用「填充 z-index:0 + 子元素 z-index:1」那一套 —— 按钮里的裸文本
+     节点不是元素，选择器够不着，会被填充整个盖住。 */
+  isolation: isolate;
+  overflow: hidden;
+  border-color: var(--btn-accent, var(--er-ink));
+  color: var(--btn-accent, var(--er-ink));
+  background: transparent;
+}
+
+.er-btn--secondary::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: var(--btn-accent, var(--er-ink));
+  content: '';
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-tint) var(--ease-snap);
+}
+
+.er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
+  color: var(--er-paper-bright);
+}
+
+[data-mode='dark'] .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
+  color: #17181b;
+}
+
+.er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover::before {
+  transform: scaleX(1);
+}
+
+/* 开关型 secondary（图层筛选这类多选开关，不在 .er-btn-group 里）：
+   选中即保持填充。--btn-accent 让每个开关带自己的强调色 —— 图层筛选的
+   颜色必须和图谱里的边色对应，不能统一成墨色。 */
+.er-btn--secondary[aria-pressed='true']::before {
+  transform: scaleX(1);
+}
+
+.er-btn--secondary[aria-pressed='true'] {
+  color: var(--er-paper-bright);
+}
+
+/* 同 hover：深色模式下填充是亮色，前景必须翻过来，否则默认填充（墨色=米白）
+   会出现米白底米白字。 */
+[data-mode='dark'] .er-btn--secondary[aria-pressed='true'] {
+  color: #17181b;
+}
+
+.er-btn--secondary[aria-pressed='false'] {
+  opacity: .62;
+}
+
+.er-btn--secondary[aria-pressed='false']:hover {
+  opacity: 1;
+}
+
+/* ── 层级 3：ghost —— 工具条与密集区 ────────────────────────────
+   静息态无边框，只靠字重与字距自证可点；hover 才出现底。 */
+
+.er-btn--ghost {
+  border-color: transparent;
+  color: var(--er-muted);
+  background: transparent;
+}
+
+/* 同样认 --btn-accent：行内的破坏性操作（列表里的「删除」）静息时低调，
+   hover 才亮出信号红，不必为此单开一个层级。 */
+.er-btn--ghost:not(:disabled):not([aria-disabled='true']):hover {
+  border-color: var(--btn-accent, var(--er-hairline));
+  color: var(--btn-accent, var(--er-ink));
+  background: color-mix(in srgb, var(--btn-accent, var(--er-blue)) 12%, transparent);
+}
+
+/* ── 层级 4：danger —— 破坏性操作 ───────────────────────────────
+   信号红实心 + 深蓝偏移块。红色本身已经足够响，影用深蓝而不是更多的
+   红，避免整块糊成一团。 */
+
+.er-btn--danger {
+  --relief-offset: var(--relief-sm);
+  --relief-color: var(--er-blue-deep);
+  border-color: var(--er-red);
+  color: #f7f2e7;
+  background: var(--er-red);
+  box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
+}
+
+.er-btn--danger:not(:disabled):not([aria-disabled='true']):hover {
+  --relief-offset: var(--relief-md);
+}
+
+.er-btn--danger:not(:disabled):not([aria-disabled='true']):active {
+  --relief-offset: 0px;
+  transform: translate(var(--relief-sm), var(--relief-sm));
+}
+
+.er-btn--danger:disabled,
+.er-btn--danger[aria-disabled='true'] {
+  --relief-offset: 0px;
+}
+
+/* ── 按钮组 —— 连排分段控件 ─────────────────────────────────────
+   工作区详情与设置页的分段切换目前靠 pages.css 里的 `button + button`
+   位置选择器画分隔线，组件多包一层 wrapper 就会散架。这里给它一个
+   自足的容器。 */
+
+.er-btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--rule-hair) solid var(--er-ink);
+}
+
+.er-btn-group > .er-btn {
+  border: 0;
+  box-shadow: none;
+}
+
+.er-btn-group > .er-btn + .er-btn {
+  border-left: var(--rule-hair) solid var(--er-ink);
+}
+
+.er-btn-group > .er-btn[aria-pressed='true'],
+.er-btn-group > .er-btn[data-active='true'] {
+  color: var(--er-paper-bright);
+  background: #17181b;
+}
+
+[data-mode='dark'] .er-btn-group > .er-btn[aria-pressed='true'],
+[data-mode='dark'] .er-btn-group > .er-btn[data-active='true'] {
+  color: #17181b;
+  background: var(--er-ink);
+}
+
+.er-btn-group--block {
+  display: flex;
+  width: 100%;
+}
+
+.er-btn-group--block > .er-btn {
+  flex: 1 1 0;
+}
+
+/* ── 工具条 ────────────────────────────────────────────────────
+   一行紧凑操作。分隔靠间距而非边框，避免和面板边界抢线。 */
+
+.er-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 40px;
+}
+
+.er-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.er-toolbar__rule {
+  align-self: stretch;
+  width: var(--rule-hair);
+  margin-inline: var(--s1);
+  background: var(--er-hairline);
+}
+
+/* ── 状态标签 ──────────────────────────────────────────────────
+   全站散落着 `text-[11px] px-2 py-0.5 rounded-full` 这种胶囊标签，
+   在硬边语言里会被通配符压成方块、但内边距仍是胶囊的比例。这里给它
+   一个正经的形制：左侧色条 + 方正底。 */
+
+.er-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 20px;
+  padding: 0 var(--s2);
+  border-left: var(--rule-mark) solid var(--tag-accent, var(--er-blue));
+  color: var(--er-ink);
+  background: color-mix(in srgb, var(--tag-accent, var(--er-blue)) 14%, transparent);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.er-tag--signal { --tag-accent: var(--er-red); }
+.er-tag--warn { --tag-accent: var(--er-ochre); }
+.er-tag--mute { --tag-accent: var(--er-gray); }
+
+/* ── 降级 ──────────────────────────────────────────────────────
+   减弱动效时保留全部状态差异（颜色、边框、偏移块的静息位），只去掉
+   过渡过程 —— 用户要的是「别动」，不是「别有反馈」。 */
+
+.er-experience[data-motion='reduced'] .er-btn,
+.er-experience[data-motion='reduced'] .er-btn::before {
+  transition-duration: .001ms !important;
+}
+
+.er-experience[data-motion='reduced'] .er-btn:active {
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-er-motion-override='full']) .er-btn,
+  html:not([data-er-motion-override='full']) .er-btn::before {
+    transition-duration: .001ms !important;
+  }
+
+  html:not([data-er-motion-override='full']) .er-btn:active {
+    transform: none !important;
+  }
+}

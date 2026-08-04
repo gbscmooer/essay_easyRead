@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import type { CodeAnalysisResult, DependencyEdge, PaperCodeMapping } from '@/types'
 import { getCodeFile } from '@/api/code'
 import { useThemeMode } from '@/theme/useTheme'
+import { LoadingSpinner } from '@/ds-entry'
 
 
 interface CodeAnalysisPanelProps {
@@ -210,7 +211,7 @@ function DependencyGraph({
           <div dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
           <div className="flex items-center justify-center py-8">
-            <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+            <LoadingSpinner size="sm" />
           </div>
         )}
       </div>
@@ -327,7 +328,7 @@ function FullscreenGraph({
               <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
           ) : (
-            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+            <LoadingSpinner size="md" />
           )}
         </div>
       </div>
@@ -548,7 +549,7 @@ export function CodeAnalysisPanel({ analysis, isAnalyzing, paperId, onFileClick,
       <div className="flex-1 overflow-auto p-4">
         {isAnalyzing && !analysis ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+            <LoadingSpinner size="md" />
             <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>正在分析代码…</p>
           </div>
         ) : (

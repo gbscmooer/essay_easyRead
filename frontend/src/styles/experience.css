@@ -27,6 +27,17 @@
   --er-nav-height: 68px;
   --er-pointer-x: 72vw;
   --er-pointer-y: 32vh;
+
+  /* 单栏宽度，以及 n 栏跨度（含栏间距）。装饰层与内容共用这一套度量，
+     色块边缘才会落在栏线上。栏数跟着断点走（12 / 8 / 6），所以跨度是
+     相对的：窄屏下同样的「3 栏」占比更大，装饰随版面一起收缩。 */
+  --er-col: calc(
+    (100vw - 2 * var(--er-edge) - (var(--er-columns) - 1) * var(--er-column-gap)) /
+      var(--er-columns)
+  );
+  --er-span-3: calc(3 * var(--er-col) + 2 * var(--er-column-gap));
+  --er-span-4: calc(4 * var(--er-col) + 3 * var(--er-column-gap));
+  --er-span-5: calc(5 * var(--er-col) + 4 * var(--er-column-gap));
 }
 
 [data-mode='dark'] {
@@ -68,6 +79,14 @@ body {
 .er-experience *::before,
 .er-experience *::after {
   box-sizing: border-box;
+}
+
+/* 与 globals 同一条口径：只压模糊的拟物阴影，给 .er-relief / .er-btn 的
+   零模糊偏移实体块留出口。原先这里和 globals 各有一条通配符禁令，把套色
+   错位这个语汇也一并禁掉了。 */
+.er-experience *:not(.er-relief):not(.er-btn),
+.er-experience *:not(.er-relief):not(.er-btn)::before,
+.er-experience *:not(.er-relief):not(.er-btn)::after {
   box-shadow: none !important;
 }
 
@@ -126,7 +145,9 @@ body {
   -webkit-text-fill-color: currentColor !important;
 }
 
-.er-experience :where(.btn-glow, .hover-lift, .card-hover, .press) {
+/* 悬浮上抬与发光属于上一套语言，这里压掉。.press 不在此列 —— 按下反馈
+   是这套语言要的东西，之前被一起压掉，导致全站按钮点下去毫无反应。 */
+.er-experience :where(.btn-glow, .hover-lift, .card-hover) {
   transform: none !important;
   filter: none !important;
 }
@@ -354,22 +375,38 @@ body {
   text-decoration: none;
 }
 
+/* 下划线从左侧展开，而不是整条淡入 —— 和走纸同向，读起来是「推过来」
+   而不是「亮起来」。hover 是预告（弱、窄），active 是确认（实、满）。 */
 .er-context-link::after {
   position: absolute;
   right: 13px;
   bottom: -1px;
   left: 13px;
-  height: 3px;
-  background: transparent;
+  height: var(--rule-mark);
+  background: currentColor;
   content: '';
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition:
+    transform var(--dur-tint) var(--ease-snap),
+    opacity var(--dur-press) var(--ease-snap),
+    background-color var(--dur-press) var(--ease-snap);
 }
 
 .er-context-link:is(:hover, [data-active='true']) {
   color: var(--er-ink);
 }
 
+.er-context-link:hover::after {
+  opacity: .32;
+  transform: scaleX(1);
+}
+
 .er-context-link[data-active='true']::after {
   background: var(--er-red);
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .er-context-divider {
@@ -393,7 +430,7 @@ body {
   min-width: 0;
   height: 100%;
   min-height: 100%;
-  animation: er-page-register 420ms cubic-bezier(.2, .8, .2, 1) both;
+  animation: er-page-register var(--dur-page) var(--ease-register) both;
 }
 
 .er-route-rail {
@@ -444,7 +481,9 @@ body {
   height: 5px;
   background: transparent;
   content: '';
-  transition: width 180ms linear;
+  transition:
+    width var(--dur-tint) var(--ease-snap),
+    background-color var(--dur-press) var(--ease-snap);
 }
 
 .er-nav-item span {
@@ -471,7 +510,12 @@ body {
   white-space: nowrap;
 }
 
-.er-nav-item:is(:hover, [data-active='true'])::before {
+.er-nav-item:hover::before {
+  width: 34px;
+  background: color-mix(in srgb, var(--er-red) 52%, transparent);
+}
+
+.er-nav-item[data-active='true']::before {
   width: 48px;
   background: var(--er-red);
 }
@@ -498,7 +542,10 @@ body {
   opacity: .54;
   background: var(--er-blue);
   transform: translate3d(calc(var(--er-pointer-x) - 50%), calc(var(--er-pointer-y) - 50%), 0);
-  transition: background-color 180ms linear, opacity 180ms linear;
+  transition:
+    background-color var(--dur-plane) var(--ease-carriage),
+    opacity var(--dur-plane) var(--ease-carriage),
+    transform var(--dur-tint) var(--ease-carriage);
 }
 
 .er-experience[data-scene='process'] .er-pointer-aperture,
@@ -526,18 +573,22 @@ body {
   display: block;
 }
 
+/* 装饰层锚在和 masthead 同一套 12 栏栅格上。原先用 26vw / right:12% 这类
+   任意值，色块边缘落不到任何一条栏线上，读起来就是「浮着的灰方块」而不是
+   版面的一部分 —— 构成主义里，色块的边界必须是结构线。 */
 .er-spatial__mass {
   right: var(--er-edge);
   bottom: 12%;
-  width: 26vw;
+  width: var(--er-span-4);
   height: 42%;
   background: var(--er-blue);
   opacity: .08;
 }
 
+/* 竖轴压在右起第 4 栏的栏线上 */
 .er-spatial__bar {
   top: 20%;
-  right: 12%;
+  right: calc(var(--er-edge) + var(--er-span-3) + var(--er-column-gap));
   width: 4px;
   height: 42%;
   background: var(--er-red);
@@ -565,10 +616,12 @@ body {
   display: none;
 }
 
+/* 出血到视口右缘，但左边界仍落在栏线上 —— 这样它读起来是「被裁掉的一块
+   版面」，而不是一个随手拉宽的矩形。 */
 .er-experience[data-scene='field'] .er-spatial__mass {
   right: 0;
   bottom: 0;
-  width: 42vw;
+  width: calc(var(--er-span-5) + var(--er-edge));
   height: 68%;
   background: var(--er-blue);
   opacity: .07;
@@ -577,7 +630,7 @@ body {
 .er-experience[data-scene='process'] .er-spatial__mass {
   right: 0;
   bottom: 0;
-  width: 34vw;
+  width: calc(var(--er-span-4) + var(--er-edge));
   height: 100%;
   background: var(--er-blue-deep);
   opacity: .08;
@@ -594,7 +647,7 @@ body {
   pointer-events: none;
   background: var(--er-red);
   transform: translateX(-110%);
-  animation: er-route-wipe 520ms cubic-bezier(.2, .8, .2, 1) both;
+  animation: er-route-wipe var(--dur-run) var(--ease-carriage) both;
 }
 
 .er-route-wipe span {
@@ -681,7 +734,9 @@ body {
   border-bottom: 1px solid var(--er-hairline) !important;
   color: var(--er-ink);
   background: transparent !important;
-  transition: color 140ms linear, background-color 140ms linear !important;
+  transition:
+    color var(--dur-tint) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press) !important;
 }
 
 .er-experience .list-row::before {
@@ -692,7 +747,7 @@ body {
   width: 0;
   background: var(--er-red);
   content: '';
-  transition: width 140ms linear;
+  transition: width var(--dur-tint) var(--ease-snap);
 }
 
 .er-experience .list-row:hover {
@@ -981,11 +1036,13 @@ body {
   background: var(--er-hairline);
 }
 
+/* 进度条是少数真正该用 linear 的地方：匀速推进才如实反映上传速率，
+   加缓动会让进度「看起来」忽快忽慢。 */
 .er-intake__progress i {
   display: block;
   height: 100%;
   background: var(--er-red);
-  transition: width 300ms linear;
+  transition: width var(--dur-plane) linear;
 }
 
 .er-intake__error {
@@ -1145,7 +1202,7 @@ body {
   place-items: center;
   padding: 22px;
   background: rgb(23 24 27 / 72%);
-  animation: er-page-register 180ms linear both;
+  animation: er-page-register var(--dur-plane) var(--ease-register) both;
 }
 
 .er-dialog-plane {
@@ -1356,6 +1413,12 @@ body {
     display: none;
   }
 
+  /* 6 栏下同样的跨度占比过大，装饰会盖住半屏内容 —— 各收一栏。 */
+  .er-experience[data-scene='field'] .er-spatial__mass,
+  .er-experience[data-scene='process'] .er-spatial__mass {
+    width: calc(var(--er-span-3) + var(--er-edge));
+  }
+
   .er-registration-strip {
     grid-template-columns: auto 1fr;
     gap: 8px;
@@ -1556,14 +1619,37 @@ body {
   outline-offset: 2px;
 }
 
-.er-page :where(button, a[href], [role='button']) {
-  transition: color 130ms linear, background-color 130ms linear,
-    border-color 130ms linear, opacity 130ms linear;
+/* 可点元素的统一过渡。transform 必须在属性表里 —— 之前不在，所有位移
+   都是瞬跳，这是「按下去很生硬」的直接原因。 */
+.er-experience :where(button, a[href], [role='button']) {
+  transition:
+    color var(--dur-tint) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press),
+    opacity var(--dur-tint) var(--ease-press),
+    transform var(--dur-press) var(--ease-press);
 }
 
-/* 功能性按钮的最小可点面积与字号下限。
-   纯图标按钮（唯一子元素是 svg）不参与，避免撑坏紧凑工具条。 */
-.er-page :where(button):not([class*='origin-']):not(:has(> svg:only-child)) {
+/* 全站压印：按下时沿主轴走 1px。不用 scale —— 缩放属于圆角/柔性语言，
+   硬边平面按下去应该是「移位」，像铅字压进纸里。
+   .er-relief 有更强的压印（本体移到影位、影归零），不参与这一条。 */
+.er-experience
+  :where(button, a[href], [role='button']):not(.er-relief):not(:disabled):not([aria-disabled='true']):active {
+  transform: translate(1px, 1px);
+}
+
+/* 外壳导航的按下反馈走同一条口径，但幅度收到 1px 以内：
+   它们是常驻构件，位移太大会让整个框架看起来在晃。 */
+.er-experience :where(.er-nav-item, .er-context-link, .er-brand, .er-motion-control):active {
+  transform: translateY(1px);
+}
+
+/* 功能性按钮的最小可点面积与字号下限 —— 这是给尚未接入控件系统的按钮
+   的兜底。纯图标按钮（唯一子元素是 svg）不参与，避免撑坏紧凑工具条；
+   .er-btn 也不参与：它自带尺寸档位，而这条规则的特异度是 (0,3,1)，
+   不排除掉会把 sm/lg 两档的高度压成 34px。 */
+.er-page
+  :where(button):not(.er-btn):not([class*='origin-']):not(:has(> svg:only-child)) {
   min-height: 34px;
   font-size: max(var(--fs-ui), 1em);
   font-weight: 700;

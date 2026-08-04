@@ -50,7 +50,7 @@ export default function NotFoundPage() {
           backgroundColor: 'var(--accent)',
           color: 'var(--bg-base)',
           boxShadow: '0 4px 12px -4px rgba(var(--seed-accent-rgb, 37, 99, 235), 0.4)',
-          transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+          transitionTimingFunction: 'var(--ease-press)',
         }}
         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.92' }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}

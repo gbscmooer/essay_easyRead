@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { GraphNode } from '@/types'
 import { Link } from 'react-router-dom'
 import { digestPaper } from '@/api/research'
@@ -55,8 +55,7 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
             type="button"
             onClick={onClose}
             aria-label="关闭节点详情"
-            className="focus-glow press text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            className="er-btn er-btn--ghost er-btn--sm"
           >
             关闭
           </button>
@@ -70,10 +69,7 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
 
           {node.meta.paper_id && (
             <div className="flex items-center gap-2">
-              <span
-                className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-                style={{ color: badge.color, border: `1px solid ${badge.color}` }}
-              >
+              <span className="er-tag" style={{ '--tag-accent': badge.color } as CSSProperties}>
                 {badge.text}
               </span>
               {node.meta.source && (
@@ -133,8 +129,9 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
               type="button"
               onClick={handleDigest}
               disabled={digesting}
-              className="focus-glow press block w-full text-center py-2 text-[12px] font-medium rounded-full transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ border: '1px solid var(--success)', color: 'var(--success)' }}
+              aria-busy={digesting}
+              className="er-btn er-btn--secondary er-btn--block mt-1"
+              style={{ '--btn-accent': 'var(--success)' } as CSSProperties}
             >
               {digesting ? '速读中…' : '速读这篇（轻量，省 token）'}
             </button>
@@ -143,8 +140,7 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
           {node.meta.paper_id && (
             <Link
               to={`/reader/${node.meta.paper_id}`}
-              className="focus-glow press block w-full text-center py-2 text-[12px] font-medium rounded-full transition-opacity hover:opacity-90 mt-1"
-              style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
+              className="er-btn er-btn--primary er-btn--block mt-1"
             >
               查看论文精读 &rarr;
             </Link>

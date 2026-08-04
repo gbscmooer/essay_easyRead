@@ -8,6 +8,7 @@ import { useThemeMode } from '@/theme/useTheme'
 
 // highlight.js 语言按需加载映射
 import type { LanguageFn } from 'highlight.js'
+import { LoadingSpinner } from '@/ds-entry'
 const LANG_MAP: Record<string, () => Promise<{ default: LanguageFn }>> = {
   python: () => import('highlight.js/lib/languages/python'),
   javascript: () => import('highlight.js/lib/languages/javascript'),
@@ -383,7 +384,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+        <LoadingSpinner size="md" />
       </div>
     )
   }

@@ -126,41 +126,19 @@ export default function WorkspacePage() {
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
           placeholder="输入工作区名称..."
           aria-label="工作区名称"
-          className="flex-1 px-4 py-2.5 text-[13px] transition-all duration-200 placeholder-gray-600"
-          style={{
-            borderRadius: 'var(--seed-radius, 12px)',
-            backgroundColor: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-primary)',
-            outline: 'none',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-          }}
-          onFocus={e => {
-            e.currentTarget.style.borderColor = 'var(--accent)'
-            e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-subtle)'
-          }}
-          onBlur={e => {
-            e.currentTarget.style.borderColor = 'var(--border)'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
+          /* hover/focus 全部交给 CSS：原先这里用 onFocus/onBlur 手写内联
+             borderColor + boxShadow，而全局阴影禁令让那段 boxShadow 从来
+             没生效过，纯属和样式层打架。 */
+          className="flex-1 px-4 py-2.5 text-[13px]"
         />
         <button
           onClick={handleCreate}
           disabled={creating}
           aria-busy={creating}
-          className="px-5 py-2.5 text-[13px] font-medium rounded-full disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shrink-0 btn-glow sheen press inline-flex items-center justify-center gap-2"
-          style={{
-            backgroundColor: 'var(--accent)',
-            color: '#fff',
-            transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-          }}
+          className="er-btn er-btn--primary shrink-0"
         >
           {creating && (
-            <span
-              className="w-3.5 h-3.5 border-2 rounded-full animate-spin"
-              style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }}
-              aria-hidden="true"
-            />
+            <LoadingSpinner size="xs" />
           )}
           {creating ? '创建中…' : '新建工作区'}
         </button>
@@ -174,13 +152,13 @@ export default function WorkspacePage() {
             style={{
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border)',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              transitionTimingFunction: 'var(--ease-press)',
             }}
           >
             <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"
               strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
               className="transition-transform duration-500 group-hover/empty:scale-110"
-              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}>
+              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'var(--ease-press)' }}>
               <rect x="2" y="7" width="20" height="14" rx="2" />
               <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
             </svg>
@@ -190,15 +168,11 @@ export default function WorkspacePage() {
             创建一个工作区，开始组织你的论文
           </p>
           <button
+            type="button"
             onClick={() => createInputRef.current?.focus()}
-            className="px-5 py-2.5 text-[13px] font-medium rounded-full transition-all duration-200 btn-glow sheen press"
-            style={{
-              backgroundColor: 'var(--accent)',
-              color: '#fff',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            }}
+            className="er-btn er-btn--primary"
           >
-            + 新建工作区
+            新建工作区
           </button>
         </div>
       ) : (

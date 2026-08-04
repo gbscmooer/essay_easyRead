@@ -50,7 +50,7 @@ function ExpandedPaperRow({
       className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-all duration-200 group"
       style={{
         backgroundColor: 'var(--bg-base)',
-        transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        transitionTimingFunction: 'var(--ease-press)',
       }}
       role="button"
       tabIndex={0}
@@ -63,33 +63,20 @@ function ExpandedPaperRow({
         </p>
         <div className="flex items-center gap-2 mt-1 text-[12px]" style={{ color: 'var(--text-muted)' }}>
           {paper.year && <span>{paper.year}</span>}
-          {paper.category && (
-            <span className="px-2 py-0.5 rounded-full text-[11px]" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
-              {paper.category}
-            </span>
-          )}
+          {paper.category && <span className="er-tag">{paper.category}</span>}
           {paper.venue && <span>{paper.venue}</span>}
           {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>已索引</span>}
         </div>
       </div>
-      <span
-        className="shrink-0 text-[11px] px-2 py-0.5 rounded-full"
-        style={{
-          backgroundColor: paper.status === 'failed' ? 'var(--error-subtle)' : 'var(--bg-surface)',
-          color: paper.status === 'failed' ? 'var(--error)' : 'var(--text-muted)',
-        }}
-      >
+      <span className={`er-tag shrink-0 ${paper.status === 'failed' ? 'er-tag--signal' : 'er-tag--mute'}`}>
         {statusText}
       </span>
       <button
+        type="button"
         onClick={handlePromote}
         disabled={promoting}
-        className="shrink-0 text-[12px] px-3 py-1 rounded-full transition-all duration-200 disabled:opacity-50"
-        style={{
-          border: '1px solid var(--accent)',
-          color: 'var(--accent)',
-          backgroundColor: 'transparent',
-        }}
+        aria-busy={promoting}
+        className="er-btn er-btn--secondary er-btn--sm shrink-0"
       >
         {promoting ? '移动中…' : '加入论文库'}
       </button>
@@ -268,18 +255,14 @@ export default function LibraryPage() {
             delay={600}
             placement="bottom"
           >
+            {/* hover 交给 CSS —— 原先用 onMouseEnter/onMouseLeave 手写内联
+                背景与边框，禁用态时还得靠 if 分支避开，逻辑与样式混在一起。 */}
             <button
+              type="button"
               onClick={handleReindex}
               disabled={reindexing}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full press focus-glow transition-all duration-200 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed disabled:pointer-events-none"
-              style={{
-                color: 'var(--accent)',
-                border: '1px solid var(--border)',
-                backgroundColor: reindexing ? 'var(--accent-subtle)' : 'transparent',
-                transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-              }}
-              onMouseEnter={e => { if (!reindexing) { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
-              onMouseLeave={e => { if (!reindexing) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)' } }}
+              aria-busy={reindexing}
+              className="er-btn er-btn--secondary er-btn--sm"
             >
               <svg
                 className={`w-3.5 h-3.5 ${reindexing ? 'animate-spin' : ''}`}
@@ -322,7 +305,7 @@ export default function LibraryPage() {
               borderRadius: 'var(--seed-radius, 12px)',
               border: '1px solid var(--border)',
               backgroundColor: showExpanded ? 'var(--bg-surface)' : 'transparent',
-              transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              transitionTimingFunction: 'var(--ease-press)',
             }}
             onClick={() => setShowExpanded(v => !v)}
           >

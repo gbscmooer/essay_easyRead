@@ -1,6 +1,6 @@
 import type { AnalysisResult } from '@/types'
 
-const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+const SPRING = 'var(--ease-press)'
 
 interface OutlineTabProps {
   result: AnalysisResult

@@ -10,7 +10,7 @@
   padding: clamp(16px, 4vw, 44px);
   overflow: auto;
   background: rgb(23 24 27 / 76%);
-  animation: er-overlay-backdrop 160ms linear both;
+  animation: er-overlay-backdrop var(--dur-plane) var(--ease-register) both;
 }
 
 .er-version-plane,
@@ -24,7 +24,7 @@
   color: var(--er-ink);
   background: var(--er-paper-bright) !important;
   box-shadow: none !important;
-  animation: er-overlay-register 280ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: er-overlay-register var(--dur-plane) var(--ease-register) both;
 }
 
 .er-overlay-close {
@@ -380,7 +380,7 @@
   color: #17181b;
   background: #f7f2e7;
   pointer-events: auto;
-  animation: er-toast-register 280ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: er-toast-register var(--dur-plane) var(--ease-register) both;
 }
 
 .er-toast::before {
@@ -468,7 +468,7 @@
   font-size: 11px;
   line-height: 1.55;
   transform: translateY(-4px);
-  transition: opacity 120ms linear, transform 120ms cubic-bezier(.22, 1, .36, 1);
+  transition: opacity var(--dur-press) var(--ease-press), transform var(--dur-press) var(--ease-register);
 }
 
 .er-tooltip[data-placement='top'] { transform: translateY(4px); }

@@ -9,6 +9,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { PdfViewer } from '@/features/viewer/PdfViewer'
 import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
+import { LoadingSpinner } from '@/ds-entry'
 
 
 const MIN_PANEL_PCT = 20
@@ -202,15 +203,13 @@ export default function ReaderPage() {
           fixed lg:static inset-y-0 left-0 z-40 overflow-hidden
           transform transition-all duration-200
           ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 w-0 lg:w-0'}
-        `} style={{ transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}>
+        `} style={{ transitionTimingFunction: 'var(--ease-press)' }}>
           {papersLoading && papers.length === 0 ? (
             <div className="flex flex-col w-64 h-full items-center justify-center" style={{
               backgroundColor: 'var(--bg-surface)',
               borderRight: '1px solid var(--border)',
             }}>
-              <div className="w-5 h-5 border-[1.5px] rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} role="status">
-                <span className="sr-only">加载中</span>
-              </div>
+              <LoadingSpinner size="sm" />
             </div>
           ) : (
           <Sidebar
@@ -236,7 +235,7 @@ export default function ReaderPage() {
               aria-label="切换侧边栏"
               aria-expanded={sidebarOpen}
               className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
-              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
+              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'var(--ease-press)' }}
               title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -322,7 +321,7 @@ export default function ReaderPage() {
           style={{
             width: panelOpen ? `${panelPct}%` : 0,
             backgroundColor: 'var(--bg-surface)',
-            transition: 'width 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+            transition: 'width 0.15s var(--ease-press)',
           }}
         >
           {panelOpen && (

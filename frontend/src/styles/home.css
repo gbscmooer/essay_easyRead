@@ -274,7 +274,7 @@
   text-align: left;
   cursor: pointer;
   appearance: none;
-  transition: color 140ms linear, background-color 140ms linear;
+  transition: color var(--dur-tint) var(--ease-press), background-color var(--dur-tint) var(--ease-press);
 }
 
 .origin-upload__surface::after {
@@ -386,12 +386,12 @@
 
 .origin-upload__status progress::-webkit-progress-value {
   background: var(--origin-red);
-  transition: width 260ms linear;
+  transition: width var(--dur-plane) linear;
 }
 
 .origin-upload__status progress::-moz-progress-bar {
   background: var(--origin-red);
-  transition: width 260ms linear;
+  transition: width var(--dur-plane) linear;
 }
 
 .origin-upload__error,
@@ -555,7 +555,7 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: color 140ms linear, background-color 140ms linear, padding 140ms linear;
+  transition: color var(--dur-tint) var(--ease-press), background-color var(--dur-tint) var(--ease-press), padding var(--dur-tint) var(--ease-press);
 }
 
 .origin-paper-row::before {
@@ -566,7 +566,7 @@
   width: 0;
   background: var(--origin-red);
   content: "";
-  transition: width 140ms linear;
+  transition: width var(--dur-tint) var(--ease-press);
 }
 
 .origin-paper-row:is(:hover, :focus-visible) {
@@ -767,7 +767,7 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background-color 140ms linear;
+  transition: background-color var(--dur-tint) var(--ease-press);
 }
 
 .origin-quick-entry:last-child {
@@ -834,7 +834,7 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: color 140ms linear, background-color 140ms linear, padding 140ms linear;
+  transition: color var(--dur-tint) var(--ease-press), background-color var(--dur-tint) var(--ease-press), padding var(--dur-tint) var(--ease-press);
 }
 
 .origin-workspace-row:is(:hover, :focus-visible) {
@@ -1200,8 +1200,8 @@
   min-height: 148px;
   border-width: 2px;
   border-left-width: 10px;
-  transition: transform 150ms var(--ease-register), background-color 140ms linear,
-    border-color 140ms linear;
+  transition: transform var(--dur-tint) var(--ease-register), background-color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
 }
 
 .origin-upload__surface::after {
@@ -1264,8 +1264,8 @@
   color: var(--origin-ink);
   font-weight: 700;
   letter-spacing: .04em;
-  transition: color 130ms linear, background-color 130ms linear,
-    border-color 130ms linear;
+  transition: color var(--dur-tint) var(--ease-press), background-color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
 }
 
 .origin-section-heading button:is(:hover, :focus-visible) {
@@ -1278,8 +1278,8 @@
 .origin-paper-row,
 .origin-quick-entry,
 .origin-workspace-row {
-  transition: color 140ms linear, background-color 140ms linear,
-    padding-left 140ms var(--ease-register);
+  transition: color var(--dur-tint) var(--ease-press), background-color var(--dur-tint) var(--ease-press),
+    padding-left var(--dur-tint) var(--ease-register);
 }
 
 .origin-paper-row:is(:hover, :focus-visible),
@@ -1289,7 +1289,7 @@
 
 .origin-quick-entry__arrow,
 .origin-workspace-row > i {
-  transition: transform 150ms var(--ease-register);
+  transition: transform var(--dur-tint) var(--ease-register);
 }
 
 .origin-quick-entry:is(:hover, :focus-visible) .origin-quick-entry__arrow,

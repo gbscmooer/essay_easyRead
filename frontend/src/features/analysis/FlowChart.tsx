@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { useThemeMode } from '@/theme/useTheme'
+import { LoadingSpinner } from '@/ds-entry'
 
 
 function sanitizeSvg(svg: string): string {
@@ -154,7 +155,7 @@ export function FlowChart({ chart }: FlowChartProps) {
         <div dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }} />
       ) : (
         <div className="flex items-center justify-center py-8">
-          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-light)', borderTopColor: 'var(--accent)' }} />
+          <LoadingSpinner size="md" />
         </div>
       )}
     </div>

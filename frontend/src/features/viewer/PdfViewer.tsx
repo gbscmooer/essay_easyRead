@@ -389,7 +389,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const ctrlBtnStyle: React.CSSProperties = {
     color: 'var(--text-secondary)',
     backgroundColor: 'var(--bg-elevated)',
-    transitionTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+    transitionTimingFunction: 'var(--ease-press)',
   }
   const onCtrlEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--bg-surface)'

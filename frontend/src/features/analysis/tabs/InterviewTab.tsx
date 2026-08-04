@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react'
 import type { AnalysisResult } from '@/types'
 import { textAction } from '@/api/textAction'
+import { LoadingSpinner } from '@/ds-entry'
 
-const SPRING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+const SPRING = 'var(--ease-press)'
 
 interface InterviewTabProps {
   result: AnalysisResult
@@ -129,7 +130,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
                     >
                       {isLoadingExplain ? (
                         <>
-                          <div className="w-3 h-3 border rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+                          <LoadingSpinner size="xs" />
                           生成中…
                         </>
                       ) : (

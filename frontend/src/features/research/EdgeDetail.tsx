@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { SelectedEdge } from './GraphCanvas'
 
 // Categorical/semantic colors for relation channels + citation intents (data viz —
@@ -62,8 +63,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
             type="button"
             onClick={onClose}
             aria-label="关闭引用详情"
-            className="focus-glow press text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            className="er-btn er-btn--ghost er-btn--sm"
           >
             关闭
           </button>
@@ -88,8 +88,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
               {Object.entries(intentCounts).map(([intent, n]) => {
                 const meta = INTENT_META[intent] ?? INTENT_META.background
                 return (
-                  <span key={intent} className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-                    style={{ backgroundColor: meta.bg, color: meta.color }}>
+                  <span key={intent} className="er-tag" style={{ '--tag-accent': meta.color } as CSSProperties}>
                     {meta.label} · {n}
                   </span>
                 )
@@ -99,17 +98,15 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
               {contexts.map((ctx, i) => {
                 const meta = ctx.intent ? INTENT_META[ctx.intent] : undefined
                 return (
-                  <div key={i} className="rounded-xl p-3 space-y-1.5" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                  <div key={i} className="p-3 space-y-1.5" style={{ backgroundColor: 'var(--bg-elevated)', borderLeft: 'var(--rule-mark) solid var(--border-light)' }}>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {meta && (
-                        <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: meta.bg, color: meta.color }}>
+                        <span className="er-tag" style={{ '--tag-accent': meta.color } as CSSProperties}>
                           {meta.label}
                         </span>
                       )}
                       {ctx.section && (
-                        <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--text-secondary)' }}>
-                          {ctx.section}
-                        </span>
+                        <span className="er-tag er-tag--mute">{ctx.section}</span>
                       )}
                     </div>
                     <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{ctx.context}</p>
@@ -168,8 +165,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                     {c.shared.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {c.shared.map((s, i) => (
-                          <span key={i} className="text-[11px] px-2 py-0.5 rounded-full"
-                            style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>{s}</span>
+                          <span key={i} className="er-tag">{s}</span>
                         ))}
                       </div>
                     )}
