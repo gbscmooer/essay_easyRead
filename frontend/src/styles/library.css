@@ -1,0 +1,177 @@
+/*
+ * 论文库 / Archive
+ *
+ * 整页是一根竖向的弹性列：页头与读数固定，账本自己滚，底部的扩展区固定。
+ * 之前这里靠 `h-full flex flex-col` 加上 pages.css 里一串 nth-child 覆写，
+ * 中间少了一处 `min-height: 0`，账本撑破父级、最后一行被裁掉一半。
+ */
+
+.er-page--library {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding-top: clamp(22px, 3.4vh, 40px) !important;
+  padding-bottom: 0 !important;
+}
+
+.er-page--library > .er-page-head,
+.er-page--library > .er-page-head__readouts {
+  flex: 0 0 auto;
+}
+
+.arc-note {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+/* 账本区：唯一会滚动的部分。min-height:0 是它能收缩的前提。 */
+.arc-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.arc-list__scroll {
+  flex: 1 1 auto;
+  padding-bottom: var(--s4);
+}
+
+.arc-list__loading {
+  display: grid;
+  gap: var(--s2);
+  padding-top: var(--s3);
+}
+
+/* ── 搜索结果行 ────────────────────────────────────────────────────────
+   比浏览行多一段命中摘录。摘录是证据，所以给它自己的左侧标尺 —— 一眼能看出
+   哪几行属于同一条结果。 */
+
+.arc-result__authors {
+  overflow: hidden;
+  max-width: 34ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arc-result__hits {
+  display: grid;
+  gap: 3px;
+  margin-top: 5px;
+  padding-left: var(--s2);
+  border-left: var(--rule-hair) solid var(--border-light);
+}
+
+.arc-result__hit {
+  display: block;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arc-result__hit > b {
+  margin-right: var(--s2);
+  color: var(--text-muted);
+  font-family: var(--font-register);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+
+/* ── 扩展论文折叠区 ───────────────────────────────────────────────────
+   贴在页底的抽屉。收起时只有一条把手，展开后自己撑到半屏并在内部滚动，
+   不参与上方账本的滚动。 */
+
+.arc-expanded {
+  flex: 0 0 auto;
+  border-top: var(--rule-bar) solid var(--text-primary);
+  background: var(--bg-base);
+}
+
+.arc-expanded__handle {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.arc-expanded__handle:hover {
+  color: var(--text-primary);
+}
+
+.arc-expanded__caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--error);
+  transition: transform var(--dur-tint) var(--ease-snap);
+}
+
+.arc-expanded__handle[aria-expanded='true'] .arc-expanded__caret {
+  transform: rotate(90deg);
+}
+
+.arc-expanded__label {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.arc-expanded__hint {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--font-register);
+  font-size: var(--fs-micro);
+  font-weight: var(--deco-weight);
+  letter-spacing: var(--tr-register);
+  text-transform: uppercase;
+}
+
+.arc-expanded__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(42vh, 360px);
+  padding-bottom: var(--s3);
+}
+
+.arc-expanded__note {
+  margin: 0 0 var(--s2);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.arc-expanded__scroll {
+  flex: 1 1 auto;
+}
+
+/* 抽屉里的账本行比主账本矮一档：这里是次级内容，不该和主列表等重。 */
+.arc-expanded__scroll .er-ledger__row {
+  min-height: 48px;
+}
+
+@media (max-width: 700px) {
+  .er-page--library {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .arc-list__scroll {
+    overflow: visible;
+  }
+}

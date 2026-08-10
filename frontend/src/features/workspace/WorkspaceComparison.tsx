@@ -32,7 +32,7 @@ function PillList({ items, tone = 'var(--bg-elevated)', color = 'var(--text-seco
       {items.map(item => (
         <span
           key={item}
-          className="text-[11px] px-2 py-0.5 rounded-full"
+          className="text-[11px] px-2 py-0.5"
           style={{ backgroundColor: tone, color }}
         >
           {item}
@@ -48,7 +48,7 @@ function SectionRow({ section }: { section: WorkspaceComparisonSection }) {
     <div className="py-3.5 border-t first:border-t-0" style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+          <span className="w-2.5 h-2.5 shrink-0" style={{ backgroundColor: color }} />
           <span className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
             {section.label}
           </span>
@@ -57,8 +57,8 @@ function SectionRow({ section }: { section: WorkspaceComparisonSection }) {
           {(section.score * 100).toFixed(0)}%
         </span>
       </div>
-      <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-        <div className="h-full rounded-full" style={{ width: `${Math.max(0, section.score * 100)}%`, backgroundColor: color }} />
+      <div className="mt-2 h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+        <div className="h-full" style={{ width: `${Math.max(0, section.score * 100)}%`, backgroundColor: color }} />
       </div>
       <p className="mt-2 text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
         {section.summary}
@@ -144,13 +144,13 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
   const selectedB = paperBId ? paperMap.get(paperBId) : null
 
   return (
-    <section className="mb-8 py-4 border-y" style={{ borderColor: 'var(--border)' }}>
-      <div className="flex items-center justify-between gap-3 mb-3">
+    <section className="ws-block">
+      <div className="ws-group-head">
         <div>
-          <div className="text-[12px] uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>对比</div>
-          <div className="text-[15px] font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>论文对比</div>
+          <p className="er-eyebrow">对比</p>
+          <h2 className="ws-group-head__title">论文对比</h2>
         </div>
-        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+        <span className="er-tag er-tag--mute">
           工作区内任意两篇
         </span>
       </div>
@@ -161,7 +161,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
           <select
             value={paperAId ?? ''}
             onChange={e => setPaperAId(Number(e.target.value))}
-            className="w-full px-3 py-2 text-[12px] rounded-lg border focus:outline-none"
+            className="w-full px-3 py-2 text-[12px] border focus:outline-none"
             style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
           >
             {papers.map(paper => (
@@ -176,7 +176,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
           <select
             value={paperBId ?? ''}
             onChange={e => setPaperBId(Number(e.target.value))}
-            className="w-full px-3 py-2 text-[12px] rounded-lg border focus:outline-none"
+            className="w-full px-3 py-2 text-[12px] border focus:outline-none"
             style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
           >
             {papers.map(paper => (
@@ -189,7 +189,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
         <button
           onClick={handleCompare}
           disabled={!canCompare || loading}
-          className="px-4 py-2 text-[12px] rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-[12px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
         >
           {loading ? '对比中…' : '生成对比'}
@@ -203,19 +203,19 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
       {comparison && (
         <div className="mt-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] px-2.5 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
+            <span className="text-[12px] px-2.5 py-1" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}>
               {comparison.relation}
             </span>
             <span className="text-[12px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>
               综合相似度 {(comparison.overall_score * 100).toFixed(0)}%
             </span>
             {comparison.same_cluster && comparison.cluster_label && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)' }}>
+              <span className="text-[11px] px-2 py-0.5" style={{ backgroundColor: 'var(--success-subtle)', color: 'var(--success)' }}>
                 同子方向 · {comparison.cluster_label}
               </span>
             )}
             {comparison.direct_edge_kinds.map(kind => (
-              <span key={kind} className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+              <span key={kind} className="text-[11px] px-2 py-0.5" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
                 {kind}
               </span>
             ))}
@@ -223,7 +223,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
 
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {[comparison.paper_a, comparison.paper_b].map((paper, idx) => (
-              <div key={paper.paper_id} className="rounded-lg p-3" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+              <div key={paper.paper_id} className="p-3" style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>
@@ -238,7 +238,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
                       <span>{DETAIL_LABEL[paper.detail_level] ?? paper.detail_level}</span>
                     </div>
                   </div>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full shrink-0" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
+                  <span className="text-[11px] px-2 py-0.5 shrink-0" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
                     {paper.read_level === 'full' ? '精读' : paper.read_level === 'digest' ? '速读' : '未解读'}
                   </span>
                 </div>
@@ -255,7 +255,7 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
             <PillList items={comparison.shared_topics} tone="var(--accent-subtle)" color="var(--accent)" />
           </div>
 
-          <div className="mt-4 rounded-lg" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+          <div className="mt-4" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
             {comparison.sections.map(section => (
               <SectionRow key={section.key} section={section} />
             ))}
@@ -267,14 +267,14 @@ export function WorkspaceComparison({ workspaceId, papers }: WorkspaceComparison
           <div className="mt-2 grid gap-2 md:grid-cols-2">
             <Link
               to={`/reader/${comparison.reading_order.first_paper_id}`}
-              className="text-[12px] px-3 py-2 rounded-lg transition-colors"
+              className="text-[12px] px-3 py-2 transition-colors"
               style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             >
               先读：{comparison.reading_order.first_title}
             </Link>
             <Link
               to={`/reader/${comparison.reading_order.second_paper_id}`}
-              className="text-[12px] px-3 py-2 rounded-lg transition-colors"
+              className="text-[12px] px-3 py-2 transition-colors"
               style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             >
               再读：{comparison.reading_order.second_title}

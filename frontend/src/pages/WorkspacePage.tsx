@@ -4,11 +4,12 @@
  * 不对称标题 + surface-lifted 卡片 + 药丸创建按钮。
  */
 
-import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
+import '@/styles/workspace.css'
 
 
 /** 相对时间展示（纯展示，无副作用）；解析失败时回退到本地日期。 */
@@ -79,138 +80,98 @@ export default function WorkspacePage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner />
-      </div>
-    )
-  }
+  const totalPapers = workspaces.reduce((n, w) => n + (w.paper_count || 0), 0)
 
   return (
-    <div className="er-page er-page--workspace max-w-5xl mx-auto px-8 py-10">
-      {/* 标题 + 统计 */}
-      <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-display text-[30px] mb-1.5" style={{ color: 'var(--text-primary)' }}>
-            工作区
-          </h1>
-          <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
-            将论文组织在一起进行分析
-          </p>
-        </div>
-        {workspaces.length > 0 && (
-          <div className="flex items-center gap-5">
-            <div className="text-right">
-              <div className="text-display text-[22px] leading-none tabular-nums" style={{ color: 'var(--text-primary)' }}>{workspaces.length}</div>
-              <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>个工作区</div>
-            </div>
-            <div className="w-px h-8" style={{ backgroundColor: 'var(--border)' }} />
-            <div className="text-right">
-              <div className="text-display text-[22px] leading-none tabular-nums" style={{ color: 'var(--text-primary)' }}>
-                {workspaces.reduce((n, w) => n + (w.paper_count || 0), 0)}
-              </div>
-              <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>篇藏书</div>
-            </div>
-          </div>
-        )}
+    <div className="er-page er-page--workspace">
+      <header className="er-page-head">
+        <p className="er-page-head__eyebrow">Relation / Field—02</p>
+        <h1 className="er-page-head__title">工作区</h1>
+      </header>
+
+      <div className="er-page-head__readouts">
+        <span className="er-readout"><b>{workspaces.length}</b>个工作区</span>
+        <span className="er-readout"><b>{totalPapers}</b>篇藏书</span>
+        <span className="ws-page__tagline">把论文按研究主题组织起来，深度研究在集合上建图谱</span>
       </div>
 
-      {/* 新建工作区 */}
-      <div className="flex items-center gap-2.5 mb-8">
+      {/* 新建：输入框与提交键合成一个单元，边框由外层给，内部不再各画一圈 */}
+      <div className="ws-create">
         <input
           ref={createInputRef}
           type="text"
           value={newName}
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
-          placeholder="输入工作区名称..."
+          placeholder="输入工作区名称，回车创建"
           aria-label="工作区名称"
-          /* hover/focus 全部交给 CSS：原先这里用 onFocus/onBlur 手写内联
-             borderColor + boxShadow，而全局阴影禁令让那段 boxShadow 从来
-             没生效过，纯属和样式层打架。 */
-          className="flex-1 px-4 py-2.5 text-[13px]"
+          className="ws-create__input"
         />
         <button
           onClick={handleCreate}
           disabled={creating}
           aria-busy={creating}
-          className="er-btn er-btn--primary shrink-0"
+          className="er-btn er-btn--primary ws-create__submit"
         >
-          {creating && (
-            <LoadingSpinner size="xs" />
-          )}
-          {creating ? '创建中…' : '新建工作区'}
+          {creating && <LoadingSpinner size="xs" />}
+          {creating ? '创建中' : '新建工作区'}
         </button>
       </div>
 
-      {/* 工作区列表 */}
-      {workspaces.length === 0 ? (
-        <div className="text-center py-16 animate-reveal-up">
-          <div
-            className="group/empty w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-reveal-scale transition-transform duration-500 hover:scale-105"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border)',
-              transitionTimingFunction: 'var(--ease-press)',
-            }}
-          >
-            <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-              className="transition-transform duration-500 group-hover/empty:scale-110"
-              style={{ color: 'var(--text-muted)', transitionTimingFunction: 'var(--ease-press)' }}>
-              <rect x="2" y="7" width="20" height="14" rx="2" />
-              <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-            </svg>
+      {loading ? (
+        <div className="ws-page__loading" role="status" aria-label="正在加载工作区">
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : workspaces.length === 0 ? (
+        <div className="er-empty">
+          <span className="er-empty__mark" aria-hidden="true">00</span>
+          <div className="er-empty__body">
+            <p className="er-empty__title">还没有工作区</p>
+            <p className="er-empty__text">
+              工作区是深度研究的输入：把同一方向的论文放进一个集合，才能在它们之间建立引文图谱与关联度。
+            </p>
+            <button
+              type="button"
+              onClick={() => createInputRef.current?.focus()}
+              className="er-btn er-btn--primary"
+            >
+              命名第一个工作区
+            </button>
           </div>
-          <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>暂无工作区</p>
-          <p className="text-[12px] mt-1 mb-5" style={{ color: 'var(--text-muted)' }}>
-            创建一个工作区，开始组织你的论文
-          </p>
-          <button
-            type="button"
-            onClick={() => createInputRef.current?.focus()}
-            className="er-btn er-btn--primary"
-          >
-            新建工作区
-          </button>
         </div>
       ) : (
-        <div className="stagger">
+        <div className="er-ledger ws-ledger stagger">
           {workspaces.map((ws, i) => (
             <div
               key={ws.id}
               role="button"
               tabIndex={0}
               onClick={() => navigate(`/workspace/${ws.id}`)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) } }}
-              className="relative list-row card-hover press focus-glow group flex items-center gap-4"
-              style={{ '--i': i } as CSSProperties}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/workspace/${ws.id}`) }
+              }}
+              className="er-ledger__row"
             >
-              <span
-                className="flex items-center justify-center w-10 h-10 rounded-md text-[15px] font-semibold shrink-0"
-                style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
-              >
-                {(ws.name.trim()[0] || '·').toUpperCase()}
+              <span className="er-ledger__index" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+              <span className="er-ledger__body">
+                <span className="er-ledger__title"><span>{ws.name}</span></span>
+                <span className="er-ledger__meta">
+                  <span>更新于 {formatRelativeTime(ws.updated_at)}</span>
+                </span>
               </span>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-medium truncate" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                  {ws.name}
-                </h3>
-                <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                  更新于 {formatRelativeTime(ws.updated_at)} · {ws.paper_count} 篇论文
-                </p>
-              </div>
-              <button
-                onClick={(e) => handleDelete(ws.id, e)}
-                aria-label={`删除工作区 ${ws.name}`}
-                className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 px-2.5 py-1 text-[11px] rounded-md transition-all duration-200 press shrink-0"
-                style={{ color: 'var(--text-muted)' }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--error)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
-              >
-                删除
-              </button>
+              <span className="er-ledger__aside">
+                <span className="ws-ledger__count">
+                  <b>{ws.paper_count}</b>
+                  <small>篇</small>
+                </span>
+                <button
+                  onClick={e => handleDelete(ws.id, e)}
+                  aria-label={`删除工作区 ${ws.name}`}
+                  className="er-btn er-btn--ghost er-btn--destructive er-btn--sm er-ledger__action"
+                >
+                  删除
+                </button>
+              </span>
             </div>
           ))}
         </div>

@@ -17,7 +17,7 @@ function StatTile({
   accent?: string
 }) {
   return (
-    <div className="px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+    <div className="px-3 py-2 border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
       <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{label}</div>
       <div className="mt-1 text-[16px] font-semibold tabular-nums" style={{ color: accent || 'var(--text-primary)' }}>
         {value}
@@ -30,7 +30,7 @@ function PaperRow({ paper }: { paper: WorkspaceInsightPaper }) {
   return (
     <Link
       to={`/reader/${paper.paper_id}`}
-      className="group block px-3 py-2.5 rounded-lg transition-colors"
+      className="group block px-3 py-2.5 transition-colors"
       style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -68,7 +68,7 @@ function PaperRow({ paper }: { paper: WorkspaceInsightPaper }) {
 function ClusterChip({ cluster }: { cluster: WorkspaceClusterSummary }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px]"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px]"
       style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
     >
       <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{cluster.label}</span>
@@ -80,7 +80,7 @@ function ClusterChip({ cluster }: { cluster: WorkspaceClusterSummary }) {
 export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps) {
   if (loading) {
     return (
-      <section className="mb-8 py-4 border-y" style={{ borderColor: 'var(--border)' }}>
+      <section className="ws-block">
         <div className="flex items-center gap-3">
           <LoadingSpinner size="sm" />
           <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>正在生成洞察</span>
@@ -100,14 +100,14 @@ export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps)
     : insights.top_papers
 
   return (
-    <section className="mb-8 py-4 border-y" style={{ borderColor: 'var(--border)' }}>
+    <section className="ws-block">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <div className="text-[12px] uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>洞察</div>
+          <p className="er-eyebrow">洞察</p>
           <div className="text-[15px] font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>{clusterLabel}</div>
         </div>
         <span
-          className="text-[11px] px-2 py-0.5 rounded-full"
+          className="text-[11px] px-2 py-0.5"
           style={{
             backgroundColor: insights.graph_available ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
             color: insights.graph_available ? 'var(--accent)' : 'var(--text-muted)',
@@ -145,7 +145,7 @@ export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps)
             {insights.next_reads.length > 0 ? insights.next_reads.map(paper => (
               <PaperRow key={paper.paper_id} paper={paper} />
             )) : (
-              <div className="px-3 py-2 rounded-lg text-[12px]" style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
+              <div className="px-3 py-2 text-[12px]" style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
                 暂无
               </div>
             )}
@@ -160,7 +160,7 @@ export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps)
             {bridgeList.length > 0 ? bridgeList.map(paper => (
               <PaperRow key={paper.paper_id} paper={paper} />
             )) : (
-              <div className="px-3 py-2 rounded-lg text-[12px]" style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
+              <div className="px-3 py-2 text-[12px]" style={{ border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
                 暂无
               </div>
             )}

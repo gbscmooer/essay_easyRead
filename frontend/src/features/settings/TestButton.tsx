@@ -67,7 +67,7 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
           }
         }}
         disabled={testing}
-        className="px-3 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50"
+        className="px-3 py-1 text-xs border transition-colors disabled:opacity-50"
         style={btnStyle}
       >
         {testing ? (
@@ -92,7 +92,7 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
           />
           {/* 弹窗 */}
           <div
-            className="absolute right-0 top-full mt-2 z-50 w-80 rounded-xl p-4 border"
+            className="absolute right-0 top-full mt-2 z-50 w-80 p-4 border"
             style={{
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border)',
@@ -124,7 +124,7 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
             )}
             <button
               onClick={() => { setShowError(false); handleTest() }}
-              className="mt-3 px-3 py-1 text-xs rounded-lg border transition-colors"
+              className="mt-3 px-3 py-1 text-xs border transition-colors"
               style={{
                 borderColor: 'var(--border)',
                 color: 'var(--text-secondary)',

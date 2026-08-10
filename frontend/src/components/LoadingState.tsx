@@ -133,14 +133,14 @@ export function LoadingState({ status, message, partialResult, progress: serverP
             return (
               <div
                 key={step.key}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                className="flex items-center gap-3 px-3 py-2 transition-colors"
                 style={{
                   backgroundColor: isCurrentStep ? 'var(--accent-subtle)' : isDone ? 'var(--success-subtle)' : 'transparent',
                   border: isCurrentStep ? '1px solid var(--accent)' : isDone ? '1px solid var(--success)' : '1px solid transparent',
                 }}
               >
                 {/* 状态图标 */}
-                <div className="w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold shrink-0" style={{
+                <div className="w-6 h-6 flex items-center justify-center text-xs font-semibold shrink-0" style={{
                   backgroundColor: isDone ? 'var(--success)' : isCurrentStep ? 'var(--accent)' : 'var(--bg-surface)',
                   color: isDone || isCurrentStep ? 'var(--bg-base)' : 'var(--text-muted)',
                   border: isDone || isCurrentStep ? '1px solid transparent' : '1px solid var(--border)',
@@ -148,7 +148,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 }}>
                   {isDone ? '\u2713' : isCurrentStep ? (
                     <div
-                      className="w-2.5 h-2.5 rounded-full"
+                      className="w-2.5 h-2.5"
                       style={{
                         backgroundColor: 'var(--bg-base)',
                         animation: 'skeleton-breathe 1.5s ease-in-out infinite',
@@ -175,7 +175,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
 
                   {/* 分析阶段的子进度条 */}
                   {isCurrentStep && step.key === 'analyzing' && (
-                    <div className="mt-1.5 h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)' }}>
+                    <div className="mt-1.5 h-1 overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)' }}>
                       <div
                         className="h-full transition-all duration-300"
                         style={{ width: `${(receivedFields / TOTAL_FIELDS) * 100}%`, backgroundColor: 'var(--accent)', opacity: 0.6 }}
@@ -204,7 +204,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
                 return (
                   <span
                     key={field.key}
-                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-all duration-300"
+                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 transition-all duration-300"
                     style={received
                       ? { backgroundColor: 'var(--success-subtle)', color: 'var(--success)', border: '1px solid transparent' }
                       : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
@@ -221,7 +221,7 @@ export function LoadingState({ status, message, partialResult, progress: serverP
 
         {/* 已识别的标题 */}
         {partialResult.title && (
-          <div className="w-full rounded-lg p-3 animate-reveal-up" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="w-full p-3 animate-reveal-up" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>已识别论文</p>
             <p className="text-sm font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>
               {partialResult.title}
@@ -232,11 +232,11 @@ export function LoadingState({ status, message, partialResult, progress: serverP
         {/* 错误状态 */}
         {status === 'failed' && (
           <div
-            className="w-full flex flex-col items-center text-center rounded-lg px-4 py-5 animate-reveal-up"
+            className="w-full flex flex-col items-center text-center px-4 py-5 animate-reveal-up"
             style={{ backgroundColor: 'var(--error-subtle)', border: '1px solid var(--border-light)' }}
           >
             <div
-              className="w-10 h-10 rounded-full flex items-center justify-center mb-3"
+              className="w-10 h-10 flex items-center justify-center mb-3"
               style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--error)' }}>

@@ -90,7 +90,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
             <button
               key={key}
               onClick={() => selectTheme(key)}
-              className="px-2.5 py-2 text-left rounded-lg border transition-colors"
+              className="px-2.5 py-2 text-left border transition-colors"
               style={{
                 borderColor: selected ? 'var(--accent)' : 'var(--border)',
                 backgroundColor: selected ? 'var(--accent-subtle)' : 'transparent',
@@ -99,7 +99,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
               <div className="flex items-center gap-1.5 mb-1.5">
                 {/* 色卡预览 */}
                 {[theme.colors.bg_base, theme.colors.bg_elevated, theme.colors.accent].map((c, i) => (
-                  <span key={i} className="w-3 h-3 rounded-full" style={{ backgroundColor: c, border: '1px solid var(--border)' }} />
+                  <span key={i} className="w-3 h-3" style={{ backgroundColor: c, border: '1px solid var(--border)' }} />
                 ))}
               </div>
               <span className="text-sm block truncate" style={{ color: selected ? 'var(--accent)' : 'var(--text-secondary)' }}>
@@ -115,7 +115,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
         {/* 新建主题 */}
         <button
           onClick={() => createTheme(activeTheme.colors)}
-          className="px-2.5 py-2 rounded-lg border border-dashed transition-colors flex flex-col items-center justify-center gap-1"
+          className="px-2.5 py-2 border border-dashed transition-colors flex flex-col items-center justify-center gap-1"
           style={{ borderColor: 'var(--border-light)', color: 'var(--text-muted)' }}
           title="基于当前主题新建一个可自定义主题"
         >
@@ -127,7 +127,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
       </div>
 
       {/* 当前主题操作区 */}
-      <div className="mt-3 rounded-lg border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-elevated)' }}>
+      <div className="mt-3 border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-elevated)' }}>
         <div className="flex items-center justify-between mb-3">
           {renaming && editingCustom ? (
             <input
@@ -139,7 +139,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
                 if (e.key === 'Enter') { if (nameDraft.trim()) renameActive(nameDraft.trim()); setRenaming(false) }
                 if (e.key === 'Escape') setRenaming(false)
               }}
-              className="text-sm px-2 py-1 rounded border bg-transparent focus:outline-none"
+              className="text-sm px-2 py-1 border bg-transparent focus:outline-none"
               style={{ borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
             />
           ) : (
@@ -156,14 +156,14 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
               <>
                 <button
                   onClick={() => { setNameDraft(activeTheme.name); setRenaming(true) }}
-                  className="text-xs px-2 py-1 rounded transition-colors"
+                  className="text-xs px-2 py-1 transition-colors"
                   style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
                 >
                   重命名
                 </button>
                 <button
                   onClick={deleteActive}
-                  className="text-xs px-2 py-1 rounded transition-colors"
+                  className="text-xs px-2 py-1 transition-colors"
                   style={{ color: 'var(--error)', backgroundColor: 'var(--error-subtle)' }}
                 >
                   删除
@@ -172,7 +172,7 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
             ) : (
               <button
                 onClick={() => createTheme(activeTheme.colors)}
-                className="text-xs px-2 py-1 rounded transition-colors"
+                className="text-xs px-2 py-1 transition-colors"
                 style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }}
               >
                 复制为自定义主题
@@ -193,14 +193,14 @@ export function ThemeEditor({ config, onChange }: ThemeEditorProps) {
                     return (
                       <label
                         key={field.key}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded border cursor-pointer"
+                        className="flex items-center gap-2 px-2 py-1.5 border cursor-pointer"
                         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
                       >
                         <input
                           type="color"
                           value={val}
                           onChange={e => updateActiveColors(field.key, e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer shrink-0 bg-transparent border-0 p-0"
+                          className="w-6 h-6 cursor-pointer shrink-0 bg-transparent border-0 p-0"
                           style={{ minWidth: '1.5rem' }}
                         />
                         <span className="flex-1 min-w-0">

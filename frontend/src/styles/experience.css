@@ -19,6 +19,10 @@
   --er-gray: #8f9594;
   --er-hairline: rgb(23 24 27 / 24%);
   --er-muted: rgb(23 24 27 / 58%);
+  /* 「落在固定平面上的前景」。刻意不随模式翻转 —— 它配的是那些写死的底色
+     （墨块、信号红、钴蓝）。之前这些地方用的是 --er-paper-bright，底色不翻
+     前景翻，深色模式下 MOTION 读数与当前导航项直接变成深底深字。 */
+  --er-on-field: #f7f2e7;
   --er-edge: clamp(22px, 4vw, 64px);
   --er-column-gap: clamp(8px, 1vw, 18px);
   --er-row-gap: clamp(8px, 1.2vh, 16px);
@@ -51,6 +55,7 @@
   --er-gray: #8f9594;
   --er-hairline: rgb(247 242 231 / 24%);
   --er-muted: rgb(247 242 231 / 58%);
+  /* --er-on-field 不在此处覆盖：见 :root 的说明。 */
 }
 
 html,
@@ -70,7 +75,7 @@ body {
   overflow: hidden;
   background: var(--er-paper);
   color: var(--er-ink);
-  font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-ui);
   text-rendering: geometricPrecision;
 }
 
@@ -176,7 +181,9 @@ body {
   top: 10px;
   left: 10px;
   padding: 10px 14px;
-  color: var(--er-paper-bright);
+  /* 底色是会翻转的 --er-ink，前景就必须跟着翻 —— 这里配 --er-paper，
+     不是固定的 --er-on-field（那个只配写死的底色）。 */
+  color: var(--er-paper);
   background: var(--er-ink);
   font-size: 11px;
   letter-spacing: .12em;
@@ -224,7 +231,7 @@ body {
   place-items: center;
   width: 38px;
   height: 38px;
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: var(--er-red);
   font-size: 11px;
   font-weight: 900;
@@ -237,23 +244,36 @@ body {
   min-width: 0;
 }
 
-.er-brand strong,
+/* 外壳文字分两类，不能共用一条规则。
+   拉丁注记（品牌副题、路由眉标、寄存条、标尺、动效读数）走大写 + 展开字距，
+   在 typography.css 里统一接到等宽字族；
+   中文导航（入口 / 论文库 / 论文分析）绝不能套 uppercase 与 .16em ——
+   汉字没有大小写，展开字距只会把词拆散成一个个孤立的字。 */
 .er-brand small,
-.er-route-meta,
+.er-route-meta > span,
 .er-motion-control,
 .er-registration-strip,
-.er-route-rail,
-.er-primary-nav,
-.er-context-nav {
-  font-size: var(--fs-meta);
+.er-route-rail {
   line-height: 1.2;
-  letter-spacing: .16em;
   text-transform: uppercase;
 }
 
+.er-primary-nav,
+.er-context-nav {
+  font-size: var(--fs-meta);
+  letter-spacing: var(--tr-ui);
+  line-height: 1.2;
+}
+
+/* 字标用展示字族的窄体重字：它是这套语言里唯一一处「标志」，
+   跟着界面字族走会让它退化成一行普通的粗体文字。 */
 .er-brand strong {
-  font-size: 12px;
-  letter-spacing: .08em;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-stretch: 86%;
+  font-weight: 800;
+  letter-spacing: -.005em;
+  text-transform: uppercase;
 }
 
 .er-brand small {
@@ -280,8 +300,10 @@ body {
 
 .er-route-meta strong {
   overflow: hidden;
-  font-size: 11px;
-  letter-spacing: .12em;
+  color: var(--er-ink);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: var(--tr-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -298,7 +320,7 @@ body {
   padding: 0 12px;
   border: 0;
   border-left: 4px solid var(--er-red);
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: #17181b;
   cursor: pointer;
 }
@@ -336,6 +358,7 @@ body {
 }
 
 .er-registration-strip {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
   align-items: center;
@@ -344,17 +367,54 @@ body {
   padding: 0 var(--er-edge);
   border-bottom: 1px solid var(--er-hairline);
   color: var(--er-muted);
-  background: color-mix(in srgb, var(--er-paper) 92%, transparent);
+  background: var(--er-paper);
 }
 
-.er-registration-strip > span:first-child {
+.er-registration-strip__index {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.er-registration-strip > span:last-child {
+.er-registration-strip__column {
   justify-self: end;
+  white-space: nowrap;
+}
+
+/* 列位读数。数值由 Layout 写进 --er-cursor-col，这里只负责显示 —— 用
+   content 取变量，省掉每帧一次 React 渲染。 */
+.er-registration-strip__column::after {
+  content: ' ' var(--er-cursor-col, '--') ' / 12';
+}
+
+/* 列位游标：一格宽的底衬，量到光标所在的栏。它落在框架上，不是内容平面上。 */
+.er-registration-strip__cursor {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--er-cursor-w, 0);
+  /* 只留底边一道刻度，不填色。填色的那一版在游标扫过上下文导航时会把
+     「论文集合 / 深度研究」两个标签整块洗淡 —— 框架上的读数同样不该
+     削弱它旁边的功能文字。 */
+  border-bottom: var(--rule-mark) solid var(--er-blue);
+  pointer-events: none;
+  transform: translateX(var(--er-cursor-x, 0));
+  transition: transform var(--dur-tint) var(--ease-carriage);
+}
+
+.er-registration-strip > :not(.er-registration-strip__cursor) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 1000px) {
+  .er-registration-strip__column::after { content: ' ' var(--er-cursor-col, '--') ' / 8'; }
+}
+
+@media (pointer: coarse), (max-width: 700px) {
+  .er-registration-strip__cursor { display: none; }
 }
 
 .er-context-nav {
@@ -372,6 +432,7 @@ body {
   height: 100%;
   padding: 0 13px;
   color: var(--er-muted);
+  font-weight: 550;
   text-decoration: none;
 }
 
@@ -433,15 +494,45 @@ body {
   animation: er-page-register var(--dur-page) var(--ease-register) both;
 }
 
+/* 路由标尺。占满左侧留白的整条高度，文字用 writing-mode 竖排而不是
+   rotate() —— 旋转后的盒子宽高互换，实际横向占位由文字长度决定，路由名一长
+   就会伸进内容区。工作区详情页上「02 / WORKSPACE-DETAIL」压住论文首字母
+   方块，就是这么来的。竖排的盒子宽度是可预测的一行高，稳稳待在留白里。 */
 .er-route-rail {
-  position: fixed;
-  z-index: 25;
-  top: 50%;
-  left: 13px;
+  position: absolute;
+  z-index: 5;
+  top: var(--er-header-height);
+  bottom: var(--er-nav-height);
+  left: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  width: var(--er-edge);
   color: var(--er-muted);
   pointer-events: none;
-  transform: translateY(-50%) rotate(-90deg);
-  transform-origin: center;
+}
+
+.er-route-rail::before,
+.er-route-rail::after {
+  width: 1px;
+  background: var(--er-hairline);
+  content: '';
+}
+
+.er-route-rail::before {
+  height: clamp(24px, 12vh, 90px);
+  margin-bottom: 14px;
+}
+
+.er-route-rail::after {
+  height: clamp(24px, 12vh, 90px);
+  margin-top: 14px;
+}
+
+.er-route-rail > span {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
 }
 
 .er-primary-nav {
@@ -495,8 +586,9 @@ body {
 .er-nav-item strong {
   align-self: end;
   overflow: hidden;
-  font-size: 11px;
-  letter-spacing: .1em;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: var(--tr-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -521,7 +613,7 @@ body {
 }
 
 .er-nav-item[data-active='true'] {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: #17181b;
 }
 
@@ -530,111 +622,46 @@ body {
   color: rgb(247 242 231 / 62%);
 }
 
-/* Decorative layers always stay behind semantic content. */
-.er-pointer-aperture {
-  position: fixed;
-  z-index: 2;
-  top: 0;
-  left: 0;
-  width: clamp(72px, 7.6vw, 112px);
-  height: clamp(54px, 9vh, 84px);
-  pointer-events: none;
-  opacity: .54;
-  background: var(--er-blue);
-  transform: translate3d(calc(var(--er-pointer-x) - 50%), calc(var(--er-pointer-y) - 50%), 0);
-  transition:
-    background-color var(--dur-plane) var(--ease-carriage),
-    opacity var(--dur-plane) var(--ease-carriage),
-    transform var(--dur-tint) var(--ease-carriage);
-}
-
-.er-experience[data-scene='process'] .er-pointer-aperture,
-.er-experience[data-scene='field'] .er-pointer-aperture {
-  background: var(--er-red);
-}
-
-.er-experience[data-scene='archive'] .er-pointer-aperture {
-  background: var(--er-blue-deep);
-}
-
-.er-spatial {
-  position: absolute;
-  z-index: 1;
-  inset: var(--er-header-height) 0 var(--er-nav-height);
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.er-spatial__mass,
-.er-spatial__bar,
-.er-spatial__axis,
-.er-spatial > span {
-  position: absolute;
-  display: block;
-}
-
-/* 装饰层锚在和 masthead 同一套 12 栏栅格上。原先用 26vw / right:12% 这类
-   任意值，色块边缘落不到任何一条栏线上，读起来就是「浮着的灰方块」而不是
-   版面的一部分 —— 构成主义里，色块的边界必须是结构线。 */
-.er-spatial__mass {
-  right: var(--er-edge);
-  bottom: 12%;
-  width: var(--er-span-4);
-  height: 42%;
-  background: var(--er-blue);
-  opacity: .08;
-}
-
-/* 竖轴压在右起第 4 栏的栏线上 */
-.er-spatial__bar {
-  top: 20%;
-  right: calc(var(--er-edge) + var(--er-span-3) + var(--er-column-gap));
-  width: 4px;
-  height: 42%;
-  background: var(--er-red);
-  opacity: .24;
-}
-
-.er-spatial__axis {
-  top: 62%;
-  right: var(--er-edge);
-  left: var(--er-edge);
-  height: 1px;
+/* 深色模式下页面底色本身就是 #17181b —— 沿用同一块墨色当选中态，等于没有
+   选中态。这里和 .er-btn--primary 走同一条口径：整块翻成亮面。 */
+[data-mode='dark'] .er-nav-item[data-active='true'] {
+  color: #17181b;
   background: var(--er-ink);
-  opacity: .12;
 }
 
-.er-spatial > span {
-  bottom: 12px;
-  left: var(--er-edge);
-  color: var(--er-muted);
-  font-size: var(--fs-micro);
-  letter-spacing: .18em;
+[data-mode='dark'] .er-nav-item[data-active='true'] span,
+[data-mode='dark'] .er-nav-item[data-active='true'] small {
+  color: rgb(23 24 27 / 62%);
 }
 
-.er-experience[data-scene='origin'] .er-spatial__mass {
-  display: none;
+[data-mode='dark'] .er-motion-control {
+  color: #17181b;
+  background: var(--er-ink);
 }
 
-/* 出血到视口右缘，但左边界仍落在栏线上 —— 这样它读起来是「被裁掉的一块
-   版面」，而不是一个随手拉宽的矩形。 */
-.er-experience[data-scene='field'] .er-spatial__mass {
-  right: 0;
-  bottom: 0;
-  width: calc(var(--er-span-5) + var(--er-edge));
-  height: 68%;
-  background: var(--er-blue);
-  opacity: .07;
+[data-mode='dark'] .er-motion-control span {
+  color: rgb(23 24 27 / 62%);
 }
 
-.er-experience[data-scene='process'] .er-spatial__mass {
-  right: 0;
-  bottom: 0;
-  width: calc(var(--er-span-4) + var(--er-edge));
-  height: 100%;
-  background: var(--er-blue-deep);
-  opacity: .08;
-}
+/* ──────────────────────────────────────────────────────────────────────
+ * 关于装饰层的位置
+ *
+ * v4 有两个全屏装饰层：跟着光标走的蓝色色块（.er-pointer-aperture），以及
+ * 一组锚在栅格上的色块 / 竖轴 / 水平轴（.er-spatial）。两者都铺在内容平面
+ * 之下，但页面本身没有不透明背景 —— 于是它们实际显示在列表行、标签、表单
+ * 控件的下方并透出来：设置页的 API Key 输入框正中间有一条粉色竖线，论文库
+ * 右半屏的状态标签压在一块灰色矩形上。
+ *
+ * 装饰不能落在内容平面上。这不是审美偏好，而是可读性的下限：一旦破例，
+ * 界面就不再有「哪一层是可读的」这回事。
+ *
+ * 所以两层都删掉，它们承担的「版面是有结构的」这件事改由三处真实构件表达：
+ *   1. 左侧留白里的路由标尺（.er-route-rail）—— 装饰待在页边空白里，
+ *      这本来就是版面注记该待的地方；
+ *   2. 顶部寄存条上的列位游标（.er-registration-strip__cursor）——
+ *      把光标位置从「一个色块」变成「一格读数」；
+ *   3. 各页面自己的实心色带与边框 —— 结构线由内容自己画。
+ * ─────────────────────────────────────────────────────────────────── */
 
 .er-route-wipe {
   position: fixed;
@@ -687,7 +714,8 @@ body {
 }
 
 .er-page :where(h1, .text-display) {
-  font-family: Arial, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-display);
+  font-stretch: var(--wdth-heading);
   font-weight: 900 !important;
   letter-spacing: -.045em !important;
   line-height: .94 !important;
@@ -763,7 +791,7 @@ body {
   border: 1px solid var(--er-ink);
   border-right: 0;
   border-bottom-color: var(--er-ink) !important;
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: #17181b;
 }
 
@@ -876,7 +904,7 @@ body {
   grid-row: 2 / 6;
   display: grid;
   place-items: center;
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
 }
 
 .er-document-object {
@@ -980,7 +1008,7 @@ body {
 }
 
 .er-intake__surface[data-dragging='true'] {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: var(--er-blue) !important;
 }
 
@@ -1091,7 +1119,7 @@ body {
 }
 
 .er-experience :where(.bg-gray-950, .bg-gray-900, .bg-gray-800) {
-  background-color: var(--er-paper-bright) !important;
+  background-color: var(--er-on-field) !important;
 }
 
 .er-experience :where(.bg-blue-500, .bg-blue-600, .bg-blue-400) {
@@ -1156,7 +1184,7 @@ body {
 .er-experience[data-route='code'] code,
 .er-experience [data-terminal-panel],
 .er-experience .xterm {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace !important;
+  font-family: var(--font-mono) !important;
 }
 
 .er-experience [data-terminal-panel] {
@@ -1280,12 +1308,12 @@ body {
 }
 
 .er-dialog-action:is(:hover, :focus-visible) {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: var(--er-blue);
 }
 
 .er-dialog-action--confirm {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: var(--er-red);
 }
 
@@ -1408,15 +1436,8 @@ body {
   }
 
   .er-route-rail,
-  .er-pointer-aperture,
-  .er-registration-strip > span:last-child {
+  .er-registration-strip__column {
     display: none;
-  }
-
-  /* 6 栏下同样的跨度占比过大，装饰会盖住半屏内容 —— 各收一栏。 */
-  .er-experience[data-scene='field'] .er-spatial__mass,
-  .er-experience[data-scene='process'] .er-spatial__mass {
-    width: calc(var(--er-span-3) + var(--er-edge));
   }
 
   .er-registration-strip {
@@ -1548,7 +1569,7 @@ body {
   transition-duration: .001ms !important;
 }
 
-.er-experience[data-motion='reduced'] :where(.er-route-wipe, .er-pointer-aperture) {
+.er-experience[data-motion='reduced'] :where(.er-route-wipe, .er-registration-strip__cursor) {
   display: none;
 }
 
@@ -1564,13 +1585,9 @@ body {
   }
 
   .er-experience:not([data-motion='full']) .er-route-wipe,
-  .er-experience:not([data-motion='full']) .er-pointer-aperture {
+  .er-experience:not([data-motion='full']) .er-registration-strip__cursor {
     display: none;
   }
-}
-
-@media (pointer: coarse) {
-  .er-pointer-aperture { display: none; }
 }
 
 [data-focus-mode='true'] .er-masthead,
@@ -1602,7 +1619,7 @@ body {
 
 .er-brand small,
 .er-nav-item small,
-.er-spatial > span,
+.er-route-rail,
 .er-home-hero__index,
 .er-home-hero__coordinate {
   font-weight: var(--deco-weight);

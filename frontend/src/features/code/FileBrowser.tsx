@@ -204,7 +204,7 @@ export function FileBrowser({ tree, selected, onSelect }: FileBrowserProps) {
       {/* 标题 */}
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--code-text)' }}>
         <span>资源管理器</span>
-        <button aria-label="新建文件" className="transition-colors press focus-glow rounded" style={{ color: 'var(--code-text-muted)' }}
+        <button aria-label="新建文件" className="transition-colors press focus-glow" style={{ color: 'var(--code-text-muted)' }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--code-text-bright)' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--code-text-muted)' }}
         >

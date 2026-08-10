@@ -26,6 +26,7 @@ import {
 import type { AppConfig } from '@/features/settings/config'
 import { DEFAULT_CONFIG } from '@/features/settings/config'
 import { LoadingSpinner } from '@/ds-entry'
+import '@/styles/settings.css'
 
 
 /* ── Tab 定义 ─────────────────────────────────────── */
@@ -97,7 +98,7 @@ function TabBar({
             onClick={() => onChange(tab.key)}
             className="er-btn er-btn--ghost"
           >
-            <span style={{ opacity: isActive ? 1 : 0.6 }}>{tab.icon}</span>
+            {tab.icon}
             {tab.label}
           </button>
         )
@@ -309,79 +310,60 @@ export function SettingsPage() {
   const allConfigured = translateOk && analysisOk
 
   return (
-    <div className="er-page er-page--settings max-w-2xl mx-auto px-8 py-10">
-      {/* Header + Tab Bar */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>
-          设置
-        </h1>
-        <TabBar active={activeTab} onChange={handleTabChange} />
-      </div>
+    <div className="er-page er-page--settings">
+      <header className="er-page-head">
+        <p className="er-page-head__eyebrow">Protocol / Control—03</p>
+        <h1 className="er-page-head__title">设置</h1>
+        <div className="er-page-head__actions">
+          <TabBar active={activeTab} onChange={handleTabChange} />
+        </div>
+      </header>
 
-      {/* 配置状态提示 — 只在"模型配置" tab 显示 */}
+      {/* 配置状态提示 — 只在「模型配置」tab 显示 */}
       {!allConfigured && activeTab === 'models' && (
-        <div
-          className="p-4 mb-5"
-          style={{
-            borderRadius: 'var(--seed-radius, 12px)',
-            backgroundColor: 'var(--error-subtle)',
-            border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)',
-          }}
-        >
-          <div className="flex items-start gap-3">
-            <span style={{ color: 'var(--error)' }}>
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            </span>
-            <div>
-              <p className="text-[13px] font-medium" style={{ color: 'var(--error)' }}>配置不完整</p>
-              <div className="text-[12px] mt-1.5 space-y-0.5" style={{ color: 'var(--error)', opacity: 0.85 }}>
-                {!translateOk && <p>翻译模型未配置 API Key，画词翻译功能将不可用</p>}
-                {!analysisOk && <p>解读模型未配置 API Key，论文分析功能将使用默认配置</p>}
-              </div>
-            </div>
+        <div className="set-alert" role="alert">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <div>
+            <strong>配置不完整</strong>
+            {!translateOk && <p>翻译模型未配置 API Key，画词翻译不可用。</p>}
+            {!analysisOk && <p>解读模型未配置 API Key，论文分析会退回默认配置。</p>}
           </div>
         </div>
       )}
 
-      {/* Tab 面板内容 */}
-      {activeTab === 'models' && (
-        <ModelsPanel config={config} setConfig={setConfig} />
-      )}
-      {activeTab === 'appearance' && (
-        <AppearancePanel config={config} setConfig={setConfig} />
-      )}
-      {activeTab === 'research' && (
-        <ResearchPanel config={config} setConfig={setConfig} />
-      )}
+      <div className="set-body">
+        {activeTab === 'models' && <ModelsPanel config={config} setConfig={setConfig} />}
+        {activeTab === 'appearance' && <AppearancePanel config={config} setConfig={setConfig} />}
+        {activeTab === 'research' && <ResearchPanel config={config} setConfig={setConfig} />}
+      </div>
 
-      {/* 保存按钮 — 始终固定在底部 */}
-      <div className="flex items-center gap-3 pt-6">
+      {/* 保存栏贴在页底。它带偏移块，所以外层要留出影的空间，
+          否则影会被粘性栏的上边框切掉。 */}
+      <div className="set-savebar">
         <button
           type="button"
           onClick={handleSave}
           disabled={saving}
           aria-busy={saving}
-          className="er-btn er-btn--primary er-btn--lg"
+          className="er-btn er-btn--primary er-btn--lg set-savebar__submit"
         >
           {saving && <LoadingSpinner size="xs" />}
           {saving ? '保存中…' : '保存配置'}
         </button>
-        {saved && (
-          <span
-            className="animate-reveal-scale inline-flex items-center gap-1.5 text-[13px] font-medium"
-            style={{ color: 'var(--success)' }}
-            role="status"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-            已保存
-          </span>
-        )}
+        <span className="set-savebar__state" role="status" aria-live="polite">
+          {saved && (
+            <>
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+              已保存
+            </>
+          )}
+        </span>
       </div>
     </div>
   )

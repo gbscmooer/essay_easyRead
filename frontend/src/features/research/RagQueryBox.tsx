@@ -38,10 +38,10 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
   const hasDebug = result?.citations.some(c => c.debug) || (result?.debug?.length ?? 0) > 0
 
   return (
-    <div className="w-full md:w-80 shrink-0 flex flex-col rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
-      <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderBottom: '1px solid var(--border)' }}>
-        <h3 className="text-heading text-[13px]" style={{ color: 'var(--text-primary)' }}>跨论文问答</h3>
-        <div className="flex rounded-lg overflow-hidden border text-[10px]" style={{ borderColor: 'var(--border)' }}>
+    <aside className="rs-rag" aria-label="跨论文问答">
+      <div className="rs-rag__head">
+        <h3 className="rs-rag__title">跨论文问答</h3>
+        <div className="flex overflow-hidden border text-[10px]" style={{ borderColor: 'var(--border)' }}>
           {([
             { key: 'vector' as const, label: '向量' },
             { key: 'hybrid' as const, label: '混合' },
@@ -73,7 +73,7 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleQuery()}
             placeholder="输入你的问题…"
             aria-label="跨论文问答输入"
-            className="flex-1 px-3 py-2 text-[12px] rounded-lg focus:outline-none transition-colors duration-200"
+            className="flex-1 px-3 py-2 text-[12px] focus:outline-none transition-colors duration-200"
             style={{
               backgroundColor: 'var(--bg-elevated)',
               border: '1px solid var(--border)',
@@ -86,7 +86,7 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
             type="button"
             onClick={handleQuery}
             disabled={loading || !question.trim()}
-            className="focus-glow press px-3.5 py-2 text-[12px] font-medium rounded-full transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            className="focus-glow press px-3.5 py-2 text-[12px] font-medium transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
             style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
           >
             {loading ? '…' : '提问'}
@@ -124,7 +124,7 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
                 {result.path_evidence!.map((item, i) => (
                   <div
                     key={i}
-                    className="rounded-lg px-3 py-2 text-[11px] leading-relaxed"
+                    className="px-3 py-2 text-[11px] leading-relaxed"
                     style={{
                       border: '1px solid var(--border)',
                       backgroundColor: 'var(--bg-elevated)',
@@ -171,6 +171,6 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
           </p>
         )}
       </div>
-    </div>
+    </aside>
   )
 }

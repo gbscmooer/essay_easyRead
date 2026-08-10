@@ -1,0 +1,361 @@
+/*
+ * Easy Essay — 排版基座
+ *
+ * v4.1 之前，全站只有一个字族（Helvetica Neue / PingFang SC）承担全部角色：
+ * 展示标题、界面控件、正文、以及那批寄存器标记（`01—ARCHIVE—PLANE`、
+ * `31.2304°N`）。层级只能靠字号拉开，于是「大的」和「小的」是同一种东西的
+ * 两个尺寸，读起来始终是一张纸上的一段话，而不是一套仪表。
+ *
+ * 更糟的是展示层写的是 `font-family: Arial; font-weight: 900;
+ * font-stretch: condensed` —— Arial 没有 900 字重也没有宽度轴，浏览器只能
+ * 合成假粗，`font-stretch` 直接被忽略。整套构成主义语言的地基（重量级窄体
+ * 无衬线）从来没有真正落地过。
+ *
+ * 这一层给三个角色各一个真字族：
+ *
+ *   展示 = Archivo Variable   真 900 字重 + 真宽度轴（62–125），
+ *                             海报体该有的重量与收窄都是字体自己给的
+ *   界面 = Inter Variable     带光学尺寸轴，小字号自动加大 x-height
+ *   寄存 = JetBrains Mono     所有坐标、编号、场景码、状态读数
+ *
+ * 第三条是这套语言真正的缺口：寄存器文字本质是技术制图上的标注，它必须
+ * 看起来像仪器打上去的，而不是像一句被缩小的标题。换成等宽之后，它们
+ * 自动退到「注记」的层级，不再和标题抢注意力。
+ *
+ * 中文没有可用的自托管方案（一套黑体 CJK 至少 5MB），继续用系统 PingFang
+ * SC，但套一层 @font-face 改写垂直度量，让中英混排落在同一条基线上。
+ */
+
+@import '@fontsource-variable/archivo/standard.css';
+@import '@fontsource-variable/inter/standard.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+
+/* ── 中文度量对齐 ────────────────────────────────────────────────────────
+   PingFang SC 的 ascent/descent 合计约 1.4em，Inter 约 1.21em。同一个
+   line-height 下，纯中文行的实际行距会比纯英文行大出一截 —— 这是「中英
+   混排看起来各行各的」的直接原因。这里把中文的行盒改写成与 Inter 一致，
+   字号轻微下调 2%（中文方块字在同字号下视觉面积本来就比拉丁小写大）。
+
+   不限制字重区间：700+ 仍然走浏览器合成粗体。PingFang 最粗只到 Semibold，
+   若把 700–900 映射过去，中文标题会明显比同行的拉丁标题轻。 */
+@font-face {
+  font-family: 'CJK Adjusted';
+  src: local('PingFang SC'), local('PingFangSC-Regular'), local('Hiragino Sans GB'),
+    local('Microsoft YaHei'), local('Noto Sans CJK SC');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 98%;
+  ascent-override: 92%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
+:root {
+  --font-cjk: 'CJK Adjusted', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  --font-display: 'Archivo Variable', 'Helvetica Neue', Helvetica, Arial, var(--font-cjk);
+  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial,
+    var(--font-cjk);
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+  /* 寄存器标记与技术注记的专用别名。语义上它不是「代码」，只是恰好也要等宽。 */
+  --font-register: var(--font-mono);
+
+  /* ── 宽度轴 ────────────────────────────────────────────────────────
+     Archivo 的 wdth 轴。展示字号越大越收窄 —— 大字收窄是海报体的常规做法，
+     字面变密才压得住版面；小字收窄只会难读。 */
+  --wdth-hero: 84%;
+  --wdth-display: 90%;
+  --wdth-heading: 96%;
+
+  /* ── 字号阶梯 ──────────────────────────────────────────────────────
+     功能性文字与装饰性文字必须分处两个区间。低于 --fs-label 的字号只允许
+     用于 aria-hidden 的装饰，不得承载任何操作信息。 */
+  --fs-micro: 10px;   /* 仅装饰：寄存器编号、坐标、场景码 */
+  --fs-label: 11px;   /* 功能性小标签、状态 */
+  --fs-meta: 12px;    /* 元信息、次要说明 */
+  --fs-ui: 13px;      /* 按钮、导航、输入框 */
+  --fs-body: 14px;    /* 正文 */
+  --fs-lead: 15px;    /* 导语、列表标题 */
+  --fs-title: 17px;   /* 卡片 / 行标题 */
+  --fs-h3: clamp(18px, 1.45vw, 22px);
+  --fs-h2: clamp(23px, 2.1vw, 31px);
+  --fs-h1: clamp(36px, 4.4vw, 60px);
+  --fs-hero: clamp(54px, 7.6vw, 112px);
+
+  /* ── 行高 ──────────────────────────────────────────────────────────
+     中文方块字撑满 em 盒，行高低于 1 必然咬字。展示层的下限因此是 0.95，
+     而不是拉丁字体能接受的 0.84 —— 首页标题两行相撞正是这么来的。 */
+  --lh-flat: 1;
+  --lh-display: 0.95;
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.68;
+
+  /* ── 字距 ──────────────────────────────────────────────────────────
+     字号越大字距越负，这是光学补偿而非风格选择。 */
+  --tr-hero: -0.035em;
+  --tr-display: -0.025em;
+  --tr-heading: -0.015em;
+  --tr-title: -0.008em;
+  --tr-body: 0;
+  --tr-ui: 0.005em;
+  --tr-label: 0.12em;
+  --tr-register: 0.16em;
+
+  --deco-weight: 500;
+  --deco-opacity: 0.5;
+  --deco-tracking: var(--tr-register);
+}
+
+[data-mode='dark'] {
+  /* 深色底上同一字重看起来更粗（光渗），装饰层因此再降一档，
+     否则暗色模式下那批注记会比亮色模式抢眼。 */
+  --deco-opacity: 0.44;
+}
+
+/* ── 角色类 ────────────────────────────────────────────────────────────
+   字号、字重、字距、行高、宽度轴永远成套出现。单独调其中一项，光学关系
+   就散了 —— 这也是为什么这里不提供 `.text-lg` 这种只管一项的工具类。 */
+
+.t-hero,
+.t-display,
+.t-heading,
+.t-subheading {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  text-wrap: balance;
+}
+
+.t-hero {
+  font-size: var(--fs-hero);
+  font-stretch: var(--wdth-hero);
+  font-weight: 900;
+  letter-spacing: var(--tr-hero);
+  line-height: var(--lh-display);
+}
+
+.t-display {
+  font-size: var(--fs-h1);
+  font-stretch: var(--wdth-display);
+  font-weight: 800;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-display);
+}
+
+.t-heading {
+  font-size: var(--fs-h2);
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.t-subheading {
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 700;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.t-title {
+  font-family: var(--font-ui);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--tr-title);
+  line-height: var(--lh-snug);
+}
+
+.t-lead {
+  font-family: var(--font-ui);
+  font-size: var(--fs-lead);
+  font-weight: 400;
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-relaxed);
+}
+
+.t-body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: 400;
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-normal);
+}
+
+.t-meta {
+  font-family: var(--font-ui);
+  font-size: var(--fs-meta);
+  font-weight: 450;
+  letter-spacing: var(--tr-ui);
+  line-height: var(--lh-snug);
+}
+
+/* 功能性小标签：大写 + 展开字距。仍是界面字族 —— 它承载操作信息，
+   必须和按钮、输入框读起来是同一套东西。 */
+.t-label {
+  font-family: var(--font-ui);
+  font-size: var(--fs-label);
+  font-weight: 650;
+  letter-spacing: var(--tr-label);
+  line-height: var(--lh-tight);
+  text-transform: uppercase;
+}
+
+/* 寄存器注记：坐标、场景码、编号、状态读数。等宽 + 展开字距，
+   读起来是仪器打上去的标注，不是被缩小的标题。 */
+.t-register {
+  font-family: var(--font-register);
+  font-size: var(--fs-micro);
+  font-weight: var(--deco-weight);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: var(--tr-register);
+  line-height: var(--lh-tight);
+  text-transform: uppercase;
+}
+
+/* 读数：所有会变化的数字。等宽数字，位数变化时不会左右跳。 */
+.t-num,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.t-readout {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-flat);
+}
+
+/* ── 兼容旧类名 ────────────────────────────────────────────────────── */
+
+.text-display,
+.text-heading {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+}
+
+.text-display {
+  font-stretch: var(--wdth-display);
+  font-weight: 800;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-display);
+}
+
+.text-heading {
+  font-stretch: var(--wdth-heading);
+  font-weight: 700;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.text-label {
+  font-family: var(--font-ui);
+  font-size: var(--fs-label);
+  font-weight: 650;
+  letter-spacing: var(--tr-label);
+  line-height: var(--lh-tight);
+  text-transform: uppercase;
+}
+
+/* ── 全局落地 ──────────────────────────────────────────────────────────
+   `font-optical-sizing: auto` 让 Inter 的 opsz 轴在小字号下自动加大
+   x-height、放开字距 —— 12px 的元信息因此比机械缩放的 12px 更好读。 */
+
+html {
+  font-family: var(--font-ui);
+  font-optical-sizing: auto;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: 400;
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-normal);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+  font-variant-numeric: slashed-zero;
+}
+
+/* 表格、读数、时间、版本号一律等宽数字。数字在这套界面里是「量」，
+   量必须能上下对齐比较。 */
+time,
+[data-numeric],
+.er-readout {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 寄存器角色的落地清单 ──────────────────────────────────────────────
+   全站的坐标、场景码、序号、路由编号、方位注记都在这里一次性接到等宽字族。
+   把清单集中放在排版层而不是散在各页样式里，是因为「哪些字属于注记」是一个
+   排版决策，不是某一页的布局细节；散开写，下一个人加一条注记时不会知道该
+   跟着谁。 */
+.er-registration-strip,
+.er-route-rail,
+.er-route-meta > span,
+.er-motion-control,
+.er-brand small,
+.er-nav-item span,
+.er-nav-item small,
+.er-page::after,
+.er-code-state__register,
+.er-route-loading,
+.origin-home__registration,
+.origin-home__scene-index,
+.origin-home__note,
+.origin-home__coordinate,
+.origin-stat__index,
+.origin-paper-row__index,
+.origin-quick-entry__index,
+.origin-upload__register,
+.origin-section-heading span,
+.origin-quick-panel > header > span,
+.er-dialog-code,
+.er-version-identity > span,
+.er-version-number,
+.er-version-source span,
+.er-shortcuts-header > div span,
+.er-shortcuts-footer,
+.er-toast__copy > span,
+.er-eyebrow {
+  font-family: var(--font-register);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: var(--tr-register);
+}
+
+/* 等宽字族在同字号下视觉上更大也更松，接过去之后必须回调一档，
+   否则原本退到背景里的注记会重新跳出来。 */
+.er-registration-strip,
+.er-route-rail,
+.er-route-meta > span,
+.er-motion-control,
+.er-brand small,
+.er-nav-item small,
+.origin-home__registration,
+.origin-home__scene-index,
+.origin-home__note,
+.er-eyebrow {
+  font-size: var(--fs-micro);
+  font-weight: var(--deco-weight);
+}
+
+/* 页面小节眉标：注记的功能性变体 —— 它要能被点/被定位，所以留在
+   --fs-label 档，不跟着降到装饰区间。 */
+.er-eyebrow {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  text-transform: uppercase;
+}

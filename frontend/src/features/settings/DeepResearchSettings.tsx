@@ -51,7 +51,7 @@ function PillButton({
   return (
     <button
       onClick={onClick}
-      className="px-3 py-1.5 text-xs rounded-lg border transition-colors"
+      className="px-3 py-1.5 text-xs border transition-colors"
       style={{
         borderColor: active ? 'var(--accent)' : 'var(--border)',
         backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
@@ -124,7 +124,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
           value={config.embedding.model}
           onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, model: e.target.value } }))}
           placeholder={config.embedding.provider === 'local' ? 'BAAI/bge-m3' : config.embedding.provider === 'siliconflow' ? 'BAAI/bge-m3' : 'text-embedding-3-small'}
-          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+          className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
           style={INPUT}
         />
       </div>
@@ -138,7 +138,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
               type="text"
               value={config.embedding.base_url}
               onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, base_url: e.target.value } }))}
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
               style={INPUT}
             />
           </div>
@@ -149,7 +149,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
               value={config.embedding.api_key}
               onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, api_key: e.target.value } }))}
               placeholder="sk-..."
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors font-mono"
               style={INPUT}
             />
           </div>
@@ -181,7 +181,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
                 max={32768}
                 value={config.embedding.max_input_tokens ?? 7000}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_tokens: Number(e.target.value) || 7000 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -197,7 +197,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
                 max={200000}
                 value={config.embedding.max_input_chars ?? 0}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, max_input_chars: Number(e.target.value) || 0 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -214,7 +214,7 @@ export function EmbeddingSection({ config, setConfig }: SectionProps) {
                 max={256}
                 value={config.embedding.batch_size}
                 onChange={e => setConfig(prev => ({ ...prev, embedding: { ...prev.embedding, batch_size: Number(e.target.value) || 32 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -283,7 +283,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
               research: { ...prev.research, email: e.target.value },
             }))}
             placeholder="you@example.com"
-            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
             style={INPUT}
           />
           <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -305,7 +305,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
               research: { ...prev.research, api_key: e.target.value },
             }))}
             placeholder="留空使用公共配额（容易 429）"
-            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors font-mono"
             style={INPUT}
           />
           <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -455,7 +455,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
           </h2>
           <p className="text-xs mt-0.5" style={LABEL}>
             联网扩展时并行拉取多源候选，按 RRF 公式融合：
-            <code className="mx-1 px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+            <code className="mx-1 px-1" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               Σ wₛ/(k+rank)
             </code>
             默认 k=60。单源失败不阻断整体流程。
@@ -476,7 +476,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
       </div>
 
       {!discoveryOn && (
-        <p className="text-[11px] px-3 py-2 rounded-lg" style={{ color: 'var(--warning, #eab308)', backgroundColor: 'color-mix(in srgb, var(--warning, #eab308) 12%, transparent)' }}>
+        <p className="text-[11px] px-3 py-2" style={{ color: 'var(--warning, #eab308)', backgroundColor: 'color-mix(in srgb, var(--warning, #eab308) 12%, transparent)' }}>
           discovery v2 尚未通过 live/Scholar 发布门禁，默认关闭；可为实验评测手动启用。
         </p>
       )}
@@ -487,7 +487,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
           {RECALL_SOURCE_OPTIONS.map(opt => (
             <label
               key={opt.key}
-              className="flex items-center gap-1.5 text-xs cursor-pointer px-2.5 py-1.5 rounded-lg border"
+              className="flex items-center gap-1.5 text-xs cursor-pointer px-2.5 py-1.5 border"
               style={{
                 borderColor: recall.enabled_sources.includes(opt.key) ? 'var(--accent)' : 'var(--border)',
                 color: recall.enabled_sources.includes(opt.key) ? 'var(--accent)' : 'var(--text-secondary)',
@@ -515,7 +515,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
             max={200}
             value={recall.rrf_k}
             onChange={e => patchRecall({ rrf_k: Number(e.target.value) || 60 })}
-            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
             style={INPUT}
           />
           <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -530,7 +530,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
             max={500}
             value={recall.candidate_limit}
             onChange={e => patchRecall({ candidate_limit: Number(e.target.value) || 50 })}
-            className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
             style={INPUT}
           />
         </div>
@@ -557,7 +557,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
                     [opt.key]: Number(e.target.value) || 0,
                   },
                 })}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
             </div>
@@ -579,7 +579,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
               max={200}
               value={hybrid.rrf_k}
               onChange={e => patchHybrid({ rrf_k: Number(e.target.value) || 60 })}
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
               style={INPUT}
             />
           </div>
@@ -599,7 +599,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
                 onChange={e => patchHybrid({
                   weights: { ...hybrid.weights, [key]: Number(e.target.value) || 0 },
                 })}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
             </div>
@@ -615,7 +615,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
               onChange={e => patchHybrid({
                 graph: { ...hybrid.graph, ppr_alpha: Number(e.target.value) || 0.85 },
               })}
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
               style={INPUT}
             />
           </div>
@@ -629,7 +629,7 @@ export function RecallSection({ config, setConfig }: SectionProps) {
               onChange={e => patchHybrid({
                 graph: { ...hybrid.graph, top_k: Number(e.target.value) || 50 },
               })}
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
               style={INPUT}
             />
           </div>
@@ -676,7 +676,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
               value={config.reranker.model}
               onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, model: e.target.value } }))}
               placeholder="BAAI/bge-reranker-v2-m3"
-              className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+              className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
               style={INPUT}
             />
             <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -692,7 +692,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
                 value={config.reranker.base_url}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, base_url: e.target.value } }))}
                 placeholder="留空 = 继承 embedding 的 base_url"
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
             </div>
@@ -703,7 +703,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
                 value={config.reranker.api_key}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, api_key: e.target.value } }))}
                 placeholder="留空 = 继承 embedding 的 api_key"
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors font-mono"
                 style={INPUT}
               />
             </div>
@@ -718,7 +718,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
                 max={200}
                 value={config.reranker.candidate_k}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, candidate_k: Number(e.target.value) || 30 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -733,7 +733,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
                 max={20}
                 value={config.reranker.top_n}
                 onChange={e => setConfig(prev => ({ ...prev, reranker: { ...prev.reranker, top_n: Number(e.target.value) || 5 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -823,7 +823,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
           八个通道各自分位数归一后加权求和，<b>同一个分数</b>决定连哪条边、社区怎么分、
           谁是关键论文、图检索推荐谁。想让图谱更贴细分方向，就调高 研究目的 / 术语 / 文献耦合；
           想更贴大方向，就调高 主题。算法实现见{' '}
-          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+          <code className="px-1" style={{ backgroundColor: 'var(--bg-elevated)' }}>
             backend/services/deep_research/graphkit/relatedness.py
           </code>
           。
@@ -838,7 +838,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
             ...prev,
             relations: { ...prev.relations, calibrate: e.target.checked },
           }))}
-          className="mt-0.5 rounded accent-blue-500"
+          className="mt-0.5 accent-blue-500"
         />
         <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
           自动按工作区调权（推荐）
@@ -878,7 +878,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
                   step={0.01}
                   value={weights[c.name] ?? c.default_weight}
                   onChange={e => setWeight(c.name, Number(e.target.value))}
-                  className="w-16 px-2 py-1 text-xs rounded-lg border focus:outline-none tabular-nums"
+                  className="w-16 px-2 py-1 text-xs border focus:outline-none tabular-nums"
                   style={INPUT}
                   aria-label={`${c.label} 权重数值`}
                 />
@@ -930,7 +930,7 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
           </h2>
           <p className="text-xs mt-0.5" style={LABEL}>
             联网模式下，从 L1 论文 PDF 文本解析{' '}
-            <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>[N]</code>{' '}
+            <code className="px-1" style={{ backgroundColor: 'var(--bg-elevated)' }}>[N]</code>{' '}
             引用块，提取 arXiv ID（正则优先，可选 LLM 兜底），从 arXiv 下载 PDF。
             与 OpenAlex/S2 扩展互补。
           </p>
@@ -964,7 +964,7 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
                 max={50}
                 value={config.arxiv_expand.top_k}
                 onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, top_k: Number(e.target.value) || 5 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -994,7 +994,7 @@ export function ArxivExpandSection({ config, setConfig }: SectionProps) {
                   max={50}
                   value={config.arxiv_expand.max_llm_refs}
                   onChange={e => setConfig(prev => ({ ...prev, arxiv_expand: { ...prev.arxiv_expand, max_llm_refs: Number(e.target.value) || 15 } }))}
-                  className="w-48 px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                  className="w-48 px-3 py-2 text-sm border focus:outline-none transition-colors"
                   style={INPUT}
                 />
                 <p className="text-[10px] mt-1" style={{ color: 'var(--text-disabled)' }}>
@@ -1078,7 +1078,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
             启用后使用 findpapers 库（arXiv、CrossRef、OpenAlex、PubMed 等 8 源并行搜索 + 自动去重）
             替代 Semantic Scholar 进行相关论文推荐和 PDF 下载。
             需要{' '}
-            <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+            <code className="px-1" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               pip install findpapers
             </code>。
           </p>
@@ -1103,7 +1103,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
                 type="button"
                 onClick={() => runTest(FP_DATABASES.map(d => d.key))}
                 disabled={anyTesting}
-                className="px-2.5 py-1 text-[11px] rounded-md border transition-colors disabled:opacity-50"
+                className="px-2.5 py-1 text-[11px] border transition-colors disabled:opacity-50"
                 style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
               >
                 {anyTesting ? '测试中…' : '测试全部'}
@@ -1139,7 +1139,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
                       type="button"
                       onClick={() => runTest([db.key])}
                       disabled={busy}
-                      className="px-2 py-0.5 text-[11px] rounded-md border transition-colors disabled:opacity-50 shrink-0"
+                      className="px-2 py-0.5 text-[11px] border transition-colors disabled:opacity-50 shrink-0"
                       style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
                     >
                       {busy ? '测试中…' : '测试'}
@@ -1147,7 +1147,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
 
                     {r && !busy && (
                       <span className="flex items-center gap-1.5 min-w-0">
-                        <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColor(r) }} />
+                        <span className="inline-block w-2 h-2 shrink-0" style={{ backgroundColor: statusColor(r) }} />
                         <span className="truncate" style={{ color: 'var(--text-muted)' }}>
                           {r.message}{r.latency_ms != null ? ` · ${r.latency_ms}ms` : ''}
                         </span>
@@ -1180,7 +1180,7 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
                 max={50}
                 value={config.findpapers.max_results}
                 onChange={e => setConfig(prev => ({ ...prev, findpapers: { ...prev.findpapers, max_results: Number(e.target.value) || 10 } }))}
-                className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors"
                 style={INPUT}
               />
             </div>

@@ -42,7 +42,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}
         >
           <div
-            className="flex flex-col items-center text-center max-w-md w-full animate-reveal-up rounded-2xl px-8 py-10"
+            className="flex flex-col items-center text-center max-w-md w-full animate-reveal-up px-8 py-10"
             style={{
               backgroundColor: 'var(--error-subtle)',
               border: '1px solid var(--border-light)',
@@ -50,7 +50,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             }}
           >
             <div
-              className="w-16 h-16 rounded-full flex items-center justify-center mb-5"
+              className="w-16 h-16 flex items-center justify-center mb-5"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
@@ -68,7 +68,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="flex items-center gap-3">
               <button
                 onClick={this.handleRetry}
-                className="px-5 py-2 text-sm font-medium rounded-lg press focus-glow"
+                className="px-5 py-2 text-sm font-medium press focus-glow"
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'var(--bg-base)',
@@ -81,7 +81,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
               </button>
               <button
                 onClick={this.handleGoHome}
-                className="px-5 py-2 text-sm font-medium rounded-lg border press focus-glow"
+                className="px-5 py-2 text-sm font-medium border press focus-glow"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border)',

@@ -23,28 +23,22 @@ interface ProviderPresetsProps {
 
 export default function ProviderPresets({ baseUrl, onSelect }: ProviderPresetsProps) {
   return (
-    <div>
-      <label className="block text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>
-        服务商预设
-      </label>
-      <div className="flex flex-wrap gap-2">
-        {PROVIDER_PRESETS.map(preset => {
-          const active = baseUrl === preset.base_url
-          return (
-            <button
-              key={preset.label}
-              onClick={() => onSelect(preset)}
-              className="px-3 py-1 text-xs rounded-full border transition-colors"
-              style={{
-                borderColor: active ? 'var(--accent)' : 'var(--border)',
-                backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
-                color: active ? 'var(--accent)' : 'var(--text-secondary)',
-              }}
-            >
-              {preset.label}
-            </button>
-          )
-        })}
+    <div className="er-field">
+      <span className="er-field__label">服务商预设</span>
+      {/* 一组互斥选项 —— 用连排分段控件表达互斥，比几个各自描边的胶囊更准确。 */}
+      <div className="er-btn-group set-presets" role="group" aria-label="服务商预设">
+        {PROVIDER_PRESETS.map(preset => (
+          <button
+            key={preset.label}
+            type="button"
+            onClick={() => onSelect(preset)}
+            data-active={baseUrl === preset.base_url || undefined}
+            aria-pressed={baseUrl === preset.base_url}
+            className="er-btn er-btn--ghost er-btn--sm"
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
     </div>
   )

@@ -22,7 +22,7 @@
   padding-bottom: clamp(42px, 7vh, 84px);
   color: var(--origin-ink);
   background: var(--origin-paper);
-  font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
 }
 
 .origin-home button {
@@ -44,14 +44,17 @@
 
 /* Origin hero ----------------------------------------------------------- */
 
+/* 三段式：寄存条 / 标题与图形 / 整条投放带。
+   v4 的版本是 8 行的自由布局，标题只占上半，下半留给一条红轴和一句注记，
+   于是左下角有一整块 400×250 的空白 —— 那不是留白，那是没安排。 */
 .origin-home__hero {
   position: relative;
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: auto repeat(7, minmax(52px, 1fr));
-  gap: clamp(8px, 1.2vh, 16px) var(--origin-column-gap);
-  min-height: clamp(640px, 76vh, 780px);
-  padding: clamp(24px, 4vh, 42px) var(--origin-edge);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: clamp(18px, 3vh, 34px) var(--origin-column-gap);
+  min-height: clamp(560px, 70vh, 720px);
+  padding: clamp(20px, 3vh, 34px) var(--origin-edge) clamp(24px, 4vh, 44px);
   overflow: hidden;
   border-bottom: 1px solid var(--origin-ink);
   isolation: isolate;
@@ -84,27 +87,27 @@
   position: relative;
   z-index: 3;
   grid-column: 1 / 8;
-  grid-row: 2 / 6;
+  grid-row: 2;
   align-self: center;
   min-width: 0;
 }
 
 .origin-home__scene-index {
-  margin: 0 0 clamp(16px, 2.4vh, 26px);
-  font-size: var(--fs-micro);
-  font-weight: 800;
-  letter-spacing: .17em;
-  text-transform: uppercase;
+  margin: 0 0 clamp(14px, 2vh, 22px);
 }
 
+/* 中文方块字撑满 em 盒，行高低于 1 必然咬字。v4 写的是 .84，于是「读懂」
+   的下缘直接压进「一篇论文」的上缘 —— 首屏最大的一块字是错版的。
+   收紧靠字距（Archivo 的宽度轴对汉字无效，但字距有效），不靠行高。 */
 .origin-home__copy h1 {
   display: grid;
   margin: 0;
-  font-family: Arial, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(72px, 9.2vw, 142px);
+  font-family: var(--font-display);
+  font-size: clamp(56px, 7.4vw, 116px);
+  font-stretch: var(--wdth-hero);
   font-weight: 900;
-  line-height: .84;
-  letter-spacing: -.09em;
+  letter-spacing: -.055em;
+  line-height: 1;
 }
 
 .origin-home__copy h1 span:last-child {
@@ -112,34 +115,42 @@
 }
 
 .origin-home__descriptor {
-  width: min(100%, 42ch);
-  margin: clamp(22px, 3vh, 34px) 0 0;
+  width: min(100%, 40ch);
+  margin: clamp(20px, 2.6vh, 30px) 0 0;
   padding-top: 10px;
-  border-top: 5px solid var(--origin-red);
+  border-top: var(--rule-bar) solid var(--origin-red);
   color: var(--origin-muted);
-  font-size: 13px;
-  line-height: 1.75;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
 }
 
 .origin-home__mass {
   position: relative;
   z-index: 2;
   grid-column: 8 / 13;
-  grid-row: 2 / 6;
+  grid-row: 2;
   align-self: center;
   justify-self: center;
   display: grid;
   place-items: center;
-  width: min(100%, 344px);
+  width: min(100%, 340px);
   aspect-ratio: 1;
+}
+
+.origin-home__disc {
+  position: absolute;
+  inset: 0;
   background: var(--origin-blue);
   clip-path: circle(50% at 50% 50%);
 }
 
 .origin-home__paper-object {
   position: relative;
-  width: 52%;
+  z-index: 1;
+  width: 58%;
   aspect-ratio: .72;
+  /* 从圆盘右下探出去 —— 两个形互相咬边，构图才有前后关系。 */
+  transform: translate(14%, 9%);
   border: 1px solid var(--origin-ink);
   color: var(--origin-ink);
   background: var(--origin-paper-bright);
@@ -195,59 +206,14 @@
   background: var(--origin-ochre);
 }
 
-.origin-home__axis {
-  position: relative;
-  z-index: 1;
-  grid-column: 1 / 8;
-  grid-row: 6;
-  align-self: center;
-  height: 40px;
-  border-top: 6px solid var(--origin-red);
-}
-
-.origin-home__axis::after {
-  position: absolute;
-  top: -6px;
-  right: 0;
-  width: 8px;
-  height: 8px;
-  background: var(--origin-ink);
-  content: "";
-}
-
-.origin-home__axis > span {
-  position: absolute;
-  top: -15px;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: var(--origin-ink);
-  animation: origin-register-axis 7.2s steps(6, end) infinite;
-}
-
-@keyframes origin-register-axis {
-  0%, 8% { left: 0; }
-  92%, 100% { left: calc(100% - 3px); }
-}
-
+/* 投放带占满整条底边。它不再是右下角一块孤立的方块，而是整个平面的进料口。 */
 .origin-home__intake {
   position: relative;
   z-index: 4;
-  grid-column: 8 / 13;
-  grid-row: 6 / 9;
-  align-self: center;
-  min-width: 0;
-}
-
-.origin-home__note {
-  grid-column: 1 / 7;
-  grid-row: 8;
+  grid-column: 1 / 13;
+  grid-row: 3;
   align-self: end;
-  margin: 0;
-  color: var(--origin-muted);
-  font-size: var(--fs-micro);
-  font-weight: 800;
-  letter-spacing: .16em;
+  min-width: 0;
 }
 
 /* Upload intake -------------------------------------------------------- */
@@ -441,7 +407,8 @@
 .origin-stat__value {
   grid-column: 1 / 3;
   margin-top: 10px;
-  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-family: var(--font-display);
+  font-stretch: var(--wdth-heading);
   font-size: clamp(34px, 4.1vw, 62px);
   font-weight: 900;
   line-height: .9;
@@ -918,24 +885,16 @@
   }
 
   .origin-home__copy h1 {
-    font-size: clamp(68px, 11vw, 112px);
-  }
-
-  .origin-home__mass,
-  .origin-home__intake {
-    grid-column: 5 / 9;
+    font-size: clamp(52px, 8.6vw, 92px);
   }
 
   .origin-home__mass {
-    width: min(92%, 300px);
+    grid-column: 5 / 9;
+    width: min(92%, 280px);
   }
 
-  .origin-home__axis {
-    grid-column: 1 / 5;
-  }
-
-  .origin-home__note {
-    grid-column: 1 / 5;
+  .origin-home__intake {
+    grid-column: 1 / 9;
   }
 
   .origin-stat {
@@ -978,9 +937,9 @@
   }
 
   .origin-home__hero {
-    grid-template-rows: auto repeat(11, minmax(46px, 1fr));
-    min-height: 980px;
-    padding-top: 22px;
+    grid-template-rows: auto auto auto auto;
+    min-height: 0;
+    padding-top: 20px;
   }
 
   .origin-home__registration {
@@ -994,36 +953,27 @@
 
   .origin-home__copy {
     grid-column: 1 / 7;
-    grid-row: 2 / 6;
+    grid-row: 2;
   }
 
   .origin-home__copy h1 {
-    font-size: clamp(58px, 19.2vw, 94px);
+    font-size: clamp(48px, 15vw, 80px);
   }
 
   .origin-home__descriptor {
     max-width: 36ch;
-    font-size: 12px;
-  }
-
-  .origin-home__axis {
-    grid-column: 1 / 7;
-    grid-row: 6;
+    font-size: var(--fs-meta);
   }
 
   .origin-home__mass {
-    grid-column: 3 / 7;
-    grid-row: 6 / 10;
-    width: min(100%, 250px);
+    grid-column: 2 / 6;
+    grid-row: 3;
+    width: min(100%, 230px);
   }
 
   .origin-home__intake {
     grid-column: 1 / 7;
-    grid-row: 10 / 13;
-  }
-
-  .origin-home__note {
-    display: none;
+    grid-row: 4;
   }
 
   .origin-upload__surface {
@@ -1129,14 +1079,9 @@
 
 /* Motion degradation -------------------------------------------------- */
 
-.er-experience[data-motion="reduced"] .origin-home__axis > span,
 .er-experience[data-motion="reduced"] .origin-ledger-loading__row > i,
 .er-experience[data-motion="reduced"] .origin-ledger-loading__row > span i {
   animation: none;
-}
-
-.er-experience[data-motion="reduced"] .origin-home__axis > span {
-  left: 0;
 }
 
 .er-experience[data-motion="reduced"] .origin-upload__status progress::-webkit-progress-value,
@@ -1150,14 +1095,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .er-experience:not([data-motion="full"]) .origin-home__axis > span,
   .er-experience:not([data-motion="full"]) .origin-ledger-loading__row > i,
   .er-experience:not([data-motion="full"]) .origin-ledger-loading__row > span i {
     animation: none;
-  }
-
-  .er-experience:not([data-motion="full"]) .origin-home__axis > span {
-    left: 0;
   }
 
   .er-experience:not([data-motion="full"]) .origin-upload__status progress::-webkit-progress-value,
@@ -1180,7 +1120,6 @@
 /* 1. 装饰文字降权 —— 全部 aria-hidden，只保留节奏 */
 .origin-home__registration,
 .origin-home__scene-index,
-.origin-home__note,
 .origin-home__footer,
 .origin-stat__index,
 .origin-section-heading span,

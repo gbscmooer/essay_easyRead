@@ -54,7 +54,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
                   onChange({ ...config, font: font.key })
                   setUIPreview({ font: font.key })
                 }}
-                className="w-full text-left px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                className="w-full text-left px-3 py-1.5 text-sm border transition-colors"
                 style={{
                   borderColor: active ? 'var(--accent)' : 'var(--border)',
                   backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
@@ -75,7 +75,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
               setUIPreview({ custom_font: e.target.value })
             }}
             placeholder="输入字体名称，如 PingFang SC"
-            className="mt-2 w-full px-3 py-1.5 text-sm rounded-lg border focus:outline-none"
+            className="mt-2 w-full px-3 py-1.5 text-sm border focus:outline-none"
             style={{
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border)',
@@ -103,7 +103,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
           step={500}
           value={config.highlight_duration}
           onChange={e => onChange({ ...config, highlight_duration: parseInt(e.target.value) })}
-          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+          className="w-full h-1.5 appearance-none cursor-pointer accent-[var(--accent)]"
           style={{ backgroundColor: 'var(--border)' }}
         />
         <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
@@ -149,7 +149,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
                 step={5}
                 value={Math.round(config.zoom_step * 100)}
                 onChange={e => onChange({ ...config, zoom_step: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+                className="w-full h-1.5 appearance-none cursor-pointer accent-[var(--accent)]"
                 style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
@@ -169,7 +169,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
                 step={10}
                 value={Math.round(config.zoom_min * 100)}
                 onChange={e => onChange({ ...config, zoom_min: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+                className="w-full h-1.5 appearance-none cursor-pointer accent-[var(--accent)]"
                 style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
@@ -189,7 +189,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
                 step={50}
                 value={Math.round(config.zoom_max * 100)}
                 onChange={e => onChange({ ...config, zoom_max: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+                className="w-full h-1.5 appearance-none cursor-pointer accent-[var(--accent)]"
                 style={{ backgroundColor: 'var(--border)' }}
               />
             </div>
@@ -209,7 +209,7 @@ export default function UIConfigSection({ config, onChange }: UIConfigSectionPro
                 step={1}
                 value={Math.round(config.pinch_zoom_step * 100)}
                 onChange={e => onChange({ ...config, pinch_zoom_step: parseInt(e.target.value) / 100 })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+                className="w-full h-1.5 appearance-none cursor-pointer accent-[var(--accent)]"
                 style={{ backgroundColor: 'var(--border)' }}
               />
               <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>

@@ -1,18 +1,10 @@
 import type { CSSProperties } from 'react'
 import type { SelectedEdge } from './GraphCanvas'
+import { CHANNEL_INK, INTENT_INK, inkWash } from '@/theme/graphPalette'
 
-// Categorical/semantic colors for relation channels + citation intents (data viz —
-// intentional fixed hues, not UI chrome). 与 graphkit/relatedness.py 的八个通道一一对应。
-const FACET_COLORS: Record<string, string> = {
-  topic: '#0ea5e9',
-  purpose: '#3b82f6',
-  method: '#8b5cf6',
-  term: '#ec4899',
-  dataset: '#10b981',
-  baseline: '#f59e0b',
-  bibcoupling: '#eab308',
-  cocitation: '#a855f7',
-}
+// 八个通道与 graphkit/relatedness.py 一一对应；配色取自 theme/graphPalette 的
+// 油墨分类色，不再在这里另写一套十六进制。
+const FACET_COLORS: Record<string, string> = CHANNEL_INK
 
 const KIND_LABEL: Record<string, string> = {
   related: '关联',
@@ -26,10 +18,10 @@ const KIND_LABEL: Record<string, string> = {
 
 // 引用意图：后端启发式分类的稳定 code → 中文标签 + 配色
 const INTENT_META: Record<string, { label: string; color: string; bg: string }> = {
-  baseline:    { label: '对比基线', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  reuse:       { label: '方法复用', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-  inspiration: { label: '启发借鉴', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-  background:  { label: '背景引用', color: '#6b7280', bg: 'rgba(107,114,128,0.14)' },
+  baseline:    { label: '对比基线', color: INTENT_INK.baseline, bg: inkWash(INTENT_INK.baseline) },
+  reuse:       { label: '方法复用', color: INTENT_INK.reuse, bg: inkWash(INTENT_INK.reuse) },
+  inspiration: { label: '启发借鉴', color: INTENT_INK.inspiration, bg: inkWash(INTENT_INK.inspiration) },
+  background:  { label: '背景引用', color: 'var(--text-muted)', bg: 'var(--bg-elevated)' },
 }
 
 export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClose: () => void }) {
@@ -128,7 +120,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                 </span>
               </div>
               {detail && totalContribution > 0 && (
-                <div className="flex h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                <div className="flex h-2.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
                   {detail.components.filter(c => c.contribution > 0).map(c => (
                     <div
                       key={c.facet}
@@ -150,7 +142,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                   <div key={c.facet} className="space-y-1.5">
                     <div className="flex items-center justify-between text-[12px]">
                       <span className="flex items-center gap-1.5 font-medium" style={{ color: 'var(--text-primary)' }}>
-                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280' }} />
+                        <span className="w-2 h-2 inline-block" style={{ backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280' }} />
                         {c.label}
                       </span>
                       <span className="tabular-nums" style={{ color: 'var(--text-secondary)' }}>
@@ -158,8 +150,8 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                         <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{(c.contribution * 100).toFixed(1)}%</span>
                       </span>
                     </div>
-                    <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-                      <div className="h-full rounded-full" style={{ width: `${c.sim * 100}%`, backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280' }} />
+                    <div className="h-1 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                      <div className="h-full" style={{ width: `${c.sim * 100}%`, backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280' }} />
                     </div>
                     <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>{c.reason}</p>
                     {c.shared.length > 0 && (

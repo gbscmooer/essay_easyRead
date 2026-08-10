@@ -46,9 +46,19 @@ let previewOverrides: Partial<UIConfig> | null = null
 let dirtyListeners = new Set<() => void>()
 
 
-/** 从 localStorage 读取保存的主题 key，用于首屏渲染避免闪白 */
+/** 从 localStorage 读取保存的主题 key。首屏渲染与后端不可达时的回落都用它。 */
 function getSavedThemeKey(): string | null {
   try { return localStorage.getItem('essay_theme') } catch { return null }
+}
+
+/** 自定义主题同样要能在后端不可达时还原，否则 custom:* 主题会解析不到定义。 */
+function getSavedCustomThemes(): UIConfig['custom_themes'] {
+  try {
+    const raw = localStorage.getItem('essay_custom_themes')
+    return raw ? JSON.parse(raw) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -74,8 +84,16 @@ async function fetchConfig(): Promise<AppConfig> {
     })
     .catch(() => {
       fetchPromise = null
-      toast({ type: 'warning', message: '配置加载失败，使用默认值' })
-      return { translate: { temperature: 0, max_tokens: 0 }, analysis: { temperature: 0, max_tokens: 0 }, ui: DEFAULT_UI }
+      toast({ type: 'warning', message: '配置加载失败，暂用本地缓存的界面设置' })
+      // 后端不可达时保留上一次保存到 localStorage 的主题。回落到 DEFAULT_UI
+      // 会把用户选的深色主题当场翻成浅色 —— 首屏内联脚本已经按缓存画成深色，
+      // 挂载后又被这里改回浅色，结果是一次刺眼的闪白，而且成因完全不可见。
+      // 注意这个结果不写进 cachedConfig：下一次调用仍会重试请求。
+      const fallbackTheme = getSavedThemeKey()
+      const fallbackUI: UIConfig = fallbackTheme
+        ? { ...DEFAULT_UI, theme: fallbackTheme, custom_themes: getSavedCustomThemes() ?? DEFAULT_UI.custom_themes }
+        : DEFAULT_UI
+      return { translate: { temperature: 0, max_tokens: 0 }, analysis: { temperature: 0, max_tokens: 0 }, ui: fallbackUI }
     })
 
   return fetchPromise
@@ -85,7 +103,9 @@ async function fetchConfig(): Promise<AppConfig> {
 export function useUIConfig(): UIConfig {
   // 初始化时从 localStorage 读取保存的主题，避免等待 fetch 导致首屏闪白
   const savedTheme = getSavedThemeKey()
-  const initialUI = savedTheme ? { ...DEFAULT_UI, theme: savedTheme } : DEFAULT_UI
+  const initialUI: UIConfig = savedTheme
+    ? { ...DEFAULT_UI, theme: savedTheme, custom_themes: getSavedCustomThemes() ?? DEFAULT_UI.custom_themes }
+    : DEFAULT_UI
   const [ui, setUI] = useState<UIConfig>(initialUI)
 
   useEffect(() => {

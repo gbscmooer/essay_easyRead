@@ -308,7 +308,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
       }}
     >
       <div
-        className="rounded-lg shadow-2xl overflow-hidden cursor-move select-none transition-colors animate-reveal-scale"
+        className="overflow-hidden cursor-move select-none transition-colors animate-reveal-scale"
         style={{
           backgroundColor: 'var(--bg-elevated)',
           border: '1px solid var(--border-light)',
@@ -337,7 +337,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('translate')}
               aria-label="翻译"
-              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
               onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -351,7 +351,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleAction('summarize')}
               aria-label="总结"
-              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
               onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -366,7 +366,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('highlight')}
               aria-label="荧光笔"
-              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press px-2.5 py-1.5 text-xs font-medium transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
               onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -380,7 +380,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('underline')}
               aria-label="下划线"
-              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press px-2.5 py-1.5 text-xs font-medium transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
               onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -395,7 +395,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               onMouseDown={e => e.stopPropagation()}
               onClick={() => handleMarkupClick('strikethrough')}
               aria-label="删除线"
-              className="press px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+              className="press px-2.5 py-1.5 text-xs font-medium transition-colors"
               style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
               onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -420,7 +420,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
                   onMouseDown={e => e.stopPropagation()}
                   onClick={() => handleColorSelect(c.value)}
                   aria-label={c.name}
-                  className="press w-6 h-6 rounded-full border-2 transition-all duration-150"
+                  className="press w-6 h-6 border-2 transition-all duration-150"
                   style={{ backgroundColor: c.value, borderColor: 'var(--border)' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text-primary)'; e.currentTarget.style.transform = 'scale(1.12)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'scale(1)' }}
@@ -518,7 +518,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('translate')}
-                className="px-2 py-1 text-xs rounded transition-colors"
+                className="px-2 py-1 text-xs transition-colors"
                 style={action === 'translate' ? { backgroundColor: 'var(--accent)', color: 'var(--bg-base)' } : { color: 'var(--text-secondary)' }}
                 onMouseEnter={e => { if (action !== 'translate') { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' } }}
                 onMouseLeave={e => { if (action !== 'translate') { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' } }}
@@ -528,7 +528,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
               <button
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => handleAction('summarize')}
-                className="px-2 py-1 text-xs rounded transition-colors"
+                className="px-2 py-1 text-xs transition-colors"
                 style={action === 'summarize' ? { backgroundColor: 'var(--accent)', color: 'var(--bg-base)' } : { color: 'var(--text-secondary)' }}
                 onMouseEnter={e => { if (action !== 'summarize') { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' } }}
                 onMouseLeave={e => { if (action !== 'summarize') { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' } }}

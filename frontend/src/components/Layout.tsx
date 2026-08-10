@@ -92,69 +92,76 @@ function useCurrentWorkspaceId(): number | null {
   return match ? Number(match[1]) : null
 }
 
+const MOTION_STORAGE_KEY = 'essay_motion'
+
+/**
+ * 动效开关。
+ *
+ * 默认开启，点一次关闭，再点一次打开，选择写进 localStorage。
+ *
+ * 这里刻意不再把 `prefers-reduced-motion` 当作默认值来源。之前的实现是
+ * `override ?? !systemReduced`，于是在任何声明了减弱动效的环境里，界面第一眼
+ * 就是 PAUSED —— 用户从没关过，却要先找到这个开关才能看到这套语言原本的样子。
+ * 系统偏好现在只作为兜底：样式层的 @media 规则全部挂在
+ * `html:not([data-er-motion-override='full'])` 上，用户一旦选择关闭，那条路径
+ * 立刻重新生效。
+ */
 function useMotionPreference() {
-  const query = '(prefers-reduced-motion: reduce)'
-  const [systemReduced, setSystemReduced] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  const [override, setOverride] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    const update = () => setSystemReduced(media.matches)
-    update()
-    media.addEventListener?.('change', update)
-    return () => media.removeEventListener?.('change', update)
-  }, [])
-
-  useEffect(() => {
-    const root = document.documentElement
-    if (override === null) {
-      root.removeAttribute('data-er-motion-override')
-    } else {
-      root.setAttribute('data-er-motion-override', override ? 'full' : 'reduced')
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(MOTION_STORAGE_KEY) !== 'reduced'
+    } catch {
+      return true
     }
+  })
 
-    return () => root.removeAttribute('data-er-motion-override')
-  }, [override])
+  useEffect(() => {
+    document.documentElement.setAttribute('data-er-motion-override', enabled ? 'full' : 'reduced')
+    try {
+      window.localStorage.setItem(MOTION_STORAGE_KEY, enabled ? 'full' : 'reduced')
+    } catch {
+      /* 隐私模式下写入会抛错；开关本身仍然可用，只是不跨会话保留。 */
+    }
+  }, [enabled])
 
-  const enabled = override ?? !systemReduced
-  const toggle = useCallback(() => setOverride(current => !(current ?? !systemReduced)), [systemReduced])
-  return { enabled, source: override === null ? 'system' : 'user', toggle }
+  const toggle = useCallback(() => setEnabled(value => !value), [])
+  return { enabled, toggle }
 }
 
-/** Writes a decorative pointer aperture directly to CSS variables on one RAF. */
+/**
+ * 指针位置 → 顶部寄存条上的游标刻度。
+ *
+ * 上一版把它做成一个跟着光标走的蓝色色块，浮在 z-index 2 的全屏层上 ——
+ * 于是它会压在列表行、输入框和标签上面。装饰不能落在内容平面上：这条规则
+ * 一旦破例，界面就再没有「哪一层是可读的」这回事。
+ *
+ * 现在同一个信号被移到顶部寄存条里，变成一格量到列位的游标。它落在框架上，
+ * 永远不与内容重叠，而且刚好说明了这套栅格有几栏 —— 从纯装饰变成了读数。
+ */
 function useGridPointer(rootRef: RefObject<HTMLDivElement>, enabled: boolean) {
   useEffect(() => {
     const root = rootRef.current
-    const finePointer = window.matchMedia('(pointer: fine)')
-    if (!root || !enabled || !finePointer.matches) return
+    if (!root || !enabled || !window.matchMedia('(pointer: fine)').matches) return
 
     let frame = 0
-    let nextX = window.innerWidth * 0.72
-    let nextY = window.innerHeight * 0.32
+    let nextX = window.innerWidth * 0.5
 
     const commit = () => {
       frame = 0
       const width = window.innerWidth
-      const height = window.innerHeight
       const columns = width <= 700 ? 6 : width <= 1000 ? 8 : 12
       const edge = width <= 700 ? 18 : Math.min(64, Math.max(22, width * 0.04))
-      const usableWidth = Math.max(1, width - edge * 2)
-      const xStep = usableWidth / columns
-      const yEdge = Math.min(36, Math.max(20, height * 0.03))
-      const usableHeight = Math.max(1, height - yEdge * 2)
-      const yStep = usableHeight / 8
-      const x = edge + Math.round((nextX - edge) / xStep) * xStep
-      const y = yEdge + Math.round((nextY - yEdge) / yStep) * yStep
+      const usable = Math.max(1, width - edge * 2)
+      const step = usable / columns
+      const column = Math.min(columns - 1, Math.max(0, Math.floor((nextX - edge) / step)))
 
-      root.style.setProperty('--er-pointer-x', `${Math.min(width - edge, Math.max(edge, x))}px`)
-      root.style.setProperty('--er-pointer-y', `${Math.min(height - yEdge, Math.max(yEdge, y))}px`)
+      root.style.setProperty('--er-cursor-x', `${edge + column * step}px`)
+      root.style.setProperty('--er-cursor-w', `${step}px`)
+      root.style.setProperty('--er-cursor-col', `"${String(column + 1).padStart(2, '0')}"`)
     }
 
     const onPointerMove = (event: PointerEvent) => {
       nextX = event.clientX
-      nextY = event.clientY
       if (!frame) frame = requestAnimationFrame(commit)
     }
 
@@ -245,18 +252,10 @@ export function Layout({ children }: LayoutProps) {
         data-scene={visual.scene}
         data-route={visual.route}
         data-motion={motion.enabled ? 'full' : 'reduced'}
-        data-motion-source={motion.source}
       >
         <a className="er-skip-link" href="#er-main-content">跳到主要内容</a>
 
         <div className="er-route-wipe" aria-hidden="true"><span /></div>
-        <div className="er-pointer-aperture" aria-hidden="true" />
-        <div className="er-spatial" aria-hidden="true">
-          <i className="er-spatial__mass" />
-          <i className="er-spatial__bar" />
-          <i className="er-spatial__axis" />
-          <span>{visual.register}</span>
-        </div>
 
         <header className="er-masthead">
           <button className="er-brand" type="button" onClick={() => setShowVersion(true)} aria-label="查看 Easy Essay 版本信息">
@@ -267,20 +266,29 @@ export function Layout({ children }: LayoutProps) {
             <span>{visual.eyebrow}</span>
             <strong>{visual.title}</strong>
           </div>
-          <button className="er-motion-control" type="button" aria-pressed={motion.enabled} onClick={motion.toggle}>
+          <button
+            className="er-motion-control"
+            type="button"
+            aria-pressed={motion.enabled}
+            aria-label={motion.enabled ? '关闭界面动效' : '开启界面动效'}
+            onClick={motion.toggle}
+          >
             <i aria-hidden="true" />
-            <span>MOTION</span>
-            <strong>{motion.enabled ? 'ACTIVE' : 'PAUSED'}</strong>
+            <span aria-hidden="true">MOTION</span>
+            <strong aria-hidden="true">{motion.enabled ? 'ACTIVE' : 'PAUSED'}</strong>
           </button>
         </header>
 
-        <aside className="er-route-rail" aria-hidden="true">{visual.index} / {visual.route.toUpperCase()}</aside>
+        <aside className="er-route-rail" aria-hidden="true">
+          <span>{visual.index} / {visual.route.toUpperCase()}</span>
+        </aside>
 
         <div className="er-content">
           <div className="er-registration-strip">
-            <span>{visual.index}—{visual.register}</span>
+            <i className="er-registration-strip__cursor" aria-hidden="true" />
+            <span className="er-registration-strip__index">{visual.index}—{visual.register}</span>
             {contextItems.length > 0 && <nav className="er-context-nav" aria-label="当前内容导航">{contextItems}</nav>}
-            <span>CN / 31.2304°N</span>
+            <span className="er-registration-strip__column" aria-hidden="true">COL</span>
           </div>
           <main id="er-main-content" className="er-main" tabIndex={-1}>
             <div className="er-page-stage" key={location.pathname}>{children}</div>

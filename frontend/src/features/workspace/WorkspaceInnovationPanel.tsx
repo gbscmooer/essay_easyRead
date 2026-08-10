@@ -22,7 +22,7 @@ const READ_LABEL: Record<string, string> = {
 function Chip({ children, tone = 'var(--bg-elevated)', color = 'var(--text-secondary)' }: { children: ReactNode; tone?: string; color?: string }) {
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px]"
+      className="inline-flex items-center px-2 py-0.5 text-[11px]"
       style={{ backgroundColor: tone, color }}
     >
       {children}
@@ -73,7 +73,7 @@ function EmptyLine({ label }: { label: string }) {
 export function WorkspaceInnovationPanel({ plan, survey, loading }: WorkspaceInnovationPanelProps) {
   if (loading) {
     return (
-      <section className="mb-8 py-4 border-y" style={{ borderColor: 'var(--border)' }}>
+      <section className="ws-block">
         <div className="flex items-center gap-3">
           <LoadingSpinner size="sm" />
           <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>正在生成路径与矩阵</span>
@@ -89,43 +89,43 @@ export function WorkspaceInnovationPanel({ plan, survey, loading }: WorkspaceInn
   const matrix = survey?.matrix.slice(0, 8) ?? []
 
   return (
-    <section className="mb-8 py-4 border-y" style={{ borderColor: 'var(--border)' }}>
-      <div className="flex items-center justify-between gap-3 mb-3">
+    <section className="ws-block">
+      <div className="ws-group-head">
         <div>
-          <div className="text-[12px] uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>智能规划</div>
-          <div className="text-[15px] font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>阅读路径与综述矩阵</div>
+          <p className="er-eyebrow">智能规划</p>
+          <h2 className="ws-group-head__title">阅读路径与综述矩阵</h2>
         </div>
         {coverage && (
-          <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+          <span className="er-tag er-tag--mute">
             {coverage.paper_count} / {coverage.total_workspace_papers}
           </span>
         )}
       </div>
 
       {coverage && (
-        <div className="grid grid-cols-4 gap-2 mb-4">
-          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>精读</div>
-            <div className="mt-1 text-[16px] font-semibold tabular-nums" style={{ color: 'var(--accent)' }}>{coverage.full}</div>
+        <div className="ws-coverage">
+          <div className="ws-coverage__cell" data-tone="accent">
+            <span>精读</span>
+            <b>{coverage.full}</b>
           </div>
-          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>速读</div>
-            <div className="mt-1 text-[16px] font-semibold tabular-nums" style={{ color: 'var(--success)' }}>{coverage.digest}</div>
+          <div className="ws-coverage__cell">
+            <span>速读</span>
+            <b>{coverage.digest}</b>
           </div>
-          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>未读</div>
-            <div className="mt-1 text-[16px] font-semibold tabular-nums" style={{ color: 'var(--warning)' }}>{coverage.none}</div>
+          <div className="ws-coverage__cell" data-tone="warn">
+            <span>未读</span>
+            <b>{coverage.none}</b>
           </div>
-          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>依赖</div>
-            <div className="mt-1 text-[16px] font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{coverage.citation_edges}</div>
+          <div className="ws-coverage__cell">
+            <span>引用依赖</span>
+            <b>{coverage.citation_edges}</b>
           </div>
         </div>
       )}
 
       <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-        <div>
-          <div className="text-[12px] font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>阅读路径</div>
+        <div className="min-w-0">
+          <div className="er-eyebrow mb-2">阅读路径</div>
           {plan && plan.stages.length > 0 ? (
             <div className="space-y-3">
               {plan.stages.map(stage => (
@@ -138,7 +138,7 @@ export function WorkspaceInnovationPanel({ plan, survey, loading }: WorkspaceInn
                       {stage.papers.length} 篇
                     </div>
                   </div>
-                  <div className="rounded-lg px-3" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                  <div className="px-3" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                     {stage.papers.map(paper => <PlanPaper key={paper.paper_id} paper={paper} />)}
                   </div>
                 </div>
@@ -149,8 +149,8 @@ export function WorkspaceInnovationPanel({ plan, survey, loading }: WorkspaceInn
           )}
         </div>
 
-        <div>
-          <div className="text-[12px] font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>综述矩阵</div>
+        <div className="min-w-0">
+          <div className="er-eyebrow mb-2">综述矩阵</div>
 
           {topTopics.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-1.5">
@@ -170,7 +170,7 @@ export function WorkspaceInnovationPanel({ plan, survey, loading }: WorkspaceInn
           )}
 
           {matrix.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg" style={{ border: '1px solid var(--border)' }}>
+            <div className="overflow-x-auto" style={{ border: '1px solid var(--border)' }}>
               <table className="w-full min-w-[680px] text-left text-[12px]" style={{ backgroundColor: 'var(--bg-surface)' }}>
                 <thead style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
                   <tr>

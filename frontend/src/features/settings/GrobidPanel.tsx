@@ -19,7 +19,7 @@ interface GrobidPanelProps {
 }
 
 function Dot({ color }: { color: string }) {
-  return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+  return <span className="inline-block w-2 h-2" style={{ backgroundColor: color }} />
 }
 
 export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: GrobidPanelProps) {
@@ -75,7 +75,7 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
             <button
               key={o.key}
               onClick={() => onChangeParser(o.key)}
-              className="flex-1 px-3 py-1.5 text-sm rounded-lg border transition-colors"
+              className="flex-1 px-3 py-1.5 text-sm border transition-colors"
               style={{
                 borderColor: parser === o.key ? 'var(--accent)' : 'var(--border)',
                 backgroundColor: parser === o.key ? 'var(--accent-subtle)' : 'transparent',
@@ -97,19 +97,19 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
               value={grobidUrl}
               onChange={e => onChangeUrl(e.target.value)}
               placeholder="http://localhost:8070"
-              className="w-full px-3 py-1.5 text-sm rounded border focus:outline-none"
+              className="w-full px-3 py-1.5 text-sm border focus:outline-none"
               style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
             />
           </div>
 
           {/* 服务情况 */}
-          <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-elevated)' }}>
+          <div className="border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-elevated)' }}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>服务情况</span>
               <button
                 onClick={refresh}
                 disabled={checking}
-                className="text-xs px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+                className="text-xs px-2 py-0.5 transition-colors disabled:opacity-50"
                 style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }}
               >
                 {checking ? '检查中…' : '刷新'}
@@ -131,7 +131,7 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
               <button
                 onClick={handlePull}
                 disabled={status?.pulling}
-                className="text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-60"
+                className="text-xs px-3 py-1.5 transition-colors disabled:opacity-60"
                 style={{ color: 'var(--bg-base)', backgroundColor: 'var(--accent)' }}
               >
                 {status?.pulling ? '下载中…' : status?.image_present ? '重新下载镜像' : '下载镜像 (docker pull)'}
@@ -147,7 +147,7 @@ export function GrobidPanel({ parser, grobidUrl, onChangeParser, onChangeUrl }: 
             {/* 拉取日志 */}
             {(status?.pulling || status?.pull_log) && (
               <pre
-                className="text-[10px] font-mono rounded p-2 overflow-auto whitespace-pre-wrap"
+                className="text-[10px] font-mono p-2 overflow-auto whitespace-pre-wrap"
                 style={{ maxHeight: '8rem', backgroundColor: 'var(--bg-base)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
               >
                 {status?.pull_log || '准备下载…'}

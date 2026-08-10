@@ -11,6 +11,7 @@ import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibr
 import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
 import { Tooltip } from '@/ds-entry'
+import '@/styles/library.css'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -23,10 +24,12 @@ const STATUS_LABEL: Record<string, string> = {
 
 function ExpandedPaperRow({
   paper,
+  index,
   onPromote,
   onSelect,
 }: {
   paper: Paper
+  index: number
   onPromote: (id: number) => void
   onSelect: (id: number) => void
 }) {
@@ -47,39 +50,36 @@ function ExpandedPaperRow({
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-all duration-200 group"
-      style={{
-        backgroundColor: 'var(--bg-base)',
-        transitionTimingFunction: 'var(--ease-press)',
-      }}
+      className="er-ledger__row"
       role="button"
       tabIndex={0}
       onClick={() => onSelect(paper.id)}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) } }}
     >
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] truncate" style={{ color: 'var(--text-primary)' }}>
-          {paper.title || paper.filename}
-        </p>
-        <div className="flex items-center gap-2 mt-1 text-[12px]" style={{ color: 'var(--text-muted)' }}>
-          {paper.year && <span>{paper.year}</span>}
-          {paper.category && <span className="er-tag">{paper.category}</span>}
+      <span className="er-ledger__index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+      <span className="er-ledger__body">
+        <span className="er-ledger__title"><span>{paper.title || paper.filename}</span></span>
+        <span className="er-ledger__meta">
           {paper.venue && <span>{paper.venue}</span>}
+          {paper.year && <span>{paper.year}</span>}
+          {paper.category && <span>{paper.category}</span>}
           {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>已索引</span>}
-        </div>
-      </div>
-      <span className={`er-tag shrink-0 ${paper.status === 'failed' ? 'er-tag--signal' : 'er-tag--mute'}`}>
-        {statusText}
+        </span>
       </span>
-      <button
-        type="button"
-        onClick={handlePromote}
-        disabled={promoting}
-        aria-busy={promoting}
-        className="er-btn er-btn--secondary er-btn--sm shrink-0"
-      >
-        {promoting ? '移动中…' : '加入论文库'}
-      </button>
+      <span className="er-ledger__aside">
+        <span className={`er-tag ${paper.status === 'failed' ? 'er-tag--signal' : 'er-tag--mute'}`}>
+          {statusText}
+        </span>
+        <button
+          type="button"
+          onClick={handlePromote}
+          disabled={promoting}
+          aria-busy={promoting}
+          className="er-btn er-btn--secondary er-btn--sm"
+        >
+          {promoting ? '移动中…' : '加入论文库'}
+        </button>
+      </span>
     </div>
   )
 }
@@ -239,19 +239,17 @@ export default function LibraryPage() {
     }
   }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
 
+  const activeCount = searchResults !== null ? searchTotal : total
+
   return (
-    <div className="er-page er-page--library max-w-5xl mx-auto h-full flex flex-col">
-      {/* Header */}
-      <div className="px-8 pt-8 pb-3 flex items-center justify-between gap-3 shrink-0">
-        <h1 className="text-display text-[28px]" style={{ color: 'var(--text-primary)' }}>
-          论文库
-        </h1>
-        <div className="flex items-center gap-3">
-          {reindexNote && (
-            <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>{reindexNote}</span>
-          )}
+    <div className="er-page er-page--library">
+      <header className="er-page-head">
+        <p className="er-page-head__eyebrow">Archive / Index—01</p>
+        <h1 className="er-page-head__title">论文库</h1>
+        <div className="er-page-head__actions">
+          {reindexNote && <span className="arc-note" role="status">{reindexNote}</span>}
           <Tooltip
-            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回。默认处理论文库里的所有论文；勾选「含联网扩展论文」后会一并重做深度研究发现的论文。"
+            content="重新索引会对每篇论文清空旧索引、用 GROBID 重新提取元数据并覆盖写回。默认处理论文库里的所有论文；勾选「含扩展」后会一并重做深度研究发现的论文。"
             delay={600}
             placement="bottom"
           >
@@ -265,7 +263,7 @@ export default function LibraryPage() {
               className="er-btn er-btn--secondary er-btn--sm"
             >
               <svg
-                className={`w-3.5 h-3.5 ${reindexing ? 'animate-spin' : ''}`}
+                className={reindexing ? 'animate-spin' : undefined}
                 fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
               >
                 <path strokeLinecap="round" strokeLinejoin="round"
@@ -275,6 +273,16 @@ export default function LibraryPage() {
             </button>
           </Tooltip>
         </div>
+      </header>
+
+      <div className="er-page-head__readouts">
+        <span className="er-readout"><b>{activeCount}</b>{searchResults !== null ? '篇命中' : '篇在库'}</span>
+        {expandedTotal > 0 && (
+          <span className="er-readout"><b>{expandedTotal}</b>篇联网扩展</span>
+        )}
+        <span className="er-readout">
+          <b>{papers.filter(p => p.read_level === 'full').length}</b>篇已精读
+        </span>
       </div>
 
       <PaperList
@@ -296,70 +304,45 @@ export default function LibraryPage() {
         searchQuery={search}
       />
 
-      {/* 深度研究发现区块 */}
+      {/* 深度研究发现区块 —— 折叠面板，展开后在自己的滚动区里列出扩展论文 */}
       {expandedTotal > 0 && (
-        <div className="px-8 pb-8 shrink-0">
+        <section className="arc-expanded" aria-labelledby="arc-expanded-title">
           <button
-            className="w-full flex items-center justify-between px-5 py-3.5 transition-all duration-200"
-            style={{
-              borderRadius: 'var(--seed-radius, 12px)',
-              border: '1px solid var(--border)',
-              backgroundColor: showExpanded ? 'var(--bg-surface)' : 'transparent',
-              transitionTimingFunction: 'var(--ease-press)',
-            }}
+            type="button"
+            className="arc-expanded__handle"
+            aria-expanded={showExpanded}
+            aria-controls="arc-expanded-body"
             onClick={() => setShowExpanded(v => !v)}
           >
-            <div className="flex items-center gap-2.5">
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                style={{ color: 'var(--accent)' }}>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <span className="text-[13px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                深度研究发现的论文
-              </span>
-              <span
-                className="text-[11px] px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
-              >
-                {expandedTotal}
-              </span>
-            </div>
-            <svg
-              className={`w-4 h-4 transition-transform duration-200 ${showExpanded ? 'rotate-180' : ''}`}
-              fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <span className="arc-expanded__caret" aria-hidden="true" />
+            <span id="arc-expanded-title" className="arc-expanded__label">深度研究发现的论文</span>
+            <span className="er-tag er-tag--mute">{expandedTotal}</span>
+            <span className="arc-expanded__hint">
+              {showExpanded ? '收起' : '展开'}
+            </span>
           </button>
 
           {showExpanded && (
-            <div
-              className="mt-2 overflow-hidden"
-              style={{
-                borderRadius: 'var(--seed-radius, 12px)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div className="px-5 py-2.5 border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
-                <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
-                  通过深度研究联网扩展下载的论文。点击「加入论文库」可将其移入主论文库。
-                </p>
-              </div>
-              <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {expandedPapers.map(p => (
-                  <ExpandedPaperRow
-                    key={p.id}
-                    paper={p}
-                    onPromote={handlePromote}
-                    onSelect={handleSelect}
-                  />
-                ))}
+            <div className="arc-expanded__body" id="arc-expanded-body">
+              <p className="arc-expanded__note">
+                深度研究联网下载的论文。点击「加入论文库」可将其移入主论文库。
+              </p>
+              <div className="er-scroll arc-expanded__scroll">
+                <div className="er-ledger">
+                  {expandedPapers.map((p, i) => (
+                    <ExpandedPaperRow
+                      key={p.id}
+                      paper={p}
+                      index={i}
+                      onPromote={handlePromote}
+                      onSelect={handleSelect}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   )

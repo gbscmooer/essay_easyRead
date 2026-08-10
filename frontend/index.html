@@ -85,6 +85,13 @@
           Object.keys(seeds).forEach(function(k){ root.style.setProperty(k, seeds[k]); });
           root.setAttribute('data-theme', themeAttr);
           root.setAttribute('data-mode', mode);
+
+          /* 动效默认开启；只有用户显式关过才是 reduced。在首帧就写上，
+             避免 React 挂载前那一瞬间走进 prefers-reduced-motion 分支。 */
+          root.setAttribute(
+            'data-er-motion-override',
+            localStorage.getItem('essay_motion') === 'reduced' ? 'reduced' : 'full'
+          );
         } catch(e){}
       })();
     </script>

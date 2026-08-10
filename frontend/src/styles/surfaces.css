@@ -1,0 +1,626 @@
+/*
+ * Easy Essay — 页面构件层
+ *
+ * v4 的页面样式全部写在 pages.css 里，靠位置选择器命中业务组件：
+ *
+ *   .er-page--library > div:nth-child(2) > div:first-child > div { … }
+ *   .er-page--code > div:nth-child(2) > .shrink-0.overflow-auto:first-child { … }
+ *   .er-page :where(button, a)[style*='backgroundColor: var(--accent)'] { … }
+ *
+ * 这类选择器把「长什么样」绑死在「DOM 长什么形状」上：组件里多包一层 div、
+ * 把内联色改成类名、调换两个区块的顺序 —— 任何一处都会让样式静默失效，而且
+ * 不会有任何报错。这是这套前端最像玩具的地方，也是它没法交给别人接手的原因。
+ *
+ * 这一层给出一套页面级构件：页头、账本行、筛选条、字段、空态、分页、面板。
+ * 页面通过语义类名接入，样式与结构之间只剩类名这一个契约。
+ */
+
+/* ── 页头 ──────────────────────────────────────────────────────────────
+   四个页面（论文库 / 工作区 / 工作区详情 / 设置）此前各自发明了一套标题区，
+   字号、下边框粗细、红条位置、操作按钮的对齐方式全不一样 —— 逐页看还行，
+   连起来切换就会发现每一页的「头」都在不同高度。这里统一成一个构件：
+
+     眉标（等宽注记）
+     标题                              操作区
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ← 结构线
+     读数 · 读数 · 读数
+*/
+
+.er-page-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: var(--s4);
+  row-gap: var(--s2);
+  padding-bottom: var(--s3);
+  border-bottom: var(--rule-slab) solid var(--text-primary);
+}
+
+.er-page-head__eyebrow {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-family: var(--font-register);
+  font-size: var(--fs-micro);
+  font-weight: var(--deco-weight);
+  letter-spacing: var(--tr-register);
+  text-transform: uppercase;
+}
+
+.er-page-head__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-stretch: var(--wdth-display);
+  font-weight: 800;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-display);
+}
+
+.er-page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding-bottom: 2px;
+}
+
+/* 读数条挂在结构线下方，与标题同一栏起排。它是页头的一部分，不是正文的
+   第一行 —— 所以负责这段间距的是页头，不是下面的内容。 */
+.er-page-head__readouts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  margin-top: var(--s2);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.er-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.er-readout > b {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-lead);
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-heading);
+}
+
+.er-readout--accent > b { color: var(--accent); }
+.er-readout--signal > b { color: var(--error); }
+
+/* ── 账本 ──────────────────────────────────────────────────────────────
+   论文库、工作区、搜索结果共用的行式列表。
+
+   关键是它是 grid 而不是一排 flex 行：栏宽定义在容器上，每行的编号、标题、
+   标签、操作因此在整列上对齐。之前每一行各自 `flex items-center justify-between`，
+   于是标题右缘、标签起点、删除按钮位置逐行都不同，列表读起来是「一堆条目」
+   而不是「一张表」。 */
+
+.er-ledger {
+  --ledger-index: 34px;
+  --ledger-aside: minmax(0, auto);
+  display: grid;
+  border-top: var(--rule-hair) solid var(--border-light);
+}
+
+.er-ledger__row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--ledger-index) minmax(0, 1fr) var(--ledger-aside);
+  align-items: center;
+  column-gap: var(--s3);
+  width: 100%;
+  min-height: 58px;
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: var(--rule-hair) solid var(--border);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-tint) var(--ease-press),
+    padding-left var(--dur-tint) var(--ease-press);
+}
+
+/* 悬停标记从底边长上来，和列表的推进方向一致；不是整行淡入一个底色。 */
+.er-ledger__row::before {
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  left: 0;
+  width: var(--rule-mark);
+  background: var(--error);
+  content: '';
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform var(--dur-press) var(--ease-snap);
+}
+
+.er-ledger__row:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  padding-left: var(--s2);
+}
+
+.er-ledger__row:is(:hover, :focus-visible)::before {
+  transform: scaleY(1);
+}
+
+.er-ledger__row[data-active='true'] {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+.er-ledger__row[data-active='true']::before {
+  background: var(--accent);
+  transform: scaleY(1);
+}
+
+.er-ledger__index {
+  align-self: start;
+  padding-top: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-register);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-weight: var(--deco-weight);
+  letter-spacing: var(--tr-register);
+}
+
+.er-ledger__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.er-ledger__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: var(--tr-title);
+  line-height: var(--lh-snug);
+}
+
+.er-ledger__title > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.er-ledger__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+/* 元信息之间用竖线分隔而不是空格：`Unknown 2025 cs.AR 2026/6/13` 四段挤在
+   一起时读不出边界，加了分隔线才知道有几段。 */
+.er-ledger__meta > * + *::before {
+  margin-right: var(--s2);
+  color: var(--border-light);
+  content: '/';
+}
+
+.er-ledger__aside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+/* 行内操作静息时隐去，悬停或键盘聚焦时出现。用 visibility 而不是 display，
+   位置才不会在出现的瞬间把标签挤走。 */
+.er-ledger__action {
+  opacity: 0;
+  transition: opacity var(--dur-tint) var(--ease-press);
+}
+
+.er-ledger__row:is(:hover, :focus-within) .er-ledger__action,
+.er-ledger__action:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .er-ledger__action { opacity: 1; }
+}
+
+/* ── 阅读程度标记 ──────────────────────────────────────────────────────
+   「已精读 / 已速读」原本是靛蓝 #6366f1 和翠绿 #10b981 两个自带颜色的胶囊 ——
+   两个都不在这套调色板里，一放进米黄纸面就是两块塑料。
+
+   它们其实是同一个量的两档，不是两件事。所以改成同一形制的两个层级：
+   实心＝精读，描边＝速读。用重量区分而不是用色相区分。 */
+
+.er-read-mark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  padding: 0 6px;
+  border: var(--rule-hair) solid var(--text-primary);
+  color: var(--text-primary);
+  font-size: var(--fs-label);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.er-read-mark--full {
+  color: var(--bg-surface);
+  background: var(--text-primary);
+}
+
+/* ── 筛选条 ────────────────────────────────────────────────────────────
+   搜索框、开关、下拉此前各写各的内边距（px-4 py-2 / px-3 py-2）与圆角，
+   高度对不齐。这里统一由容器给出一档高度，成员只负责自己的内部布局。 */
+
+.er-filterbar {
+  position: sticky;
+  z-index: 12;
+  top: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(auto-fit, minmax(0, max-content));
+  align-items: stretch;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+  border-bottom: var(--rule-hair) solid var(--border-light);
+  background: var(--bg-base);
+}
+
+.er-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.er-search > svg {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.er-search > input {
+  width: 100%;
+  height: var(--control-h, 36px);
+  padding: 0 var(--s3) 0 34px;
+}
+
+/* 开关式筛选：整块可点，选中即反白。checkbox 本体留在 DOM 里承担语义与
+   键盘操作，视觉上换成左侧的方形指示块。 */
+.er-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: var(--control-h, 36px);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--border-light);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  user-select: none;
+  white-space: nowrap;
+  transition:
+    color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press),
+    background-color var(--dur-tint) var(--ease-press);
+}
+
+.er-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.er-toggle > i {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border: var(--rule-hair) solid currentColor;
+  color: inherit;
+  transition: background-color var(--dur-press) var(--ease-snap);
+}
+
+.er-toggle > i::after {
+  width: 7px;
+  height: 7px;
+  background: currentColor;
+  content: '';
+  transform: scale(0);
+  transition: transform var(--dur-press) var(--ease-snap);
+}
+
+.er-toggle:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.er-toggle:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.er-toggle:has(input:checked) > i::after {
+  transform: scale(1);
+}
+
+.er-toggle:has(input:focus-visible) {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+}
+
+/* ── 字段 ──────────────────────────────────────────────────────────────
+   标签 / 控件 / 说明三段式。说明文字挂在字段上而不是散在旁边，
+   控件换行时说明会跟着走。 */
+
+.er-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.er-field__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  letter-spacing: var(--tr-ui);
+}
+
+.er-field__hint {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+}
+
+.er-field__error {
+  padding-left: var(--s2);
+  border-left: var(--rule-mark) solid var(--error);
+  color: var(--error);
+  font-size: var(--fs-meta);
+}
+
+.er-input,
+.er-select {
+  height: var(--control-h, 36px);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--border-light);
+  color: var(--text-primary);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-ui);
+}
+
+.er-select {
+  padding-right: var(--s4);
+  cursor: pointer;
+}
+
+.er-textarea {
+  min-height: 96px;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--border-light);
+  color: var(--text-primary);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-normal);
+  resize: vertical;
+}
+
+/* ── 面板 ──────────────────────────────────────────────────────────── */
+
+.er-panel {
+  border: var(--rule-hair) solid var(--border-light);
+  background: var(--bg-surface);
+}
+
+.er-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-bottom: var(--rule-hair) solid var(--border-light);
+}
+
+.er-panel__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-ui);
+  font-weight: 650;
+  letter-spacing: var(--tr-ui);
+}
+
+.er-panel__body {
+  padding: var(--s3);
+}
+
+/* 小节：页面内部的分组。左侧色条标出归属范围，比再画一个盒子轻。 */
+.er-section {
+  padding-left: var(--s3);
+  border-left: var(--rule-bar) solid var(--accent);
+}
+
+.er-section__title {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 700;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.er-section__hint {
+  margin: 0 0 var(--s3);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+}
+
+/* ── 空态 ──────────────────────────────────────────────────────────────
+   全站此前有四种空态写法（居中图标 + 两行字 / 纯文字 / 带按钮 / 带编号方块）。
+   统一成一个：左侧一个实心编号块，右侧标题与出路。空态必须给出下一步动作，
+   只说「暂无数据」等于把用户扔在原地。 */
+
+.er-empty {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s4);
+  padding: var(--s5) 0;
+}
+
+.er-empty__mark {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  color: var(--bg-surface);
+  background: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.er-empty__mark--signal { background: var(--error); }
+
+.er-empty__body {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  max-width: 46ch;
+  padding-top: 2px;
+}
+
+.er-empty__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 700;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.er-empty__text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-relaxed);
+}
+
+.er-empty__body > .er-btn {
+  margin-top: var(--s2);
+}
+
+/* ── 分页 ──────────────────────────────────────────────────────────── */
+
+.er-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  border-top: var(--rule-hair) solid var(--border-light);
+}
+
+.er-pagination__state {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  color: var(--text-muted);
+  font-family: var(--font-register);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: var(--tr-label);
+}
+
+.er-pagination__state b {
+  color: var(--text-primary);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+}
+
+/* ── 滚动区 ────────────────────────────────────────────────────────────
+   页面内部的可滚动列表。`min-height: 0` 是 flex/grid 子项能收缩的前提 ——
+   缺了它，列表不会滚动而是把父级撑破，末尾几行被直接裁掉（论文库此前
+   第 4 行被截断一半就是这个原因）。 */
+
+.er-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* ── 响应式 ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+  .er-filterbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .er-search { grid-column: 1 / -1; }
+}
+
+@media (max-width: 700px) {
+  .er-page-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .er-page-head__actions {
+    justify-content: flex-start;
+  }
+
+  .er-ledger__row {
+    grid-template-columns: 26px minmax(0, 1fr);
+    align-items: start;
+    row-gap: var(--s2);
+  }
+
+  .er-ledger__aside {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .er-filterbar {
+    grid-template-columns: 1fr;
+  }
+
+  .er-empty {
+    grid-template-columns: 1fr;
+    gap: var(--s3);
+  }
+}
