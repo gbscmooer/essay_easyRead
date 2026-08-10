@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
 // 解读层级标记（持久化，源自后端 read_level）。仅对已解读的论文显示徽章。
 const READ_BADGE: Record<string, { text: string; color: string }> = {
   full:   { text: '已精读', color: 'var(--accent)' },
-  digest: { text: '已速读', color: '#10b981' },
+  digest: { text: '已速读', color: 'var(--success)' },
 }
 
 export function ControlPanel({
@@ -359,7 +359,7 @@ export function ControlPanel({
                   value={topK}
                   onChange={e => setTopK(Number(e.target.value))}
                   disabled={disabled}
-                  className="w-14 px-2 py-1 text-xs rounded border text-center"
+                  className="w-14 px-2 py-1 text-xs border text-center"
                   style={{
                     backgroundColor: 'var(--bg-base)',
                     borderColor: 'var(--border)',
@@ -380,7 +380,7 @@ export function ControlPanel({
                   value={deep}
                   onChange={e => setDeep(Math.max(1, Math.min(3, Number(e.target.value) || 1)))}
                   disabled={disabled}
-                  className="w-14 px-2 py-1 text-xs rounded border text-center"
+                  className="w-14 px-2 py-1 text-xs border text-center"
                   style={{
                     backgroundColor: 'var(--bg-base)',
                     borderColor: 'var(--border)',
@@ -426,7 +426,7 @@ export function ControlPanel({
                 checked={includeExpanded}
                 onChange={e => setIncludeExpanded(e.target.checked)}
                 disabled={disabled}
-                className="rounded accent-blue-500"
+                className="accent-blue-500"
               />
               含已扩展论文（{expandedCount}）
             </label>
@@ -441,7 +441,7 @@ export function ControlPanel({
               checked={rebuild}
               onChange={e => setRebuild(e.target.checked)}
               disabled={disabled}
-              className="rounded accent-blue-500"
+              className="accent-blue-500"
             />
             重建索引
           </label>
@@ -540,7 +540,7 @@ export function ControlPanel({
               <button type="button" onClick={selectNone} className="er-btn er-btn--ghost er-btn--sm">清空勾选</button>
             </div>
           </div>
-          <div className="max-h-48 overflow-auto rounded border" style={{ borderColor: 'var(--border)' }}>
+          <div className="max-h-48 overflow-auto border" style={{ borderColor: 'var(--border)' }}>
             {papers.length === 0 ? (
               <p className="text-xs px-3 py-4 text-center" style={{ color: 'var(--text-muted)' }}>工作区暂无论文</p>
             ) : (

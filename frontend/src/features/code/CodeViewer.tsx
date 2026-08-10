@@ -192,7 +192,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
 
   if (cell.cell_type === 'markdown') {
     return (
-      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+      <div className="border overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
         <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', borderColor: 'var(--border-light)', opacity: 0.5 }}>
           Markdown
         </div>
@@ -208,7 +208,7 @@ function NotebookCellView({ cell, index }: { cell: NotebookCell; index: number }
     const hasOutput = cell.outputs && cell.outputs.length > 0
 
     return (
-      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
+      <div className="border overflow-hidden" style={{ borderColor: 'var(--border-light)', opacity: 0.5 }}>
         <div className="px-3 py-1 text-xs border-b" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)', borderColor: 'var(--border-light)' }}>
           In {execLabel}
         </div>
@@ -406,7 +406,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
           <button
             type="button"
             onClick={handleCopy}
-            className="focus-glow shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors duration-200"
+            className="focus-glow shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] transition-colors duration-200"
             style={{ color: copied ? 'var(--success)' : 'var(--text-muted)', backgroundColor: copied ? 'var(--success-subtle)' : 'transparent' }}
             onMouseEnter={e => { if (!copied) e.currentTarget.style.color = 'var(--accent)' }}
             onMouseLeave={e => { if (!copied) e.currentTarget.style.color = 'var(--text-muted)' }}

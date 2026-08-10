@@ -1,8 +1,10 @@
 /**
  * AI 模型配置区块
  *
- * 翻译模型 / 解读模型共用的配置卡片，
- * 包含服务商预设、Base URL、API Key、模型名、高级参数。
+ * 翻译模型 / 解读模型共用的配置组：服务商预设、Base URL、API Key、模型名、
+ * 高级参数。全部表单控件走 .er-field / .er-input 一档形制 —— 之前每个输入框
+ * 各写一遍 `px-3 py-2 rounded-lg` 加一段内联 borderColor，同一列里三个框的
+ * 高度和边框颜色都不一致。
  */
 import { useState } from 'react'
 import ProviderPresets from './ProviderPresets'
@@ -39,173 +41,114 @@ export default function AIModelSection({
   }
 
   return (
-    <div
-      className="panel-section space-y-4"
-      style={{
-        borderLeft: keyMissing ? '3px solid var(--error)' : undefined,
-        paddingLeft: keyMissing ? '0.75rem' : undefined,
-      }}
-    >
-      <div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2
-              className="text-base font-semibold"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              {title}
-            </h2>
-            {keyMissing && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  color: 'var(--error)',
-                  backgroundColor: 'var(--error-subtle)',
-                }}
-              >
-                未配置 API Key
-              </span>
-            )}
-          </div>
-          {testSlot}
+    <section className="set-group" data-incomplete={keyMissing || undefined}>
+      <header className="set-group__head">
+        <div className="set-group__identity">
+          <h2 className="set-group__title">{title}</h2>
+          {keyMissing && <span className="er-tag er-tag--signal">缺 API Key</span>}
         </div>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          {description}
-        </p>
-      </div>
+        {testSlot}
+        <p className="set-group__hint">{description}</p>
+      </header>
 
-      {/* 快捷选择 */}
       <ProviderPresets baseUrl={config.base_url} onSelect={handlePresetSelect} />
 
-      {/* Base URL */}
-      <div>
-        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-          API Base URL
-        </label>
+      <div className="er-field">
+        <label className="er-field__label" htmlFor={`${title}-base`}>API Base URL</label>
         <input
+          id={`${title}-base`}
           type="text"
+          className="er-input"
           value={config.base_url}
           onChange={e => onChange({ ...config, base_url: e.target.value })}
           placeholder="https://api.openai.com/v1"
-          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
-          style={{
-            backgroundColor: 'var(--bg-elevated)',
-            borderColor: 'var(--border)',
-            color: 'var(--text-primary)',
-          }}
         />
       </div>
 
-      {/* API Key */}
-      <div>
-        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-          API Key
-        </label>
-        <div className="relative">
+      <div className="er-field">
+        <label className="er-field__label" htmlFor={`${title}-key`}>API Key</label>
+        <div className="set-key">
           <input
+            id={`${title}-key`}
             type={showKey ? 'text' : 'password'}
+            className="er-input set-key__input"
+            data-missing={keyMissing || undefined}
             value={config.api_key}
             onChange={e => onChange({ ...config, api_key: e.target.value })}
-            placeholder="sk-..."
-            className="w-full px-3 py-2 pr-10 text-sm rounded-lg border focus:outline-none transition-colors font-mono"
-            style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: keyMissing
-                ? 'color-mix(in srgb, var(--error) 50%, transparent)'
-                : 'var(--border)',
-              color: 'var(--text-primary)',
-            }}
+            placeholder="sk-…"
           />
           <button
+            type="button"
             onClick={() => setShowKey(v => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs"
-            style={{ color: 'var(--text-muted)' }}
+            className="er-btn er-btn--ghost er-btn--sm set-key__reveal"
+            aria-pressed={showKey}
           >
             {showKey ? '隐藏' : '显示'}
           </button>
         </div>
       </div>
 
-      {/* Model */}
-      <div>
-        <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-          模型名称
-        </label>
+      <div className="er-field">
+        <label className="er-field__label" htmlFor={`${title}-model`}>模型名称</label>
         <input
+          id={`${title}-model`}
           type="text"
+          className="er-input"
           value={config.model}
           onChange={e => onChange({ ...config, model: e.target.value })}
           placeholder="gpt-4o-mini"
-          className="w-full px-3 py-2 text-sm rounded-lg border focus:outline-none transition-colors"
-          style={{
-            backgroundColor: 'var(--bg-elevated)',
-            borderColor: 'var(--border)',
-            color: 'var(--text-primary)',
-          }}
         />
       </div>
 
-      {/* 高级参数（折叠） */}
-      <div>
+      <div className="set-advanced">
         <button
+          type="button"
           onClick={() => setShowAdvanced(v => !v)}
-          className="flex items-center gap-1 text-xs transition-colors"
-          style={{ color: 'var(--text-muted)' }}
+          className="set-advanced__handle"
+          aria-expanded={showAdvanced}
         >
-          <svg
-            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+          <span className="set-advanced__caret" aria-hidden="true" />
           高级参数
         </button>
 
         {showAdvanced && (
-          <div
-            className="mt-3 space-y-3 pl-2"
-            style={{ borderLeft: '1px solid var(--border)' }}
-          >
-            {/* Temperature */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Temperature</label>
-                <span className="text-xs" style={{ color: 'var(--text-disabled)' }}>{config.temperature}</span>
+          <div className="set-advanced__body">
+            <div className="set-slider">
+              <div className="set-slider__head">
+                <label htmlFor={`${title}-temp`}>Temperature</label>
+                <output htmlFor={`${title}-temp`}>{config.temperature}</output>
               </div>
               <input
+                id={`${title}-temp`}
                 type="range"
                 min={0}
                 max={2}
                 step={0.05}
                 value={config.temperature}
                 onChange={e => onChange({ ...config, temperature: parseFloat(e.target.value) })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
-                style={{ backgroundColor: 'var(--border)' }}
               />
-              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
-                <span>精确 (0)</span>
-                <span>平衡 (1)</span>
-                <span>随机 (2)</span>
+              <div className="set-slider__scale">
+                <span>精确 0</span>
+                <span>平衡 1</span>
+                <span>随机 2</span>
               </div>
             </div>
 
-            {/* Max Tokens */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>最大输出 Token 数</label>
-                <span className="text-xs" style={{ color: 'var(--text-disabled)' }}>{config.max_tokens}</span>
+            <div className="set-slider">
+              <div className="set-slider__head">
+                <label htmlFor={`${title}-tokens`}>最大输出 Token</label>
+                <output htmlFor={`${title}-tokens`}>{config.max_tokens}</output>
               </div>
               <input
+                id={`${title}-tokens`}
                 type="range"
                 min={512}
                 max={32768}
                 step={512}
                 value={config.max_tokens}
                 onChange={e => onChange({ ...config, max_tokens: parseInt(e.target.value) })}
-                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
-                style={{ backgroundColor: 'var(--border)' }}
               />
-              <div className="flex justify-between text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
+              <div className="set-slider__scale">
                 <span>512</span>
                 <span>默认 {defaultMaxTokens}</span>
                 <span>32768</span>
@@ -214,6 +157,6 @@ export default function AIModelSection({
           </div>
         )}
       </div>
-    </div>
+    </section>
   )
 }

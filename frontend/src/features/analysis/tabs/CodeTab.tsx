@@ -69,7 +69,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
                 href={codeUrl.startsWith('http') ? codeUrl : `https://${codeUrl}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 min-w-0 text-[13px] break-all transition-opacity hover:opacity-80 focus-glow rounded"
+                className="flex-1 min-w-0 text-[13px] break-all transition-opacity hover:opacity-80 focus-glow"
                 style={{ color: 'var(--accent)' }}
               >
                 {codeUrl}
@@ -78,7 +78,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
                 onClick={handleCopyUrl}
                 aria-label={copied ? '已复制仓库地址' : '复制仓库地址'}
                 title={copied ? '已复制' : '复制地址'}
-                className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-full transition-all duration-200 focus-glow press"
+                className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[11px] transition-all duration-200 focus-glow press"
                 style={{ color: copied ? 'var(--success)' : 'var(--text-muted)', border: '1px solid var(--border)', backgroundColor: 'var(--bg-elevated)', transitionTimingFunction: SPRING }}
               >
                 {copied ? (
@@ -97,7 +97,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
               {codeStatus === 'none' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-200 focus-glow press"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition-all duration-200 focus-glow press"
                   style={{ backgroundColor: 'var(--accent)', color: '#ffffff', transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.9' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
@@ -111,7 +111,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
               {codeStatus === 'ready' && paperId && (
                 <Link
                   to={`/code/${paperId}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-full transition-all duration-200 focus-glow press"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] transition-all duration-200 focus-glow press"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
@@ -123,7 +123,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
                 </Link>
               )}
               {codeStatus === 'cloning' && (
-                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-full" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px]" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
                   <LoadingSpinner size="sm" />
                   正在克隆…
                 </span>
@@ -136,7 +136,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
         ) : (
           <div className="content-section text-center space-y-3.5 flex flex-col items-center">
             <div
-              className="w-11 h-11 rounded-2xl flex items-center justify-center"
+              className="w-11 h-11 flex items-center justify-center"
               style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}>
@@ -150,7 +150,7 @@ export function CodeTab({ paperId }: CodeTabProps) {
             <button
               onClick={handleResearch}
               disabled={searching}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 focus-glow press"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 focus-glow press"
               style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
               onMouseEnter={e => { if (!searching) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}

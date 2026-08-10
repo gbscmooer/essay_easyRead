@@ -143,7 +143,7 @@ function PaperItem({ paper, isActive, onSelect, onRequestDelete }: PaperItemProp
           onRequestDelete(paper.id)
         }}
         aria-label="删除论文"
-        className="focus-glow shrink-0 mt-0.5 p-1 rounded-md transition-all press opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
+        className="focus-glow shrink-0 mt-0.5 p-1 transition-all press opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
         style={{ color: 'var(--text-muted)' }}
         title="删除"
       >
@@ -212,7 +212,7 @@ export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDel
               onClick={() => setSearch('')}
               aria-label="清除搜索"
               title="清除搜索"
-              className="focus-glow shrink-0 p-0.5 rounded transition-colors press hover:!opacity-100"
+              className="focus-glow shrink-0 p-0.5 transition-colors press hover:!opacity-100"
               style={{ color: 'var(--text-muted)' }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"

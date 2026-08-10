@@ -40,7 +40,7 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
             return (
               <div key={idx} className="group relative pl-9">
                 <div
-                  className={`absolute left-[3px] top-[18px] w-2 h-2 rounded-full z-10 transition-all duration-200 ${clickable ? 'group-hover:scale-[1.6]' : ''}`}
+                  className={`absolute left-[3px] top-[18px] w-2 h-2 z-10 transition-all duration-200 ${clickable ? 'group-hover:scale-[1.6]' : ''}`}
                   style={{
                     backgroundColor: clickable ? 'var(--accent)' : 'var(--bg-surface)',
                     border: clickable ? '1.5px solid var(--accent)' : '1.5px solid var(--border-light)',
@@ -61,7 +61,7 @@ export function OutlineTab({ result, onJumpToPage }: OutlineTabProps) {
                     </h3>
                     {item.page && (
                       <span
-                        className="text-[11px] px-2 py-0.5 rounded-full shrink-0 tabular-nums"
+                        className="text-[11px] px-2 py-0.5 shrink-0 tabular-nums"
                         style={clickable
                           ? { color: 'var(--accent)', backgroundColor: 'var(--accent-subtle)' }
                           : { color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}

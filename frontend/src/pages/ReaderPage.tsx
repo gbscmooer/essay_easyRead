@@ -187,7 +187,7 @@ export default function ReaderPage() {
   const pdfUrl = paperId ? `/api/papers/${paperId}/pdf` : ''
 
   return (
-    <div ref={containerRef} className="er-page er-page--reader flex h-full relative">
+    <div ref={containerRef} className="er-page er-page--reader rdr-root flex h-full relative">
       {/* Sidebar overlay */}
       {sidebarOpen && !focusMode && (
         <div
@@ -223,18 +223,15 @@ export default function ReaderPage() {
       )}
 
       {/* 中间 PDF 阅读区 */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="rdr-doc flex-1 flex flex-col min-w-0 relative">
         {/* 顶部工具栏 */}
         {!focusMode && (
-          <div className="flex items-center justify-between px-3 py-1.5 shrink-0" style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderBottom: '1px solid var(--border)',
-          }}>
+          <div className="rdr-toolbar">
             <button
               onClick={() => setSidebarOpen(v => !v)}
               aria-label="切换侧边栏"
               aria-expanded={sidebarOpen}
-              className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
+              className="focus-glow p-2 transition-all duration-200 hover:bg-[var(--bg-elevated)]"
               style={{ color: 'var(--text-muted)', transitionTimingFunction: 'var(--ease-press)' }}
               title={sidebarOpen ? '收起论文列表' : '展开论文列表'}
             >
@@ -252,7 +249,7 @@ export default function ReaderPage() {
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => setFocusMode(true)}
-                className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
+                className="focus-glow p-2 transition-all duration-200 hover:bg-[var(--bg-elevated)]"
                 style={{ color: 'var(--text-muted)' }}
                 title="专注模式"
               >
@@ -267,7 +264,7 @@ export default function ReaderPage() {
                 onClick={() => setPanelOpen(v => !v)}
                 aria-label="切换分析面板"
                 aria-expanded={panelOpen}
-                className="focus-glow p-2 rounded-lg transition-all duration-200 hover:bg-[var(--bg-elevated)]"
+                className="focus-glow p-2 transition-all duration-200 hover:bg-[var(--bg-elevated)]"
                 style={{ color: 'var(--text-muted)' }}
                 title={panelOpen ? '收起分析面板' : '展开分析面板'}
               >
@@ -284,7 +281,7 @@ export default function ReaderPage() {
         )}
 
         {/* PDF 渲染区 */}
-        <div className={`flex-1 overflow-hidden ${focusMode ? '' : 'p-2'}`}>
+        <div className={`rdr-canvas flex-1 overflow-hidden ${focusMode ? '' : 'p-2'}`}>
           {paperId && (
             <PdfViewer
               ref={pdfViewerRef}
@@ -303,12 +300,13 @@ export default function ReaderPage() {
         <div
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}
-          className="shrink-0 cursor-col-resize relative group z-10 flex items-center justify-center"
-          style={{ width: 6, backgroundColor: 'var(--border)' }}
+          className="rdr-resizer shrink-0 cursor-col-resize relative group z-10 flex items-center justify-center"
+          role="separator"
+          aria-orientation="vertical"
         >
           <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
           <div
-            className="w-1 h-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            className="w-1 h-8 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
             style={{ backgroundColor: 'var(--accent)' }}
           />
         </div>
@@ -317,12 +315,8 @@ export default function ReaderPage() {
       {/* 右侧 AI 分析面板 */}
       {!focusMode && (
         <div
-          className="overflow-auto shrink-0"
-          style={{
-            width: panelOpen ? `${panelPct}%` : 0,
-            backgroundColor: 'var(--bg-surface)',
-            transition: 'width 0.15s var(--ease-press)',
-          }}
+          className="rdr-panel overflow-auto shrink-0"
+          style={{ width: panelOpen ? `${panelPct}%` : 0 }}
         >
           {panelOpen && (
             <div className="h-full overflow-auto">
@@ -331,7 +325,7 @@ export default function ReaderPage() {
                   <p className="text-[13px] text-center" style={{ color: 'var(--error)' }}>{error}</p>
                   <button
                     onClick={reparse}
-                    className="focus-glow press px-4 py-2 text-[13px] rounded-full transition-all duration-200 hover:opacity-90"
+                    className="focus-glow press px-4 py-2 text-[13px] transition-all duration-200 hover:opacity-90"
                     style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                   >
                     重试
@@ -361,7 +355,7 @@ export default function ReaderPage() {
         <button
           onClick={() => setFocusMode(false)}
           aria-label="退出专注模式"
-          className="focus-glow fixed top-4 right-4 z-[9999] p-2.5 rounded-full shadow-lg transition-all duration-200 opacity-60 hover:opacity-100"
+          className="focus-glow fixed top-4 right-4 z-[9999] p-2.5 transition-all duration-200 opacity-60 hover:opacity-100"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',

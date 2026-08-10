@@ -216,7 +216,7 @@ function FigureCard({ fig, onJumpToPage }: { fig: FigureAnalysis; onJumpToPage?:
           ) : (
             <h3 className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{fig.name}</h3>
           )}
-          <span className="text-[11px] px-2 py-0.5 rounded-full shrink-0" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
+          <span className="text-[11px] px-2 py-0.5 shrink-0" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
             {fig.chart_type === 'bar' ? '柱状图' : fig.chart_type === 'line' ? '折线图' : fig.chart_type === 'scatter' ? '散点图' : '表格'}
           </span>
         </div>
@@ -300,7 +300,7 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
           <h2 className="text-heading text-[15px] mb-3" style={{ color: 'var(--text-primary)' }}>数据集</h2>
           <div className="flex flex-wrap gap-2">
             {experiments.datasets.map((ds, idx) => (
-              <span key={idx} className="px-3 py-1 text-[12px] rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+              <span key={idx} className="px-3 py-1 text-[12px]" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 {ds}
               </span>
             ))}
@@ -314,7 +314,7 @@ export function ExperimentsTab({ result, onJumpToPage }: ExperimentsTabProps) {
           <h2 className="text-heading text-[15px] mb-3" style={{ color: 'var(--text-primary)' }}>基线方法</h2>
           <div className="flex flex-wrap gap-2">
             {experiments.baselines.map((bl, idx) => (
-              <span key={idx} className="px-3 py-1 text-[12px] rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+              <span key={idx} className="px-3 py-1 text-[12px]" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 {bl}
               </span>
             ))}

@@ -29,7 +29,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
       return (
         <div className="flex flex-col items-center justify-center h-full p-8" style={{ color: 'var(--text-primary)' }}>
           <div
-            className="flex flex-col items-center text-center max-w-sm w-full animate-reveal-up rounded-2xl px-7 py-9"
+            className="flex flex-col items-center text-center max-w-sm w-full animate-reveal-up px-7 py-9"
             style={{
               backgroundColor: 'var(--error-subtle)',
               border: '1px solid var(--border-light)',
@@ -37,7 +37,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
             }}
           >
             <div
-              className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+              className="w-14 h-14 flex items-center justify-center mb-4"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border)',
@@ -54,7 +54,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
             </p>
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-5 py-2 rounded-lg text-sm font-medium press focus-glow"
+              className="px-5 py-2 text-sm font-medium press focus-glow"
               style={{
                 backgroundColor: 'var(--accent)',
                 color: 'var(--bg-base)',

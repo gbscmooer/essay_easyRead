@@ -170,7 +170,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
         <div className="flex flex-wrap items-center gap-2.5">
           {result.venue && (
             <span
-              className="text-[11px] font-medium px-2.5 py-1 rounded-full"
+              className="text-[11px] font-medium px-2.5 py-1"
               style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
             >
               {result.venue}
@@ -209,7 +209,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                 }
               }}
               disabled={bibtexLoading}
-              className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full transition-all duration-200 disabled:opacity-50"
+              className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 transition-all duration-200 disabled:opacity-50"
               style={ghostPill}
               onMouseEnter={onGhostEnter}
               onMouseLeave={onGhostLeave}
@@ -253,7 +253,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
             {result.key_contributions.map((item, idx) => (
               <li key={idx} className="flex gap-3.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
                 <span
-                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium tabular-nums mt-px"
+                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[11px] font-medium tabular-nums mt-px"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
                 >
                   {idx + 1}
@@ -274,7 +274,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
               <>
                 <button
                   onClick={selectAll}
-                  className="px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                  className="px-3 py-1.5 text-[12px] transition-all duration-200"
                   style={ghostPill}
                   onMouseEnter={onGhostEnter}
                   onMouseLeave={onGhostLeave}
@@ -284,7 +284,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                 <button
                   onClick={handleStartImport}
                   disabled={selectedIndices.size === 0 || isImporting}
-                  className="px-3.5 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200 disabled:opacity-50"
+                  className="px-3.5 py-1.5 text-[12px] font-medium transition-all duration-200 disabled:opacity-50"
                   style={{ backgroundColor: 'var(--accent)', color: '#ffffff', transitionTimingFunction: SPRING }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.9' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
@@ -294,7 +294,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                 <button
                   onClick={handleExitImportMode}
                   disabled={isImporting}
-                  className="px-3 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                  className="px-3 py-1.5 text-[12px] transition-all duration-200 disabled:opacity-50"
                   style={ghostPill}
                   onMouseEnter={onGhostEnter}
                   onMouseLeave={onGhostLeave}
@@ -308,7 +308,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                   <>
                     <button
                       onClick={handleEnterImportMode}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] transition-all duration-200"
                       style={ghostPill}
                       onMouseEnter={onGhostEnter}
                       onMouseLeave={onGhostLeave}
@@ -330,7 +330,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                           listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([])).finally(() => setWsLoading(false))
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] transition-all duration-200"
                       style={ghostPill}
                       onMouseEnter={onGhostEnter}
                       onMouseLeave={onGhostLeave}
@@ -347,7 +347,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                   <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] transition-all duration-200 disabled:opacity-50"
                     style={ghostPill}
                     onMouseEnter={onGhostEnter}
                     onMouseLeave={onGhostLeave}
@@ -389,7 +389,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                     {importMode && !isImporting && !importResults && (
                       <button
                         onClick={() => toggleSelect(idx)}
-                        className="flex-shrink-0 mt-0.5 w-4 h-4 rounded-md border transition-colors flex items-center justify-center"
+                        className="flex-shrink-0 mt-0.5 w-4 h-4 border transition-colors flex items-center justify-center"
                         style={selectedIndices.has(idx) ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' } : { borderColor: 'var(--text-muted)' }}
                       >
                         {selectedIndices.has(idx) && (
@@ -499,9 +499,9 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                 正在导入… {importProgress.done}/{importProgress.total}
               </span>
             </div>
-            <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+            <div className="w-full h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               <div
-                className="h-1.5 rounded-full transition-all duration-500"
+                className="h-1.5 transition-all duration-500"
                 style={{ width: `${(importProgress.done / importProgress.total) * 100}%`, backgroundColor: 'var(--accent)' }}
               />
             </div>
@@ -557,7 +557,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
             ref={wsModalRef}
             role="dialog"
             aria-modal="true"
-            className="w-96 max-h-[70vh] rounded-2xl p-6 flex flex-col"
+            className="w-96 max-h-[70vh] p-6 flex flex-col"
             style={{
               backgroundColor: 'var(--bg-elevated)',
               border: '1px solid var(--border)',
@@ -603,7 +603,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
               <button
                 onClick={() => setShowWsSelector(false)}
                 disabled={isImporting}
-                className="px-4 py-2 text-[12px] rounded-full transition-all duration-200 disabled:opacity-50"
+                className="px-4 py-2 text-[12px] transition-all duration-200 disabled:opacity-50"
                 style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
               >
                 取消

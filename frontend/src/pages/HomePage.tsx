@@ -160,21 +160,22 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="origin-home__axis" aria-hidden="true">
-          <span />
-        </div>
-
+        {/* 圆盘与文档相互压边：文档从圆盘里探出来，而不是被摆在正中间。
+            正中间的构图没有张力，读起来是一个图标；压边才是一个构成。 */}
         <div className="origin-home__mass" aria-hidden="true">
+          <i className="origin-home__disc" />
           <div className="origin-home__paper-object">
             <span>PDF / 01</span>
             <i />
             <i />
             <i />
             <b />
-            <small>METHOD / EVIDENCE / CODE</small>
+            <small>METHOD · EVIDENCE · CODE</small>
           </div>
         </div>
 
+        {/* 投放区是这一页唯一的行动，所以它占满整条底边 —— 整个平面的进料口，
+            而不是右下角一个孤立的方块。 */}
         <div className="origin-home__intake">
           <UploadZone
             onUpload={handleUpload}
@@ -185,10 +186,6 @@ export default function HomePage() {
             <p className="origin-home__upload-error" role="alert">{uploadError}</p>
           )}
         </div>
-
-        <p className="origin-home__note" aria-hidden="true">
-          FORM FOLLOWS RELATION / SOURCE—PLANE
-        </p>
       </section>
 
       <section className="origin-home__stats" aria-label="研究资料统计">

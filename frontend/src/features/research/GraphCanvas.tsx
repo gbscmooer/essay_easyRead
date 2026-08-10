@@ -22,13 +22,13 @@ interface GraphCanvasProps {
 const ZOOM_MIN = 0.1
 const ZOOM_MAX = 8
 const ZOOM_STEP = 1.4
+import { EDGE_INK, NODE_INK, clusterInk } from '@/theme/graphPalette'
+
 const DEFAULT_LINK_DISTANCE = 50
 
-// 研究子方向（Louvain 社区）配色，节点填充按 cluster 取色
-const CLUSTER_COLORS = [
-  '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444',
-  '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
-]
+// 研究子方向（Louvain 社区）配色与边色统一取自 theme/graphPalette 的油墨分类色。
+// 之前这里是一串 Tailwind 默认色，饱和度比界面主色高一大截，落在米黄纸面上
+// 像贴上去的塑料片；而且同一语义在 EdgeFilter / EdgeDetail 各写一遍。
 
 export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, linkDistance = DEFAULT_LINK_DISTANCE }: GraphCanvasProps) {
   const fgRef = useRef<any>(null)
@@ -147,22 +147,22 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     if (node.kind === 'paper') {
       // 优先按研究子方向（Louvain 社区）着色；无聚类时回退到来源色
       const c = node.meta?.cluster
-      if (typeof c === 'number' && c >= 0) return CLUSTER_COLORS[c % CLUSTER_COLORS.length]
-      return node.meta?.source === 'expanded' ? '#f59e0b' : '#3b82f6'
+      if (typeof c === 'number' && c >= 0) return clusterInk(c)
+      return node.meta?.source === 'expanded' ? NODE_INK.paperExpanded : NODE_INK.paperLocal
     }
-    if (node.kind === 'method') return '#10b981'
-    if (node.kind === 'dataset') return '#8b5cf6'
-    return '#6b7280'
+    if (node.kind === 'method') return NODE_INK.method
+    if (node.kind === 'dataset') return NODE_INK.dataset
+    return '#6b7079'
   }, [])
 
   const linkColor = useCallback((link: any) => {
-    if (link.kind === 'cites') return '#ef4444'
-    if (link.kind === 'related' || link.kind === 'similar') return '#3b82f6'
-    if (link.kind === 'bibcoupling') return '#f59e0b'
-    if (link.kind === 'cocitation') return '#a855f7'
-    if (link.kind === 'shared-method') return '#10b981'
-    if (link.kind === 'uses-dataset') return '#8b5cf6'
-    return '#4b5563'
+    if (link.kind === 'cites') return EDGE_INK.cites
+    if (link.kind === 'related' || link.kind === 'similar') return EDGE_INK.related
+    if (link.kind === 'bibcoupling') return EDGE_INK.bibcoupling
+    if (link.kind === 'cocitation') return EDGE_INK.cocitation
+    if (link.kind === 'shared-method') return EDGE_INK['shared-method']
+    if (link.kind === 'uses-dataset') return EDGE_INK['uses-dataset']
+    return '#6b7079'
   }, [])
 
   const handleNodeClick = useCallback((node: any) => {
@@ -231,7 +231,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center rounded-2xl" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+      <div className="flex-1 flex items-center justify-center" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
         <div className="text-center">
           <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>暂无图谱</p>
           <p className="text-[12px] mt-1.5" style={{ color: 'var(--text-muted)' }}>点击「开始研究」构建知识图谱</p>
@@ -243,7 +243,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   return (
     <div
       ref={setContainer}
-      className="flex-1 rounded-2xl overflow-hidden relative min-h-[300px]"
+      className="flex-1 overflow-hidden relative min-h-[300px]"
       style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-base)' }}
     >
       {size.w > 0 && size.h > 0 && (
@@ -295,7 +295,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
 
       {/* 缩放控制（右上角） */}
       <div
-        className="absolute top-3 right-3 flex items-center gap-0.5 rounded-xl px-1.5 py-1"
+        className="absolute top-3 right-3 flex items-center gap-0.5 px-1.5 py-1"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 88%, transparent)',
           backdropFilter: 'blur(16px) saturate(180%)',
@@ -308,7 +308,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         <button
           onClick={resetZoom}
           title="回到总观（适配全部节点）"
-          className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-black/5"
+          className="w-7 h-7 flex items-center justify-center transition-colors hover:bg-black/5"
           style={{ color: 'var(--text-secondary)' }}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -322,7 +322,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         <button
           onClick={() => zoomBy(1 / ZOOM_STEP)}
           title="缩小"
-          className="w-7 h-7 flex items-center justify-center rounded text-base transition-colors hover:bg-black/5"
+          className="w-7 h-7 flex items-center justify-center text-base transition-colors hover:bg-black/5"
           style={{ color: 'var(--text-secondary)' }}
         >
           −
@@ -330,7 +330,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         <button
           onClick={resetZoom}
           title="适配画布"
-          className="px-2 h-7 text-xs rounded transition-colors hover:bg-black/5 min-w-[3.5rem]"
+          className="px-2 h-7 text-xs transition-colors hover:bg-black/5 min-w-[3.5rem]"
           style={{ color: 'var(--text-secondary)' }}
         >
           {Math.round(zoomLevel * 100)}%
@@ -338,7 +338,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         <button
           onClick={() => zoomBy(ZOOM_STEP)}
           title="放大"
-          className="w-7 h-7 flex items-center justify-center rounded text-base transition-colors hover:bg-black/5"
+          className="w-7 h-7 flex items-center justify-center text-base transition-colors hover:bg-black/5"
           style={{ color: 'var(--text-secondary)' }}
         >
           +
@@ -346,19 +346,19 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       </div>
 
       {/* 图例 */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]" style={{ color: 'var(--text-muted)', backgroundColor: 'color-mix(in srgb, var(--bg-elevated) 85%, transparent)', backdropFilter: 'blur(16px) saturate(180%)', WebkitBackdropFilter: 'blur(16px) saturate(180%)', padding: '8px 14px', borderRadius: '12px', border: '1px solid var(--border)' }}>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
-          <span className="w-3.5 h-3.5 rounded-full bg-gray-400 inline-block" />
+      <div className="rs-legend">
+        <span>
+          <i className="rs-legend__dot rs-legend__dot--sm" />
+          <i className="rs-legend__dot" />
           大小 = 影响力
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full inline-block" style={{ background: 'conic-gradient(#3b82f6,#10b981,#f59e0b,#8b5cf6)' }} />
+        <span>
+          <i className="rs-legend__ramp" />
           颜色 = 研究子方向
         </span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full inline-block border-[3px] border-amber-500" />扩展论文</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-1 bg-red-500 inline-block rounded-full" />引用</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-1 bg-blue-500 inline-block rounded-full" />相似</span>
+        <span><i className="rs-legend__ring" />扩展论文</span>
+        <span><i className="rs-legend__line" style={{ background: EDGE_INK.cites }} />引用</span>
+        <span><i className="rs-legend__line" style={{ background: EDGE_INK.related }} />关联</span>
       </div>
     </div>
   )

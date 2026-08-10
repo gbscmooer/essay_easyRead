@@ -106,8 +106,8 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
             <div>
               <span className="text-label" style={{ color: 'var(--text-muted)' }}>影响力 (PageRank)</span>
               <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-                  <div className="h-full rounded-full" style={{ width: `${Math.round(node.meta.importance * 100)}%`, backgroundColor: 'var(--accent)' }} />
+                <div className="flex-1 h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                  <div className="h-full" style={{ width: `${Math.round(node.meta.importance * 100)}%`, backgroundColor: 'var(--accent)' }} />
                 </div>
                 <span className="text-[12px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>
                   {(node.meta.importance * 100).toFixed(0)}%

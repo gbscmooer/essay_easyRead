@@ -96,7 +96,7 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
               title={`点击删除标注: ${ann.text.slice(0, 40)}`}
             >
               <span
-                className="absolute -top-5 left-0 hidden group-hover:block text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg z-50"
+                className="absolute -top-5 left-0 hidden group-hover:block text-[9px] px-1.5 py-0.5 whitespace-nowrap z-50"
                 style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
               >
                 点击删除
@@ -127,7 +127,7 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
               <div className="absolute left-0 w-full" style={{ top: '50%', height: '2px', backgroundColor: ann.color, transform: 'translateY(-50%)' }} />
             )}
             <span
-              className="absolute -top-5 left-0 hidden group-hover:block text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg z-50"
+              className="absolute -top-5 left-0 hidden group-hover:block text-[9px] px-1.5 py-0.5 whitespace-nowrap z-50"
               style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
             >
               点击删除
@@ -148,7 +148,7 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
           }}
         >
           <div
-            className="rounded-lg shadow-2xl px-3 py-2 flex items-center gap-2 whitespace-nowrap"
+            className="px-3 py-2 flex items-center gap-2 whitespace-nowrap"
             style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}
           >
             <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -156,14 +156,14 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
             </span>
             <button
               onClick={handleConfirm}
-              className="px-2.5 py-1 text-xs font-medium rounded transition-colors hover:opacity-90"
+              className="px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90"
               style={{ backgroundColor: 'var(--error)', color: 'var(--bg-base)' }}
             >
               确认
             </button>
             <button
               onClick={handleCancel}
-              className="px-2.5 py-1 text-xs font-medium rounded transition-colors hover:opacity-80"
+              className="px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80"
               style={{ backgroundColor: 'var(--border)', color: 'var(--text-secondary)' }}
             >
               取消

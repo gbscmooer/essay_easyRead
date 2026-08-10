@@ -99,7 +99,7 @@
   --relief-offset: var(--relief-md);
   --relief-color: var(--er-blue);
   border-color: var(--er-ink);
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: #17181b;
   box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
 }
@@ -150,7 +150,7 @@
 }
 
 .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
 }
 
 [data-mode='dark'] .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
@@ -169,7 +169,7 @@
 }
 
 .er-btn--secondary[aria-pressed='true'] {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
 }
 
 /* 同 hover：深色模式下填充是亮色，前景必须翻过来，否则默认填充（墨色=米白）
@@ -201,6 +201,13 @@
   border-color: var(--btn-accent, var(--er-hairline));
   color: var(--btn-accent, var(--er-ink));
   background: color-mix(in srgb, var(--btn-accent, var(--er-blue)) 12%, transparent);
+}
+
+/* 破坏性倾向的行内操作（列表里的「删除」）：静息时和其它 ghost 一样低调，
+   hover 才亮出信号红。它不是一个新层级，只是给 ghost 换一个强调色 ——
+   所以是修饰符而不是 --btn-accent 内联变量。 */
+.er-btn--destructive {
+  --btn-accent: var(--er-red);
 }
 
 /* ── 层级 4：danger —— 破坏性操作 ───────────────────────────────
@@ -252,7 +259,7 @@
 
 .er-btn-group > .er-btn[aria-pressed='true'],
 .er-btn-group > .er-btn[data-active='true'] {
-  color: var(--er-paper-bright);
+  color: var(--er-on-field);
   background: #17181b;
 }
 

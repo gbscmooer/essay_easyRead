@@ -110,7 +110,7 @@ export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
         {paperTags.map(tag => (
           <span
             key={tag.id}
-            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full cursor-default group"
+            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 cursor-default group"
             style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}
           >
             {tag.name}
@@ -128,7 +128,7 @@ export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
           onClick={() => setShowDropdown(v => !v)}
           aria-expanded={showDropdown}
           aria-haspopup="true"
-          className="text-[11px] px-2.5 py-0.5 rounded-full transition-colors hover:opacity-80"
+          className="text-[11px] px-2.5 py-0.5 transition-colors hover:opacity-80"
           style={{ color: 'var(--text-muted)', border: '1px dashed var(--border-light)' }}
         >
           + 标签
@@ -138,7 +138,7 @@ export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
       {showDropdown && (
         <div
           data-tag-dropdown
-          className="absolute z-50 mt-2 w-56 rounded-xl p-2.5"
+          className="absolute z-50 mt-2 w-56 p-2.5"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
@@ -153,12 +153,12 @@ export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
               onChange={e => setNewTagName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
               placeholder="新建标签…"
-              className="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg focus:outline-none"
+              className="flex-1 text-[12px] px-2.5 py-1.5 focus:outline-none"
               style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
             />
             <button
               onClick={handleCreate}
-              className="text-[12px] px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-90"
+              className="text-[12px] px-3 py-1.5 font-medium transition-opacity hover:opacity-90"
               style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
             >
               创建
@@ -170,12 +170,12 @@ export function TagManager({ paperId, analysisStatus }: TagManagerProps) {
                 <button
                   key={tag.id}
                   onClick={() => handleAdd(tag.id)}
-                  className="w-full text-left text-[12px] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-2"
+                  className="w-full text-left text-[12px] px-2.5 py-1.5 transition-colors flex items-center gap-2"
                   style={{ color: 'var(--text-secondary)' }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--bg-surface)')}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                  <span className="w-2.5 h-2.5 shrink-0" style={{ backgroundColor: tag.color }} />
                   {tag.name}
                 </button>
               ))}

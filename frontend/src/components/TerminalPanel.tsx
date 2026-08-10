@@ -264,7 +264,7 @@ export function TerminalPanel() {
                 <button
                   key={tab.key}
                   onClick={(e) => { e.stopPropagation(); setActiveTab(tab.key) }}
-                  className="px-2 py-0.5 text-xs rounded transition-colors"
+                  className="px-2 py-0.5 text-xs transition-colors"
                     style={activeTab === tab.key ? { backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' } : { color: 'var(--text-muted)' }}
                     onMouseEnter={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}
                     onMouseLeave={e => { if (activeTab !== tab.key) (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
@@ -283,7 +283,7 @@ export function TerminalPanel() {
           onMouseDown={handleMouseDown}
           className="h-2 shrink-0 cursor-row-resize flex items-center justify-center group transition-colors"
         >
-          <div className="w-8 h-1 rounded-full transition-colors" style={{ backgroundColor: 'var(--border)' }} />
+          <div className="w-8 h-1 transition-colors" style={{ backgroundColor: 'var(--border)' }} />
         </div>
       )}
 

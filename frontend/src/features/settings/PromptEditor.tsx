@@ -83,7 +83,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setActive('builtin')}
-            className="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+            className="px-3 py-1.5 text-sm border transition-colors"
             style={{
               borderColor: active === 'builtin' ? 'var(--accent)' : 'var(--border)',
               backgroundColor: active === 'builtin' ? 'var(--accent-subtle)' : 'transparent',
@@ -99,7 +99,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
               <button
                 key={t.id}
                 onClick={() => setActive(key)}
-                className="px-3 py-1.5 text-sm rounded-lg border transition-colors max-w-[12rem] truncate"
+                className="px-3 py-1.5 text-sm border transition-colors max-w-[12rem] truncate"
                 style={{
                   borderColor: sel ? 'var(--accent)' : 'var(--border)',
                   backgroundColor: sel ? 'var(--accent-subtle)' : 'transparent',
@@ -113,7 +113,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
           })}
           <button
             onClick={createCopy}
-            className="px-3 py-1.5 text-sm rounded-lg border border-dashed transition-colors"
+            className="px-3 py-1.5 text-sm border border-dashed transition-colors"
             style={{ borderColor: 'var(--border-light)', color: 'var(--text-muted)' }}
           >
             + 复制为副本
@@ -122,7 +122,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
       </div>
 
       {/* 内置提示词：只读查看 */}
-      <div className="rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+      <div className="border" style={{ borderColor: 'var(--border)' }}>
         <button
           onClick={() => setShowBuiltin(v => !v)}
           className="w-full flex items-center justify-between px-3 py-2 text-xs"
@@ -135,7 +135,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
           <textarea
             readOnly
             value={builtin}
-            className="w-full px-3 py-2 text-xs font-mono rounded-b-lg resize-y focus:outline-none"
+            className="w-full px-3 py-2 text-xs font-mono resize-y focus:outline-none"
             style={{ minHeight: '14rem', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}
           />
         )}
@@ -148,13 +148,13 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
             <input
               value={activeCustom.name}
               onChange={e => updateActive({ name: e.target.value })}
-              className="flex-1 px-3 py-1.5 text-sm rounded border focus:outline-none"
+              className="flex-1 px-3 py-1.5 text-sm border focus:outline-none"
               style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               placeholder="副本名称"
             />
             <button
               onClick={deleteActive}
-              className="text-xs px-2.5 py-1.5 rounded transition-colors"
+              className="text-xs px-2.5 py-1.5 transition-colors"
               style={{ color: 'var(--error)', backgroundColor: 'var(--error-subtle)' }}
             >
               删除
@@ -163,7 +163,7 @@ export function PromptEditor({ value, onChange }: PromptEditorProps) {
           <textarea
             value={activeCustom.content}
             onChange={e => updateActive({ content: e.target.value })}
-            className="w-full px-3 py-2 text-xs font-mono rounded border resize-y focus:outline-none"
+            className="w-full px-3 py-2 text-xs font-mono border resize-y focus:outline-none"
             style={{ minHeight: '18rem', backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
             placeholder="在此编辑你的解读系统提示词…"
           />

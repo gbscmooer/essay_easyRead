@@ -73,7 +73,7 @@ export function ProgressPanel({
         {order.map((s, i) => (
           <div key={s} className="flex items-center gap-1.5">
             <div
-              className={`w-2 h-2 rounded-full transition-colors ${i === currentIdx ? 'animate-pulse' : ''}`}
+              className={`w-2 h-2 transition-colors ${i === currentIdx ? 'animate-pulse' : ''}`}
               style={
                 i < currentIdx
                   ? { backgroundColor: 'var(--accent)' }
@@ -105,9 +105,9 @@ export function ProgressPanel({
       <div className="flex items-center gap-4">
         {stage === 'embed' && embed.total > 0 && (
           <div className="flex items-center gap-2 flex-1">
-            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+            <div className="flex-1 h-1.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
               <div
-                className="h-full rounded-full transition-all duration-300"
+                className="h-full transition-all duration-300"
                 style={{
                   width: `${(embed.done / embed.total) * 100}%`,
                   backgroundColor: 'var(--accent)',
@@ -134,7 +134,7 @@ export function ProgressPanel({
               return (
                 <span
                   key={stat.channel}
-                  className="text-[11px] px-2 py-0.5 rounded-full font-mono tabular-nums"
+                  className="text-[11px] px-2 py-0.5 font-mono tabular-nums"
                   style={{
                     border: `1px solid ${ok ? 'var(--border)' : 'var(--error)'}`,
                     color: ok ? 'var(--text-muted)' : 'var(--error)',

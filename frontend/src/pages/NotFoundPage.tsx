@@ -5,7 +5,7 @@ export default function NotFoundPage() {
     <div className="er-page er-page--not-found flex flex-col items-center justify-center h-full gap-6 px-6 text-center animate-reveal-up">
       {/* 友好插画 — 漂浮的「丢失文档」图标 */}
       <div
-        className="w-20 h-20 rounded-3xl flex items-center justify-center"
+        className="w-20 h-20 flex items-center justify-center"
         style={{
           backgroundColor: 'var(--bg-elevated)',
           border: '1px solid var(--border)',
@@ -45,7 +45,7 @@ export default function NotFoundPage() {
 
       <Link
         to="/"
-        className="press focus-glow inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl transition-all duration-200"
+        className="press focus-glow inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium transition-all duration-200"
         style={{
           backgroundColor: 'var(--accent)',
           color: 'var(--bg-base)',

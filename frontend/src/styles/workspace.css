@@ -1,0 +1,459 @@
+/*
+ * 工作区列表 / 工作区详情
+ *
+ * 两页共用 surfaces.css 的页头、账本与空态；这一层只负责它们各自独有的构件：
+ * 新建条、深度研究 CTA、论文行的选择态与快捷链接。
+ *
+ * pages.css 里原来那批
+ *   .er-page--workspace > div:nth-child(2) > .er-btn { … }
+ *   .er-page--workspace-detail > div:nth-child(3) > .er-relief { … }
+ * 全部作废：它们把「第几个 div」当成契约，组件里换一次结构就静默失效。
+ */
+
+.er-page--workspace,
+.er-page--workspace-detail {
+  max-width: 1080px !important;
+  margin-inline: auto !important;
+}
+
+.ws-page__tagline {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.ws-page__loading {
+  display: grid;
+  place-items: center;
+  padding: var(--s6) 0;
+}
+
+/* ── 新建条 ────────────────────────────────────────────────────────────
+   输入框与提交键是一个单元：边框由外层画一圈，内部两件只留一条分隔线。
+   按钮因此不带偏移块 —— 浮起的影会溢出单元边界，把「一件东西」读成
+   「两个拼在一起的零件」。 */
+
+.ws-create {
+  display: flex;
+  align-items: stretch;
+  margin: var(--s4) 0 var(--s5);
+  border: var(--rule-hair) solid var(--text-primary);
+  border-left: var(--rule-bar) solid var(--error);
+}
+
+.ws-create__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 52px;
+  padding: 0 var(--s3);
+  border: 0 !important;
+  color: var(--text-primary);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-lead);
+}
+
+.ws-create__submit {
+  --btn-height: 52px;
+  min-width: 160px;
+  border: 0 !important;
+  border-left: var(--rule-hair) solid var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+.ws-create__submit:active {
+  transform: none !important;
+}
+
+/* ── 工作区行 ──────────────────────────────────────────────────────── */
+
+.ws-ledger .er-ledger__row {
+  min-height: 66px;
+}
+
+/* 论文数是这一行真正的量。放在右侧当读数，比塞进元信息里更容易横向比较。 */
+.ws-ledger__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 62px;
+  justify-content: flex-end;
+  color: var(--text-primary);
+}
+
+.ws-ledger__count b {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-heading);
+  line-height: 1;
+}
+
+.ws-ledger__count small {
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+/* ── 详情页 ──────────────────────────────────────────────────────── */
+
+.ws-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--s4);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  transition: color var(--dur-tint) var(--ease-press);
+}
+
+.ws-back:hover {
+  color: var(--text-primary);
+}
+
+.ws-back svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ws-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.ws-rename__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+.ws-actions {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s3);
+  margin: var(--s4) 0 var(--s5);
+}
+
+/* 深度研究是这一页唯一的主行动，所以它拿到偏移块（唯一的实心质量）。
+   它是双行 CTA，撑不进 .er-btn 的单行盒子，因此单独成形而不是硬塞。 */
+.ws-research {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 62px;
+  padding: 0 var(--s4);
+  border: var(--rule-hair) solid var(--text-primary);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ws-research > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--error);
+}
+
+.ws-research__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ws-research__copy strong {
+  font-size: var(--fs-body);
+  font-weight: 650;
+  letter-spacing: var(--tr-title);
+}
+
+.ws-research__copy small {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.ws-research__go {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 18px;
+  transition: transform var(--dur-tint) var(--ease-carriage);
+}
+
+.ws-research:hover:not(:disabled) .ws-research__go {
+  color: var(--text-primary);
+  transform: translateX(4px);
+}
+
+.ws-research:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── 添加论文面板 ─────────────────────────────────────────────────── */
+
+.ws-add {
+  margin-bottom: var(--s4);
+}
+
+.ws-add__loading {
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+}
+
+.ws-add__empty {
+  margin: 0;
+  padding: var(--s4) var(--s3);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  text-align: center;
+}
+
+.ws-add__scroll {
+  max-height: min(38vh, 320px);
+  padding: 0 var(--s3);
+}
+
+.ws-add__scroll .er-ledger__row {
+  min-height: 48px;
+}
+
+/* ── 分组标题 ──────────────────────────────────────────────────────── */
+
+.ws-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s5) 0 var(--s2);
+}
+
+.ws-group-head__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 700;
+  letter-spacing: var(--tr-heading);
+  line-height: var(--lh-tight);
+}
+
+.ws-group-head__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-left: auto;
+}
+
+.ws-group-head__selection {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 详情页里的三块分析面板（对比 / 阅读路径 / 洞察）共用的外框。
+   之前三处各写一遍 `mb-8 py-4 border-y` 加一段内联 borderColor。 */
+.ws-block {
+  margin: var(--s5) 0;
+  padding: var(--s4) 0;
+  border-block: var(--rule-hair) solid var(--border);
+}
+
+.ws-block > .ws-group-head:first-child {
+  margin-top: 0;
+}
+
+/* 这三块面板的头部标签是「适用范围」注记（工作区内任意两篇 / 179 / 179），
+   不是标题的一部分，所以推到右端。论文分组里的计数标签紧跟标题，
+   两者形制相同但位置不同 —— 位置本身就是它们的区别。 */
+.ws-block .ws-group-head > .er-tag {
+  margin-left: auto;
+}
+
+/* ── 覆盖率读数 ────────────────────────────────────────────────────
+   四格一排。之前四个数字用了蓝 / 绿 / 黄 / 墨四种色相 —— 它们是同一个量
+   的四个分档，不是四件不同的事，四种颜色反而让人以为它们不可比。
+   现在统一成墨色，只给「需要行动」的两档（已精读、未读）留强调色。 */
+
+.ws-coverage {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: var(--s4);
+  border: var(--rule-hair) solid var(--border);
+}
+
+.ws-coverage__cell {
+  display: grid;
+  gap: 4px;
+  padding: var(--s2) var(--s3);
+  background: var(--bg-surface);
+}
+
+.ws-coverage__cell + .ws-coverage__cell {
+  border-left: var(--rule-hair) solid var(--border);
+}
+
+.ws-coverage__cell > span {
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+.ws-coverage__cell > b {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-stretch: var(--wdth-heading);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-heading);
+  line-height: 1;
+}
+
+.ws-coverage__cell[data-tone='accent'] > b { color: var(--accent); }
+.ws-coverage__cell[data-tone='warn'] > b { color: var(--warning); }
+
+@media (max-width: 700px) {
+  .ws-coverage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ws-coverage__cell:nth-child(3) {
+    border-left: 0;
+  }
+
+  .ws-coverage__cell:nth-child(-n + 2) {
+    border-bottom: var(--rule-hair) solid var(--border);
+  }
+}
+
+.ws-discovered__note {
+  margin: 0 0 var(--s2);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+}
+
+/* ── 论文行 ────────────────────────────────────────────────────────── */
+
+.ws-paper {
+  align-items: start;
+  padding-top: var(--s3);
+  padding-bottom: var(--s3);
+}
+
+/* 扩展论文用虚线底边区分来源：它不是这个集合正式收录的东西。
+   用线型而不是另一种底色 —— 底色已经被选中态占用了。 */
+.ws-paper[data-discovered] {
+  border-bottom-style: dashed;
+}
+
+.ws-paper__links {
+  display: flex;
+  gap: var(--s3);
+  margin-top: 7px;
+}
+
+.ws-paper__links a {
+  color: var(--accent);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  border-bottom: var(--rule-hair) solid transparent;
+  transition:
+    color var(--dur-tint) var(--ease-press),
+    border-color var(--dur-tint) var(--ease-press);
+}
+
+.ws-paper__links a:hover {
+  border-bottom-color: currentColor;
+}
+
+.ws-paper__links a + a {
+  color: var(--text-muted);
+}
+
+.ws-paper__select {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 100%;
+  padding-top: 3px;
+  cursor: pointer;
+}
+
+.ws-paper__select input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ws-paper__select > i {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: var(--rule-hair) solid var(--border-light);
+  transition:
+    border-color var(--dur-press) var(--ease-snap),
+    background-color var(--dur-press) var(--ease-snap);
+}
+
+.ws-paper__select > i::after {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  content: '';
+  transform: scale(0);
+  transition: transform var(--dur-press) var(--ease-snap);
+}
+
+.ws-paper__select:hover > i {
+  border-color: var(--text-primary);
+}
+
+.ws-paper__select:has(input:checked) > i {
+  border-color: var(--accent);
+}
+
+.ws-paper__select:has(input:checked) > i::after {
+  transform: scale(1);
+}
+
+.ws-paper__select:has(input:focus-visible) > i {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .ws-create {
+    flex-direction: column;
+  }
+
+  .ws-create__submit {
+    --btn-height: 48px;
+    border-top: var(--rule-hair) solid var(--text-primary) !important;
+    border-left: 0 !important;
+  }
+
+  .ws-actions {
+    flex-direction: column;
+  }
+
+  .ws-group-head {
+    flex-wrap: wrap;
+  }
+
+  .ws-group-head__tools {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+}

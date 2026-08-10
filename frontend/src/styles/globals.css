@@ -50,22 +50,8 @@
   --error: var(--signal);
   --error-subtle: rgba(217, 74, 56, 0.13);
 
-  --font-ui: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --font-display: Arial, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
-  /* ── 字号阶梯 ────────────────────────────────────────────────
-     功能性文字与装饰性文字必须分处两个区间。低于 --fs-label 的
-     字号只允许用于 aria-hidden 的装饰，不得承载任何操作信息。 */
-  --fs-micro: 10px;  /* 仅装饰：寄存器编号、坐标、场景码 */
-  --fs-label: 11px;  /* 功能性小标签、状态 */
-  --fs-meta: 12px;   /* 元信息、次要说明 */
-  --fs-ui: 13px;     /* 按钮、导航、输入框 */
-  --fs-body: 14px;   /* 正文 */
-  --fs-lead: 16px;
-  --deco-weight: 600;
-  --deco-opacity: .4;
-  --deco-tracking: .14em;
+  /* 字族与字号阶梯见 typography.css —— 那一层在 globals 之后加载，
+     负责改写这里 Tailwind preflight 留下的默认值。 */
 
   /* ── 动效：缓动族 ──────────────────────────────────────────────
      一条曲线撑不起一套语言。这五条各自对应印刷机上的一种物理动作，
@@ -263,29 +249,7 @@ canvas {
   box-shadow: none !important;
 }
 
-.text-display {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-stretch: condensed;
-  letter-spacing: -0.055em;
-  line-height: 0.88;
-}
-
-.text-heading {
-  font-family: var(--font-display);
-  font-weight: 800;
-  letter-spacing: -0.035em;
-  line-height: 0.96;
-}
-
-.text-label {
-  font-family: var(--font-ui);
-  font-size: var(--er-label-size);
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
+/* 展示 / 标题 / 标签三个角色类定义在 typography.css。 */
 
 /* Theme-aware compatibility for existing semantic/Tailwind classes. */
 [data-theme] .bg-gray-950,

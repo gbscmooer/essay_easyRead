@@ -399,7 +399,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   }, [])
 
   return (
-    <div className="flex flex-col h-full rounded-lg overflow-hidden relative" style={{ backgroundColor: 'var(--bg-surface)' }}>
+    <div className="flex flex-col h-full overflow-hidden relative" style={{ backgroundColor: 'var(--bg-surface)' }}>
       {/* 文本选择弹窗 */}
       <SelectionPopup containerRef={scrollRef} onAnnotate={handleAnnotate} />
 
@@ -413,11 +413,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
               style={{ borderRadius: 'var(--seed-radius, 12px)' }}
               aria-hidden="true"
             >
-              <div className="skeleton-pulse h-5 w-3/5 rounded" />
-              <div className="skeleton-pulse h-3 w-2/5 rounded" />
+              <div className="skeleton-pulse h-5 w-3/5" />
+              <div className="skeleton-pulse h-3 w-2/5" />
               <div className="mt-4 flex flex-col gap-2">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="skeleton-pulse h-2.5 rounded" style={{ width: `${88 - (i % 3) * 12}%` }} />
+                  <div key={i} className="skeleton-pulse h-2.5" style={{ width: `${88 - (i % 3) * 12}%` }} />
                 ))}
               </div>
             </div>
@@ -451,7 +451,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                   scale={scale}
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
-                  className="shadow-xl"
+                  className=""
                 />
                 {/* 标注叠加层 */}
                 <AnnotationLayer
@@ -465,7 +465,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                 </div>
                 {/* 跳转高亮光晕 */}
                 {activePage === pageNum && (
-                  <div className="absolute inset-0 pointer-events-none rounded" style={{ backgroundColor: 'var(--accent-subtle)' }} />
+                  <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: 'var(--accent-subtle)' }} />
                 )}
               </div>
             ))}
@@ -497,7 +497,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
               onKeyDown={handlePageInputKeyDown}
               placeholder={String(visiblePage)}
               aria-label="跳转到页码"
-              className="w-10 h-7 text-center rounded-lg text-sm focus:outline-none focus-glow transition-colors duration-150"
+              className="w-10 h-7 text-center text-sm focus:outline-none focus-glow transition-colors duration-150"
               style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
             />
             <span className="tabular-nums">/ {numPages || '--'}</span>

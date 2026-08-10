@@ -109,7 +109,7 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
           <button
             ref={closeRef}
             onClick={onClose}
-            className="text-[12px] px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+            className="text-[12px] px-3 py-1.5 transition-colors hover:opacity-80"
             style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
           >
             关闭
@@ -130,7 +130,7 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
           <button
             onClick={handleSave}
             disabled={saving || !loaded}
-            className="px-4 py-2 text-[13px] font-medium rounded-full transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="px-4 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
           >
             {saving ? '保存中…' : '保存'}

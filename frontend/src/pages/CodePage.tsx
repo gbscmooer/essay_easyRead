@@ -151,15 +151,14 @@ export default function CodePage() {
   return (
     <div className="er-page er-page--code flex flex-col h-full">
       {/* 顶部工具栏 — 紧凑 ghost 风格 */}
-      <div className="flex items-center justify-end px-4 py-1.5 shrink-0"
-        style={{ backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
+      <div className="cd-toolbar">
         <div className="flex items-center gap-1.5">
           {paper.code_url && (
             <a
               href={paper.code_url.startsWith('http') ? paper.code_url : `https://${paper.code_url}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200 press focus-glow"
+              className="text-[12px] px-2.5 py-1 transition-all duration-200 press focus-glow"
               style={{ color: 'var(--text-muted)' }}
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
               onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.backgroundColor = '' }}
@@ -170,7 +169,7 @@ export default function CodePage() {
           {paper.code_status === 'ready' && (
             <button
               onClick={() => { if (paper?.code_path) openInVSCode(paper.code_path) }}
-              className="text-[12px] px-2.5 py-1 rounded-full transition-all duration-200 press focus-glow"
+              className="text-[12px] px-2.5 py-1 transition-all duration-200 press focus-glow"
               style={{ color: 'var(--text-muted)' }}
               title="在 VSCode 中打开"
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
@@ -180,7 +179,7 @@ export default function CodePage() {
             </button>
           )}
           {cloneStatus && (
-            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
+            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] animate-reveal-fade"
               style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
               title="正在从远程仓库拉取代码，请稍候…">
               <LoadingSpinner size="xs" />
@@ -190,7 +189,7 @@ export default function CodePage() {
           {!analysis && !isAnalyzing && !cloneStatus && (
             <button
               onClick={handleAnalyze}
-              className="px-4 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200 press focus-glow hover-lift"
+              className="px-4 py-1.5 text-[12px] font-medium transition-all duration-200 press focus-glow hover-lift"
               style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
               title="克隆代码仓库并运行 AI 代码分析"
             >
@@ -198,7 +197,7 @@ export default function CodePage() {
             </button>
           )}
           {isAnalyzing && !cloneStatus && (
-            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-full animate-reveal-fade"
+            <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] animate-reveal-fade"
               style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
               title="AI 正在分析代码结构与论文映射，请稍候…">
               <LoadingSpinner size="xs" />
@@ -209,15 +208,15 @@ export default function CodePage() {
       </div>
 
       {/* 三栏布局 */}
-      <div ref={containerRef} className="flex-1 flex overflow-hidden relative">
+      <div ref={containerRef} className="cd-planes flex-1 flex overflow-hidden relative">
         {/* 左侧：文件浏览器 */}
         {!leftCollapsed && (
-          <div className="shrink-0 overflow-auto" style={{ width: leftWidth, borderRight: '1px solid var(--border)' }}>
+          <div className="cd-tree shrink-0 overflow-auto" style={{ width: leftWidth }}>
             <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
               <h3 className="text-label" style={{ color: 'var(--text-muted)' }}>文件</h3>
               <button
                 onClick={() => setLeftCollapsed(true)}
-                className="p-1 rounded-md transition-all duration-200 press focus-glow"
+                className="p-1 transition-all duration-200 press focus-glow"
                 style={{ color: 'var(--text-muted)' }}
                 title="收起文件栏"
                 aria-label="收起文件栏"
@@ -268,7 +267,7 @@ export default function CodePage() {
               document.body.style.userSelect = 'none'
             }}
           >
-            <span className="absolute h-8 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
+            <span className="absolute h-8 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
           </div>
         )}
 
@@ -295,7 +294,7 @@ export default function CodePage() {
               document.body.style.userSelect = 'none'
             }}
           >
-            <span className="absolute h-8 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
+            <span className="absolute h-8 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ backgroundColor: 'var(--bg-surface)' }} />
           </div>
         )}
 
@@ -318,7 +317,7 @@ export default function CodePage() {
 
         {/* 右侧：分析面板 */}
         {!rightCollapsed && (
-          <div className="shrink-0 overflow-hidden" style={{ width: rightWidth }}>
+          <div className="cd-analysis shrink-0 overflow-hidden" style={{ width: rightWidth }}>
             <CodeAnalysisPanel
               analysis={analysis}
               isAnalyzing={isAnalyzing}

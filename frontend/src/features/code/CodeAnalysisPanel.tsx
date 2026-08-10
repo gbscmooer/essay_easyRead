@@ -197,7 +197,7 @@ function DependencyGraph({
 
   if (error) {
     return (
-      <div className="rounded-xl p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="p-4" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         <p className="text-xs mb-2" style={{ color: 'var(--error)' }}>依赖图渲染失败</p>
         <pre className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-muted)' }}>{chart}</pre>
       </div>
@@ -206,7 +206,7 @@ function DependencyGraph({
 
   return (
     <div className="relative">
-      <div ref={containerRef} className="mermaid rounded-xl p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div ref={containerRef} className="mermaid p-4 overflow-auto flex justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         {svg ? (
           <div dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
@@ -218,7 +218,7 @@ function DependencyGraph({
       {svg && onFullscreen && (
         <button
           onClick={onFullscreen}
-          className="absolute top-2 right-2 p-1.5 rounded transition-colors"
+          className="absolute top-2 right-2 p-1.5 transition-colors"
           style={{ backgroundColor: 'var(--bg-elevated)', opacity: 0.8, color: 'var(--text-secondary)' }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; (e.currentTarget as HTMLElement).style.opacity = '1' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; (e.currentTarget as HTMLElement).style.opacity = '0.8' }}
@@ -301,16 +301,16 @@ function FullscreenGraph({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={onClose} />
-      <div className="relative w-[85vw] h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+      <div className="relative w-[85vw] h-[80vh] flex flex-col overflow-hidden"
         style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between px-4 py-2 border-b shrink-0" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-light)' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>依赖图</span>
           <div className="flex items-center gap-2">
-            <button onClick={zoomOut} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>缩小</button>
+            <button onClick={zoomOut} className="px-2 py-1 text-xs transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>缩小</button>
             <span className="text-xs w-10 text-center" style={{ color: 'var(--text-secondary)' }}>{Math.round(zoom * 100)}%</span>
-            <button onClick={zoomIn} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>放大</button>
-            <button onClick={zoomReset} className="px-2 py-1 text-xs rounded transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>重置</button>
-            <button onClick={onClose} className="ml-2 p-1 rounded transition-colors"
+            <button onClick={zoomIn} className="px-2 py-1 text-xs transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>放大</button>
+            <button onClick={zoomReset} className="px-2 py-1 text-xs transition-colors" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}>重置</button>
+            <button onClick={onClose} className="ml-2 p-1 transition-colors"
               style={{ color: 'var(--text-secondary)' }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)' }}>
@@ -360,7 +360,7 @@ function DependencyTab({ edges, onFileClick }: { edges: DependencyEdge[]; onFile
 
       <div className="space-y-3">
         {Array.from(grouped.entries()).map(([source, deps]) => (
-          <div key={source} className="rounded-xl p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div key={source} className="p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <button
               onClick={() => onFileClick?.(source)}
               className="text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors"
@@ -482,9 +482,9 @@ function PaperMappingTab({
   return (
     <div className="space-y-3">
       {mappings.map((m, idx) => (
-        <div key={idx} className="rounded-xl p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+        <div key={idx} className="p-3.5" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <div className="flex items-start gap-2 mb-2">
-            <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium">
+            <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500/20 text-blue-400 text-xs font-medium">
               {idx + 1}
             </span>
             <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.concept}</span>

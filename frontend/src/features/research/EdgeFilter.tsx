@@ -1,13 +1,14 @@
 import type { CSSProperties } from 'react'
 import type { GraphEdgeKind } from '@/types'
 import { Tooltip } from '@/ds-entry'
+import { EDGE_INK } from '@/theme/graphPalette'
 
 const EDGE_OPTIONS: { kind: GraphEdgeKind; label: string; color: string; hint: string }[] = [
-  { kind: 'cites', label: '引用', color: '#ef4444', hint: '父论文 → 被引论文（联网扩展阶段建立）。' },
-  { kind: 'related', label: '关联', color: '#3b82f6', hint: '论文关联度边：主题/目的/方法/术语/数据集/baseline/文献耦合/共引 八通道融合，再经多尺度骨架提取保留显著关系。点击边可看分解。' },
-  { kind: 'bibcoupling', label: '文献耦合', color: '#f59e0b', hint: '两篇论文引用了大量相同的外部文献。该信号已计入关联度，此图层仅供单独查看。' },
-  { kind: 'cocitation', label: '共引', color: '#a855f7', hint: '被同一篇论文共同引用。该信号已计入关联度，此图层仅供单独查看。' },
-  { kind: 'shared-method', label: '共享方法', color: '#10b981', hint: '已弃用占位：当前图谱不产出此边类型。' },
+  { kind: 'cites', label: '引用', color: EDGE_INK.cites, hint: '父论文 → 被引论文（联网扩展阶段建立）。' },
+  { kind: 'related', label: '关联', color: EDGE_INK.related, hint: '论文关联度边：主题/目的/方法/术语/数据集/baseline/文献耦合/共引 八通道融合，再经多尺度骨架提取保留显著关系。点击边可看分解。' },
+  { kind: 'bibcoupling', label: '文献耦合', color: EDGE_INK.bibcoupling, hint: '两篇论文引用了大量相同的外部文献。该信号已计入关联度，此图层仅供单独查看。' },
+  { kind: 'cocitation', label: '共引', color: EDGE_INK.cocitation, hint: '被同一篇论文共同引用。该信号已计入关联度，此图层仅供单独查看。' },
+  { kind: 'shared-method', label: '共享方法', color: EDGE_INK['shared-method'], hint: '已弃用占位：当前图谱不产出此边类型。' },
 ]
 
 interface EdgeFilterProps {

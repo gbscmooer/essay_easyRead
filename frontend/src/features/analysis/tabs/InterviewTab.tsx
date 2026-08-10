@@ -80,7 +80,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
                 onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}
               >
                 <span
-                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[11px] font-medium mt-0.5 tabular-nums"
+                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[11px] font-medium mt-0.5 tabular-nums"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
                 >
                   Q{idx + 1}
@@ -105,7 +105,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>回答</span>
                       {qa.source && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
+                        <span className="text-[11px] px-2 py-0.5" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
                           {qa.source}
                         </span>
                       )}
@@ -123,7 +123,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
                         handleExplain(idx, qa.q, qa.a)
                       }}
                       disabled={isLoadingExplain}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] rounded-full disabled:opacity-50 transition-all duration-200"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] disabled:opacity-50 transition-all duration-200"
                       style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
