@@ -143,23 +143,28 @@ async def handle_terminal_websocket(websocket, cwd: str = None):
     try:
         read_task = asyncio.create_task(read_from_pty())
 
-        async for message in websocket:
-            if message.type == "websocket.receive":
-                if message.text:
-                    if message.text == "ping":
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            if message["type"] == "websocket.receive":
+                text = message.get("text")
+                data = message.get("bytes")
+                if text is not None:
+                    if text == "ping":
                         await websocket.send_text("pong")
                         continue
-                    if message.text.startswith("\x1b[8;"):
+                    if text.startswith("\x1b[8;"):
                         try:
-                            parts = message.text[4:].rstrip("t").split(";")
+                            parts = text[4:].rstrip("t").split(";")
                             rows, cols = int(parts[0]), int(parts[1])
                             session.resize(cols, rows)
                         except (ValueError, IndexError):
                             pass
                     else:
-                        session.write(message.text.encode("utf-8"))
-                elif message.bytes:
-                    session.write(message.bytes)
+                        session.write(text.encode("utf-8"))
+                elif data is not None:
+                    session.write(data)
     except Exception as e:
         logger.debug(f"Terminal WebSocket closed: {e}")
     finally:

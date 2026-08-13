@@ -55,6 +55,7 @@ function QuickEntry({ index, title, description, onClick }: QuickEntryProps) {
 
 const STATUS_LABELS: Record<string, string> = {
   done: '已完成',
+  indexed: '已索引 · 待解析',
   failed: '失败',
   pending: '尚未解析',
 }

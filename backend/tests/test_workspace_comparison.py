@@ -172,4 +172,4 @@ def test_workspace_comparison_same_paper_rejected(client, session):
         json={"paper_a_id": paper.id, "paper_b_id": paper.id},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["code"] == "BAD_REQUEST"
+    assert r.json()["code"] == "BAD_REQUEST"

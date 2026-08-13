@@ -43,7 +43,16 @@ const listeners = new Set<() => void>()
 
 // 预览配置（点击按钮立即生效，保存后才持久化）
 let previewOverrides: Partial<UIConfig> | null = null
+let settingsFormDirty = false
 let dirtyListeners = new Set<() => void>()
+
+function notifyDirtyListeners(): void {
+  dirtyListeners.forEach(fn => fn())
+}
+
+function isConfigDirty(): boolean {
+  return !!previewOverrides || settingsFormDirty
+}
 
 
 /** 从 localStorage 读取保存的主题 key。首屏渲染与后端不可达时的回落都用它。 */
@@ -147,7 +156,7 @@ export function useViewerConfig() {
 export function setUIPreview(overrides: Partial<UIConfig>): void {
   previewOverrides = { ...previewOverrides, ...overrides }
   listeners.forEach(fn => fn())
-  dirtyListeners.forEach(fn => fn())
+  notifyDirtyListeners()
 }
 
 
@@ -157,13 +166,20 @@ export function setUIPreview(overrides: Partial<UIConfig>): void {
 export function clearUIPreview(): void {
   previewOverrides = null
   listeners.forEach(fn => fn())
-  dirtyListeners.forEach(fn => fn())
+  notifyDirtyListeners()
+}
+
+/** 设置页完整表单的脏状态，覆盖模型、提示词、研究参数与 UI 配置。 */
+export function setSettingsFormDirty(dirty: boolean): void {
+  if (settingsFormDirty === dirty) return
+  settingsFormDirty = dirty
+  notifyDirtyListeners()
 }
 
 export function useConfigDirty(): boolean {
-  const [dirty, setDirty] = useState(!!previewOverrides)
+  const [dirty, setDirty] = useState(isConfigDirty)
   useEffect(() => {
-    const update = () => setDirty(!!previewOverrides)
+    const update = () => setDirty(isConfigDirty())
     dirtyListeners.add(update)
     return () => { dirtyListeners.delete(update) }
   }, [])
@@ -171,7 +187,7 @@ export function useConfigDirty(): boolean {
 }
 
 export function hasUnsavedConfig(): boolean {
-  return !!previewOverrides
+  return isConfigDirty()
 }
 
 
@@ -180,4 +196,5 @@ export function refreshConfig(): void {
   fetchPromise = null
   previewOverrides = null
   listeners.forEach(fn => fn())
+  notifyDirtyListeners()
 }

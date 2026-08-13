@@ -11,11 +11,12 @@ import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibr
 import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
 import { Tooltip } from '@/ds-entry'
+import { stopRowActivation } from '@/utils/keyboard'
 import '@/styles/library.css'
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
-  indexed:    '已索引',
+  indexed:    '已索引 · 待解析',
   pending:    '待解析',
   failed:     '解析失败',
   extracting: '提取中',
@@ -63,7 +64,7 @@ function ExpandedPaperRow({
           {paper.venue && <span>{paper.venue}</span>}
           {paper.year && <span>{paper.year}</span>}
           {paper.category && <span>{paper.category}</span>}
-          {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>已索引</span>}
+          {paper.index_status === 'indexed' && !paper.year && !paper.category && <span>元数据已索引</span>}
         </span>
       </span>
       <span className="er-ledger__aside">
@@ -73,6 +74,7 @@ function ExpandedPaperRow({
         <button
           type="button"
           onClick={handlePromote}
+          onKeyDown={stopRowActivation}
           disabled={promoting}
           aria-busy={promoting}
           className="er-btn er-btn--secondary er-btn--sm"
@@ -240,6 +242,9 @@ export default function LibraryPage() {
   }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
 
   const activeCount = searchResults !== null ? searchTotal : total
+  const currentPageReadCount = searchResults === null
+    ? papers.filter(p => p.read_level === 'full').length
+    : 0
 
   return (
     <div className="er-page er-page--library">
@@ -280,9 +285,11 @@ export default function LibraryPage() {
         {expandedTotal > 0 && (
           <span className="er-readout"><b>{expandedTotal}</b>篇联网扩展</span>
         )}
-        <span className="er-readout">
-          <b>{papers.filter(p => p.read_level === 'full').length}</b>篇已精读
-        </span>
+        {searchResults === null && (
+          <span className="er-readout">
+            <b>{currentPageReadCount}</b>篇已精读（当前页）
+          </span>
+        )}
       </div>
 
       <PaperList

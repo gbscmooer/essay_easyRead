@@ -33,6 +33,7 @@ const DEFAULT_LINK_DISTANCE = 50
 export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, linkDistance = DEFAULT_LINK_DISTANCE }: GraphCanvasProps) {
   const fgRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const zoomFrameRef = useRef<number | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [zoomLevel, setZoomLevel] = useState(1)
   const labelColorRef = useRef<string>('rgba(230,230,230,0.92)')
@@ -88,6 +89,19 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       ro.disconnect()
       cancelAnimationFrame(raf)
     }
+  }, [])
+
+  const handleZoomEnd = useCallback((transform: { k: number }) => {
+    if (!Number.isFinite(transform.k)) return
+    if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
+    zoomFrameRef.current = requestAnimationFrame(() => {
+      zoomFrameRef.current = null
+      setZoomLevel(current => current === transform.k ? current : transform.k)
+    })
+  }, [])
+
+  useEffect(() => () => {
+    if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
   }, [])
 
   const graphData = useMemo(() => {
@@ -282,7 +296,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
           }}
           onNodeClick={handleNodeClick}
           onLinkClick={handleLinkClick}
-          onZoomEnd={(t: any) => setZoomLevel(t.k)}
+          onZoomEnd={handleZoomEnd}
           cooldownTicks={100}
           d3AlphaDecay={0.02}
           d3VelocityDecay={0.3}

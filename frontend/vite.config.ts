@@ -3,11 +3,30 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import type { ServerResponse } from 'http'
 
+function manualChunks(id: string): string | undefined {
+  const normalized = id.replaceAll('\\', '/')
+  if (!normalized.includes('/node_modules/')) return undefined
+
+  const groups: Array<[string, string[]]> = [
+    ['vendor-pdf', ['react-pdf', 'pdfjs-dist']],
+    ['vendor-mermaid', ['mermaid']],
+    ['vendor-charts', ['recharts']],
+    ['vendor-graph', ['react-force-graph-2d']],
+    ['vendor-hljs', ['highlight.js']],
+    ['vendor-react', ['react', 'react-dom', 'react-router', 'react-router-dom']],
+  ]
+
+  for (const [chunk, packages] of groups) {
+    if (packages.some(pkg => normalized.includes(`/node_modules/${pkg}/`))) return chunk
+  }
+  return undefined
+}
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   test: {
@@ -40,14 +59,7 @@ export default defineConfig({
     cssCodeSplit: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-pdf': ['react-pdf'],
-          'vendor-mermaid': ['mermaid'],
-          'vendor-charts': ['recharts'],
-          'vendor-graph': ['react-force-graph-2d'],
-          'vendor-hljs': ['highlight.js'],
-        },
+        manualChunks,
       },
     },
   },

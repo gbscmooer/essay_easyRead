@@ -3,12 +3,12 @@ import type { GraphEdgeKind } from '@/types'
 import { Tooltip } from '@/ds-entry'
 import { EDGE_INK } from '@/theme/graphPalette'
 
-const EDGE_OPTIONS: { kind: GraphEdgeKind; label: string; color: string; hint: string }[] = [
-  { kind: 'cites', label: '引用', color: EDGE_INK.cites, hint: '父论文 → 被引论文（联网扩展阶段建立）。' },
-  { kind: 'related', label: '关联', color: EDGE_INK.related, hint: '论文关联度边：主题/目的/方法/术语/数据集/baseline/文献耦合/共引 八通道融合，再经多尺度骨架提取保留显著关系。点击边可看分解。' },
-  { kind: 'bibcoupling', label: '文献耦合', color: EDGE_INK.bibcoupling, hint: '两篇论文引用了大量相同的外部文献。该信号已计入关联度，此图层仅供单独查看。' },
-  { kind: 'cocitation', label: '共引', color: EDGE_INK.cocitation, hint: '被同一篇论文共同引用。该信号已计入关联度，此图层仅供单独查看。' },
-  { kind: 'shared-method', label: '共享方法', color: EDGE_INK['shared-method'], hint: '已弃用占位：当前图谱不产出此边类型。' },
+const EDGE_OPTIONS: { kind: GraphEdgeKind; label: string; color: string; onColor: string; hint: string }[] = [
+  { kind: 'cites', label: '引用', color: EDGE_INK.cites, onColor: '#000000', hint: '父论文 → 被引论文（联网扩展阶段建立）。' },
+  { kind: 'related', label: '关联', color: EDGE_INK.related, onColor: '#ffffff', hint: '论文关联度边：主题/目的/方法/术语/数据集/baseline/文献耦合/共引 八通道融合，再经多尺度骨架提取保留显著关系。点击边可看分解。' },
+  { kind: 'bibcoupling', label: '文献耦合', color: EDGE_INK.bibcoupling, onColor: '#000000', hint: '两篇论文引用了大量相同的外部文献。该信号已计入关联度，此图层仅供单独查看。' },
+  { kind: 'cocitation', label: '共引', color: EDGE_INK.cocitation, onColor: '#ffffff', hint: '被同一篇论文共同引用。该信号已计入关联度，此图层仅供单独查看。' },
+  { kind: 'shared-method', label: '共享方法', color: EDGE_INK['shared-method'], onColor: '#ffffff', hint: '已弃用占位：当前图谱不产出此边类型。' },
 ]
 
 interface EdgeFilterProps {
@@ -28,7 +28,7 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="rs-edge-filter flex items-center gap-2 flex-wrap">
       <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
         边类型{selected.size > 0 ? ` · ${selected.size}` : ''}
       </span>
@@ -44,7 +44,7 @@ export function EdgeFilter({ selected, onChange }: EdgeFilterProps) {
               aria-pressed={on}
               onClick={() => toggle(opt.kind)}
               className="er-btn er-btn--secondary er-btn--sm"
-              style={{ '--btn-accent': opt.color } as CSSProperties}
+              style={{ '--btn-accent': opt.color, '--btn-on-accent': opt.onColor } as CSSProperties }
             >
               {opt.label}
             </button>

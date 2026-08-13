@@ -10,9 +10,9 @@ import type { UIConfig } from './config'
 
 
 const FONTS = [
-  { key: 'sans', label: 'Arial（非衬线）' },
-  { key: 'serif', label: 'Times New Roman（衬线）' },
-  { key: 'mono', label: '等宽字体' },
+  { key: 'sans', label: 'Inter（非衬线，中文自动回退）' },
+  { key: 'serif', label: 'Charter（衬线，中文自动回退）' },
+  { key: 'mono', label: 'JetBrains Mono（等宽，中文自动回退）' },
   { key: 'custom', label: '自定义字体' },
 ]
 

@@ -6,6 +6,7 @@
 import { useState, useMemo, memo } from 'react'
 import type { Paper } from '@/types'
 import { ConfirmDialog } from '@/ds-entry'
+import { stopRowActivation } from '@/utils/keyboard'
 
 /* ============================================================
  * 模块级样式常量
@@ -28,6 +29,7 @@ function statusLabel(status: Paper['status']): { text: string; color: string; ic
     case 'extracting': return { text: '提取中', color: 'var(--warning)', icon: 'pending' }
     case 'analyzing': return { text: '分析中', color: 'var(--warning)', icon: 'pending' }
     case 'failed': return { text: '失败', color: 'var(--error)', icon: 'failed' }
+    case 'indexed': return { text: '已索引 · 待解析', color: 'var(--warning)', icon: 'pending' }
     default: return { text: '', color: 'var(--text-muted)', icon: null }
   }
 }
@@ -142,6 +144,7 @@ function PaperItem({ paper, isActive, onSelect, onRequestDelete }: PaperItemProp
           e.stopPropagation()
           onRequestDelete(paper.id)
         }}
+        onKeyDown={stopRowActivation}
         aria-label="删除论文"
         className="focus-glow shrink-0 mt-0.5 p-1 transition-all press opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
         style={{ color: 'var(--text-muted)' }}

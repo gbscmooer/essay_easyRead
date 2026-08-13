@@ -8,9 +8,10 @@
  *
  * 顶部 pill 形 segmented control 切换当前分区，只显示对应内容。
  */
-import { useState, useEffect, Suspense, useCallback } from 'react'
+import { useState, useEffect, Suspense, useCallback, useMemo } from 'react'
 import { post, get } from '@/api/client'
-import { refreshConfig, clearUIPreview, hasUnsavedConfig } from '@/hooks/useConfig'
+import { refreshConfig, clearUIPreview, setSettingsFormDirty } from '@/hooks/useConfig'
+import { toast } from '@/hooks/useToast'
 import { PromptEditor } from '@/features/settings/PromptEditor'
 import { TestButton } from '@/features/settings/TestButton'
 import AIModelSection from '@/features/settings/AIModelSection'
@@ -125,60 +126,100 @@ function LoadingPlaceholder() {
   )
 }
 
+function mergeConfig(cfg: AppConfig): AppConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...cfg,
+    embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
+    translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
+    analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
+    analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
+    ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
+    research: {
+      ...DEFAULT_CONFIG.research,
+      ...(cfg.research ?? {}),
+      recall: {
+        ...DEFAULT_CONFIG.research.recall!,
+        ...(cfg.research?.recall ?? {}),
+        weights: {
+          ...DEFAULT_CONFIG.research.recall!.weights,
+          ...(cfg.research?.recall?.weights ?? {}),
+        },
+      },
+      hybrid_retrieval: {
+        ...DEFAULT_CONFIG.research.hybrid_retrieval!,
+        ...(cfg.research?.hybrid_retrieval ?? {}),
+        weights: {
+          ...DEFAULT_CONFIG.research.hybrid_retrieval!.weights,
+          ...(cfg.research?.hybrid_retrieval?.weights ?? {}),
+        },
+        graph: {
+          ...DEFAULT_CONFIG.research.hybrid_retrieval!.graph,
+          ...(cfg.research?.hybrid_retrieval?.graph ?? {}),
+        },
+      },
+    },
+    reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
+    relations: {
+      calibrate: cfg.relations?.calibrate ?? DEFAULT_CONFIG.relations.calibrate,
+      weights: { ...DEFAULT_CONFIG.relations.weights, ...(cfg.relations?.weights ?? {}) },
+    },
+    arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
+    findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
+  }
+}
+
+function configSnapshot(config: AppConfig): string {
+  return JSON.stringify(config)
+}
+
 
 function useConfigInit() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
+  const [savedConfig, setSavedConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     get<AppConfig>('/analysis/config')
-      .then(cfg => setConfig({
-        ...DEFAULT_CONFIG,
-        ...cfg,
-        embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
-        translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
-        analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
-        analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
-        ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
-        research: {
-          ...DEFAULT_CONFIG.research,
-          ...(cfg.research ?? {}),
-          recall: {
-            ...DEFAULT_CONFIG.research.recall!,
-            ...(cfg.research?.recall ?? {}),
-            weights: {
-              ...DEFAULT_CONFIG.research.recall!.weights,
-              ...(cfg.research?.recall?.weights ?? {}),
-            },
-          },
-        },
-        reranker: { ...DEFAULT_CONFIG.reranker, ...(cfg.reranker ?? {}) },
-        relations: {
-          calibrate: cfg.relations?.calibrate ?? DEFAULT_CONFIG.relations.calibrate,
-          weights: { ...DEFAULT_CONFIG.relations.weights, ...(cfg.relations?.weights ?? {}) },
-        },
-        arxiv_expand: { ...DEFAULT_CONFIG.arxiv_expand, ...(cfg.arxiv_expand ?? {}) },
-        findpapers: { ...DEFAULT_CONFIG.findpapers, ...(cfg.findpapers ?? {}) },
-      }))
-      .catch(() => {})
+      .then(cfg => {
+        const merged = mergeConfig(cfg)
+        setConfig(merged)
+        setSavedConfig(merged)
+      })
+      .catch((error: unknown) => {
+        toast({ type: 'error', message: error instanceof Error ? error.message : '加载配置失败' })
+      })
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
-    return () => { clearUIPreview() }
+    return () => {
+      setSettingsFormDirty(false)
+      clearUIPreview()
+    }
   }, [])
 
+  const dirty = useMemo(
+    () => configSnapshot(config) !== configSnapshot(savedConfig),
+    [config, savedConfig],
+  )
+
   useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedConfig()) {
-        e.preventDefault()
-      }
+    setSettingsFormDirty(dirty)
+    if (!dirty) clearUIPreview()
+  }, [dirty])
+
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [])
+  }, [dirty])
 
-  return { config, setConfig, loading }
+  return { config, setConfig, setSavedConfig, loading, dirty }
 }
 
 
@@ -271,7 +312,7 @@ function ResearchPanel({
 /* ── 主页面 ────────────────────────────────────────── */
 
 export function SettingsPage() {
-  const { config, setConfig, loading } = useConfigInit()
+  const { config, setConfig, setSavedConfig, loading, dirty } = useConfigInit()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('models')
@@ -281,11 +322,12 @@ export function SettingsPage() {
     setSaved(false)
     try {
       await post('/analysis/config', config)
+      setSavedConfig(config)
       refreshConfig()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch {
-      // ignore
+    } catch (error: unknown) {
+      toast({ type: 'error', message: error instanceof Error ? error.message : '保存配置失败，请重试' })
     } finally {
       setSaving(false)
     }
@@ -347,7 +389,7 @@ export function SettingsPage() {
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || !dirty}
           aria-busy={saving}
           className="er-btn er-btn--primary er-btn--lg set-savebar__submit"
         >
