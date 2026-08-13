@@ -33,7 +33,28 @@
               var themes = JSON.parse(raw);
               var id = key.slice(7);
               var t = themes.find(function(x){ return x.id === id; });
-              if (t && t.seeds) {
+              /* 运行时以显式 colors 为准；首帧也必须优先读取它。
+                 颜色编辑不会回写旧 seed 快照，反过来读取会造成首帧闪旧主题。 */
+              if (t && t.colors) {
+                var c = t.colors;
+                var caR = parseInt(c.accent.replace('#',''),16);
+                seeds = {
+                  '--seed-bg': c.bg_base, '--seed-fg': c.text_primary,
+                  '--seed-surface': c.bg_surface, '--seed-accent': c.accent,
+                  '--seed-muted': c.text_muted,
+                  '--seed-radius': ((t.seeds && t.seeds.radius) || 0) + 'px',
+                  '--seed-accent-rgb': ((caR>>16)&255)+','+((caR>>8)&255)+','+(caR&255),
+                  '--bg-base': c.bg_base, '--bg-surface': c.bg_surface,
+                  '--bg-elevated': c.bg_elevated, '--border': c.border,
+                  '--border-light': c.border_light, '--text-primary': c.text_primary,
+                  '--text-secondary': c.text_secondary, '--text-muted': c.text_muted,
+                  '--accent': c.accent, '--success': c.success,
+                  '--warning': c.warning, '--error': c.error
+                };
+                var cbR = parseInt(c.bg_base.replace('#',''),16);
+                var cLum = ((cbR>>16)&255)*0.2126 + ((cbR>>8)&255)*0.7152 + (cbR&255)*0.0722;
+                mode = cLum < 128 ? 'dark' : 'light';
+              } else if (t && t.seeds) {
                 var s = t.seeds;
                 var acR = parseInt(s.accent.slice(1),16);
                 seeds = {
@@ -45,22 +66,6 @@
                 var bgR = parseInt(s.bg.slice(1),16);
                 var lum = ((bgR>>16)&255)*0.2126 + ((bgR>>8)&255)*0.7152 + (bgR&255)*0.0722;
                 mode = lum < 128 ? 'dark' : 'light';
-              } else if (t && t.colors) {
-                /* Legacy custom theme with ThemeColors — derive minimal seeds */
-                var c = t.colors;
-                seeds = {
-                  '--seed-bg': c.bg_base, '--seed-fg': c.text_primary,
-                  '--seed-surface': c.bg_surface, '--seed-accent': c.accent,
-                  '--seed-muted': c.text_muted, '--seed-radius': '0px',
-                  '--bg-base': c.bg_base, '--bg-surface': c.bg_surface,
-                  '--bg-elevated': c.bg_elevated, '--border': c.border,
-                  '--border-light': c.border_light, '--text-primary': c.text_primary,
-                  '--text-secondary': c.text_secondary, '--text-muted': c.text_muted,
-                  '--accent': c.accent
-                };
-                var cbR = parseInt(c.bg_base.replace('#',''),16);
-                var cLum = ((cbR>>16)&255)*0.2126 + ((cbR>>8)&255)*0.7152 + (cbR&255)*0.0722;
-                mode = cLum < 128 ? 'dark' : 'light';
               }
             }
             themeAttr = 'custom';
@@ -86,12 +91,11 @@
           root.setAttribute('data-theme', themeAttr);
           root.setAttribute('data-mode', mode);
 
-          /* 动效默认开启；只有用户显式关过才是 reduced。在首帧就写上，
-             避免 React 挂载前那一瞬间走进 prefers-reduced-motion 分支。 */
-          root.setAttribute(
-            'data-er-motion-override',
-            localStorage.getItem('essay_motion') === 'reduced' ? 'reduced' : 'full'
-          );
+          /* 无属性代表跟随系统；只有用户明确选择才能覆盖 reduced-motion。 */
+          var motion = localStorage.getItem('essay_motion');
+          if (motion === 'full' || motion === 'reduced') {
+            root.setAttribute('data-er-motion-override', motion);
+          }
         } catch(e){}
       })();
     </script>

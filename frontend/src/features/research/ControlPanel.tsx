@@ -18,7 +18,7 @@ interface ControlPanelProps {
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
-  indexed:    '已索引',
+  indexed:    '已索引 · 待解析',
   pending:    '待解析',
   failed:     '解析失败',
   extracting: '提取中',
@@ -514,7 +514,7 @@ export function ControlPanel({
             type="button"
             onClick={handleStart}
             disabled={disabled || selectedUsableCount === 0}
-            className="er-btn er-btn--primary er-btn--sm"
+            className="er-btn er-btn--primary er-btn--sm rs-start-action"
           >
             {startLabel}
           </button>

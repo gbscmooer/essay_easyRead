@@ -29,6 +29,7 @@ import { WorkspaceInsights } from '@/features/workspace/WorkspaceInsights'
 import { WorkspaceComparison } from '@/features/workspace/WorkspaceComparison'
 import { WorkspaceInnovationPanel } from '@/features/workspace/WorkspaceInnovationPanel'
 import '@/styles/workspace.css'
+import { stopRowActivation } from '@/utils/keyboard'
 
 
 export default function WorkspaceDetailPage() {
@@ -502,7 +503,7 @@ interface PaperCardProps {
 
 const PAPER_STATUS: Record<string, { text: string; tone: string }> = {
   done: { text: '已解析', tone: '' },
-  indexed: { text: '未解析 · 已索引', tone: 'er-tag--warn' },
+  indexed: { text: '已索引 · 待解析', tone: 'er-tag--warn' },
   failed: { text: '解析失败', tone: 'er-tag--signal' },
 }
 
@@ -528,6 +529,7 @@ function PaperCard({
             type="checkbox"
             checked={!!selected}
             onChange={onToggleSelect}
+            onKeyDown={stopRowActivation}
             aria-label={`选择 ${paper.title || paper.filename}`}
           />
           <i aria-hidden="true" />
@@ -547,6 +549,7 @@ function PaperCard({
             to={`/reader/${paper.id}`}
             state={{ from: `/workspace/${workspaceId}` }}
             onClick={e => e.stopPropagation()}
+            onKeyDown={stopRowActivation}
           >
             论文分析
           </Link>
@@ -555,6 +558,7 @@ function PaperCard({
               to={`/code/${paper.id}`}
               state={{ from: `/workspace/${workspaceId}` }}
               onClick={e => e.stopPropagation()}
+              onKeyDown={stopRowActivation}
             >
               源码分析
             </Link>
@@ -568,6 +572,7 @@ function PaperCard({
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onPromote() }}
+            onKeyDown={stopRowActivation}
             className="er-btn er-btn--secondary er-btn--sm"
             title="升级为本地正式论文"
           >
@@ -577,6 +582,7 @@ function PaperCard({
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onRequestRemove() }}
+          onKeyDown={stopRowActivation}
           className="er-btn er-btn--ghost er-btn--destructive er-btn--sm er-ledger__action"
         >
           移除

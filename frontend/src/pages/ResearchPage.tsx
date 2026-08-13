@@ -151,8 +151,8 @@ export default function ResearchPage() {
       )}
 
       {/* 图谱 + RAG 区域 */}
-      <div className="rs-planes flex-1 flex flex-col md:flex-row overflow-hidden">
-        <div className="rs-graph flex-1 flex flex-col min-w-0">
+      <div className="rs-planes flex-1">
+        <div className="rs-graph">
           <div className="rs-graph__bar">
             <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
             <div className="flex items-center gap-2.5">

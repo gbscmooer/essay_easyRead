@@ -21,7 +21,8 @@ def test_upload_non_pdf_rejected(client):
         files={"file": ("readme.txt", buf, "text/plain")},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["code"] == "INVALID_FORMAT"
+    assert r.json()["code"] == "INVALID_FORMAT"
+    assert r.json()["detail"] == "Only PDF files are accepted"
 
 
 def test_list_papers_empty(client):

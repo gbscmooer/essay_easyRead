@@ -150,11 +150,11 @@
 }
 
 .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
-  color: var(--er-on-field);
+  color: var(--btn-on-accent, var(--er-on-field));
 }
 
 [data-mode='dark'] .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
-  color: #17181b;
+  color: var(--btn-on-accent, #17181b);
 }
 
 .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover::before {
@@ -169,13 +169,13 @@
 }
 
 .er-btn--secondary[aria-pressed='true'] {
-  color: var(--er-on-field);
+  color: var(--btn-on-accent, var(--er-on-field));
 }
 
 /* 同 hover：深色模式下填充是亮色，前景必须翻过来，否则默认填充（墨色=米白）
    会出现米白底米白字。 */
 [data-mode='dark'] .er-btn--secondary[aria-pressed='true'] {
-  color: #17181b;
+  color: var(--btn-on-accent, #17181b);
 }
 
 .er-btn--secondary[aria-pressed='false'] {
@@ -297,6 +297,14 @@
   width: var(--rule-hair);
   margin-inline: var(--s1);
   background: var(--er-hairline);
+}
+
+/* 运行按钮是本页主操作：赭石底从黑色工具条中跳出，黑字保持高对比。 */
+.er-page--research > :first-child .rs-start-action {
+  --relief-color: #f7f2e7;
+  border-color: #f7f2e7 !important;
+  color: #000000 !important;
+  background: var(--er-ochre);
 }
 
 /* ── 状态标签 ──────────────────────────────────────────────────

@@ -78,6 +78,8 @@
 { "detail": "错误描述", "code": "ERROR_CODE" }
 ```
 
+- `HTTPException` 的字典或字符串 `detail`、请求参数校验失败（422）和限流（429）均由应用入口转换为上述顶层格式。
+
 ### 3.2 常见状态码
 
 | 状态码 | 含义 |
@@ -87,6 +89,7 @@
 | `404` | 资源不存在 |
 | `409` | 冲突，例如任务已运行 |
 | `422` | Pydantic 校验失败 |
+| `429` | 请求超过默认 `120/minute` 限制 |
 | `500` | 未处理异常 |
 
 ## 4. 数据模型
@@ -254,9 +257,11 @@
 
 | 方法 | 路径 | 返回 | 状态码 |
 |---|---|---|---|
-| GET | `/api/logs/stream` | SSE 日志流 | 200 |
-| WS | `/api/terminal/ws` | PTY 终端 | 101/4003/4029 |
-| POST | `/api/system/open-vscode` | `{"message": ...}` 或 `{"error": ...}` | 200 |
+| GET | `/` | 健康状态与 API 版本 `5.0.1` | 200/429 |
+| GET | `/api/logs/stream` | SSE 日志流；仅可信本地来源，浏览器 Origin 必须同源 | 200/403/429 |
+| POST | `/api/terminal/session` | 一次性终端票据（30 秒有效，仅可信本地前端 Origin） | 200/403 |
+| WS | `/api/terminal/ws` | PTY 终端；`Sec-WebSocket-Protocol: essay-terminal.<ticket>` | 101/4003/4029 |
+| POST | `/api/system/open-vscode` | 打开项目内路径；仅可信本地同源前端 | 200/403 |
 
 ### 5.8 Agent Tools / MCP
 

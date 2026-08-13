@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
+import { stopRowActivation } from '@/utils/keyboard'
 import '@/styles/workspace.css'
 
 
@@ -166,6 +167,7 @@ export default function WorkspacePage() {
                 </span>
                 <button
                   onClick={e => handleDelete(ws.id, e)}
+                  onKeyDown={stopRowActivation}
                   aria-label={`删除工作区 ${ws.name}`}
                   className="er-btn er-btn--ghost er-btn--destructive er-btn--sm er-ledger__action"
                 >

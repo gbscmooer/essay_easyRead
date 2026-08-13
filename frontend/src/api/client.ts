@@ -132,11 +132,12 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
  * @param body 请求体（会被 JSON 序列化）
  * @returns 解析后的 JSON 响应
  */
-async function post<T>(path: string, body?: unknown): Promise<T> {
+async function post<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await safeFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...(signal ? { signal } : {}),
   })
   if (!res.ok) await parseError(res)
   return parseResponse<T>(res)

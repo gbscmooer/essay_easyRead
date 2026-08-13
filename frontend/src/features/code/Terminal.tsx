@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal as XTerminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { createTerminalSession, terminalWebSocketTarget } from '@/api/terminal'
 import { useThemeMode } from '@/theme/useTheme'
 
 
@@ -59,6 +60,8 @@ export function Terminal({ cwd }: TerminalProps) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryCount = 0
     let disposed = false
+    let connectionGeneration = 0
+    const sessionAbortController = new AbortController()
     let onDataDisposable: { dispose: () => void } | null = null
 
     function createTerminal() {
@@ -76,14 +79,21 @@ export function Terminal({ cwd }: TerminalProps) {
       fitAddon.fit()
     }
 
-    function connect() {
+    async function connect() {
       if (disposed) return
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const host = window.location.host
-      const wsUrl = `${protocol}//${host}/api/terminal/ws${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`
+      const generation = ++connectionGeneration
+      let session
+      try {
+        session = await createTerminalSession(sessionAbortController.signal)
+      } catch {
+        if (!disposed && generation === connectionGeneration) scheduleReconnect()
+        return
+      }
+      if (disposed || generation !== connectionGeneration) return
 
-      ws = new WebSocket(wsUrl)
+      const target = terminalWebSocketTarget(session.ticket, cwd)
+      ws = new WebSocket(target.url, target.protocol)
 
       ws.onopen = () => {
         retryCount = 0
@@ -141,12 +151,12 @@ export function Terminal({ cwd }: TerminalProps) {
       retryTimer = setTimeout(() => {
         if (disposed) return
         if (term) term.write('\r\n\x1b[33m[正在重新连接...]\x1b[0m\r\n')
-        connect()
+        void connect()
       }, delay)
     }
 
     createTerminal()
-    connect()
+    void connect()
 
     const handleResize = () => {
       fitAddon?.fit()
@@ -160,6 +170,8 @@ export function Terminal({ cwd }: TerminalProps) {
 
     return () => {
       disposed = true
+      connectionGeneration++
+      sessionAbortController.abort()
       observer.disconnect()
       if (pingTimer) clearInterval(pingTimer)
       if (retryTimer) clearTimeout(retryTimer)

@@ -11,6 +11,7 @@
 import { useState, useMemo, memo } from 'react'
 import type { Paper, SearchResult } from '@/types'
 import { ConfirmDialog, Tooltip, SkeletonCard } from '@/ds-entry'
+import { stopRowActivation } from '@/utils/keyboard'
 
 interface FilterParams {
   category?: string
@@ -85,7 +86,8 @@ function statusLabel(status: Paper['status']): { text: string; tone: string; ico
     case 'analyzing': return { text: '分析中', tone: 'er-tag--warn', icon: 'spin' }
     case 'pending': return { text: '等待中', tone: 'er-tag--mute', icon: 'clock' }
     case 'failed': return { text: '失败', tone: 'er-tag--signal', icon: 'cross' }
-    default: return { text: status, tone: 'er-tag--mute', icon: 'clock' }
+    case 'indexed': return { text: '已索引 · 待解析', tone: 'er-tag--warn', icon: 'clock' }
+    default: return { text: '待解析', tone: 'er-tag--mute', icon: 'clock' }
   }
 }
 
@@ -395,6 +397,7 @@ export const PaperList = memo(function PaperList({
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); setDeleteTarget(paper.id) }}
+                      onKeyDown={stopRowActivation}
                       aria-label={`删除论文 ${paper.title || paper.filename}`}
                       className="er-btn er-btn--ghost er-btn--destructive er-btn--sm er-ledger__action"
                     >

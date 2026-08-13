@@ -12,18 +12,18 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
 import { VersionPopup } from './VersionPopup'
 import { ShortcutHelp } from './ShortcutHelp'
 import { ConfirmDialog } from '@/ds-entry'
-import { hasUnsavedConfig } from '@/hooks/useConfig'
+import { useConfigDirty } from '@/hooks/useConfig'
 import { setHelpCallback, useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { useMotionPreference } from '@/hooks/useMotionPreference'
 
 interface LayoutProps {
   children: ReactNode
@@ -92,42 +92,6 @@ function useCurrentWorkspaceId(): number | null {
   return match ? Number(match[1]) : null
 }
 
-const MOTION_STORAGE_KEY = 'essay_motion'
-
-/**
- * 动效开关。
- *
- * 默认开启，点一次关闭，再点一次打开，选择写进 localStorage。
- *
- * 这里刻意不再把 `prefers-reduced-motion` 当作默认值来源。之前的实现是
- * `override ?? !systemReduced`，于是在任何声明了减弱动效的环境里，界面第一眼
- * 就是 PAUSED —— 用户从没关过，却要先找到这个开关才能看到这套语言原本的样子。
- * 系统偏好现在只作为兜底：样式层的 @media 规则全部挂在
- * `html:not([data-er-motion-override='full'])` 上，用户一旦选择关闭，那条路径
- * 立刻重新生效。
- */
-function useMotionPreference() {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem(MOTION_STORAGE_KEY) !== 'reduced'
-    } catch {
-      return true
-    }
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-er-motion-override', enabled ? 'full' : 'reduced')
-    try {
-      window.localStorage.setItem(MOTION_STORAGE_KEY, enabled ? 'full' : 'reduced')
-    } catch {
-      /* 隐私模式下写入会抛错；开关本身仍然可用，只是不跨会话保留。 */
-    }
-  }, [enabled])
-
-  const toggle = useCallback(() => setEnabled(value => !value), [])
-  return { enabled, toggle }
-}
-
 /**
  * 指针位置 → 顶部寄存条上的游标刻度。
  *
@@ -183,13 +147,12 @@ function useGridPointer(rootRef: RefObject<HTMLDivElement>, enabled: boolean) {
 interface ContextLinkProps {
   to: string
   active: boolean
-  onClick?: (event: ReactMouseEvent) => void
   children: ReactNode
 }
 
-function ContextLink({ to, active, onClick, children }: ContextLinkProps) {
+function ContextLink({ to, active, children }: ContextLinkProps) {
   return (
-    <Link className="er-context-link" data-active={active || undefined} aria-current={active ? 'page' : undefined} to={to} onClick={onClick}>
+    <Link className="er-context-link" data-active={active || undefined} aria-current={active ? 'page' : undefined} to={to}>
       {children}
     </Link>
   )
@@ -202,12 +165,16 @@ export function Layout({ children }: LayoutProps) {
   const visual = useMemo(() => routeVisual(location.pathname), [location.pathname])
   const paperId = useCurrentPaperId()
   const workspaceId = useCurrentWorkspaceId()
+  const configDirty = useConfigDirty()
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => (
+    currentLocation.pathname.startsWith('/settings')
+    && nextLocation.pathname !== currentLocation.pathname
+    && configDirty
+  ))
   const motion = useMotionPreference()
   const [showVersion, setShowVersion] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
-  const pendingNavRef = useRef<string | null>(null)
-  const pendingNavStateRef = useRef<unknown>(null)
 
   useGridPointer(rootRef, motion.enabled)
   useGlobalShortcuts(navigate)
@@ -218,13 +185,10 @@ export function Layout({ children }: LayoutProps) {
     return () => setHelpCallback(null)
   }, [toggleShortcuts])
 
-  const handleNavGuard = useCallback((target: string, event: ReactMouseEvent, state?: unknown) => {
-    if (!location.pathname.startsWith('/settings') || !hasUnsavedConfig()) return
-    event.preventDefault()
-    pendingNavRef.current = target
-    pendingNavStateRef.current = state ?? null
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
     setShowUnsavedConfirm(true)
-  }, [location.pathname])
+  }, [blocker.state])
 
   const contextItems: ReactNode[] = []
   if (paperId) {
@@ -232,10 +196,10 @@ export function Layout({ children }: LayoutProps) {
     const workspaceMatch = fromPath?.match(/^\/workspace\/(\d+)/)
     const backTo = workspaceMatch ? `/workspace/${workspaceMatch[1]}` : '/library'
     contextItems.push(
-      <ContextLink key="reader" to={`/reader/${paperId}`} active={location.pathname.startsWith('/reader')} onClick={event => handleNavGuard(`/reader/${paperId}`, event, location.state)}>论文分析</ContextLink>,
-      <ContextLink key="code" to={`/code/${paperId}`} active={location.pathname.startsWith('/code')} onClick={event => handleNavGuard(`/code/${paperId}`, event, location.state)}>源码分析</ContextLink>,
+      <ContextLink key="reader" to={`/reader/${paperId}`} active={location.pathname.startsWith('/reader')}>论文分析</ContextLink>,
+      <ContextLink key="code" to={`/code/${paperId}`} active={location.pathname.startsWith('/code')}>源码分析</ContextLink>,
       <span className="er-context-divider" key="divider" aria-hidden="true" />,
-      <ContextLink key="back" to={backTo} active={false} onClick={event => handleNavGuard(backTo, event)}>{workspaceMatch ? '返回工作区' : '返回论文库'} ↑</ContextLink>,
+      <ContextLink key="back" to={backTo} active={false}>{workspaceMatch ? '返回工作区' : '返回论文库'} ↑</ContextLink>,
     )
   } else if (workspaceId) {
     contextItems.push(
@@ -306,7 +270,6 @@ export function Layout({ children }: LayoutProps) {
                 data-active={active || undefined}
                 aria-current={active ? 'page' : undefined}
                 to={item.path}
-                onClick={event => handleNavGuard(item.path, event)}
               >
                 <span>{item.index}</span>
                 <strong>{item.label}</strong>
@@ -327,16 +290,13 @@ export function Layout({ children }: LayoutProps) {
           cancelLabel="留下"
           onConfirm={() => {
             setShowUnsavedConfirm(false)
-            const target = pendingNavRef.current
-            const state = pendingNavStateRef.current
-            pendingNavRef.current = null
-            pendingNavStateRef.current = null
-            if (target) navigate(target, state ? { state } : undefined)
+            if (blocker.state === 'blocked') {
+              blocker.proceed()
+            }
           }}
           onCancel={() => {
             setShowUnsavedConfirm(false)
-            pendingNavRef.current = null
-            pendingNavStateRef.current = null
+            if (blocker.state === 'blocked') blocker.reset()
           }}
         />
       </div>

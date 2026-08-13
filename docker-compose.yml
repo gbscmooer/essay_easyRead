@@ -3,7 +3,7 @@ services:
     build: ./backend
     container_name: essay-read-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - db-data:/app/data
       - uploads:/app/uploads
@@ -20,7 +20,7 @@ services:
     build: ./frontend
     container_name: essay-read-frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       - backend
     restart: unless-stopped
