@@ -26,8 +26,15 @@ export async function getGraph(wsId: number): Promise<ResearchGraph | null> {
   catch (e: unknown) { if (isNotFound(e)) return null; throw e }
 }
 
-export async function queryRag(wsId: number, question: string, top_k = 5, paper_ids?: number[], mode: 'vector' | 'hybrid' | 'graph' = 'vector'): Promise<RagQueryResponse> {
-  return post<RagQueryResponse>(`/research/workspaces/${wsId}/query`, { question, top_k, paper_ids, mode })
+export async function queryRag(
+  wsId: number,
+  question: string,
+  top_k = 5,
+  paper_ids?: number[],
+  mode: 'vector' | 'hybrid' | 'graph' = 'vector',
+  signal?: AbortSignal,
+): Promise<RagQueryResponse> {
+  return post<RagQueryResponse>(`/research/workspaces/${wsId}/query`, { question, top_k, paper_ids, mode }, signal)
 }
 
 export async function clearResearch(wsId: number): Promise<void> {

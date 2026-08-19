@@ -767,8 +767,13 @@ def list_papers(
     # source == "all" 不过滤
 
     if search:
-        # 大小写不敏感：统一 lower 后子串匹配
-        statement = statement.where(func.lower(col(Paper.title)).contains(search.lower()))
+        # 大小写不敏感：统一 lower 后子串匹配。标题为空的论文（尚未索引）
+        # 只能靠原始文件名找到，所以这里带上 filename 一起匹配。
+        needle = search.lower()
+        statement = statement.where(
+            func.lower(func.coalesce(col(Paper.title), "")).contains(needle)
+            | func.lower(col(Paper.filename)).contains(needle)
+        )
     if category:
         statement = statement.where(Paper.category == category)
     if year is not None:

@@ -13,6 +13,9 @@ import { LoadingSpinner } from '@/ds-entry'
 import { loadLayout, saveLayout, forgetReadingPage, type ReaderLayout } from '@/utils/readerPrefs'
 
 
+/** 侧边栏未搜索时列出的论文条数 */
+const SIDEBAR_RECENT_LIMIT = 30
+
 const MIN_PANEL_PCT = 20
 const MAX_PANEL_PCT = 60
 const DEFAULT_PANEL_PCT = 35
@@ -28,6 +31,8 @@ export default function ReaderPage() {
 
   const [papers, setPapers] = useState<Paper[]>([])
   const [papersLoading, setPapersLoading] = useState(true)
+  const [papersTotal, setPapersTotal] = useState<number | null>(null)
+  const [sidebarQuery, setSidebarQuery] = useState('')
   const [activePage, setActivePage] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // 面板宽度与开合是用户对这台「阅读工位」的调校，不该每次进页面复位
@@ -74,13 +79,23 @@ export default function ReaderPage() {
     startAnalysis,
   } = useAnalysis(paperId)
 
+  /* 侧边栏的检索走后端：未输入时列最近 30 篇，输入后在全库里找。
+     此前是「只加载 30 篇 + 前端过滤」，等于搜索范围被静默截断在 30 篇。 */
   useEffect(() => {
+    let cancelled = false
     setPapersLoading(true)
-    listPapers({ per_page: 30 })
-      .then(res => setPapers(res.papers))
-      .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
-      .finally(() => setPapersLoading(false))
-  }, [])
+    listPapers({ per_page: SIDEBAR_RECENT_LIMIT, search: sidebarQuery || undefined })
+      .then(res => {
+        if (cancelled) return
+        setPapers(res.papers)
+        setPapersTotal(res.total)
+      })
+      .catch(() => {
+        if (!cancelled) toast({ type: 'error', message: '加载论文列表失败' })
+      })
+      .finally(() => { if (!cancelled) setPapersLoading(false) })
+    return () => { cancelled = true }
+  }, [sidebarQuery])
 
   useEffect(() => {
     if (autoAnalyzeRef.current && status === 'idle' && paperId) {
@@ -207,6 +222,7 @@ export default function ReaderPage() {
     try {
       await deletePaper(id)
       forgetReadingPage(id)
+      setPapersTotal(prev => (prev === null ? prev : Math.max(0, prev - 1)))
       setPapers(prev => {
         const remaining = prev.filter(p => p.id !== id)
         if (id === paperId) {
@@ -253,6 +269,10 @@ export default function ReaderPage() {
             activeId={paperId ?? null}
             onSelect={handleSelect}
             onDelete={handleDelete}
+            onSearch={setSidebarQuery}
+            searching={papersLoading}
+            recentLimit={SIDEBAR_RECENT_LIMIT}
+            totalCount={papersTotal}
           />
           )}
         </div>

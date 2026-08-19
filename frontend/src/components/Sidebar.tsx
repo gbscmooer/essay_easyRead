@@ -3,9 +3,10 @@
  *
  * 无边框搜索框 + 3px 强调色指示条 + 文字状态标记。
  */
-import { useState, useMemo, memo } from 'react'
+import { useState, useEffect, memo } from 'react'
+import { Link } from 'react-router-dom'
 import type { Paper } from '@/types'
-import { ConfirmDialog } from '@/ds-entry'
+import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
 
 /* ============================================================
@@ -68,6 +69,12 @@ interface SidebarProps {
   activeId: number | null
   onSelect: (id: number) => void
   onDelete: (id: number) => void
+  /** 关键词交给上层查全库（此前只在已加载的最近若干篇里做前端过滤） */
+  onSearch: (query: string) => void
+  searching: boolean
+  /** 未搜索时列表只是最近若干篇，用它说明范围 */
+  recentLimit: number
+  totalCount: number | null
 }
 
 /* ============================================================
@@ -160,18 +167,30 @@ function PaperItem({ paper, isActive, onSelect, onRequestDelete }: PaperItemProp
   )
 }
 
-export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDelete }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({
+  papers,
+  activeId,
+  onSelect,
+  onDelete,
+  onSearch,
+  searching,
+  recentLimit,
+  totalCount,
+}: SidebarProps) {
   const [search, setSearch] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return papers
-    const q = search.toLowerCase()
-    return papers.filter(p =>
-      (p.title || p.filename).toLowerCase().includes(q)
-    )
-  }, [papers, search])
+  /* 输入即搜，停顿后交给上层查全库。此前这里是本地 filter，
+     而上层只加载了最近 30 篇 —— 第 40 篇论文在这里「搜不到」，
+     却没有任何迹象说明搜索范围只有这 30 篇。 */
+  useEffect(() => {
+    const timer = setTimeout(() => onSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search, onSearch])
+
+  const isSearching = search.trim().length > 0
+  const showingRecentOnly = !isSearching && totalCount !== null && totalCount > papers.length
 
   return (
     <div className="flex flex-col w-64 h-full" style={SIDEBAR_STYLE}>
@@ -230,12 +249,14 @@ export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDel
 
       {/* 论文列表 */}
       <div className="flex-1 overflow-auto py-1">
-        {filtered.length === 0 ? (
+        {searching && papers.length === 0 ? (
+          <div className="flex justify-center mt-8"><LoadingSpinner size="sm" /></div>
+        ) : papers.length === 0 ? (
           <p className="text-[13px] text-center mt-8 animate-reveal-fade" style={{ color: 'var(--text-muted)' }}>
-            {search.trim() ? '无匹配论文' : '暂无论文'}
+            {isSearching ? '无匹配论文' : '暂无论文'}
           </p>
         ) : (
-          filtered.map(paper => (
+          papers.map(paper => (
             <PaperItem
               key={paper.id}
               paper={paper}
@@ -244,6 +265,14 @@ export const Sidebar = memo(function Sidebar({ papers, activeId, onSelect, onDel
               onRequestDelete={setDeleteTarget}
             />
           ))
+        )}
+
+        {/* 说明当前列出的是什么范围 —— 「搜不到」和「不在这 30 篇里」是两回事 */}
+        {showingRecentOnly && (
+          <p className="px-4 py-3 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            仅列出最近 {recentLimit} 篇（共 {totalCount} 篇）。上方搜索框查的是全部论文，
+            也可以去 <Link to="/library" className="underline">论文库</Link> 浏览。
+          </p>
         )}
       </div>
 

@@ -48,7 +48,9 @@ export default function WorkspaceDetailPage() {
   const [editName, setEditName] = useState('')
   const [showAddPaper, setShowAddPaper] = useState(false)
   const [libraryPapers, setLibraryPapers] = useState<Paper[]>([])
+  const [libraryTotal, setLibraryTotal] = useState(0)
   const [loadingPapers, setLoadingPapers] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
   const [selectedDiscovered, setSelectedDiscovered] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
   const [batchRemoveConfirm, setBatchRemoveConfirm] = useState(false)
@@ -108,26 +110,40 @@ export default function WorkspaceDetailPage() {
     }
   }
 
-  const handleShowAddPaper = async () => {
-    setShowAddPaper(true)
+  /* 选择器此前一次性拉 100 篇、没有搜索框 —— 库超过 100 篇后，
+     剩下的论文根本没有办法加进工作区。改为按关键词查后端。 */
+  const fetchAddCandidates = useCallback(async (query: string) => {
     setLoadingPapers(true)
     try {
-      const res = await listPapers({ per_page: 100 })
+      const res = await listPapers({ per_page: 50, search: query || undefined })
       const existingIds = new Set(workspace?.papers.map(p => p.id) || [])
       setLibraryPapers(res.papers.filter(p => !existingIds.has(p.id)))
+      setLibraryTotal(res.total)
     } catch (e: unknown) {
       toast({ type: 'error', message: e instanceof Error ? e.message : '加载论文列表失败' })
-      setShowAddPaper(false)
     } finally {
       setLoadingPapers(false)
     }
+  }, [workspace])
+
+  const handleShowAddPaper = () => {
+    setAddQuery('')
+    setShowAddPaper(true)
   }
+
+  // 打开面板时取一次，之后跟随搜索词（停顿 300ms）
+  useEffect(() => {
+    if (!showAddPaper) return
+    const timer = setTimeout(() => { fetchAddCandidates(addQuery.trim()) }, addQuery ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [showAddPaper, addQuery, fetchAddCandidates])
 
   const handleAddPaper = async (paperId: number) => {
     try {
       await addPaperToWorkspace(workspaceId, paperId)
       refresh()
       setLibraryPapers(prev => prev.filter(p => p.id !== paperId))
+      toast({ type: 'success', message: '已加入工作区' })
     } catch {
       toast({ type: 'error', message: '添加论文失败' })
     }
@@ -320,10 +336,45 @@ export default function WorkspaceDetailPage() {
               关闭
             </button>
           </div>
-          {loadingPapers ? (
+          <div className="er-filterbar">
+            <div className="er-search">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                className="er-input"
+                placeholder="按标题或文件名搜索论文库"
+                value={addQuery}
+                onChange={e => setAddQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape' && addQuery) { e.preventDefault(); setAddQuery('') } }}
+                aria-label="搜索要加入工作区的论文"
+              />
+              {loadingPapers && <LoadingSpinner size="sm" />}
+              {addQuery && (
+                <button
+                  type="button"
+                  className="er-search__clear"
+                  onClick={() => setAddQuery('')}
+                  aria-label="清除搜索"
+                  title="清除搜索（Esc）"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <span className="er-readout">
+              <b>{libraryPapers.length}</b>
+              {addQuery ? `篇命中（共 ${libraryTotal} 篇匹配）` : `篇可添加（库内共 ${libraryTotal} 篇）`}
+            </span>
+          </div>
+
+          {loadingPapers && libraryPapers.length === 0 ? (
             <div className="ws-add__loading"><LoadingSpinner size="sm" /></div>
           ) : libraryPapers.length === 0 ? (
-            <p className="ws-add__empty">论文库里的论文都已在这个工作区里了。</p>
+            <p className="ws-add__empty">
+              {addQuery ? '没有匹配的论文，换个关键词试试。' : '论文库里的论文都已在这个工作区里了。'}
+            </p>
           ) : (
             <div className="er-scroll ws-add__scroll">
               <div className="er-ledger">
