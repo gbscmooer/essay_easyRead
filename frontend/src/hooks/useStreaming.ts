@@ -26,6 +26,11 @@ interface UseStreamingReturn {
   progress: number
   /** 相关论文模块的独立状态：idle 未开始 / loading 搜索中 / ok 完成 / failed 超时或失败 */
   relatedStatus: 'idle' | 'loading' | 'ok' | 'failed'
+  /**
+   * true 表示这次 failed 是 SSE 连接断了（自动重连已耗尽），而不是后端分析失败。
+   * 两者的补救动作完全不同：前者重新订阅即可，后者才需要重跑分析。
+   */
+  connectionLost: boolean
   /** 手动重连 */
   reconnect: () => void
 }
@@ -45,6 +50,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
   const [progressMessage, setProgressMessage] = useState('')
   const [progress, setProgress] = useState(-1)
   const [relatedStatus, setRelatedStatus] = useState<'idle' | 'loading' | 'ok' | 'failed'>('idle')
+  const [connectionLost, setConnectionLost] = useState(false)
 
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectCountRef = useRef(0)
@@ -75,6 +81,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
       setProgressMessage('')
       setProgress(-1)
       setRelatedStatus('idle')
+      setConnectionLost(false)
       return
     }
 
@@ -155,11 +162,13 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
         setStatus('failed')
         setError('连接错误')
       }
+      setConnectionLost(false)
       es.close()
     })
 
     es.onopen = () => {
       reconnectCountRef.current = 0
+      setConnectionLost(false)
     }
 
     es.onerror = () => {
@@ -177,8 +186,11 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
           }
         }, delay)
       } else {
+        // 连接断了，不代表分析失败 —— 后台任务仍在跑，重新订阅就能接着看进度。
+        // 这里把两种失败区分开，界面才能给出「重新连接」而不是「重跑一遍分析」。
         setStatus('failed')
-        setError('连接中断，请刷新重试')
+        setConnectionLost(true)
+        setError('实时进度连接中断（分析仍在后台继续），可重新连接')
       }
     }
   }, [paperId, shouldConnect, cleanup])
@@ -186,6 +198,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
   const reconnect = useCallback(() => {
     reconnectCountRef.current = 0
     setError(null)
+    setConnectionLost(false)
     setStatus('idle')
     connect()
   }, [connect])
@@ -199,6 +212,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     setProgressMessage('')
     setProgress(-1)
     setRelatedStatus('idle')
+    setConnectionLost(false)
     connect()
 
     return () => {
@@ -214,6 +228,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     progressMessage,
     progress,
     relatedStatus,
+    connectionLost,
     reconnect,
   }
 }

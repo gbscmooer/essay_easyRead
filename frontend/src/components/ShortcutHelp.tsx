@@ -14,7 +14,11 @@ const GLOBAL_SHORTCUTS = [
 ]
 
 const READER_SHORTCUTS = [
-  { keys: ['1', '—', '6'], desc: '切换分析 Tab' },
+  { keys: ['1', '—', '7'], desc: '切换分析 Tab' },
+  { keys: ['←', '→', 'PgUp', 'PgDn'], desc: 'PDF 上一页 / 下一页' },
+  { keys: ['Home', 'End'], desc: '跳到首页 / 末页' },
+  { keys: ['+', '−'], desc: '放大 / 缩小' },
+  { keys: ['0'], desc: '重置缩放' },
 ]
 
 function KeyBadge({ keyLabel }: { keyLabel: string }) {
