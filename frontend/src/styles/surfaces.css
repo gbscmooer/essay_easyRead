@@ -163,6 +163,34 @@
   transform: scaleY(1);
 }
 
+/* 多选：只有可批量操作的账本才多出这一栏，搜索结果与扩展列表保持三栏 */
+.er-ledger--selectable .er-ledger__row {
+  grid-template-columns: 22px var(--ledger-index) minmax(0, 1fr) var(--ledger-aside);
+}
+
+.er-ledger__check {
+  display: inline-flex;
+  align-self: start;
+  padding-top: 2px;
+  cursor: pointer;
+}
+
+.er-ledger__check input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.er-ledger__row[data-selected] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.er-ledger__row[data-selected]::before {
+  background: var(--accent);
+  transform: scaleY(1);
+}
+
 .er-ledger__index {
   align-self: start;
   padding-top: 3px;
@@ -303,7 +331,35 @@
 .er-search > input {
   width: 100%;
   height: var(--control-h, 36px);
-  padding: 0 var(--s3) 0 34px;
+  padding: 0 52px 0 34px;   /* 右侧给忙碌指示与清除按钮留位 */
+}
+
+/* 检索中的指示落在输入框右内侧，不挤走清除按钮 */
+.er-search > .er-loader {
+  position: absolute;
+  right: 30px;
+  pointer-events: none;
+}
+
+.er-search__clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-tint) var(--ease-press);
+}
+
+.er-search__clear:is(:hover, :focus-visible) {
+  color: var(--text-primary);
 }
 
 /* 开关式筛选：整块可点，选中即反白。checkbox 本体留在 DOM 里承担语义与
@@ -418,6 +474,13 @@
 .er-select {
   padding-right: var(--s4);
   cursor: pointer;
+}
+
+/* 批量操作条里的紧凑下拉，与同排的 er-btn--sm 同高 */
+.er-select--sm {
+  height: 28px;
+  padding: 0 var(--s3) 0 var(--s2);
+  font-size: var(--fs-meta);
 }
 
 .er-textarea {
@@ -597,6 +660,10 @@
 @media (max-width: 700px) {
   .er-page-head {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .er-ledger--selectable .er-ledger__row {
+    grid-template-columns: 22px 26px minmax(0, 1fr);
   }
 
   .er-page-head__actions {

@@ -57,6 +57,10 @@ describe('ledger inline keyboard interactions', () => {
         searchResults={null}
         searchLoading={false}
         searchQuery=""
+        facets={null}
+        sort="recent"
+        onSortChange={vi.fn()}
+        selection={{ ids: new Set(), toggle: vi.fn(), selectPage: vi.fn(), clear: vi.fn(), actions: null }}
       />,
     )
 

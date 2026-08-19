@@ -4,15 +4,30 @@
  * Display 排版标题 + 精致重索引按钮 + 磨砂展开区块。
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Paper, SearchResult } from '@/types'
-import { listPapers, deletePaper, promoteExpandedPaper, smartSearch, reindexLibrary } from '@/api/papers'
+import {
+  listPapers,
+  deletePaper,
+  promoteExpandedPaper,
+  smartSearch,
+  reindexLibrary,
+  getPaperFacets,
+  type PaperFacets,
+} from '@/api/papers'
+import { listWorkspaces, addPaperToWorkspace, type WorkspaceItem } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { PaperList } from '@/features/library/PaperList'
-import { Tooltip } from '@/ds-entry'
+import { ConfirmDialog, Tooltip } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
+import { loadLibrarySort, saveLibrarySort } from '@/utils/libraryPrefs'
+import { forgetReadingPage } from '@/utils/readerPrefs'
 import '@/styles/library.css'
+
+const DEFAULT_SORT = 'recent'
+/** facets 拿不到时也要有一组可选排序，否则下拉是空的。 */
+const FALLBACK_SORTS = ['recent', 'oldest', 'year_desc', 'year_asc', 'title']
 
 const STATUS_LABEL: Record<string, string> = {
   done:       '已解析',
@@ -101,6 +116,13 @@ export default function LibraryPage() {
   const [expandedTotal, setExpandedTotal] = useState(0)
   const [showExpanded, setShowExpanded] = useState(false)
 
+  const [facets, setFacets] = useState<PaperFacets | null>(null)
+  const [sort, setSort] = useState(() => loadLibrarySort(DEFAULT_SORT, FALLBACK_SORTS))
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
+
   const [reindexing, setReindexing] = useState(false)
   const [reindexNote, setReindexNote] = useState<string | null>(null)
 
@@ -118,13 +140,14 @@ export default function LibraryPage() {
       page,
       per_page: perPage,
       source: 'uploaded',
+      sort,
     })
       .then(res => {
         setPapers(res.papers)
         setTotal(res.total)
       })
       .catch(() => { toast({ type: 'error', message: '加载论文列表失败' }) })
-  }, [category, year, dateAdded, page])
+  }, [category, year, dateAdded, page, sort])
 
   useEffect(() => {
     const q = search.trim()
@@ -142,6 +165,13 @@ export default function LibraryPage() {
       .finally(() => setSearchLoading(false))
   }, [search, category, year, dateAdded, globalSearch, includeExpanded, page])
 
+  /* 筛选值取自全库，所以只在库内容可能变化时重取（增删、入库、重新索引） */
+  const fetchFacets = useCallback(() => {
+    getPaperFacets(includeExpanded ? 'all' : 'uploaded')
+      .then(setFacets)
+      .catch(() => setFacets(null))
+  }, [includeExpanded])
+
   const fetchExpandedPapers = useCallback(() => {
     listPapers({ source: 'expanded', per_page: 100 })
       .then(res => {
@@ -153,6 +183,11 @@ export default function LibraryPage() {
 
   useEffect(() => { fetchPapers() }, [fetchPapers])
   useEffect(() => { fetchExpandedPapers() }, [fetchExpandedPapers])
+  useEffect(() => { fetchFacets() }, [fetchFacets])
+  useEffect(() => {
+    listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
+  }, [])
+  useEffect(() => { saveLibrarySort(sort) }, [sort])
 
   const handleSelect = useCallback((id: number) => {
     navigate(`/reader/${id}`)
@@ -161,14 +196,29 @@ export default function LibraryPage() {
   const handleDelete = useCallback(async (id: number) => {
     try {
       await deletePaper(id)
+      forgetReadingPage(id)
+      // 删除成功此前是静默的，只有列表悄悄少一行；成功也要说一声
+      toast({ type: 'success', message: '已删除该论文' })
+      setSelectedIds(prev => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
       fetchPapers()
+      fetchFacets()
     } catch (e: unknown) {
       toast({ type: 'error', message: e instanceof Error ? e.message : '删除论文失败' })
     }
-  }, [fetchPapers])
+  }, [fetchPapers, fetchFacets])
 
   const handleSearch = useCallback((query: string) => {
     setSearch(query)
+    setPage(1)
+  }, [])
+
+  const handleSortChange = useCallback((next: string) => {
+    setSort(next)
     setPage(1)
   }, [])
 
@@ -187,7 +237,8 @@ export default function LibraryPage() {
     setExpandedPapers(prev => prev.filter(p => p.id !== id))
     setExpandedTotal(prev => prev - 1)
     fetchPapers()
-  }, [fetchPapers])
+    fetchFacets()
+  }, [fetchPapers, fetchFacets])
 
   const handleToggleGlobal = useCallback((v: boolean) => {
     setGlobalSearch(v)
@@ -198,6 +249,99 @@ export default function LibraryPage() {
     setIncludeExpanded(v)
     setPage(1)
   }, [])
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const selectPage = useCallback((ids: number[]) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      ids.forEach(id => next.add(id))
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  /** 批量删除。逐篇独立成败，最后只报一次结果，不逐条弹 toast。 */
+  const handleBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBatchDeleteConfirm(false)
+    setBatchBusy(true)
+    try {
+      const results = await Promise.allSettled(ids.map(id => deletePaper(id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      results.forEach((result, i) => { if (result.status === 'fulfilled') forgetReadingPage(ids[i]) })
+      if (failed === 0) toast({ type: 'success', message: `已删除 ${ids.length} 篇论文` })
+      else toast({ type: 'error', message: `${ids.length - failed} 篇已删除，${failed} 篇失败` })
+      clearSelection()
+      fetchPapers()
+      fetchFacets()
+    } finally {
+      setBatchBusy(false)
+    }
+  }, [selectedIds, clearSelection, fetchPapers, fetchFacets])
+
+  /** 批量加入工作区。已在该工作区里的论文由后端幂等处理，这里只汇总成败。 */
+  const handleBatchAddToWorkspace = useCallback(async (workspaceId: number) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0 || !workspaceId) return
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    setBatchBusy(true)
+    try {
+      const results = await Promise.allSettled(ids.map(id => addPaperToWorkspace(workspaceId, id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      const name = workspace?.name ?? '工作区'
+      if (failed === 0) toast({ type: 'success', message: `已把 ${ids.length} 篇论文加入「${name}」` })
+      else toast({ type: 'error', message: `${ids.length - failed} 篇已加入「${name}」，${failed} 篇失败` })
+      clearSelection()
+    } finally {
+      setBatchBusy(false)
+    }
+  }, [selectedIds, workspaces, clearSelection])
+
+  const selection = useMemo(() => ({
+    ids: selectedIds,
+    toggle: toggleSelect,
+    selectPage,
+    clear: clearSelection,
+    actions: (
+      <>
+        {workspaces.length > 0 && (
+          <select
+            className="er-select er-select--sm"
+            value=""
+            disabled={batchBusy}
+            aria-label="把所选论文加入工作区"
+            onChange={e => {
+              const id = Number(e.target.value)
+              e.target.value = ''
+              if (id) handleBatchAddToWorkspace(id)
+            }}
+          >
+            <option value="">加入工作区…</option>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        )}
+        <button
+          type="button"
+          className="er-btn er-btn--ghost er-btn--destructive er-btn--sm"
+          disabled={batchBusy}
+          aria-busy={batchBusy}
+          onClick={() => setBatchDeleteConfirm(true)}
+        >
+          删除所选
+        </button>
+      </>
+    ),
+  }), [selectedIds, toggleSelect, selectPage, clearSelection, workspaces, batchBusy, handleBatchAddToWorkspace])
 
   const handleReindex = useCallback(async () => {
     if (reindexing) return
@@ -218,6 +362,7 @@ export default function LibraryPage() {
         const res = await listPapers({ source: pollSource, per_page: 200 }).catch(() => null)
         const indexing = res ? res.papers.filter(p => p.index_status === 'indexing').length : 0
         fetchPapers()
+        fetchFacets()
         if (includeExpanded) fetchExpandedPapers()
         const elapsed = Date.now() - started
         if (indexing === 0 && elapsed > 4000) {
@@ -239,7 +384,7 @@ export default function LibraryPage() {
       setReindexNote('重新索引失败，请重试')
       setTimeout(() => setReindexNote(null), 4000)
     }
-  }, [reindexing, fetchPapers, fetchExpandedPapers, includeExpanded])
+  }, [reindexing, fetchPapers, fetchExpandedPapers, fetchFacets, includeExpanded])
 
   const activeCount = searchResults !== null ? searchTotal : total
   const currentPageReadCount = searchResults === null
@@ -309,6 +454,21 @@ export default function LibraryPage() {
         searchResults={searchResults}
         searchLoading={searchLoading}
         searchQuery={search}
+        facets={facets}
+        sort={sort}
+        onSortChange={handleSortChange}
+        selection={selection}
+      />
+
+      <ConfirmDialog
+        open={batchDeleteConfirm}
+        title="批量删除论文"
+        message={`确定删除所选的 ${selectedIds.size} 篇论文？删除后不可恢复。`}
+        variant="danger"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        onConfirm={handleBatchDelete}
+        onCancel={() => setBatchDeleteConfirm(false)}
       />
 
       {/* 深度研究发现区块 —— 折叠面板，展开后在自己的滚动区里列出扩展论文 */}

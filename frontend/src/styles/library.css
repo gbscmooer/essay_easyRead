@@ -175,3 +175,33 @@
     overflow: visible;
   }
 }
+
+
+/* 批量操作条 —— 勾选出现即出现，说明「选了多少」并把批量动作摆在同一行。 */
+.arc-selection {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.arc-selection__count {
+  color: var(--text-secondary);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tr-register);
+}
+
+.arc-selection__count b {
+  margin-right: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-register);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.arc-selection__spacer {
+  flex: 1 1 auto;
+}

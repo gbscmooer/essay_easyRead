@@ -31,7 +31,7 @@ export async function uploadPaperWithProgress(file: File, onProgress?: (pct: num
  * @param params 筛选参数
  * @returns 论文列表和总数
  *
- * GET /api/papers?search=...&venue=...&year=...&page=...&per_page=...
+ * GET /api/papers?search=...&venue=...&year=...&page=...&per_page=...&sort=...
  */
 export async function listPapers(params?: {
   search?: string
@@ -41,6 +41,7 @@ export async function listPapers(params?: {
   page?: number
   per_page?: number
   source?: 'uploaded' | 'expanded' | 'all'
+  sort?: string
 }): Promise<PaperListResponse> {
   const query = new URLSearchParams()
   if (params) {
@@ -52,6 +53,27 @@ export async function listPapers(params?: {
   }
   const qs = query.toString()
   return get<PaperListResponse>(`/papers${qs ? `?${qs}` : ''}`)
+}
+
+
+/** 论文库可用的筛选值与排序方式（全库范围）。 */
+export interface PaperFacets {
+  categories: string[]
+  years: number[]
+  dates: string[]
+  sorts: { value: string; label: string }[]
+}
+
+/**
+ * 获取筛选下拉的可选值
+ *
+ * 筛选器的定义域必须是整个论文库，而不是当前这一页 —— 否则跨页存在的
+ * 方向和年份根本选不到。
+ *
+ * GET /api/papers/facets?source=...
+ */
+export async function getPaperFacets(source: 'uploaded' | 'expanded' | 'all' = 'uploaded'): Promise<PaperFacets> {
+  return get<PaperFacets>(`/papers/facets?source=${source}`)
 }
 
 
