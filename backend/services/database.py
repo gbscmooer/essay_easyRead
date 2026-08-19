@@ -700,6 +700,36 @@ def update_related_papers(session: Session, paper_id: int, related_papers: list[
     session.commit()
 
 
+#: 论文库排序方式 → 说明（前端下拉的唯一真源）
+PAPER_SORTS: dict[str, str] = {
+    "recent": "最近添加",
+    "oldest": "最早添加",
+    "year_desc": "发表年份新→旧",
+    "year_asc": "发表年份旧→新",
+    "title": "标题 A→Z",
+}
+
+
+def _paper_order_by(sort: str) -> list:
+    """把排序名翻译成 order_by 子句。
+
+    年份可能为空（未索引的论文），两个方向都先把空值排到末尾 —— 否则「按年份
+    排序」的第一页会是一整屏没有年份的论文，等于没排。
+    """
+    year_is_null = col(Paper.year).is_(None)
+    title_key = func.lower(func.coalesce(col(Paper.title), col(Paper.filename)))
+
+    if sort == "oldest":
+        return [Paper.created_at.asc()]
+    if sort == "year_desc":
+        return [year_is_null.asc(), Paper.year.desc(), Paper.created_at.desc()]
+    if sort == "year_asc":
+        return [year_is_null.asc(), Paper.year.asc(), Paper.created_at.desc()]
+    if sort == "title":
+        return [title_key.asc()]
+    return [Paper.created_at.desc()]
+
+
 def list_papers(
     session: Session,
     search: str = None,
@@ -709,15 +739,17 @@ def list_papers(
     page: int = 1,
     per_page: int = 20,
     source: str = "uploaded",
+    sort: str = "recent",
 ) -> tuple[list[dict], int]:
     """
-    列出论文，支持筛选和分页。
+    列出论文，支持筛选、排序和分页。
 
     Args:
         category:   按 arXiv 学科方向（如 cs.LG）筛选
         year:       按论文发表年份筛选
         date_added: 按加入论文库的日期筛选（"YYYY-MM-DD"）
         source: "uploaded"（默认，仅用户上传）| "expanded"（深度研究扩展）| "all"（全部）
+        sort:   PAPER_SORTS 中的排序名，未知值回落到 "recent"
     """
     # 显式选择列，排除 full_text（~300K/行）以减少内存和传输开销
     statement = select(
@@ -747,7 +779,7 @@ def list_papers(
     count_statement = select(func.count()).select_from(statement.subquery())
     total = session.exec(count_statement).one()
 
-    statement = statement.order_by(Paper.created_at.desc())
+    statement = statement.order_by(*_paper_order_by(sort))
     statement = statement.offset((page - 1) * per_page).limit(per_page)
 
     rows = session.exec(statement).all()
@@ -776,6 +808,37 @@ def list_papers(
     ]
 
     return result, total
+
+
+def list_paper_facets(session: Session, source: str = "uploaded") -> dict:
+    """
+    列出整个论文库里可用的筛选值（方向 / 年份 / 加入日期）。
+
+    筛选下拉此前是从「当前这一页的 20 条」里推出来的：翻页时选项会跳变，
+    跨页存在的方向和年份根本选不到。筛选器必须以全库为定义域，不是以当前页。
+    """
+    statement = select(Paper.category, Paper.year, Paper.created_at)
+    if source in ("uploaded", "expanded"):
+        statement = statement.where(Paper.source == source)
+
+    categories: set[str] = set()
+    years: set[int] = set()
+    dates: set[str] = set()
+
+    for row in session.exec(statement).all():
+        if row.category:
+            categories.add(row.category)
+        # 过滤脏年份（GROBID 偶尔会解析出 20 / 2 这类残值）
+        if row.year and row.year >= 1900:
+            years.add(row.year)
+        if row.created_at:
+            dates.add(row.created_at.isoformat()[:10] if hasattr(row.created_at, "isoformat") else str(row.created_at)[:10])
+
+    return {
+        "categories": sorted(categories),
+        "years": sorted(years, reverse=True),
+        "dates": sorted(dates, reverse=True),
+    }
 
 
 def delete_paper(session: Session, paper_id: int) -> tuple[str, str | None]:

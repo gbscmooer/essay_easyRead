@@ -8,10 +8,28 @@
  * 所有呈现改由类名承载，组件里不再出现内联 style 与 onMouseEnter 手写 hover。
  */
 
-import { useState, useMemo, memo } from 'react'
+import { useState, useMemo, useEffect, memo, type ReactNode } from 'react'
 import type { Paper, SearchResult } from '@/types'
-import { ConfirmDialog, Tooltip, SkeletonCard } from '@/ds-entry'
+import type { PaperFacets } from '@/api/papers'
+import { ConfirmDialog, Tooltip, SkeletonCard, LoadingSpinner } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
+
+/** 搜索输入停下多久后自动发起检索（毫秒）。 */
+const SEARCH_DEBOUNCE_MS = 350
+
+/**
+ * 多选与批量操作的接口。
+ *
+ * 勾选状态归 LibraryPage（批量操作要发请求、要刷新列表），列表只负责画出来
+ * 并把点击转回去；`actions` 由页面注入，避免把工作区 API 塞进列表组件。
+ */
+export interface PaperSelection {
+  ids: Set<number>
+  toggle: (id: number) => void
+  selectPage: (ids: number[]) => void
+  clear: () => void
+  actions: ReactNode
+}
 
 interface FilterParams {
   category?: string
@@ -58,6 +76,11 @@ interface PaperListProps {
   searchResults: SearchResult[] | null   // null = 浏览模式；非 null = 搜索结果模式
   searchLoading: boolean
   searchQuery: string  // 当前搜索关键词，用于高亮
+  // 全库筛选值与排序
+  facets: PaperFacets | null
+  sort: string
+  onSortChange: (sort: string) => void
+  selection: PaperSelection
 }
 
 /** 高亮搜索关键词。命中段用 <mark>，配色由样式层的赭石高亮统一给。 */
@@ -154,6 +177,10 @@ export const PaperList = memo(function PaperList({
   searchResults,
   searchLoading,
   searchQuery,
+  facets,
+  sort,
+  onSortChange,
+  selection,
 }: PaperListProps) {
   const [searchInput, setSearchInput] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -161,28 +188,41 @@ export const PaperList = memo(function PaperList({
   const [dateFilter, setDateFilter] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
-  // 全部方向：GROBID 提取的 arXiv 学科分类（如 cs.LG）
+  /* 筛选下拉的选项来自全库 facets。后端不可达时才回落到当前页派生 ——
+     那正是老行为：翻一页选项就换一批，跨页的方向和年份根本选不到。 */
   const categories = useMemo(() => {
-    const set = new Set(papers.map(p => p.category).filter(Boolean))
-    return Array.from(set).sort() as string[]
-  }, [papers])
+    if (facets) return facets.categories
+    return Array.from(new Set(papers.map(p => p.category).filter(Boolean))).sort() as string[]
+  }, [facets, papers])
 
-  // 全部年份：仅保留合理年份（过滤脏年份如 20、2）
   const years = useMemo(() => {
+    if (facets) return facets.years
     const set = new Set(papers.map(p => p.year).filter((y): y is number => !!y && y >= 1900))
     return Array.from(set).sort((a, b) => b - a)
-  }, [papers])
+  }, [facets, papers])
 
-  // 全部添加日期：按加入论文库的日期（取 created_at 的日期部分，UTC）
   const dates = useMemo(() => {
-    const set = new Set(papers.map(p => p.created_at.slice(0, 10)).filter(Boolean))
-    return Array.from(set).sort().reverse()
-  }, [papers])
+    if (facets) return facets.dates
+    return Array.from(new Set(papers.map(p => p.created_at.slice(0, 10)).filter(Boolean))).sort().reverse()
+  }, [facets, papers])
 
   const totalPages = Math.ceil(total / perPage)
 
+  /* 输入即搜（停 350ms 后发起）。此前只有敲回车才会搜，输入框里打完字
+     什么也不发生，看起来像坏了。回车仍然可用，只是不再是唯一的出口。 */
+  useEffect(() => {
+    if (searchInput.trim() === searchQuery.trim()) return
+    const timer = setTimeout(() => onSearch(searchInput), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [searchInput, searchQuery, onSearch])
+
   const handleSearch = () => {
     onSearch(searchInput)
+  }
+
+  const clearSearch = () => {
+    setSearchInput('')
+    onSearch('')
   }
 
   const applyFilter = (next: { category?: string; year?: string; date?: string }) => {
@@ -222,9 +262,25 @@ export const PaperList = memo(function PaperList({
             placeholder="智能搜索（标题 / 作者 / 刊物 / 解读内容）"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleSearch()
+              if (e.key === 'Escape' && searchInput) { e.preventDefault(); clearSearch() }
+            }}
             aria-label="搜索论文"
+            data-shortcut-search
           />
+          {searchLoading && <LoadingSpinner size="sm" />}
+          {searchInput && (
+            <button
+              type="button"
+              className="er-search__clear"
+              onClick={clearSearch}
+              aria-label="清除搜索"
+              title="清除搜索（Esc）"
+            >
+              ×
+            </button>
+          )}
         </div>
 
         <Tooltip
@@ -261,6 +317,19 @@ export const PaperList = memo(function PaperList({
 
         <select
           className="er-select"
+          value={sort}
+          onChange={e => onSortChange(e.target.value)}
+          aria-label="排序方式"
+          disabled={searchResults !== null}
+          title={searchResults !== null ? '搜索结果按命中数排序' : '选择排序方式'}
+        >
+          {(facets?.sorts ?? [{ value: 'recent', label: '最近添加' }]).map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+
+        <select
+          className="er-select"
           value={categoryFilter}
           onChange={e => handleFilterCategory(e.target.value)}
           aria-label="按方向筛选"
@@ -289,6 +358,28 @@ export const PaperList = memo(function PaperList({
           {dates.map(d => <option key={d} value={d}>{formatDate(d)}</option>)}
         </select>
       </div>
+
+      {searchResults === null && selection.ids.size > 0 && (
+        <div className="arc-selection" role="status" aria-live="polite">
+          <span className="arc-selection__count"><b>{selection.ids.size}</b> 篇已选</span>
+          <button
+            type="button"
+            className="er-btn er-btn--ghost er-btn--sm"
+            onClick={() => selection.selectPage(papers.map(p => p.id))}
+          >
+            全选本页
+          </button>
+          <button
+            type="button"
+            className="er-btn er-btn--ghost er-btn--sm"
+            onClick={selection.clear}
+          >
+            取消选择
+          </button>
+          <span className="arc-selection__spacer" />
+          {selection.actions}
+        </div>
+      )}
 
       <div className="er-scroll arc-list__scroll">
         {searchResults !== null ? (
@@ -360,7 +451,7 @@ export const PaperList = memo(function PaperList({
             </div>
           </div>
         ) : (
-          <div className="er-ledger">
+          <div className="er-ledger er-ledger--selectable">
             {papers.map((paper, index) => {
               const { text: statusText, tone, icon } = statusLabel(paper.status)
               return (
@@ -373,7 +464,21 @@ export const PaperList = memo(function PaperList({
                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(paper.id) }
                   }}
                   className="er-ledger__row"
+                  data-selected={selection.ids.has(paper.id) || undefined}
                 >
+                  {/* 勾选不算「打开这篇论文」，所以在这里把冒泡断掉 */}
+                  <label
+                    className="er-ledger__check"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selection.ids.has(paper.id)}
+                      onChange={() => selection.toggle(paper.id)}
+                      onKeyDown={stopRowActivation}
+                      aria-label={`选择 ${paper.title || paper.filename}`}
+                    />
+                  </label>
                   <span className="er-ledger__index" aria-hidden="true">
                     {String((page - 1) * perPage + index + 1).padStart(2, '0')}
                   </span>

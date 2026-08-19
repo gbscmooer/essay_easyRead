@@ -9,6 +9,8 @@
  * 调用方不需要处理异常。
  */
 
+import { clamp, isRecord, readJSON, writeJSON } from './storage'
+
 const LAYOUT_KEY = 'essay_reader_layout'
 const ZOOM_KEY = 'essay_reader_zoom'
 const POSITION_KEY = 'essay_reader_positions'
@@ -37,37 +39,12 @@ interface PositionEntry {
 
 type PositionMap = Record<string, PositionEntry>
 
-function readRaw(key: string): unknown {
-  try {
-    const raw = window.localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function writeRaw(key: string, value: unknown): void {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* storage 不可用（隐私模式 / 配额满）时忽略 */
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
 /**
  * 读取面板布局。越界的宽度会被夹回 [min, max] —— 上一版的取值范围可能和
  * 当前版本不同，读回来的数字不能直接信。
  */
 export function loadLayout(fallback: ReaderLayout, min: number, max: number): ReaderLayout {
-  const stored = readRaw(LAYOUT_KEY)
+  const stored = readJSON(LAYOUT_KEY)
   if (!isRecord(stored)) return fallback
   const pct = typeof stored.panelPct === 'number' && Number.isFinite(stored.panelPct)
     ? clamp(stored.panelPct, min, max)
@@ -79,12 +56,12 @@ export function loadLayout(fallback: ReaderLayout, min: number, max: number): Re
 }
 
 export function saveLayout(layout: ReaderLayout): void {
-  writeRaw(LAYOUT_KEY, layout)
+  writeJSON(LAYOUT_KEY, layout)
 }
 
 /** 读取缩放偏好。缩放是跨论文的习惯（视力、屏幕），因此不按论文分开存。 */
 export function loadZoom(fallback: ZoomPref, min: number, max: number): ZoomPref {
-  const stored = readRaw(ZOOM_KEY)
+  const stored = readJSON(ZOOM_KEY)
   if (!isRecord(stored)) return fallback
   const scale = typeof stored.scale === 'number' && Number.isFinite(stored.scale)
     ? clamp(stored.scale, min, max)
@@ -96,11 +73,11 @@ export function loadZoom(fallback: ZoomPref, min: number, max: number): ZoomPref
 }
 
 export function saveZoom(zoom: ZoomPref): void {
-  writeRaw(ZOOM_KEY, zoom)
+  writeJSON(ZOOM_KEY, zoom)
 }
 
 function loadPositions(): PositionMap {
-  const stored = readRaw(POSITION_KEY)
+  const stored = readJSON(POSITION_KEY)
   if (!isRecord(stored)) return {}
   const out: PositionMap = {}
   for (const [key, value] of Object.entries(stored)) {
@@ -135,7 +112,7 @@ export function saveReadingPage(paperId: number, page: number): void {
       .slice(POSITION_LIMIT)
       .forEach(key => { delete positions[key] })
   }
-  writeRaw(POSITION_KEY, positions)
+  writeJSON(POSITION_KEY, positions)
 }
 
 /** 删除论文后清掉它的阅读位置，避免 ID 复用时读到别人的页码。 */
@@ -143,5 +120,5 @@ export function forgetReadingPage(paperId: number): void {
   const positions = loadPositions()
   if (!(String(paperId) in positions)) return
   delete positions[String(paperId)]
-  writeRaw(POSITION_KEY, positions)
+  writeJSON(POSITION_KEY, positions)
 }

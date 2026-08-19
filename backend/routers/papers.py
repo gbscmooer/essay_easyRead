@@ -23,8 +23,10 @@ from ..services.database import (
     get_paper,
     get_engine,
     list_papers,
+    list_paper_facets,
     delete_paper,
     update_paper_status,
+    PAPER_SORTS,
 )
 from ..services.pdf_parser import extract_pdf_content
 from ..utils.streaming import format_analysis_as_markdown
@@ -129,8 +131,9 @@ async def get_papers_list(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     source: str = Query("uploaded", description="uploaded | expanded | all"),
+    sort: str = Query("recent", description=f"排序方式：{' | '.join(PAPER_SORTS)}"),
 ) -> PaperListResponse:
-    """获取论文列表，支持筛选和搜索"""
+    """获取论文列表，支持筛选、排序和搜索"""
     # Validate date_added format
     if date_added and not re.match(r"^\d{4}-\d{2}-\d{2}$", date_added):
         raise HTTPException(status_code=400, detail={"detail": "date_added must be YYYY-MM-DD", "code": "INVALID_FORMAT"})
@@ -140,6 +143,7 @@ async def get_papers_list(
         papers, total = list_papers(
             session, search=search, category=category, year=year,
             date_added=date_added, page=page, per_page=per_page, source=source,
+            sort=sort if sort in PAPER_SORTS else "recent",
         )
 
     # 批量查出有全量精读结果的论文 ID（用于 read_level 判断）
@@ -205,6 +209,22 @@ def _match_content_fields(ar, ql: str) -> list[dict]:
             end = min(len(s), idx + len(ql) + 80)
             out.append({"field": field, "snippet": s[start:end]})
     return out
+
+
+# ============================================================
+# GET /api/papers/facets
+# 论文库可用的筛选值（全库范围，不是当前页）
+# 注意：必须定义在 /{paper_id} 之前，否则 "facets" 会被当成 paper_id → 422
+# ============================================================
+@router.get("/facets")
+async def get_paper_facets(
+    source: str = Query("uploaded", description="uploaded | expanded | all"),
+) -> dict:
+    """返回筛选下拉可选的方向 / 年份 / 加入日期，以及支持的排序方式。"""
+    engine = get_engine()
+    with Session(engine) as session:
+        facets = await asyncio.to_thread(list_paper_facets, session, source)
+    return {**facets, "sorts": [{"value": k, "label": v} for k, v in PAPER_SORTS.items()]}
 
 
 @router.get("/smart-search")
