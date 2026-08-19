@@ -10,6 +10,7 @@ import { PdfViewer } from '@/features/viewer/PdfViewer'
 import type { PdfViewerHandle } from '@/features/viewer/PdfViewer'
 import { AnalysisPanel } from '@/features/analysis/AnalysisPanel'
 import { LoadingSpinner } from '@/ds-entry'
+import { loadLayout, saveLayout, forgetReadingPage, type ReaderLayout } from '@/utils/readerPrefs'
 
 
 const MIN_PANEL_PCT = 20
@@ -29,8 +30,11 @@ export default function ReaderPage() {
   const [papersLoading, setPapersLoading] = useState(true)
   const [activePage, setActivePage] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(true)
-  const [panelPct, setPanelPct] = useState(DEFAULT_PANEL_PCT)
+  // 面板宽度与开合是用户对这台「阅读工位」的调校，不该每次进页面复位
+  const [layout, setLayout] = useState<ReaderLayout>(
+    () => loadLayout({ panelPct: DEFAULT_PANEL_PCT, panelOpen: true }, MIN_PANEL_PCT, MAX_PANEL_PCT),
+  )
+  const { panelPct, panelOpen } = layout
   const [focusMode, setFocusMode] = useState(false)
   const draggingRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -38,6 +42,23 @@ export default function ReaderPage() {
   const onPageChangeNoop = useCallback(() => {}, [])
   const activeTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const [headings, setHeadings] = useState<HeadingPosition[]>([])
+
+  const setPanelPct = useCallback((pct: number) => {
+    setLayout(prev => ({ ...prev, panelPct: Math.min(MAX_PANEL_PCT, Math.max(MIN_PANEL_PCT, pct)) }))
+  }, [])
+
+  const togglePanel = useCallback(() => {
+    setLayout(prev => ({ ...prev, panelOpen: !prev.panelOpen }))
+  }, [])
+
+  const resetPanelWidth = useCallback(() => {
+    setLayout(prev => ({ ...prev, panelPct: DEFAULT_PANEL_PCT }))
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => saveLayout(layout), 300)
+    return () => clearTimeout(timer)
+  }, [layout])
 
   const {
     analysis,
@@ -47,6 +68,8 @@ export default function ReaderPage() {
     relatedStatus,
     partialResult,
     error,
+    connectionLost,
+    reconnect,
     reparse,
     startAnalysis,
   } = useAnalysis(paperId)
@@ -102,6 +125,19 @@ export default function ReaderPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [focusMode])
 
+  /** 分割条的键盘语义：← 加宽面板、→ 收窄、Home 复位。 */
+  const handleResizerKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const STEP = 2
+    if (e.key === 'ArrowLeft') setPanelPct(panelPct + STEP)
+    else if (e.key === 'ArrowRight') setPanelPct(panelPct - STEP)
+    else if (e.key === 'PageUp') setPanelPct(panelPct + STEP * 5)
+    else if (e.key === 'PageDown') setPanelPct(panelPct - STEP * 5)
+    else if (e.key === 'Home' || e.key === 'Enter') resetPanelWidth()
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+  }, [panelPct, setPanelPct, resetPanelWidth])
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     draggingRef.current = true
@@ -121,8 +157,7 @@ export default function ReaderPage() {
       if (!containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
       const x = clientX - rect.left
-      const pct = ((rect.width - x) / rect.width) * 100
-      setPanelPct(Math.min(MAX_PANEL_PCT, Math.max(MIN_PANEL_PCT, pct)))
+      setPanelPct(((rect.width - x) / rect.width) * 100)
     }
     const handleMouseMove = (e: MouseEvent) => { if (draggingRef.current) calcPct(e.clientX) }
     const handleTouchMove = (e: TouchEvent) => { if (draggingRef.current) calcPct(e.touches[0].clientX) }
@@ -143,7 +178,7 @@ export default function ReaderPage() {
       document.removeEventListener('touchmove', handleTouchMove)
       document.removeEventListener('touchend', handleUp)
     }
-  }, [])
+  }, [setPanelPct])
 
   useEffect(() => {
     return () => {
@@ -171,6 +206,7 @@ export default function ReaderPage() {
   const handleDelete = useCallback(async (id: number) => {
     try {
       await deletePaper(id)
+      forgetReadingPage(id)
       setPapers(prev => {
         const remaining = prev.filter(p => p.id !== id)
         if (id === paperId) {
@@ -261,7 +297,7 @@ export default function ReaderPage() {
               </button>
 
               <button
-                onClick={() => setPanelOpen(v => !v)}
+                onClick={togglePanel}
                 aria-label="切换分析面板"
                 aria-expanded={panelOpen}
                 className="focus-glow p-2 transition-all duration-200 hover:bg-[var(--bg-elevated)]"
@@ -298,11 +334,20 @@ export default function ReaderPage() {
       {/* 可拖拽分割条 — 精致 glass 风格 */}
       {panelOpen && !focusMode && (
         <div
+          data-reader-resizer
+          tabIndex={0}
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}
-          className="rdr-resizer shrink-0 cursor-col-resize relative group z-10 flex items-center justify-center"
+          onDoubleClick={resetPanelWidth}
+          onKeyDown={handleResizerKeyDown}
+          className="rdr-resizer focus-glow shrink-0 cursor-col-resize relative group z-10 flex items-center justify-center"
           role="separator"
           aria-orientation="vertical"
+          aria-label="调整分析面板宽度（方向键调节，Home 复位）"
+          aria-valuenow={Math.round(panelPct)}
+          aria-valuemin={MIN_PANEL_PCT}
+          aria-valuemax={MAX_PANEL_PCT}
+          title="拖动调整宽度 · 双击复位"
         >
           <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
           <div
@@ -321,15 +366,38 @@ export default function ReaderPage() {
           {panelOpen && (
             <div className="h-full overflow-auto">
               {error && status === 'failed' ? (
+                /* 连接断了和分析失败是两件事：前者只需重新订阅，后者才要重跑。
+                   把它们混成一个「重试」按钮，等于让一次网络抖动重烧一遍模型调用。 */
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
-                  <p className="text-[13px] text-center" style={{ color: 'var(--error)' }}>{error}</p>
-                  <button
-                    onClick={reparse}
-                    className="focus-glow press px-4 py-2 text-[13px] transition-all duration-200 hover:opacity-90"
-                    style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                  <p
+                    className="text-[13px] text-center"
+                    style={{ color: connectionLost ? 'var(--warning)' : 'var(--error)' }}
                   >
-                    重试
-                  </button>
+                    {error}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {connectionLost && (
+                      <button
+                        onClick={reconnect}
+                        className="focus-glow press px-4 py-2 text-[13px] transition-all duration-200 hover:opacity-90"
+                        style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
+                      >
+                        重新连接
+                      </button>
+                    )}
+                    <button
+                      onClick={reparse}
+                      className="focus-glow press px-4 py-2 text-[13px] transition-all duration-200 hover:opacity-90"
+                      style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    >
+                      {connectionLost ? '重新分析' : '重试'}
+                    </button>
+                  </div>
+                  {connectionLost && (
+                    <p className="text-[11px] text-center max-w-[18rem]" style={{ color: 'var(--text-muted)' }}>
+                      后台分析任务仍在运行，重新连接即可继续接收进度，无需重跑。
+                    </p>
+                  )}
                 </div>
               ) : (
                 <AnalysisPanel

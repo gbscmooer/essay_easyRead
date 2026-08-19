@@ -32,6 +32,10 @@ interface UseAnalysisReturn {
   partialResult: Partial<AnalysisResult>
   /** 错误信息 */
   error: string | null
+  /** true 表示错误来自实时进度连接中断，分析本身仍在后台继续 */
+  connectionLost: boolean
+  /** 重新订阅实时进度（不重跑分析） */
+  reconnect: () => void
   /** 上传并开始解析 */
   uploadAndAnalyze: (file: File) => Promise<void>
   /** 重新解析 */
@@ -62,6 +66,8 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     progressMessage,
     progress,
     relatedStatus,
+    connectionLost,
+    reconnect,
   } = useStreaming(activePaperId, shouldConnect)
 
   // 初始加载：如果传入 initialPaperId，加载论文信息
@@ -193,6 +199,8 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     relatedStatus,
     partialResult,
     error,
+    connectionLost: connectionLost && !localError,
+    reconnect,
     uploadAndAnalyze,
     reparse,
     startAnalysis,
