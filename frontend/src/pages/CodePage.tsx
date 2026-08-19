@@ -20,6 +20,7 @@ export default function CodePage() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<CodeAnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisStage, setAnalysisStage] = useState<string | null>(null)
   const [cloneStatus, setCloneStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -79,18 +80,47 @@ export default function CodePage() {
 
       const eventSource = new EventSource(getCodeAnalysisSSEUrl(paperId))
       eventSourceRef.current = eventSource
-      eventSource.onmessage = () => {}
+      setAnalysisStage('正在启动代码分析…')
+
+      /* 后端一路发着「正在分析文件结构 / AI 正在映射论文与代码」这类阶段消息，
+         此前前端把 onmessage 置空、也没监听 status，几分钟的分析里只有一个转圈。 */
+      eventSource.addEventListener('status', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data)
+          if (data.message) setAnalysisStage(data.message)
+        } catch {
+          // 单条事件解析失败不影响整体进度
+        }
+      })
+
       eventSource.addEventListener('done', () => {
         eventSource.close()
         setIsAnalyzing(false)
+        setAnalysisStage(null)
         getCodeAnalysis(paperId).then(setAnalysis).catch(() => { toast({ type: 'error', message: '加载代码分析失败' }) })
       })
-      eventSource.addEventListener('error', () => { eventSource.close(); setIsAnalyzing(false) })
-      eventSource.onerror = () => { eventSource.close(); setIsAnalyzing(false) }
+
+      /* 同名的 'error' 有两种来源：后端主动发的错误事件（带 data），
+         以及 EventSource 自己的连接错误（无 data）。两者的说法不该一样。 */
+      eventSource.addEventListener('error', (e: MessageEvent) => {
+        eventSource.close()
+        setIsAnalyzing(false)
+        setAnalysisStage(null)
+        let message = '代码分析连接中断，请重试'
+        try {
+          const data = JSON.parse(e.data)
+          if (data.message) message = data.message
+        } catch {
+          // 无 data 即连接错误，沿用默认文案
+        }
+        setError(message)
+        toast({ type: 'error', message })
+      })
     } catch (e) {
       setIsAnalyzing(false)
       setCloneStatus(null)
-      setError('克隆失败，请检查仓库地址是否正确')
+      setAnalysisStage(null)
+      setError(e instanceof Error && e.message ? e.message : '克隆失败，请检查仓库地址是否正确')
     }
   }, [paperId, paper])
 
@@ -199,9 +229,12 @@ export default function CodePage() {
           {isAnalyzing && !cloneStatus && (
             <span className="flex items-center gap-1.5 px-3 py-1 text-[12px] animate-reveal-fade"
               style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-elevated)' }}
+              role="status"
+              aria-live="polite"
+              aria-label="代码分析进度"
               title="AI 正在分析代码结构与论文映射，请稍候…">
               <LoadingSpinner size="xs" />
-              正在分析...
+              {analysisStage ?? '正在分析…'}
             </span>
           )}
         </div>

@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { AnalysisResult, RelatedPaper } from '@/types'
-import { refreshRelatedPapers, importRelatedPapers, exportBibtex } from '@/api/papers'
+import { refreshRelatedPapers, importRelatedPapers, exportBibtex, exportPaper } from '@/api/papers'
 import type { ImportPaperResult } from '@/api/papers'
 import { listWorkspaces } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import type { WorkspaceItem } from '@/api/workspaces'
 import { TagManager } from '../TagManager'
 import { LoadingSpinner } from '@/ds-entry'
+import { downloadText, safeFilename } from '@/utils/download'
 
 const SPRING = 'var(--ease-press)'
 
@@ -22,6 +23,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
   const [relatedPapers, setRelatedPapers] = useState<RelatedPaper[]>(result.related_papers || [])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [bibtexLoading, setBibtexLoading] = useState(false)
+  const [markdownLoading, setMarkdownLoading] = useState(false)
 
   // Import mode state
   const [importMode, setImportMode] = useState(false)
@@ -190,18 +192,42 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
         <div className="flex items-center justify-between gap-3">
           <TagManager paperId={paperId} analysisStatus={analysisStatus} />
           <div className="flex items-center gap-2 shrink-0">
+            {/* 解读全文导出 —— 后端 /export 一直在，只是从来没有入口 */}
+            <button
+              onClick={async () => {
+                setMarkdownLoading(true)
+                try {
+                  const markdown = await exportPaper(paperId)
+                  downloadText(`${safeFilename(result.title)}.md`, markdown, 'text/markdown')
+                } catch (e: unknown) {
+                  toast({ type: 'error', message: e instanceof Error ? e.message : '导出 Markdown 失败' })
+                } finally {
+                  setMarkdownLoading(false)
+                }
+              }}
+              disabled={markdownLoading}
+              aria-busy={markdownLoading}
+              className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 transition-all duration-200 disabled:opacity-50"
+              style={ghostPill}
+              onMouseEnter={onGhostEnter}
+              onMouseLeave={onGhostLeave}
+              title="把这篇论文的解读结果导出为 Markdown"
+            >
+              {markdownLoading
+                ? <LoadingSpinner size="xs" />
+                : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+              Markdown
+            </button>
             <button
               onClick={async () => {
                 setBibtexLoading(true)
                 try {
                   const bib = await exportBibtex(paperId)
-                  const blob = new Blob([bib], { type: 'text/plain' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `${(result.title || 'paper').replace(/[^\w\s-]/g, '').trim() || 'paper'}.bib`
-                  a.click()
-                  URL.revokeObjectURL(url)
+                  downloadText(`${safeFilename(result.title)}.bib`, bib)
                 } catch (e: unknown) {
                   toast({ type: 'error', message: e instanceof Error ? e.message : '导出 BibTeX 失败' })
                 } finally {
@@ -209,15 +235,20 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                 }
               }}
               disabled={bibtexLoading}
+              aria-busy={bibtexLoading}
               className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 transition-all duration-200 disabled:opacity-50"
               style={ghostPill}
               onMouseEnter={onGhostEnter}
               onMouseLeave={onGhostLeave}
-              title="导出 BibTeX"
+              title="导出 BibTeX 引用条目"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              {bibtexLoading
+                ? <LoadingSpinner size="xs" />
+                : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
               BibTeX
             </button>
           </div>

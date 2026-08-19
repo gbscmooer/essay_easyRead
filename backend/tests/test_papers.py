@@ -151,3 +151,81 @@ def test_paper_facets_respect_source(client, session):
 
     every = client.get("/api/papers/facets?source=all").json()
     assert "cs.AI" in every["categories"]
+
+
+# ============================================================
+# 智能搜索
+# ============================================================
+
+def _seed_searchable(session):
+    from backend.models.paper import Paper
+
+    rows = [
+        Paper(
+            file_size=100, filename="attention.pdf", pdf_path="/tmp/a.pdf",
+            title="Attention Is All You Need", authors="Vaswani", venue="NeurIPS",
+            year=2017, source="uploaded",
+            full_text="line one\nthe transformer uses scaled dot-product attention\nline three",
+        ),
+        Paper(
+            file_size=100, filename="resnet.pdf", pdf_path="/tmp/r.pdf",
+            title="Deep Residual Learning", authors="He", venue="CVPR",
+            year=2016, source="uploaded",
+            full_text="residual connections mitigate degradation",
+        ),
+    ]
+    for row in rows:
+        session.add(row)
+    session.commit()
+
+
+def test_smart_search_matches_metadata(client, session):
+    _seed_searchable(session)
+
+    hits = client.get("/api/papers/smart-search?q=vaswani").json()
+    assert hits["total"] == 1
+    assert hits["results"][0]["title"] == "Attention Is All You Need"
+    assert [m["field"] for m in hits["results"][0]["matched_fields"]] == ["authors"]
+
+
+def test_smart_search_skips_fulltext_by_default(client, session):
+    _seed_searchable(session)
+
+    # "degradation" 只出现在正文里；不开全文就不该命中
+    assert client.get("/api/papers/smart-search?q=degradation").json()["total"] == 0
+
+
+def test_smart_search_fulltext_only_hit(client, session):
+    _seed_searchable(session)
+
+    hits = client.get("/api/papers/smart-search?q=degradation&global=true").json()
+    assert hits["total"] == 1
+    matched = hits["results"][0]["matched_fields"]
+    assert [m["field"] for m in matched] == ["fulltext"]
+    assert "degradation" in matched[0]["snippet"]
+    assert matched[0]["line"] == 1
+
+
+def test_smart_search_fulltext_reports_line_number(client, session):
+    _seed_searchable(session)
+
+    hits = client.get("/api/papers/smart-search?q=scaled dot-product&global=true").json()
+    matched = hits["results"][0]["matched_fields"]
+    assert matched[0]["field"] == "fulltext"
+    assert matched[0]["line"] == 2
+
+
+def test_smart_search_combines_metadata_and_fulltext(client, session):
+    _seed_searchable(session)
+
+    hits = client.get("/api/papers/smart-search?q=attention&global=true").json()
+    fields = [m["field"] for m in hits["results"][0]["matched_fields"]]
+    assert fields == ["title", "fulltext"]
+
+
+def test_smart_search_respects_filters_on_fulltext(client, session):
+    _seed_searchable(session)
+
+    # 年份筛选必须同样作用在正文这一路查询上
+    assert client.get("/api/papers/smart-search?q=degradation&global=true&year=2017").json()["total"] == 0
+    assert client.get("/api/papers/smart-search?q=degradation&global=true&year=2016").json()["total"] == 1

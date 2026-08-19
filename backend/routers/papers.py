@@ -247,17 +247,29 @@ async def smart_search(
     results: list[dict] = []
 
     with Session(engine) as session:
-        stmt = select(PaperModel)
+        # 只取匹配元数据需要的列。此前这里是 select(PaperModel)，会把整库的
+        # full_text（约 300KB/行）一并读进内存 —— 而搜索是随输入触发的，
+        # 每停顿一次就重来一遍。正文只在开了「全文」时单独取，且只取命中的行。
+        stmt = select(
+            PaperModel.id, PaperModel.title, PaperModel.filename, PaperModel.authors,
+            PaperModel.venue, PaperModel.year, PaperModel.source,
+        )
         # 默认只搜「加入论文库」（uploaded）；开启后并入联网扩展下载的相关论文（expanded）
+        from sqlalchemy import func as _func
+
+        # 同一套过滤条件要用两次（元数据一次、正文一次），所以先攒起来
+        conditions = []
         if not include_expanded:
-            stmt = stmt.where(PaperModel.source == "uploaded")
+            conditions.append(PaperModel.source == "uploaded")
         if category:
-            stmt = stmt.where(PaperModel.category == category)
+            conditions.append(PaperModel.category == category)
         if year is not None:
-            stmt = stmt.where(PaperModel.year == year)
+            conditions.append(PaperModel.year == year)
         if date_added:
-            from sqlalchemy import func as _func
-            stmt = stmt.where(_func.date(PaperModel.created_at) == date_added)
+            conditions.append(_func.date(PaperModel.created_at) == date_added)
+
+        for condition in conditions:
+            stmt = stmt.where(condition)
         papers = session.exec(stmt).all()
 
         # 预取所有匹配论文的 AnalysisResult（消除 N+1）
@@ -267,6 +279,8 @@ async def smart_search(
             ar_map: dict[int, AR] = {ar.paper_id: ar for ar in ar_rows}
         else:
             ar_map = {}
+
+        matched_by_id: dict[int, list[dict]] = {}
 
         for p in papers:
             matched: list[dict] = []
@@ -293,30 +307,47 @@ async def smart_search(
             except Exception as ex:
                 logger.warning(f"smart_search: paper {p.id} 解读内容匹配异常: {ex}")
 
-            # 全局：正文全文字面匹配
-            if global_ and p.full_text and ql in p.full_text.lower():
-                fl = p.full_text.lower()
-                idx = fl.find(ql)
+            if matched:
+                matched_by_id[p.id] = matched
+
+        # 正文全文：只在开了「全文」时查，且把字面匹配下推到 SQL，
+        # 只有真正命中的行才会把 full_text 传回来（整库正文不进内存）
+        if global_:
+            ft_stmt = select(PaperModel.id, PaperModel.full_text).where(
+                _func.lower(PaperModel.full_text).contains(ql, autoescape=True)
+            )
+            for condition in conditions:
+                ft_stmt = ft_stmt.where(condition)
+
+            for row in session.exec(ft_stmt).all():
+                if not row.full_text:
+                    continue
+                idx = row.full_text.lower().find(ql)
+                if idx < 0:
+                    continue
                 start = max(0, idx - 80)
-                end = min(len(p.full_text), idx + len(ql) + 80)
-                # 计算匹配位置所在行号
-                line_num = p.full_text[:idx].count('\n') + 1
-                matched.append({
+                end = min(len(row.full_text), idx + len(ql) + 80)
+                matched_by_id.setdefault(row.id, []).append({
                     "field": "fulltext",
-                    "snippet": "…" + p.full_text[start:end] + "…",
-                    "line": line_num,
+                    "snippet": "…" + row.full_text[start:end] + "…",
+                    # 匹配位置所在行号
+                    "line": row.full_text[:idx].count("\n") + 1,
                 })
 
-            if matched:
-                results.append({
-                    "paper_id": p.id,
-                    "title": p.title or p.filename,
-                    "authors": p.authors,
-                    "venue": p.venue,
-                    "year": p.year,
-                    "source": p.source,
-                    "matched_fields": matched,
-                })
+        # 按论文顺序产出，保持与筛选查询一致的稳定次序
+        for p in papers:
+            matched = matched_by_id.get(p.id)
+            if not matched:
+                continue
+            results.append({
+                "paper_id": p.id,
+                "title": p.title or p.filename,
+                "authors": p.authors,
+                "venue": p.venue,
+                "year": p.year,
+                "source": p.source,
+                "matched_fields": matched,
+            })
 
     # 命中字段越多越靠前
     results.sort(key=lambda r: len(r["matched_fields"]), reverse=True)
