@@ -56,3 +56,6 @@ ds-bundle/
 .design-sync/node_modules
 frontend/ds-styles.css
 frontend/.ds-preview/
+
+# 软著申请材料的生成产物（用 docs/copyright/tools/ 下的脚本重新生成）
+docs/copyright/build/
