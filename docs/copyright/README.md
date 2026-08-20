@@ -88,6 +88,8 @@ python3 docs/copyright/tools/screenshot_branding.py --restore
 
 脚本会先检查目标文件有无未提交改动，有则拒绝执行。
 
+> **改名的验证状态**：涉及的四个前端文件（`Layout.tsx`、`VersionPopup.tsx`、`HomePage.tsx`、`overlays.test.tsx`）已用 TypeScript 解析器逐个校验，TSX 语法与 `index.html` 标签配对均通过。但本环境未能装完前端依赖，**类型检查与完整构建未验证**，建议截图前先在本地跑一次 `npm run build`。
+
 ## 工具说明
 
 生成脚本零依赖，只用 Python 标准库，`docx_writer.py` 直接构造 OOXML 包，不需要安装 python-docx 或 Word。
