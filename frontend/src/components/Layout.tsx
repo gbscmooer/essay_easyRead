@@ -222,9 +222,9 @@ export function Layout({ children }: LayoutProps) {
         <div className="er-route-wipe" aria-hidden="true"><span /></div>
 
         <header className="er-masthead">
-          <button className="er-brand" type="button" onClick={() => setShowVersion(true)} aria-label="查看 Easy Essay 版本信息">
-            <span className="er-brand__mark" aria-hidden="true">ER</span>
-            <span><strong>EASY ESSAY</strong><small>RESEARCH INTELLIGENCE</small></span>
+          <button className="er-brand" type="button" onClick={() => setShowVersion(true)} aria-label="查看论文精读辅助分析软件版本信息">
+            <span className="er-brand__mark" aria-hidden="true">论</span>
+            <span><strong>论文精读辅助分析软件</strong><small>学术文献精读与分析</small></span>
           </button>
           <div className="er-route-meta">
             <span>{visual.eyebrow}</span>

@@ -145,7 +145,7 @@ export default function HomePage() {
     <div className="origin-home">
       <section className="origin-home__hero" aria-labelledby="origin-home-title">
         <header className="origin-home__registration">
-          <span>ER / ORIGIN</span>
+          <span>论文精读 / 入口</span>
           <span>RESEARCH INTAKE—00</span>
           <span>31.2304° N / 121.4737° E</span>
         </header>

@@ -1,18 +1,14 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.2.0'
+const APP_VERSION = '5.2.1'
 const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
 
 const CURRENT_RELEASE = {
-  date: '2026-08-19',
+  date: '2026-08-20',
   changes: [
-    '论文库支持排序：最近添加 / 最早添加 / 发表年份新旧 / 标题 A→Z，选择会被记住，空年份始终排在末尾',
-    '筛选下拉的方向、年份、日期改为覆盖整个论文库，不再只列出当前这一页里出现过的值',
-    '搜索改为输入即搜（停顿约 0.3 秒自动检索），新增清除按钮与 Esc 清空，检索时显示忙碌指示',
-    '全局「/」快捷键现在也能聚焦论文库的搜索框',
-    '论文库支持多选：批量删除、批量加入工作区，操作结果一次性汇总提示',
-    '删除单篇论文后给出明确反馈，并同步清理该论文的阅读位置记录',
+    '界面统一使用中文软件名「论文精读辅助分析软件」，顶部标识、版本弹窗与浏览器标签页不再显示旧英文名',
+    '首页登记行与顶部品牌标记同步换成中文，去掉旧项目缩写',
   ],
 }
 
@@ -78,11 +74,11 @@ export function VersionPopup({ onClose }: { onClose: () => void }) {
           <img
             className="er-version-mark"
             src="/essay-register.svg"
-            alt="Easy Essay 几何标记"
+            alt="论文精读辅助分析软件几何标记"
           />
           <div className="er-version-identity">
-            <span>ER / RELEASE REGISTER</span>
-            <h2 id="version-title">Easy Essay</h2>
+            <span>版本记录</span>
+            <h2 id="version-title">论文精读辅助分析软件</h2>
           </div>
           <span className="er-version-number">V{APP_VERSION}</span>
           <button className="er-overlay-close" type="button" onClick={onClose} aria-label="关闭版本信息">
