@@ -59,3 +59,6 @@ frontend/.ds-preview/
 
 # 软著申请材料的生成产物（用 docs/copyright/tools/ 下的脚本重新生成）
 docs/copyright/build/
+
+# 软著申请正式材料（含个人信息，已移至仓库外单独存放，严禁入库）
+docs/copyright/软件著作权申请资料/

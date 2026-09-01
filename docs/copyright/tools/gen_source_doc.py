@@ -108,6 +108,80 @@ def is_comment_only(line: str) -> bool:
     return stripped.startswith(("#", "//", "*", "/*", "*/", '"""', "'''"))
 
 
+def strip_py_comments(text: str) -> list[str] | None:
+    """剔除 Python 源码里的注释与 docstring，失败时返回 None 由调用方回退。
+
+    用 tokenize 而不是正则：`url = "http://x#y"` 里的 # 不是注释，
+    正则分不清，tokenize 分得清。docstring 是「独占一条语句的字符串字面量」，
+    对应 STRING 紧跟在 NEWLINE / INDENT / DEDENT / 文件开头之后。
+    """
+    import io
+    import tokenize
+
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+
+    drop: set[int] = set()          # 整行丢弃的行号
+    cut: dict[int, int] = {}        # 行号 → 从第几列起截断（行尾注释）
+    prev_meaningful = tokenize.NEWLINE
+
+    for tok in tokens:
+        if tok.type == tokenize.COMMENT:
+            if not text.splitlines()[tok.start[0] - 1][: tok.start[1]].strip():
+                drop.add(tok.start[0])                    # 整行注释
+            else:
+                cut[tok.start[0]] = min(cut.get(tok.start[0], 10**9), tok.start[1])
+        elif tok.type == tokenize.STRING:
+            # 独占语句的字符串 = docstring
+            if prev_meaningful in (
+                tokenize.NEWLINE, tokenize.NL, tokenize.INDENT,
+                tokenize.DEDENT, tokenize.ENCODING,
+            ):
+                drop.update(range(tok.start[0], tok.end[0] + 1))
+        if tok.type not in (tokenize.COMMENT, tokenize.NL):
+            prev_meaningful = tok.type
+
+    out = []
+    for no, line in enumerate(text.splitlines(), 1):
+        if no in drop:
+            continue
+        if no in cut:
+            line = line[: cut[no]].rstrip()
+            if not line:
+                continue
+        out.append(line)
+    return out
+
+
+def strip_block_comments(lines: list[str]) -> list[str]:
+    """剔除 JS / TS 的整行注释与 /* */ 块注释。
+
+    只处理独占一行的注释，不碰行尾的 `// ...` —— 行尾注释要区分
+    字符串、模板字面量和正则字面量，收益不值这个风险。
+    """
+    out: list[str] = []
+    in_block = False
+    for line in lines:
+        s = line.strip()
+        if in_block:
+            if "*/" in s:
+                in_block = False
+                tail = s.split("*/", 1)[1].strip()
+                if tail:
+                    out.append(tail)
+            continue
+        if s.startswith("/*"):
+            if "*/" not in s:
+                in_block = True
+            continue
+        if s.startswith("//"):
+            continue
+        out.append(line)
+    return out
+
+
 def should_skip(path: Path) -> bool:
     if path.suffix not in SOURCE_SUFFIXES:
         return True
@@ -118,6 +192,33 @@ def should_skip(path: Path) -> bool:
     if path.name.endswith(EXCLUDE_NAME_SUFFIX):
         return True
     return False
+
+
+def collect_from_selection(root: Path, selection: Path) -> list[SourceFile]:
+    """按 skill 的 `代码文件选择.json` 采集，顺序即 JSON 里的顺序。
+
+    该 JSON 由模型挑选并经著作权人确认，顺序决定哪些文件落在前 30 页，
+    这里不再重排。
+    """
+    import json
+
+    data = json.loads(selection.read_text(encoding="utf-8"))
+    collected: list[SourceFile] = []
+    for item in data.get("files", []):
+        if not item.get("selected"):
+            continue
+        path = root / item["path"]
+        if not path.is_file():
+            print(f"  警告：选中的文件不存在，已跳过 {item['path']}", file=sys.stderr)
+            continue
+        collected.append(
+            SourceFile(
+                path=path,
+                rel=item["path"],
+                lines=path.read_text(encoding="utf-8").splitlines(),
+            )
+        )
+    return collected
 
 
 def collect_files(root: Path) -> list[SourceFile]:
@@ -153,12 +254,13 @@ def build_line_stream(
     strip_comments: bool,
     file_banner: bool,
     wrap_width: int,
-) -> tuple[list[str], dict]:
+) -> tuple[list[tuple[str, bool]], dict]:
     """把所有源文件摊平成一条「有效行」流，并顺带统计。
 
-    返回 (行列表, 统计字典)。行已按 wrap_width 折行，可直接分页。
+    返回 ((文本, 是否加粗文件名标题) 列表, 统计字典)。行已按 wrap_width
+    折行，可直接分页；文件名标题单独一行、加粗，与代码正文区分开。
     """
-    stream: list[str] = []
+    stream: list[tuple[str, bool]] = []
     stats = {
         "files": len(files),
         "raw_lines": 0,
@@ -170,8 +272,17 @@ def build_line_stream(
     for source in files:
         stats["raw_lines"] += len(source.lines)
 
+        lines = source.lines
+        if strip_comments:
+            if source.path.suffix == ".py":
+                stripped = strip_py_comments("\n".join(lines))
+                if stripped is not None:
+                    lines = stripped
+            else:
+                lines = strip_block_comments(lines)
+
         kept: list[str] = []
-        for line in source.lines:
+        for line in lines:
             if not line.strip():
                 stats["blank_lines"] += 1
                 continue
@@ -189,30 +300,46 @@ def build_line_stream(
         stats["effective_lines"] += len(kept)
 
         if file_banner:
-            stream.append(f"//// {source.rel}")
+            # 文件名单独成行、加粗，明确标注这是哪个源文件的开始
+            # （对齐软著登记「材料排版对源程序文件之间要有清晰标注」的
+            # 常见范例：如 `index.html:`）
+            for wrapped in wrap_by_width(f"{source.rel}:", wrap_width):
+                stream.append((wrapped, True))
         for line in kept:
             # Tab 在 Word 里宽度不确定，统一展开成 4 空格再折行
-            stream.extend(wrap_by_width(line.expandtabs(4), wrap_width))
+            stream.extend((w, False) for w in wrap_by_width(line.expandtabs(4), wrap_width))
 
     return stream, stats
 
 
-def paginate(stream: list[str], lines_per_page: int) -> list[list[str]]:
+def paginate(
+    stream: list[tuple[str, bool]], lines_per_page: int
+) -> list[list[tuple[str, bool]]]:
     return [
         stream[i : i + lines_per_page]
         for i in range(0, len(stream), lines_per_page)
     ]
 
 
-def select_pages(pages: list[list[str]], head: int, tail: int) -> tuple[list[list[str]], bool]:
+def select_pages(
+    pages: list[list[tuple[str, bool]]], head: int, tail: int
+) -> tuple[list[list[tuple[str, bool]]], bool]:
     """取前 head 页 + 后 tail 页。总页数不足则全部返回。"""
     if len(pages) <= head + tail:
         return pages, False
     return pages[:head] + pages[-tail:], True
 
 
+CODE_FONT_BOLD = Font(
+    ascii=CODE_FONT.ascii,
+    east_asia=CODE_FONT.east_asia,
+    size_pt=CODE_FONT.size_pt,
+    bold=True,
+)
+
+
 def render(
-    pages: list[list[str]],
+    pages: list[list[tuple[str, bool]]],
     header: str,
     lines_per_page: int,
     out_path: Path,
@@ -232,20 +359,15 @@ def render(
     line_twips = max(180, int(usable * 0.92 / lines_per_page))
 
     for page_index, page_lines in enumerate(pages):
-        for line_index, line in enumerate(page_lines):
+        for line_index, (line, is_banner) in enumerate(page_lines):
             doc.add(
                 Paragraph(
                     text=line,
-                    font=CODE_FONT,
+                    font=CODE_FONT_BOLD if is_banner else CODE_FONT,
                     line_twips=line_twips,
                     page_break_before=(page_index > 0 and line_index == 0),
                 )
             )
-        # 末页不足整页时补空行，保持版面整齐
-        if page_index == len(pages) - 1:
-            for _ in range(lines_per_page - len(page_lines)):
-                doc.add(Paragraph(text="", font=CODE_FONT, line_twips=line_twips))
-
     return doc.save(out_path)
 
 
@@ -263,15 +385,32 @@ def main() -> int:
     parser.add_argument("--lines-per-page", type=int, default=50, help="每页行数，登记要求 ≥50")
     parser.add_argument("--head", type=int, default=30, help="取前 N 页")
     parser.add_argument("--tail", type=int, default=30, help="取后 N 页")
-    parser.add_argument("--wrap-width", type=int, default=84, help="折行显示列宽")
+    parser.add_argument(
+        "--wrap-width",
+        type=int,
+        default=81,
+        help="折行显示列宽；默认值使本项目每页恰为 50 个有效显示行",
+    )
     parser.add_argument("--full", action="store_true", help="提交全部代码，不截取前后各 30 页")
-    parser.add_argument("--strip-comments", action="store_true", help="剔除所有纯注释行")
+    parser.add_argument(
+        "--strip-comments",
+        action="store_true",
+        help="剔除注释：Python 走 tokenize，连 docstring 一并去掉；JS/TS 只去整行注释",
+    )
+    parser.add_argument(
+        "--files-from",
+        default=None,
+        help="按 skill 的 代码文件选择.json 抽取，顺序即该文件里的顺序；不给则按 COLLECT_ORDER 全库采集",
+    )
     parser.add_argument("--no-banner", action="store_true", help="不插入文件路径分隔行")
     parser.add_argument("--stats", action="store_true", help="只打印统计，不生成文档")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
-    files = collect_files(root)
+    if args.files_from:
+        files = collect_from_selection(root, Path(args.files_from))
+    else:
+        files = collect_files(root)
     if not files:
         print("未采集到任何源文件，请检查 --root 是否指向项目根目录", file=sys.stderr)
         return 1
@@ -306,6 +445,22 @@ def main() -> int:
 
     head, tail = (len(pages), 0) if args.full else (args.head, args.tail)
     selected, truncated = select_pages(pages, head, tail)
+
+    short_pages = [index + 1 for index, page in enumerate(selected) if len(page) < args.lines_per_page]
+    # 材料的最末页天然是残页——代码不会恰好在页边界结束。登记要求的
+    # 「每页不少于 50 行」约束的是行密度，末页不满属于正常收尾，
+    # 反而正好满足「最后一页应为程序或模块的自然结束处」。
+    if short_pages and short_pages[-1] == len(selected):
+        tail_lines = len(selected[-1])
+        short_pages = short_pages[:-1]
+        print(f"  说明：末页为材料自然结束处，{tail_lines} 行（不足 {args.lines_per_page} 行，属正常收尾）")
+    if short_pages:
+        print(
+            "错误：选中的材料包含不足规定行数的末页；请调整 --wrap-width 后重新生成。",
+            file=sys.stderr,
+        )
+        print(f"不足行数的页：{', '.join(map(str, short_pages))}", file=sys.stderr)
+        return 1
 
     out = Path(args.out) if args.out else root / "docs/copyright/build/源程序.docx"
     header = f"{args.name}  {args.version}"

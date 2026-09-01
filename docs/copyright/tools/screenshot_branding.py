@@ -33,6 +33,23 @@ from pathlib import Path
 VERSION_FILE = "frontend/src/components/VersionPopup.tsx"
 VERSION_PATTERN = re.compile(r"(const APP_VERSION = ')([^']+)(')")
 
+# 版本弹窗里另外两处不该进登记截图的内容，同在这个文件里：
+#   1. 仓库链接——含真实 GitHub 账号，且与「未发表」的登记口径冲突。
+#      置空后组件不渲染该行（VersionPopup 里已做条件渲染）。
+#   2. 更新日志——主线文案写的是「统一中文软件名、去掉旧项目缩写」，
+#      等于在截图里交代软件改过名，换成与登记版本对应的中性描述。
+GITHUB_PATTERN = re.compile(r"(const GITHUB_URL = ')([^']*)(')")
+RELEASE_PATTERN = re.compile(
+    r"const CURRENT_RELEASE = \{.*?\n\}", re.DOTALL
+)
+RELEASE_REPLACEMENT = """const CURRENT_RELEASE = {
+  date: '2026-08-21',
+  changes: [
+    '论文精读辅助分析软件 V1.0 首个登记版本',
+    '含论文解析、论文库管理、代码仓库分析、工作区与深度研究五类功能',
+  ],
+}"""
+
 TARGETS = [VERSION_FILE]
 
 
@@ -57,15 +74,27 @@ def apply_version(root: Path, version: str) -> int:
         return 1
 
     current = match.group(2)
-    path.write_text(VERSION_PATTERN.sub(rf"\g<1>{version}\g<3>", text), encoding="utf-8")
+    text = VERSION_PATTERN.sub(rf"\g<1>{version}\g<3>", text)
 
-    print(f"  ✓ {VERSION_FILE}：{current} → {version}")
+    github = GITHUB_PATTERN.search(text)
+    text = GITHUB_PATTERN.sub(r"\g<1>\g<3>", text)
+    release_hit = RELEASE_PATTERN.search(text)
+    if release_hit:
+        text = RELEASE_PATTERN.sub(lambda _: RELEASE_REPLACEMENT, text, count=1)
+
+    path.write_text(text, encoding="utf-8")
+
+    print(f"  ✓ 版本号：{current} → {version}")
+    if github and github.group(2):
+        print("  ✓ 版本弹窗的仓库链接：已隐藏（含真实 GitHub 账号）")
+    if release_hit:
+        print("  ✓ 版本弹窗的更新日志：已换成登记版本的中性描述")
     print()
-    print("界面上受影响的三处显示：顶部品牌标识副标题、终端面板、版本弹窗")
+    print("界面上受影响的三处版本号显示：顶部品牌标识副标题、终端面板、版本弹窗")
     print()
     print("接下来：")
     print("  1) ./start.sh 启动软件，并准备好测试数据（空列表截图看不出功能）")
-    print("  2) 按 docs/copyright/截图清单.md 的 37 项逐一截图")
+    print("  2) 按 docs/copyright/截图清单.md 的 38 项逐一截图")
     print("  3) 截完执行 --restore 还原")
     return 0
 

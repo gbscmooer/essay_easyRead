@@ -17,6 +17,7 @@ Word 自动断页 —— 自动断页会让「每页不少于 50 行」变成一
 
 from __future__ import annotations
 
+import struct
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,7 +112,7 @@ class Font:
     """一套字体：ascii 走西文字体，eastAsia 走中文字体，size 为磅值。"""
 
     ascii: str = "Times New Roman"
-    east_asia: str = "宋体"
+    east_asia: str = "Songti SC"
     size_pt: float = 10.5
     bold: bool = False
     color: str | None = None
@@ -130,12 +131,26 @@ class Font:
         return "<w:rPr>" + "".join(parts) + "</w:rPr>"
 
 
-CODE_FONT = Font(ascii="Consolas", east_asia="宋体", size_pt=9)
-BODY_FONT = Font(ascii="Times New Roman", east_asia="宋体", size_pt=10.5)
-HEADER_FONT = Font(ascii="Times New Roman", east_asia="宋体", size_pt=9)
+CODE_FONT = Font(ascii="Consolas", east_asia="Songti SC", size_pt=9)
+BODY_FONT = Font(ascii="Times New Roman", east_asia="Songti SC", size_pt=10.5)
+HEADER_FONT = Font(ascii="Times New Roman", east_asia="Songti SC", size_pt=9)
 
 
 # ── 文档块 ──────────────────────────────────────────────────────────────
+@dataclass
+class Raw:
+    """直接写入的 WordprocessingML 片段。
+
+    给 Paragraph 表达不了的结构留的出口——目前只有目录域（TOC field）用到：
+    域要跨多个段落（begin 在首行、end 在末行），且条目需要右对齐点线制表位。
+    """
+
+    xml: str = ""
+
+    def to_xml(self) -> str:
+        return self.xml
+
+
 @dataclass
 class Paragraph:
     text: str = ""
@@ -267,6 +282,84 @@ class Table:
         )
 
 
+def image_info(path: str | Path) -> tuple[int, int, str, str]:
+    """Read PNG/JPEG dimensions and media metadata without Pillow."""
+    raw = Path(path).read_bytes()
+    if raw[:8] == b"\x89PNG\r\n\x1a\n" and raw[12:16] == b"IHDR":
+        width, height = struct.unpack(">II", raw[16:24])
+        return width, height, "png", "image/png"
+    if raw[:2] == b"\xff\xd8":
+        index = 2
+        while index + 9 < len(raw):
+            if raw[index] != 0xFF:
+                index += 1
+                continue
+            while index < len(raw) and raw[index] == 0xFF:
+                index += 1
+            marker = raw[index]
+            index += 1
+            if marker in (0xD8, 0xD9):
+                continue
+            if index + 2 > len(raw):
+                break
+            length = struct.unpack(">H", raw[index : index + 2])[0]
+            if 0xC0 <= marker <= 0xC3 or 0xC5 <= marker <= 0xC7 or 0xC9 <= marker <= 0xCB or 0xCD <= marker <= 0xCF:
+                if index + 7 <= len(raw):
+                    height, width = struct.unpack(">HH", raw[index + 3 : index + 7])
+                    return width, height, "jpg", "image/jpeg"
+            index += max(length, 2)
+    raise ValueError(f"不是受支持的 PNG/JPEG 文件：{path}")
+
+
+@dataclass
+class Image:
+    """An inline PNG image sized to fit the current page content width."""
+
+    path: Path
+    width_twips: int
+    height_twips: int
+    doc_id: int = 1
+    extension: str = "png"
+    content_type: str = "image/png"
+
+    @classmethod
+    def fit_png(cls, path: str | Path, max_width_twips: int, doc_id: int = 1) -> "Image":
+        path = Path(path)
+        width, height, extension, content_type = image_info(path)
+        width_twips = min(max_width_twips, max(1, int(max_width_twips)))
+        height_twips = max(1, int(round(width_twips * height / width)))
+        return cls(
+            path=path,
+            width_twips=width_twips,
+            height_twips=height_twips,
+            doc_id=doc_id,
+            extension=extension,
+            content_type=content_type,
+        )
+
+    def to_xml(self, rel_id: str) -> str:
+        # Word/LibreOffice both understand this compact DrawingML inline image.
+        cx = self.width_twips * 635
+        cy = self.height_twips * 635
+        name = escape(self.path.name)
+        return (
+            '<w:p><w:pPr><w:spacing w:before="80" w:after="80"/></w:pPr>'
+            '<w:r><w:drawing>'
+            f'<wp:inline distT="0" distB="0" distL="0" distR="0">'
+            f'<wp:extent cx="{cx}" cy="{cy}"/>'
+            f'<wp:docPr id="{self.doc_id}" name="{name}"/>'
+            '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            '<pic:pic>'
+            f'<pic:nvPicPr><pic:cNvPr id="0" name="{name}"/><pic:cNvPicPr/></pic:nvPicPr>'
+            f'<pic:blipFill><a:blip r:embed="{rel_id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            '</pic:pic></a:graphicData></a:graphic>'
+            '</wp:inline></w:drawing></w:r></w:p>'
+        )
+
+
 # ── 文档 ────────────────────────────────────────────────────────────────
 class DocxBuilder:
     """把段落/表格攒起来，最后打包成 .docx。"""
@@ -279,14 +372,20 @@ class DocxBuilder:
         margin_cm_left: float = 2.2,
         margin_cm_right: float = 2.2,
         show_page_number: bool = True,
+        page_number_in_footer: bool = False,
+        header_align: str | None = None,
     ) -> None:
         self.header_left = header_left
         self.show_page_number = show_page_number
+        # 《文档鉴别材料模板》把页码放在页脚（"3 of 5"），页眉只留"软件全称 + 版本号 + 使用说明"。
+        # 代码鉴别材料仍按登记指南把页码放在右上角，所以这里做成开关而不是直接改默认行为。
+        self.page_number_in_footer = page_number_in_footer
+        self.header_align = header_align
         self.margin_top = cm(margin_cm_top)
         self.margin_bottom = cm(margin_cm_bottom)
         self.margin_left = cm(margin_cm_left)
         self.margin_right = cm(margin_cm_right)
-        self.blocks: list[Paragraph | Table] = []
+        self.blocks: list[Paragraph | Table | Image | Raw] = []
 
     @property
     def content_width(self) -> int:
@@ -299,7 +398,7 @@ class DocxBuilder:
         return A4_HEIGHT_TWIPS - self.margin_top - self.margin_bottom
 
     # -- 内容 --
-    def add(self, block: Paragraph | Table) -> None:
+    def add(self, block: Paragraph | Table | Image) -> None:
         self.blocks.append(block)
 
     def add_paragraph(self, text: str = "", **kwargs) -> None:
@@ -323,8 +422,30 @@ class DocxBuilder:
 
     # -- 打包 --
     def _header_xml(self) -> str:
+        # 软件名称+版本号居中，页码仍在右上角——用「居中制表位 + 右制表位」
+        # 一行三栏实现，而不是把标题真的左对齐：登记指南只要求页码在右上角，
+        # 标题居中是纯排版偏好，两者不冲突。
         tab_pos = self.content_width
-        runs = [f"<w:r>{HEADER_FONT.rpr()}<w:t>{escape(self.header_left)}</w:t></w:r>"]
+        center_pos = tab_pos // 2
+        if self.page_number_in_footer:
+            jc = f'<w:jc w:val="{self.header_align}"/>' if self.header_align else ""
+            return (
+                _XML_DECL
+                + f'<w:hdr xmlns:w="{_NS_W}" xmlns:r="{_NS_R}">'
+                + "<w:p><w:pPr>"
+                + '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="BFBFBF"/></w:pBdr>'
+                + '<w:spacing w:before="0" w:after="60"/>'
+                + jc
+                + HEADER_FONT.rpr()
+                + "</w:pPr>"
+                + f'<w:r>{HEADER_FONT.rpr()}<w:t xml:space="preserve">{escape(self.header_left)}</w:t></w:r>'
+                + "</w:p></w:hdr>"
+            )
+
+        runs = [
+            f"<w:r>{HEADER_FONT.rpr()}<w:tab/></w:r>",
+            f'<w:r>{HEADER_FONT.rpr()}<w:t xml:space="preserve">{escape(self.header_left)}</w:t></w:r>',
+        ]
         if self.show_page_number:
             runs.append(f"<w:r>{HEADER_FONT.rpr()}<w:tab/></w:r>")
             runs.append(
@@ -340,7 +461,10 @@ class DocxBuilder:
             + "<w:p><w:pPr>"
             # pBdr 必须排在 tabs 之前，见 Paragraph.to_xml 的同类说明
             + '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="BFBFBF"/></w:pBdr>'
-            + f'<w:tabs><w:tab w:val="right" w:pos="{tab_pos}"/></w:tabs>'
+            + (
+                f'<w:tabs><w:tab w:val="center" w:pos="{center_pos}"/>'
+                f'<w:tab w:val="right" w:pos="{tab_pos}"/></w:tabs>'
+            )
             + '<w:spacing w:before="0" w:after="60"/>'
             + HEADER_FONT.rpr()
             + "</w:pPr>"
@@ -348,11 +472,49 @@ class DocxBuilder:
             + "</w:p></w:hdr>"
         )
 
+    def _footer_xml(self) -> str:
+        """页脚："N of M"，右对齐。M 用 NUMPAGES 域，Word 打开时自动补齐。"""
+        f = HEADER_FONT
+
+        def field(name: str, cached: str) -> str:
+            return (
+                f'<w:r>{f.rpr()}<w:fldChar w:fldCharType="begin"/></w:r>'
+                f'<w:r>{f.rpr()}<w:instrText xml:space="preserve"> {name} </w:instrText></w:r>'
+                f'<w:r>{f.rpr()}<w:fldChar w:fldCharType="separate"/></w:r>'
+                f"<w:r>{f.rpr()}<w:t>{cached}</w:t></w:r>"
+                f'<w:r>{f.rpr()}<w:fldChar w:fldCharType="end"/></w:r>'
+            )
+
+        return (
+            _XML_DECL
+            + f'<w:ftr xmlns:w="{_NS_W}" xmlns:r="{_NS_R}">'
+            + "<w:p><w:pPr>"
+            + '<w:spacing w:before="60" w:after="0"/>'
+            + '<w:jc w:val="right"/>'
+            + f.rpr()
+            + "</w:pPr>"
+            + field("PAGE", "1")
+            + f'<w:r>{f.rpr()}<w:t xml:space="preserve"> of </w:t></w:r>'
+            + field("NUMPAGES", "1")
+            + "</w:p></w:ftr>"
+        )
+
     def _document_xml(self) -> str:
-        body = "".join(block.to_xml() for block in self.blocks)
+        body_parts = []
+        image_index = 0
+        for block in self.blocks:
+            if isinstance(block, Image):
+                image_index += 1
+                block.doc_id = image_index
+                body_parts.append(block.to_xml(f"rId{3 + image_index}"))
+            else:
+                body_parts.append(block.to_xml())
+        body = "".join(body_parts)
         sect = (
             "<w:sectPr>"
             '<w:headerReference w:type="default" r:id="rId2"/>'
+            + ('<w:footerReference w:type="default" r:id="rIdFtr"/>' if self.page_number_in_footer else "")
+            +
             f'<w:pgSz w:w="{A4_WIDTH_TWIPS}" w:h="{A4_HEIGHT_TWIPS}"/>'
             f'<w:pgMar w:top="{self.margin_top}" w:right="{self.margin_right}" '
             f'w:bottom="{self.margin_bottom}" w:left="{self.margin_left}" '
@@ -362,7 +524,10 @@ class DocxBuilder:
         )
         return (
             _XML_DECL
-            + f'<w:document xmlns:w="{_NS_W}" xmlns:r="{_NS_R}">'
+            + f'<w:document xmlns:w="{_NS_W}" xmlns:r="{_NS_R}" '
+            'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
             + f"<w:body>{body}{sect}</w:body></w:document>"
         )
 
@@ -375,9 +540,14 @@ class DocxBuilder:
             + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
             '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
             '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Default Extension="png" ContentType="image/png"/>'
+            '<Default Extension="jpg" ContentType="image/jpeg"/>'
+            '<Default Extension="jpeg" ContentType="image/jpeg"/>'
             '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
             '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
             '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>'
+            + ('<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' if self.page_number_in_footer else "")
+            +
             '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>'
             "</Types>"
         )
@@ -387,19 +557,32 @@ class DocxBuilder:
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
             "</Relationships>"
         )
+        image_blocks = [block for block in self.blocks if isinstance(block, Image)]
+        image_rels = "".join(
+            f'<Relationship Id="rId{index + 4}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            f'Target="media/image{index}.{image.extension}"/>'
+            for index, image in enumerate(image_blocks)
+        )
         doc_rels = (
             _XML_DECL
             + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
             '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
             '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>'
-            "</Relationships>"
+            + (
+                '<Relationship Id="rIdFtr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'
+                if self.page_number_in_footer
+                else ""
+            )
+            + image_rels
+            + "</Relationships>"
         )
         styles = (
             _XML_DECL
             + f'<w:styles xmlns:w="{_NS_W}">'
             '<w:docDefaults><w:rPrDefault><w:rPr>'
-            '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/>'
+            '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Songti SC"/>'
             '<w:sz w:val="21"/><w:szCs w:val="21"/>'
             "</w:rPr></w:rPrDefault>"
             '<w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:pPrDefault>'
@@ -425,5 +608,9 @@ class DocxBuilder:
             zf.writestr("word/document.xml", self._document_xml())
             zf.writestr("word/styles.xml", styles)
             zf.writestr("word/header1.xml", self._header_xml())
+            if self.page_number_in_footer:
+                zf.writestr("word/footer1.xml", self._footer_xml())
             zf.writestr("word/settings.xml", settings)
+            for index, image in enumerate(image_blocks):
+                zf.write(image.path, f"word/media/image{index}.{image.extension}")
         return path
