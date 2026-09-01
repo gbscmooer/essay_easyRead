@@ -37,7 +37,7 @@
 
 新增四块，按序做最小可用版本：
 
-0. **数据源列扩展（前置）**：新增 OpenAlex provider（元数据 + `cited_by_count` + `counts_by_year` 逐年引用 + 摘要，热点检测的数据基础）与 Unpaywall provider（DOI → 合法 OA PDF 直链，解决非 arXiv 论文下载不到）；Google Scholar 爬虫（scholarly + 代理）作为可选实验源默认关闭，选型依据与合规边界见 `docs/毕设立项范围定义.md` 四A 节。
+0. **数据源列扩展（前置）**：新增 OpenAlex provider（元数据 + `cited_by_count` + `counts_by_year` 逐年引用 + 摘要 + `referenced_works` 引文边，热点检测的数据基础）与 Unpaywall provider（DOI → 合法 OA PDF 直链，解决非 arXiv 论文下载不到）；实现必须内置**批量 filter（单请求 100 ID）+ select 字段裁剪 + SQLite 元数据缓存 + 令牌桶限速 + 429 指数退避**，OpenAlex 免费key（30 秒注册、10 万 credits/天）作为设置页可选项，匿名模式靠批量也够小规模使用；Google Scholar 爬虫（scholarly + 代理）作为可选实验源默认关闭。选型依据与合规边界见 `docs/毕设立项范围定义.md` 四A 节。
 
 1. **发现式入口（首页改版）**：输入领域关键词或种子论文集 → 引导式「领域全景生成」流程（复用现有 run 流水线 + SSE 进度）；研究图谱页升为一级核心页面，精读降为点击节点的下游动作。
 2. **领域热力图**：年份 × 子方向（社区）的发文密度矩阵，点击格子下钻到论文列表；数据来自图谱节点已有字段（年份、社区划分、术语通道），新增聚合 API + 前端热力图组件。
