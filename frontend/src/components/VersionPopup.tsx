@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.2.1'
-const GITHUB_URL = 'https://github.com/gbscmooer/essay_easyRead'
+const APP_VERSION = '5.2.2'
+const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-08-20',
+  date: '2026-09-01',
   changes: [
-    '界面统一使用中文软件名「论文精读辅助分析软件」，顶部标识、版本弹窗与浏览器标签页不再显示旧英文名',
-    '首页登记行与顶部品牌标记同步换成中文，去掉旧项目缩写',
+    '移除版本弹窗中的外部仓库链接入口，源码标识改为不指向外部站点',
+    '对外请求标识与样式注释统一改为中性名称，不再携带项目链接与个人标识',
   ],
 }
 
@@ -110,11 +110,13 @@ export function VersionPopup({ onClose }: { onClose: () => void }) {
           </ol>
         </div>
 
-        <a className="er-version-source" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
-          <span>SOURCE / GITHUB</span>
-          <strong>查看项目仓库</strong>
-          <i aria-hidden="true">↗</i>
-        </a>
+        {GITHUB_URL && (
+          <a className="er-version-source" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+            <span>SOURCE / GITHUB</span>
+            <strong>查看项目仓库</strong>
+            <i aria-hidden="true">↗</i>
+          </a>
+        )}
       </div>
     </div>
   )
