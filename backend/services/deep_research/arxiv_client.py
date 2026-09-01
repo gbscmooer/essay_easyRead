@@ -20,10 +20,7 @@ logger = logging.getLogger(__name__)
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 ARXIV_PDF_BASE = "https://arxiv.org/pdf/{}.pdf"
-USER_AGENT = (
-    "EasyEssay/1.4 (academic paper reading assistant; "
-    "https://github.com/gbscmooer/essay_easyRead)"
-)
+USER_AGENT = "AcademicPaperReader/1.0 (personal research use)"
 
 _RATE_LIMIT = 3.0  # arXiv ToS: ≥ 3 秒
 _last_req_time: float = 0.0

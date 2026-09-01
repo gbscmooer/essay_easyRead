@@ -15,10 +15,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 CROSSREF_API = "https://api.crossref.org/works"
-USER_AGENT = (
-    "EasyEssay/1.4 (academic paper reading assistant; "
-    "mailto:gbscmooer@github.com)"
-)
+# CrossRef 的 polite pool 靠 User-Agent 里的联系方式识别，填了才有更宽的限速。
+# 这里不写死任何个人账号或邮箱；需要 polite pool 时把自己的 mailto 补进括号内。
+USER_AGENT = "AcademicPaperReader/1.0 (personal research use)"
 
 # 串行限速：CrossRef polite pool ~50 req/s，保守取 1 秒间隔
 _RATE_LIMIT = 1.0
