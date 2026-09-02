@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import type { ResearchMode, ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind } from '@/types'
+import type { ResearchMode, ResearchRunCreate, ResearchGraph, GraphNode, GraphEdgeKind, GraphSynthesis } from '@/types'
 import { ConfirmDialog, LoadingSpinner, Tooltip } from '@/ds-entry'
 import { createRun, getGraph, getLatestRun, clearResearch } from '@/api/research'
 import { get } from '@/api/client'
@@ -9,8 +9,10 @@ import { useResearchStream } from '@/hooks/useResearchStream'
 import { ControlPanel } from '@/features/research/ControlPanel'
 import { ProgressPanel } from '@/features/research/ProgressPanel'
 import { GraphCanvas, type SelectedEdge } from '@/features/research/GraphCanvas'
+import { DomainOverview } from '@/features/research/DomainOverview'
 import { NodeDetail } from '@/features/research/NodeDetail'
 import { EdgeDetail } from '@/features/research/EdgeDetail'
+import { BriefingPanel } from '@/features/research/BriefingPanel'
 import { ResearchSettingsDrawer } from '@/features/research/ResearchSettingsDrawer'
 import { EdgeFilter } from '@/features/research/EdgeFilter'
 import { RagQueryBox } from '@/features/research/RagQueryBox'
@@ -58,6 +60,10 @@ export default function ResearchPage() {
   const [edgeFilter, setEdgeFilter] = useState<Set<GraphEdgeKind>>(new Set(['cites', 'related', 'bibcoupling', 'cocitation']))
   const [linkDistance, setLinkDistance] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
+  const [showBriefing, setShowBriefing] = useState(false)
+  // 领域总览（热力图/战略坐标/卡片）为默认首屏：节点-连线图在骨架密度下信息过载，
+  // 入门者先读聚合视图，需要追溯具体关系时再切图谱
+  const [view, setView] = useState<'overview' | 'graph'>('overview')
   const [graphLoading, setGraphLoading] = useState(true)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const stream = useResearchStream(runId)
@@ -98,6 +104,29 @@ export default function ResearchPage() {
       })
     }
   }, [stream.graph, wsId, runId])
+
+  // synthesis_ready 到达（或 done 回放）：把角色/因果语义合并进图谱节点与连边，
+  // 图上出现角色徽章与因果配色，无需重建图谱。
+  useEffect(() => {
+    const s: GraphSynthesis | null | undefined = stream.synthesis ?? graph?.synthesis ?? null
+    if (!s) return
+    setGraph(prev => {
+      if (!prev) return prev
+      const en = s.enriched_nodes ?? {}
+      const ee = s.enriched_edges ?? {}
+      return {
+        ...prev,
+        nodes: prev.nodes.map(n => (en[n.id] ? { ...n, semantic: en[n.id] } : n)),
+        edges: prev.edges.map(e => {
+          const key = `${e.source}>${e.target}`
+          return ee[key] ? { ...e, semantic: ee[key] } : e
+        }),
+        synthesis: s,
+      }
+    })
+    // graph 故意不进依赖：只随 synthesis 事件合并一次，避免循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream.synthesis])
 
   const onStart = async (body: ResearchRunCreate) => {
     try {
@@ -154,7 +183,29 @@ export default function ResearchPage() {
       <div className="rs-planes flex-1">
         <div className="rs-graph">
           <div className="rs-graph__bar">
-            <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="rs-viewtoggle" role="tablist" aria-label="视图切换">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={view === 'overview'}
+                  className={view === 'overview' ? 'is-active' : ''}
+                  onClick={() => setView('overview')}
+                >
+                  📊 总览
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={view === 'graph'}
+                  className={view === 'graph' ? 'is-active' : ''}
+                  onClick={() => setView('graph')}
+                >
+                  🕸️ 图谱
+                </button>
+              </div>
+              {view === 'graph' && <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />}
+            </div>
             <div className="flex items-center gap-2.5">
               {graph && (
                 <Tooltip content={graphQualityHint(graph)}>
@@ -164,6 +215,16 @@ export default function ResearchPage() {
                     {graph.stats?.clusters != null && ` · ${graph.stats.clusters} 子方向`}
                   </span>
                 </Tooltip>
+              )}
+              {(graph?.synthesis || stream.synthesis) && (
+                <button
+                  type="button"
+                  onClick={() => setShowBriefing(true)}
+                  className="er-btn er-btn--secondary er-btn--sm"
+                  title="3 分钟读懂领域全局：演进时间轴 / 技术流派 / 热点与公开挑战"
+                >
+                  📜 领域全景
+                </button>
               )}
               <button
                 type="button"
@@ -178,6 +239,17 @@ export default function ResearchPage() {
             <div className="flex-1 flex items-center justify-center">
               <LoadingSpinner size="lg" />
             </div>
+          ) : view === 'overview' ? (
+            <DomainOverview
+              graph={graph}
+              synthesis={stream.synthesis ?? graph?.synthesis ?? null}
+              onSelectNode={(n) => { setSelectedNode(n); if (n) setSelectedEdge(null) }}
+              onViewInGraph={(nodeId) => {
+                setView('graph')
+                const n = graph?.nodes.find(x => x.id === nodeId)
+                if (n) { setSelectedNode(n); setSelectedEdge(null) }
+              }}
+            />
           ) : (
             <GraphCanvas
               graph={graph}
@@ -198,6 +270,19 @@ export default function ResearchPage() {
       <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
       <EdgeDetail edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
       <ResearchSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
+      <BriefingPanel
+        open={showBriefing}
+        onClose={() => setShowBriefing(false)}
+        graph={graph}
+        synthesis={stream.synthesis}
+        onSelectNode={(nodeId) => {
+          const n = graph?.nodes.find(x => x.id === nodeId) ?? null
+          if (n) {
+            setShowBriefing(false)
+            setSelectedNode(n)
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={showClearConfirm}

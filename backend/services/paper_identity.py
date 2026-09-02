@@ -338,6 +338,9 @@ class PaperWork:
     level: int = 1
     parent_paper_id: int | None = None
     filename: str | None = None
+    # 召回时带回的摘要/被引数（领域认知 synthesize 的输入语料）
+    abstract: str | None = None
+    citation_count: int | None = None
 
 
 @dataclass
@@ -374,6 +377,8 @@ def normalize_work(work: PaperWork) -> PaperWork:
         level=work.level,
         parent_paper_id=work.parent_paper_id,
         filename=work.filename,
+        abstract=(work.abstract or "").strip() or None,
+        citation_count=work.citation_count,
     )
 
 
@@ -471,6 +476,13 @@ def apply_identity_to_paper(paper: Paper, work: PaperWork) -> None:
         paper.s2_id = work.s2_id
     if work.external_id and not paper.external_id:
         paper.external_id = work.external_id
+
+    # 摘要仅填空；被引数取更大值（多源召回时保留最新鲜的计数）
+    if work.abstract and not paper.abstract:
+        paper.abstract = work.abstract
+    if work.citation_count is not None:
+        if paper.citation_count is None or work.citation_count > paper.citation_count:
+            paper.citation_count = work.citation_count
 
     if work.title:
         tn = normalize_title(work.title)

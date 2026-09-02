@@ -58,6 +58,10 @@ class RecallCandidate(BaseModel):
     citation_count: int | None = None
 
     provenance: list[str] = Field(default_factory=list)
+    # 指标富化用的元数据透传（venue 身份 / counts_by_year / keywords 等）：
+    # 各 provider 把自家特有的统计字段塞这里，探索侧 _dedupe_candidates 展平进论文 dict；
+    # 深度研究扩展流水线不读它，保持零影响
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 def format_authors(names: list[str], *, max_shown: int = 3) -> str | None:
@@ -89,6 +93,7 @@ def build_recall_candidate(
     is_open_access: bool | None = None,
     citation_count: int | None = None,
     provenance: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> RecallCandidate | None:
     """从规范化字段构建 RecallCandidate；无 title 时返回 None。"""
     title = (title or "").strip()
@@ -127,6 +132,7 @@ def build_recall_candidate(
         is_open_access=is_open_access,
         citation_count=citation_count,
         provenance=list(provenance or []),
+        extra=dict(extra or {}),
     )
 
 

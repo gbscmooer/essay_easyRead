@@ -189,6 +189,7 @@ from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
 from ..models.research import ResearchRun, ResearchGraph, PaperReference
+from ..models.exploration import ExplorationRun
 from ..models.tag import Tag, PaperTag
 from ..models.note import Note
 from ..models.annotation import Annotation
@@ -279,6 +280,9 @@ def _migrate_schema(engine) -> None:
             ("download_status", "TEXT DEFAULT 'none'"),
             ("match_confidence", "REAL"),
             ("source_ids", "JSON"),
+            # 领域认知铺垫：召回时的摘要与被引数（synthesize 阶段的 LLM 输入）
+            ("abstract", "TEXT"),
+            ("citation_count", "INTEGER"),
         ]
         for col_name, col_def in paper_migrations:
             _validate_column_name(col_name)
@@ -449,6 +453,20 @@ def _migrate_schema(engine) -> None:
             logger.info("Migration: ensured paper_references indexes")
         except Exception as e:
             logger.warning(f"Migration failed for paper_references indexes: {e}")
+
+        # research_graphs 表迁移：领域认知 synthesize 结果（简报/流派/语义标注）
+        try:
+            result = conn.exec_driver_sql("PRAGMA table_info(research_graphs)")
+            existing_rg_cols = {row[1] for row in result.fetchall()}
+        except Exception:
+            existing_rg_cols = set()
+        if "synthesis" not in existing_rg_cols:
+            try:
+                conn.exec_driver_sql("ALTER TABLE research_graphs ADD COLUMN synthesis JSON")
+                conn.commit()
+                logger.info("Migration: added column synthesis to research_graphs")
+            except Exception as e:
+                logger.warning(f"Migration failed for research_graphs.synthesis: {e}")
 
 
 def init_db(database_url: str) -> None:

@@ -180,6 +180,23 @@ class Settings(BaseSettings):
     # Deep Research
     chroma_dir: str = "./data/chroma"  # ChromaDB 持久化目录
 
+    # Academic & Paper Download
+    elsevier_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices(
+            "ELSEVIER_API_KEY",
+            "SCOPUS_API_KEY",
+        ),
+    )
+    research_email: str = Field(
+        "",
+        validation_alias=AliasChoices(
+            "RESEARCH_EMAIL",
+            "OPENALEX_EMAIL",
+            "UNPAYWALL_EMAIL",
+        ),
+    )
+
     # Research Agent Harness（默认离线/确定性；显式开启后 parse_goal 使用一次 LLM）
     research_agent_planner_enabled: bool = False
     research_agent_planner_max_tokens: int = 320

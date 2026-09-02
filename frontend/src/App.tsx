@@ -13,6 +13,7 @@
  *   /code/:id               → CodePage（代码分析）
  *   /library                → LibraryPage（论文库）
  *   /settings               → SettingsPage（设置）
+ *   /explore                → ExplorePage（领域探索：问句驱动免读领域认知，见 GOAL.md）
  *   /workspace[/:id]        → 工作区列表 / 详情
  *   /workspace/:id/research → ResearchPage（深度研究）
  *   *                       → NotFoundPage（404）
@@ -30,6 +31,7 @@ const ReaderPage = React.lazy(() => import('@/pages/ReaderPage'))
 const CodePage = React.lazy(() => import('@/pages/CodePage'))
 const LibraryPage = React.lazy(() => import('@/pages/LibraryPage'))
 const SettingsPage = React.lazy(() => import('@/pages/SettingsPage'))
+const ExplorePage = React.lazy(() => import('@/pages/ExplorePage'))
 const WorkspacePage = React.lazy(() => import('@/pages/WorkspacePage'))
 const WorkspaceDetailPage = React.lazy(() => import('@/pages/WorkspaceDetailPage'))
 const ResearchPage = React.lazy(() => import('@/pages/ResearchPage'))
@@ -75,6 +77,7 @@ export const router = createBrowserRouter(
         { path: '/code/:id', element: <PageErrorBoundary pageName="代码分析"><CodePage /></PageErrorBoundary> },
         { path: '/library', element: <PageErrorBoundary pageName="论文库"><LibraryPage /></PageErrorBoundary> },
         { path: '/settings', element: <PageErrorBoundary pageName="设置"><SettingsPage /></PageErrorBoundary> },
+        { path: '/explore', element: <PageErrorBoundary pageName="领域探索"><ExplorePage /></PageErrorBoundary> },
         { path: '/workspace', element: <PageErrorBoundary pageName="工作区"><WorkspacePage /></PageErrorBoundary> },
         { path: '/workspace/:id', element: <PageErrorBoundary pageName="工作区详情"><WorkspaceDetailPage /></PageErrorBoundary> },
         { path: '/workspace/:id/research', element: <PageErrorBoundary pageName="深度研究"><ResearchPage /></PageErrorBoundary> },

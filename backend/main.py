@@ -37,6 +37,7 @@ from .routers.analysis import router as analysis_router
 from .routers.code import router as code_router
 from .routers.workspaces import router as workspaces_router
 from .routers.research import router as research_router
+from .routers.exploration import router as exploration_router
 from .routers.tags import router as tags_router
 from .routers.notes import router as notes_router
 from .routers.annotations import router as annotations_router
@@ -207,6 +208,7 @@ app.include_router(analysis_router)
 app.include_router(code_router)
 app.include_router(workspaces_router)
 app.include_router(research_router)
+app.include_router(exploration_router)
 app.include_router(tags_router)
 app.include_router(notes_router)
 app.include_router(annotations_router)

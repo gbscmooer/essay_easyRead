@@ -422,7 +422,40 @@ class ResearchGraphResponse(BaseModel):
     nodes: list[dict]
     edges: list[dict]
     stats: dict
+    # 领域认知综合产物（GraphSynthesis 结构）；旧图谱 / 未开启时为 None
+    synthesis: Optional[dict] = None
     updated_at: datetime
+
+
+class ExplorationRunCreate(BaseModel):
+    """创建领域探索任务的请求体（问句驱动，见 GOAL.md）"""
+    question: str = Field(..., min_length=2, max_length=500)
+    depth: str = Field("standard", pattern=r"^(quick|standard|deep)$")
+
+
+class ExplorationRunResponse(BaseModel):
+    """领域探索任务的完整响应（含产物）"""
+    id: int
+    question: str
+    depth: str
+    status: str
+    current_stage: Optional[str] = None
+    error_message: Optional[str] = None
+    provider: str = ""
+    decompose: Optional[dict] = None
+    result: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExplorationRunSummary(BaseModel):
+    """领域探索历史列表的轻量条目（不带 result 大字段）"""
+    id: int
+    question: str
+    depth: str
+    status: str
+    provider: str = ""
+    created_at: datetime
 
 
 class RagQueryRequest(BaseModel):

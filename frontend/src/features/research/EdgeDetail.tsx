@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { SelectedEdge } from './GraphCanvas'
-import { CHANNEL_INK, INTENT_INK, inkWash } from '@/theme/graphPalette'
+import { CHANNEL_INK, INTENT_INK, RELATION_INK, inkWash } from '@/theme/graphPalette'
 
 // 八个通道与 graphkit/relatedness.py 一一对应；配色取自 theme/graphPalette 的
 // 油墨分类色，不再在这里另写一套十六进制。
@@ -14,6 +14,15 @@ const KIND_LABEL: Record<string, string> = {
   cocitation: '共引',
   'shared-method': '共享方法（已弃用）',
   'uses-dataset': '使用数据集',
+}
+
+// 引用因果（stage_synthesize 连边研判）：code → 中文标签 + 配色
+const RELATION_META: Record<string, { label: string; color: string; bg: string }> = {
+  improves:    { label: '➡️ 改进继承', color: RELATION_INK.improves, bg: inkWash(RELATION_INK.improves) },
+  replaces:    { label: '⚔️ 范式替代', color: RELATION_INK.replaces, bg: inkWash(RELATION_INK.replaces) },
+  evaluates_on:{ label: '📏 基准评测', color: RELATION_INK.evaluates_on, bg: inkWash(RELATION_INK.evaluates_on) },
+  inspires:    { label: '🔗 跨界借鉴', color: RELATION_INK.inspires, bg: inkWash(RELATION_INK.inspires) },
+  cites:       { label: '普通引用', color: 'var(--text-muted)', bg: 'var(--bg-elevated)' },
 }
 
 // 引用意图：后端启发式分类的稳定 code → 中文标签 + 配色
@@ -67,6 +76,21 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
           <div className="text-center text-[11px]" style={{ color: 'var(--text-muted)' }}>⟶ {KIND_LABEL[edge.kind] ?? edge.kind}</div>
           <p className="text-[13px] font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{edge.targetLabel}</p>
         </div>
+
+        {/* 引用因果研判（仅 cites 边；related 无向边不猜因果） */}
+        {edge.kind === 'cites' && edge.semantic && edge.semantic.relation_type !== 'cites' && (
+          <div className="p-3 space-y-1.5" style={{ backgroundColor: RELATION_META[edge.semantic.relation_type]?.bg ?? 'var(--bg-elevated)' }}>
+            <span className="er-tag" style={{ '--tag-accent': RELATION_META[edge.semantic.relation_type]?.color } as CSSProperties}>
+              {RELATION_META[edge.semantic.relation_type]?.label ?? edge.semantic.relation_type}
+            </span>
+            {edge.semantic.relation_summary && (
+              <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                {edge.semantic.relation_summary}
+              </p>
+            )}
+            <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>AI 因果研判 · 点击图中连线可复核引用原文</p>
+          </div>
+        )}
 
         {/* 引用上下文 */}
         {contexts.length > 0 && (

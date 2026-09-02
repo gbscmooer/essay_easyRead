@@ -171,6 +171,8 @@ async def stream_run(run_id: int) -> StreamingResponse:
                 if g:
                     yield format_sse(StreamEvent(event="graph_ready",
                         data={"nodes": g.nodes, "edges": g.edges, "stats": g.stats}))
+                    if g.synthesis:
+                        yield format_sse(StreamEvent(event="synthesis_ready", data=g.synthesis))
                 yield format_sse(StreamEvent(event="done",
                     data={"run_id": run_id,
                           "node_count": run_node_count,
@@ -211,7 +213,8 @@ async def get_graph(ws_id: int) -> ResearchGraphResponse:
             raise HTTPException(404, detail={"detail": "尚未构建图谱", "code": "NOT_FOUND"})
         return ResearchGraphResponse(
             workspace_id=g.workspace_id, run_id=g.run_id,
-            nodes=g.nodes, edges=g.edges, stats=g.stats, updated_at=g.updated_at,
+            nodes=g.nodes, edges=g.edges, stats=g.stats, synthesis=g.synthesis,
+            updated_at=g.updated_at,
         )
 
 

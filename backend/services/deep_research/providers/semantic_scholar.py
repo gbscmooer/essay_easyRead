@@ -66,7 +66,8 @@ class SemanticScholarProvider:
             seed_relation="recommended",
         )
 
-    async def search_works(self, query: str, limit: int = 20) -> list[RecallCandidate]:
+    async def search_works(self, query: str, limit: int = 20, **kwargs) -> list[RecallCandidate]:
+        # kwargs 兼容 FailoverProvider 的透传（如 academic_only；S2 暂不支持类型过滤）
         try:
             raw = await _s2_search(query, limit=limit)
         except Exception:

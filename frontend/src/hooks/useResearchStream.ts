@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { GraphNode, GraphEdge, ResearchStage, ResearchStatus, RecallChannelStats } from '@/types'
+import type { GraphNode, GraphEdge, ResearchStage, ResearchStatus, RecallChannelStats, GraphSynthesis } from '@/types'
 
 interface PaperAdded { paper_id: number; title: string; source_paper_id: number; total_expanded: number }
 interface EmbedProgress { done: number; total: number }
@@ -17,6 +17,7 @@ export function useResearchStream(runId: number | null) {
   const [papersAdded, setPapersAdded] = useState<PaperAdded[]>([])
   const [embed, setEmbed] = useState<EmbedProgress>(EMPTY_EMBED)
   const [graph, setGraph] = useState<GraphReady | null>(null)
+  const [synthesis, setSynthesis] = useState<GraphSynthesis | null>(null)
   const [recallStats, setRecallStats] = useState<RecallChannelStats[]>(EMPTY_RECALL)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -33,6 +34,7 @@ export function useResearchStream(runId: number | null) {
     setPapersAdded([])
     setEmbed(EMPTY_EMBED)
     setGraph(null)
+    setSynthesis(null)
     setRecallStats(EMPTY_RECALL)
     setError(null)
 
@@ -105,6 +107,10 @@ export function useResearchStream(runId: number | null) {
       if (shouldIgnore()) return
       try { setGraph(JSON.parse(e.data) as GraphReady) } catch { /* noop */ }
     })
+    es.addEventListener('synthesis_ready', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try { setSynthesis(JSON.parse(e.data) as GraphSynthesis) } catch { /* noop */ }
+    })
     es.addEventListener('done', () => { if (!shouldIgnore()) setStatus('done'); es.close() })
     es.addEventListener('error', (e: MessageEvent) => {
       if (shouldIgnore()) return
@@ -125,6 +131,7 @@ export function useResearchStream(runId: number | null) {
     papersAdded: isCurrentRun ? papersAdded : EMPTY_PAPERS,
     embed: isCurrentRun ? embed : EMPTY_EMBED,
     graph: isCurrentRun ? graph : null,
+    synthesis: isCurrentRun ? synthesis : null,
     recallStats: isCurrentRun ? recallStats : EMPTY_RECALL,
     error: isCurrentRun ? error : null,
   }

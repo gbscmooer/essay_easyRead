@@ -44,6 +44,7 @@ def engine(test_db_url):
     from backend.models.analysis import AnalysisResult
     from backend.models.code_analysis import CodeAnalysis
     from backend.models.research import ResearchRun, ResearchGraph, PaperReference
+    from backend.models.exploration import ExplorationRun
     from backend.models.workspace import Workspace, WorkspacePaper
     from backend.models.tag import Tag, PaperTag
     from backend.models.note import Note
