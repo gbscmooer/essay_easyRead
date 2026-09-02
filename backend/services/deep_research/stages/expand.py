@@ -93,6 +93,8 @@ def _fused_to_work(fused: FusedCandidate, parent: Paper, next_level: int) -> Pap
         level=next_level,
         parent_paper_id=parent.id,
         filename=f"{(c.title or 'untitled')[:60]}.pdf",
+        abstract=c.abstract,
+        citation_count=c.citation_count,
     )
 
 
@@ -211,6 +213,8 @@ def _legacy_ref_to_work(ref: dict, parent: Paper, next_level: int) -> PaperWork:
         level=next_level,
         parent_paper_id=parent.id,
         filename=f"{(ref.get('title') or 'untitled')[:60]}.pdf",
+        abstract=ref.get("abstract"),
+        citation_count=ref.get("citation_count"),
     )
 
 

@@ -252,7 +252,9 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         <label className="block text-xs mb-2" style={LABEL}>Provider</label>
         <div className="flex gap-2 flex-wrap">
           {([
-            { key: 'openalex' as const, label: 'OpenAlex（推荐）' },
+            { key: 'auto' as const, label: '自动（Scopus 首选，失败回退 OpenAlex）' },
+            { key: 'scopus' as const, label: 'Scopus（Elsevier）' },
+            { key: 'openalex' as const, label: 'OpenAlex' },
             { key: 'semantic_scholar' as const, label: 'Semantic Scholar' },
             { key: 'local' as const, label: '本地（不联网）' },
           ]).map(p => (
@@ -268,7 +270,36 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
             </PillButton>
           ))}
         </div>
+        <p className="text-[10px] mt-1.5" style={LABEL}>
+          自动 = 有 Elsevier API Key 时无条件 Scopus 首选（元数据质量与全学科覆盖优于免费源，
+          自适应限速：成功加速 / 429 降速 + 并行检索）；无 Key 直接 OpenAlex——Scopus Search
+          只认 Key，校园网机构 IP 不放行检索 API。鉴权 / 配额不可用自动熔断回退，检索不中断。
+        </p>
       </div>
+
+      {(config.research.provider === 'auto' || config.research.provider === 'scopus') && (
+        <div>
+          <label className="block text-xs mb-1" style={LABEL}>
+            Elsevier API Key（Scopus 检索必填）
+          </label>
+          <input
+            type="password"
+            value={config.research.elsevier_api_key ?? ''}
+            onChange={e => setConfig(prev => ({
+              ...prev,
+              research: { ...prev.research, elsevier_api_key: e.target.value },
+            }))}
+            placeholder="在 dev.elsevier.com 用山大邮箱免费申请"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors font-mono"
+            style={INPUT}
+          />
+          <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-disabled)' }}>
+            优先级：此处填写 &gt; 环境变量 ELSEVIER_API_KEY。Scopus Search 只认 Key——校园网机构 IP
+            不放行检索 API（实测 401），但校园 IP + 有效 Key 可享机构配额档；ScienceDirect 全文下载通道
+            则认校园 IP（无需 Key）。Key 失效时自动熔断回退 OpenAlex，检索不中断。
+          </p>
+        </div>
+      )}
 
       {config.research.provider === 'openalex' && (
         <div>
@@ -330,7 +361,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         </p>
       )}
 
-      <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+      <div className="pt-3 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
         <label className="flex items-start gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -345,6 +376,25 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
             <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
               开启后，每次深度研究在构建图谱前会对未精读的论文做一次轻量速读（只抽研究目的/方法/数据集/基线 + 简短总结），
               让它们也获得可解释的图谱关系。会消耗少量 LLM Token（约为全量精读的 1/5~1/10）。关闭则只能手动点「速读未解读论文」。
+            </p>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={config.research.synthesize?.enabled ?? true}
+            onChange={e => setConfig(prev => ({ ...prev, research: { ...prev.research, synthesize: { enabled: e.target.checked } } }))}
+            className="mt-0.5 accent-[var(--accent)]"
+          />
+          <span>
+            <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+              图谱后自动「领域认知综合」
+            </span>
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              开启后，构建图谱会追加一个综合阶段：为骨干论文判定学术角色（奠基/黑马/基准/工具/综述）、
+              为引用边标注因果关系（改进/替代/评测/借鉴）、归纳技术流派，并生成「📜 领域全景透视」简报 ——
+              不读单篇论文即可掌握领域全局。消耗 LLM Token 约为数次批量调用。
             </p>
           </span>
         </label>

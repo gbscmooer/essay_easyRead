@@ -362,7 +362,16 @@ async def _complete_once(client, use_openai: bool, model: str, system: str, user
             model=model, max_tokens=max_tokens, temperature=temperature,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         )
-        return (resp.choices[0].message.content or "") if resp.choices else ""
+        if not resp.choices:
+            return ""
+        msg = resp.choices[0].message
+        content = msg.content or ""
+        if not content.strip():
+            # 推理型模型（如 deepseek-reasoner 系）偶尔把产出放在 reasoning_content、
+            # content 留空——或 reasoning 耗尽 max_tokens 导致 content 被截没。回退取
+            # reasoning_content，让下游的 JSON 提取/修复去里面捞结构化产物。
+            content = getattr(msg, "reasoning_content", "") or ""
+        return content
     resp = await client.messages.create(
         model=model, max_tokens=max_tokens, temperature=temperature,
         system=system, messages=[{"role": "user", "content": user}],

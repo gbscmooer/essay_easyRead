@@ -58,9 +58,13 @@ DEFAULT_CONFIG = {
         "max_input_chars": 0,       # 可选硬字符上限（0=不启用）
     },
     "research": {
-        "provider": "openalex",       # openalex | semantic_scholar | local
-        "email": "",                  # OpenAlex polite pool 邮箱（可选，更稳定）
+        # auto | scopus | openalex | semantic_scholar | local
+        # auto：有 Elsevier API Key 首选 Scopus（机构订阅全学科），否则 OpenAlex
+        "provider": "auto",
+        "email": "",                  # OpenAlex / Unpaywall polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
+        "elsevier_api_key": "",       # Elsevier / ScienceDirect API key（可选，校外需配置）
+        "download_concurrency": 4,    # 多线程并发下载数（默认 4）
         "map_density": 8.0,           # 研究地图密度：每篇论文平均连几条关系边（骨架按此反解地板）
         "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
@@ -68,6 +72,10 @@ DEFAULT_CONFIG = {
         # discovery_v2：多路召回 + RRF 融合扩展（backward/forward/recommend/pdf_ref）
         # 发布门禁通过前保持实验性关闭；用户可在设置页显式启用。
         "discovery_v2": False,
+        # 领域认知综合（stage_synthesize）：图谱后注入节点角色/引用因果/流派/全景简报
+        "synthesize": {
+            "enabled": True,
+        },
         "recall": {
             "enabled_sources": ["backward", "forward", "recommend", "pdf_ref", "graph_ppr"],
             "rrf_k": 60,
@@ -163,12 +171,18 @@ def _mask_api_key(key: str) -> str:
     return "***" + key[-4:]
 
 
+# 需要「GET 掩码 + POST 保留」处理的密钥字段名（api_key 及其变体）
+_SECRET_KEY_NAMES = ("api_key", "elsevier_api_key")
+
+
 def mask_config(config: dict) -> dict:
-    """返回配置深拷贝，所有 api_key 字段被掩码"""
+    """返回配置深拷贝，所有密钥字段（api_key / elsevier_api_key 等）被掩码"""
     masked = copy.deepcopy(config)
     for section in masked.values():
-        if isinstance(section, dict) and "api_key" in section:
-            section["api_key"] = _mask_api_key(section["api_key"])
+        if isinstance(section, dict):
+            for key_name in _SECRET_KEY_NAMES:
+                if key_name in section:
+                    section[key_name] = _mask_api_key(section[key_name])
     return masked
 
 
@@ -185,15 +199,17 @@ def is_masked_key(value: str) -> bool:
 
 
 def merge_preserving_keys(new_config: dict, prior_config: dict) -> dict:
-    """保存配置时，若某段 api_key 是掩码占位，则保留盘上原有真实 key。
+    """保存配置时，若某段的密钥字段是掩码占位，则保留盘上原有真实 key。
 
     这样前端「只改了别的设置、api_key 字段还是回显的 ***xxxx」时不会把真 key 覆盖掉。
     用户确实想清空 key 时会传空串（不是掩码），照常清空。
     """
     out = copy.deepcopy(new_config)
     for name, section in out.items():
-        if isinstance(section, dict) and "api_key" in section and is_masked_key(section.get("api_key", "")):
-            section["api_key"] = (prior_config.get(name) or {}).get("api_key", "")
+        if isinstance(section, dict):
+            for key_name in _SECRET_KEY_NAMES:
+                if key_name in section and is_masked_key(section.get(key_name, "")):
+                    section[key_name] = (prior_config.get(name) or {}).get(key_name, "")
     return out
 
 

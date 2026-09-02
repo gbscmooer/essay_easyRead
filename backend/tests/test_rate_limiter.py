@@ -1,0 +1,132 @@
+"""限速器与弹性 HTTP 请求测试。"""
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+import httpx
+import pytest
+
+from backend.services.rate_limiter import (
+    AdaptiveThrottle,
+    DomainRateLimiter,
+    parse_retry_after,
+    resilient_get,
+)
+
+
+def test_parse_retry_after():
+    assert parse_retry_after({"retry-after": "5"}) == 5.0
+    assert parse_retry_after({"retry-after": "120"}) == 120.0
+    assert parse_retry_after({}, default_wait=3.5) == 3.5
+    assert parse_retry_after({"retry-after": "invalid"}, default_wait=4.0) == 4.0
+
+
+@pytest.mark.asyncio
+async def test_domain_rate_limiter_throttles():
+    limiter = DomainRateLimiter()
+    # 连续请求同一域名应触发等待
+    t0 = asyncio.get_event_loop().time()
+    await limiter.throttle("https://api.unpaywall.org/v2/10.1234/test")
+    await limiter.throttle("https://api.unpaywall.org/v2/10.5678/test")
+    elapsed = asyncio.get_event_loop().time() - t0
+    assert elapsed >= 0.08  # rule is 0.1s interval
+
+
+@pytest.mark.asyncio
+async def test_resilient_get_success():
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    resp = await resilient_get(
+        "https://example.com/test",
+        client=mock_client,
+        max_retries=2,
+    )
+    assert resp.status_code == 200
+    assert mock_client.get.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_resilient_get_retries_on_429():
+    mock_429 = MagicMock(spec=httpx.Response)
+    mock_429.status_code = 429
+    mock_429.headers = {"retry-after": "1"}
+
+    mock_200 = MagicMock(spec=httpx.Response)
+    mock_200.status_code = 200
+    mock_200.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get = AsyncMock(side_effect=[mock_429, mock_200])
+
+    with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        resp = await resilient_get(
+            "https://api.openalex.org/works",
+            client=mock_client,
+            max_retries=3,
+        )
+        assert resp.status_code == 200
+        assert mock_client.get.call_count == 2
+        assert mock_sleep.called
+
+
+# ── AdaptiveThrottle：付费源自适应限速 ───────────────────────────────────────
+
+def test_adaptive_throttle_success_shrinks_to_floor():
+    t = AdaptiveThrottle(start=0.35, floor=0.1, cap=8.0, shrink=0.8)
+    assert t.interval == pytest.approx(0.35)
+    for _ in range(20):
+        t.on_success()
+    assert t.interval == pytest.approx(0.1)
+
+
+def test_adaptive_throttle_rate_limited_grows_and_respects_retry_after():
+    t = AdaptiveThrottle(start=0.35, floor=0.1, cap=8.0, grow=1.6)
+    t.on_rate_limited(0.0)
+    assert t.interval == pytest.approx(0.35 * 1.6)
+    # Retry-After 是服务端指令，优先于 ×grow
+    t.on_rate_limited(retry_after=5.0)
+    assert t.interval == pytest.approx(5.0)
+    t.on_rate_limited(0.0)
+    assert t.interval == pytest.approx(8.0)  # 封顶
+
+
+def test_adaptive_throttle_start_clamped_to_bounds():
+    t = AdaptiveThrottle(start=99.0, floor=0.1, cap=8.0)
+    assert t.interval == 8.0
+
+
+@pytest.mark.asyncio
+async def test_adaptive_throttle_caps_concurrency():
+    """并发信号量封顶：6 个任务并发抢锁，同时在飞的不超过 concurrency=2。"""
+    t = AdaptiveThrottle(start=0.0, floor=0.0, cap=8.0, concurrency=2)
+    active = 0
+    max_active = 0
+
+    async def worker():
+        nonlocal active, max_active
+        async with t:
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.03)
+            active -= 1
+
+    await asyncio.gather(*[worker() for _ in range(6)])
+    assert max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_adaptive_throttle_spacing_serializes_launch():
+    """发射间隔 ≥ interval：两个 acquire 在 interval=0.08 下，第二个至少晚 0.08。"""
+    t = AdaptiveThrottle(start=0.08, floor=0.08, cap=8.0, concurrency=4)
+    stamps: list[float] = []
+
+    async def worker():
+        async with t:
+            stamps.append(asyncio.get_event_loop().time())
+
+    await asyncio.gather(worker(), worker())
+    assert max(stamps) - min(stamps) >= 0.07

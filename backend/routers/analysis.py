@@ -96,15 +96,22 @@ class HybridRetrievalConfig(BaseModel):
     graph: GraphRetrievalConfig = GraphRetrievalConfig()
 
 
+class SynthesizeConfig(BaseModel):
+    """领域认知综合（stage_synthesize）：图谱后注入学术语义。"""
+    enabled: bool = True
+
+
 class ResearchConfig(BaseModel):
-    provider: str = "openalex"  # openalex | semantic_scholar | local
+    provider: str = "auto"        # auto | scopus | openalex | semantic_scholar | local
     email: str = ""
     api_key: str = ""
+    elsevier_api_key: str = ""    # Elsevier / Scopus API Key（校园网内可留空）
     map_density: float = 8.0       # 研究地图密度：每篇论文平均连几条关系边
     backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
     discovery_v2: bool = False     # 发布门禁通过前默认关闭，可显式启用 discovery v2
+    synthesize: SynthesizeConfig = SynthesizeConfig()  # 领域认知综合（stage_synthesize）
     recall: RecallConfig = RecallConfig()
     hybrid_retrieval: HybridRetrievalConfig = HybridRetrievalConfig()
 

@@ -54,6 +54,31 @@ export const NODE_INK = {
   dataset: '#7d4a6d',
 } as const
 
+/**
+ * 学术角色（stage_synthesize 节点研判）→ 图标 + 专色。
+ * 徽章只在有角色研判的节点上出现，颜色取油墨环里未被子方向占用语义的档位。
+ */
+export const ROLE_META = {
+  landmark:    { icon: '🏛️', label: '奠基基石', ink: '#d3a52f' },
+  rising_star: { icon: '🔥', label: '前沿黑马', ink: '#d94a38' },
+  benchmark:   { icon: '📊', label: '标准基准', ink: '#3969a8' },
+  tool_sota:   { icon: '🛠️', label: '工程标杆', ink: '#2f7d78' },
+  survey:      { icon: '📖', label: '权威综述', ink: '#7d4a6d' },
+} as const
+
+export type RoleKey = keyof typeof ROLE_META
+
+/** cites 边因果（stage_synthesize 连边研判）→ 专色。 */
+export const RELATION_INK = {
+  improves: '#2f7d78',     // 改进继承：石绿
+  replaces: '#d94a38',     // 范式替代：朱红（竞争冲突感）
+  evaluates_on: '#d3a52f', // 基准评测：赭石
+  inspires: '#7d4a6d',     // 跨界借鉴：绛紫
+  cites: '#d94a38',        // 无因果的普通引用回落到 cites 基色
+} as const
+
+export type RelationKey = keyof typeof RELATION_INK
+
 /** 关联度通道 → 色。八个通道要能在一张分解条里同时读出来。 */
 export const CHANNEL_INK = {
   topic: '#3969a8',

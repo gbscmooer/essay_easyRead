@@ -82,6 +82,7 @@ def _paper_node(p) -> dict:
             "external_id": p.external_id,
             "read_level": "full" if p.status == "done" else ("digest" if digest else "none"),
             "summary": digest.get("summary") if digest else None,
+            "citation_count": getattr(p, "citation_count", None),
         },
     }
 

@@ -3,6 +3,7 @@ import type { GraphNode } from '@/types'
 import { Link } from 'react-router-dom'
 import { digestPaper } from '@/api/research'
 import { toast } from '@/hooks/useToast'
+import { ROLE_META } from '@/theme/graphPalette'
 
 interface NodeDetailProps {
   node: GraphNode | null
@@ -24,6 +25,8 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
   const summary = localSummary ?? node.meta.summary ?? null
   const readLevel = localSummary ? 'digest' : (node.meta.read_level ?? 'none')
   const badge = READ_LEVEL_LABEL[readLevel] ?? READ_LEVEL_LABEL.none
+  const sem = node.semantic
+  const roleMeta = sem && sem.role !== 'regular' ? ROLE_META[sem.role] : null
 
   const handleDigest = async () => {
     if (!node.meta.paper_id) return
@@ -68,10 +71,15 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
           </div>
 
           {node.meta.paper_id && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center flex-wrap gap-2">
               <span className="er-tag" style={{ '--tag-accent': badge.color } as CSSProperties}>
                 {badge.text}
               </span>
+              {roleMeta && (
+                <span className="er-tag" style={{ '--tag-accent': roleMeta.ink } as CSSProperties}>
+                  {roleMeta.icon} {roleMeta.label}
+                </span>
+              )}
               {node.meta.source && (
                 <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
                   {node.meta.source === 'uploaded' ? '用户上传' : '联网扩展'}
@@ -79,6 +87,26 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
               )}
             </div>
           )}
+
+          {sem?.short_takeaway && (
+            <div>
+              <span className="text-label" style={{ color: 'var(--text-muted)' }}>一句话核心创新</span>
+              <p className="text-[13px] leading-relaxed mt-1 font-medium" style={{ color: 'var(--text-primary)' }}>
+                {sem.short_takeaway}
+              </p>
+            </div>
+          )}
+
+          {sem?.key_techniques?.length ? (
+            <div>
+              <span className="text-label" style={{ color: 'var(--text-muted)' }}>核心方法</span>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {sem.key_techniques.map((t, i) => (
+                  <span key={i} className="er-tag">{t}</span>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {summary && (
             <div>
@@ -98,6 +126,14 @@ export function NodeDetail({ node, onClose }: NodeDetailProps) {
               <div>
                 <span className="text-label" style={{ color: 'var(--text-muted)' }}>会议/期刊</span>
                 <p className="text-[13px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>{node.meta.venue}</p>
+              </div>
+            )}
+            {typeof node.meta.citation_count === 'number' && node.meta.citation_count > 0 && (
+              <div>
+                <span className="text-label" style={{ color: 'var(--text-muted)' }}>被引数</span>
+                <p className="text-[13px] mt-0.5 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                  {node.meta.citation_count.toLocaleString()}
+                </p>
               </div>
             )}
           </div>

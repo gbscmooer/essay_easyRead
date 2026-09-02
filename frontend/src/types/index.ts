@@ -222,7 +222,7 @@ export type AnalysisStatus =
 
 export type ResearchMode = 'local' | 'online'
 export type ResearchStatus = 'pending' | 'running' | 'done' | 'failed'
-export type ResearchStage = 'collect' | 'expand' | 'expand_arxiv' | 'chunk' | 'embed' | 'digest' | 'graph' | 'persist'
+export type ResearchStage = 'collect' | 'expand' | 'expand_arxiv' | 'chunk' | 'embed' | 'digest' | 'graph' | 'synthesize' | 'persist'
 
 export interface ResearchRunCreate {
   mode: ResearchMode
@@ -278,7 +278,10 @@ export interface GraphNode {
     centrality?: number        // 语义图加权 PageRank [0,1]，主题枢纽性
     read_level?: 'full' | 'digest' | 'none'  // 解读层级：全量精读 / 图谱速读 / 未解读
     summary?: string | null    // 图谱速读的简短总结
+    citation_count?: number | null  // 召回带回的被引数（Scopus/OpenAlex）
   }
+  /** 领域认知综合（stage_synthesize）的节点研判 */
+  semantic?: NodeSemantic
 }
 
 /** 关联度单通道分解（对应 graphkit/relatedness.py 的八个通道） */
@@ -311,6 +314,59 @@ export interface GraphEdge {
   weight: number
   detail?: RelationDetail
   contexts?: CitationContext[]
+  /** 领域认知综合的因果研判（仅 cites 边有；related 无向边不猜因果） */
+  semantic?: EdgeSemantic
+}
+
+// ── 领域认知综合（stage_synthesize）产物，与后端 models/research.py 一一对应 ──
+
+/** 节点学术角色 */
+export type NodeRole = 'landmark' | 'rising_star' | 'benchmark' | 'tool_sota' | 'survey' | 'regular'
+
+export interface NodeSemantic {
+  role: NodeRole
+  short_takeaway: string       // 一句话核心创新（≤25 字）
+  key_techniques: string[]
+}
+
+/** cites 边因果类型 */
+export type EdgeRelationType = 'improves' | 'replaces' | 'evaluates_on' | 'inspires' | 'cites'
+
+export interface EdgeSemantic {
+  relation_type: EdgeRelationType
+  relation_summary: string     // 一句话因果说明
+}
+
+export interface ParadigmInfo {
+  cluster_id: number
+  name: string                 // 流派具象名称
+  core_philosophy: string
+  pros: string[]
+  cons: string[]
+  representative_node_ids: string[]  // 图谱节点 id（"paper:{id}"）
+}
+
+export interface BriefingMilestone {
+  year: string
+  event: string
+}
+
+export interface ExecutiveBriefing {
+  domain_problem: string
+  milestone_timeline: BriefingMilestone[]
+  benchmark_standards: string[]
+  recent_hotspots: string[]
+  open_challenges: string[]
+  markdown_report: string
+}
+
+export interface GraphSynthesis {
+  briefing?: ExecutiveBriefing | null
+  paradigms: ParadigmInfo[]
+  enriched_nodes: Record<string, NodeSemantic>
+  enriched_edges: Record<string, EdgeSemantic>
+  stats?: Record<string, unknown>
+  partial?: boolean
 }
 
 export interface ResearchGraph {
@@ -318,6 +374,8 @@ export interface ResearchGraph {
   run_id: number
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** 领域认知综合产物；旧图谱 / 未开启时为 null */
+  synthesis?: GraphSynthesis | null
   stats: {
     node_count: number
     edge_count: number
@@ -350,6 +408,146 @@ export interface ResearchGraph {
     }
   }
   updated_at: string
+}
+
+// ── 领域探索（explorer，问句驱动免读领域认知，与后端 models/exploration.py 一一对应）──
+
+export interface ExplorationPaper {
+  key: string
+  title: string
+  year?: number | null
+  citation_count: number
+  /** 被引 / 年龄（引用速度）；年份未知为 null */
+  citation_velocity?: number | null
+  /** 近 2 年被引增量与均速（OpenAlex counts_by_year 富化；缺数据为 null） */
+  recent_citations?: number | null
+  citation_velocity_2y?: number | null
+  /** 引用轨迹：近 2 年均速 vs 之前 2 年（发表满 4 年才定型） */
+  trajectory?: 'rising' | 'steady' | 'declining' | null
+  /** 同年语料内被引百分位（ESI 高被引的语料内复刻）；年份未知为 null */
+  citation_percentile?: number | null
+  highly_cited?: boolean
+  /** 近窗口 + 当前动量达标 → 突增候选 */
+  surge?: boolean
+  cluster: number
+  cluster_label?: string
+  doi?: string | null
+  arxiv_id?: string | null
+  authors?: string | null
+  abstract?: string | null
+  source_query?: string
+  /** 指标富化：逐年引用 / 关键词 / 期刊（v1.4） */
+  counts_by_year?: { year: number; cited_by_count: number }[]
+  keywords?: string[]
+  venue?: { name?: string | null; sjr?: number | null; snip?: number | null; citescore?: number | null } | null
+}
+
+export interface ExplorationVenueRanking {
+  name: string
+  count: number
+  sjr?: number | null
+  snip?: number | null
+  citescore?: number | null
+}
+
+export interface ExplorationKeywordTrend {
+  years: number[]
+  rows: { keyword: string; counts: number[]; total: number }[]
+}
+
+export interface ExplorationDecompose {
+  intent: 'novelty' | 'maturity' | 'landscape'
+  en_queries: string[]
+  focus_terms: string[]
+  /** 无 LLM Key 时回退原句直检索 */
+  fallback?: boolean
+}
+
+export interface ExplorationMetrics {
+  total: number
+  /** 年份 → 篇数（JSON 序列化后键为字符串） */
+  by_year: Record<string, number>
+  recent_share: number
+  year_span: number[]
+  top_cited: string[]
+  rising: string[]
+  /** 同年语料前 5% 的高被引论文（ESI 式语料内复刻，v1.4） */
+  highly_cited?: string[]
+  /** 主阵地期刊（语料内 ≥2 篇，带 SJR/SNIP，v1.4） */
+  venue_ranking?: ExplorationVenueRanking[]
+  /** 关键词 × 年份矩阵（热力图原料，v1.4） */
+  keyword_trend?: ExplorationKeywordTrend
+  /** 指标富化覆盖率 */
+  enriched?: { with_history: number; with_venue_metrics: number }
+  clusters: number
+  modularity: number
+}
+
+export type NoveltyStatus = 'done_extensively' | 'done_partial' | 'emerging' | 'gap' | 'unclear'
+
+export interface ExplorationVerdict {
+  status: NoveltyStatus
+  confidence: number
+  explanation: string
+  evidence_keys: string[]
+}
+
+export interface ExplorationSynthesis {
+  verdict?: ExplorationVerdict | null
+  maturity: string
+  landscape_summary: string
+  hotspots: string[]
+  gaps: string[]
+  follow_ups: string[]
+  /** 子方向流派（cluster_id 与 graph 节点 meta.cluster 对齐，复用范式卡片） */
+  paradigms: ParadigmInfo[]
+  markdown_report: string
+  partial?: boolean
+  stats?: Record<string, unknown>
+}
+
+export interface ExplorationResult {
+  decompose: ExplorationDecompose
+  provider: string
+  papers: ExplorationPaper[]
+  metrics: ExplorationMetrics
+  graph: {
+    nodes: GraphNode[]
+    edges: GraphEdge[]
+    stats: {
+      node_count: number
+      edge_count: number
+      by_kind: Partial<Record<GraphEdgeKind, number>>
+      clusters?: number
+      modularity?: number
+    }
+  }
+  synthesis?: ExplorationSynthesis
+}
+
+export type ExplorationDepth = 'quick' | 'standard' | 'deep'
+
+export interface ExplorationRun {
+  id: number
+  question: string
+  depth: ExplorationDepth
+  status: 'pending' | 'running' | 'done' | 'failed'
+  current_stage?: string | null
+  error_message?: string | null
+  provider: string
+  decompose?: ExplorationDecompose | null
+  result?: ExplorationResult | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExplorationRunSummary {
+  id: number
+  question: string
+  depth: string
+  status: string
+  provider: string
+  created_at: string
 }
 
 export interface RagCitationDebug {

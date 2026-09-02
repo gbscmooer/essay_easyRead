@@ -358,8 +358,17 @@ async def rebuild_workspace_graph(ws_id: int) -> dict:
         map_density=float(research_cfg.get("map_density", DEFAULT_MAP_DENSITY)),
         backbone_alpha=float(research_cfg.get("backbone_alpha", DEFAULT_BACKBONE_ALPHA)),
     )
+    # 图变了语义层也要重建（节点角色/引用因果随图谱而变）；无 Key 时静默跳过
+    synthesis_dict = None
+    try:
+        from .domain_synthesizer import synthesize_domain
+        synthesis = await synthesize_domain(graph, {p.id: p for p in papers})
+        if synthesis is not None:
+            synthesis_dict = synthesis.model_dump()
+    except Exception as exc:
+        logger.warning("rebuild ws=%s: synthesize failed (non-fatal): %s", ws_id, exc)
     if run_id is not None:
-        await stage_persist(ws_id, run_id, graph)
+        await stage_persist(ws_id, run_id, graph, synthesis=synthesis_dict)
     else:
         logger.warning("rebuild ws=%s: no research run exists, graph not persisted", ws_id)
     return graph["stats"]

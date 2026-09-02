@@ -44,18 +44,19 @@ const primaryNav = [
   { path: '/', index: '00', label: '入口', register: 'ORIGIN' },
   { path: '/library', index: '01', label: '论文库', register: 'ARCHIVE' },
   { path: '/workspace', index: '02', label: '工作区', register: 'FIELD' },
-  { path: '/settings', index: '03', label: '设置', register: 'SYSTEM' },
+  { path: '/explore', index: '03', label: '领域探索', register: 'SCOUT' },
+  { path: '/settings', index: '04', label: '设置', register: 'SYSTEM' },
 ] as const
 
 function routeVisual(pathname: string): RouteVisual {
   if (/^\/reader\//.test(pathname)) {
-    return { index: '04', route: 'reader', scene: 'field', eyebrow: 'PAPER / EVIDENCE SURFACE', title: '论文精读', register: 'READ—PLANE' }
+    return { index: '05', route: 'reader', scene: 'field', eyebrow: 'PAPER / EVIDENCE SURFACE', title: '论文精读', register: 'READ—PLANE' }
   }
   if (/^\/code\//.test(pathname)) {
-    return { index: '05', route: 'code', scene: 'process', eyebrow: 'SOURCE / IMPLEMENTATION MAP', title: '源码分析', register: 'CODE—TRACE' }
+    return { index: '06', route: 'code', scene: 'process', eyebrow: 'SOURCE / IMPLEMENTATION MAP', title: '源码分析', register: 'CODE—TRACE' }
   }
   if (/^\/workspace\/\d+\/research/.test(pathname)) {
-    return { index: '06', route: 'research', scene: 'field', eyebrow: 'RELATION / RESEARCH MODEL', title: '深度研究', register: 'GRAPH—FIELD' }
+    return { index: '07', route: 'research', scene: 'field', eyebrow: 'RELATION / RESEARCH MODEL', title: '深度研究', register: 'GRAPH—FIELD' }
   }
   if (/^\/workspace\/\d+/.test(pathname)) {
     return { index: '02', route: 'workspace-detail', scene: 'field', eyebrow: 'COLLECTION / READING FIELD', title: '工作区详情', register: 'SET—INDEX' }
@@ -66,8 +67,11 @@ function routeVisual(pathname: string): RouteVisual {
   if (pathname === '/workspace') {
     return { index: '02', route: 'workspace', scene: 'field', eyebrow: 'COLLECTION / RELATION FIELD', title: '研究工作区', register: 'FIELD—SET' }
   }
+  if (pathname === '/explore') {
+    return { index: '03', route: 'explore', scene: 'field', eyebrow: 'QUESTION / DOMAIN SURVEY', title: '领域探索', register: 'SCOUT—FIELD' }
+  }
   if (pathname === '/settings') {
-    return { index: '03', route: 'settings', scene: 'process', eyebrow: 'PROTOCOL / SYSTEM CONTROL', title: '系统设置', register: 'CONTROL—AXIS' }
+    return { index: '04', route: 'settings', scene: 'process', eyebrow: 'PROTOCOL / SYSTEM CONTROL', title: '系统设置', register: 'CONTROL—AXIS' }
   }
   if (pathname === '/') {
     return { index: '00', route: 'home', scene: 'origin', eyebrow: 'INPUT / RESEARCH ORIGIN', title: '论文研究入口', register: 'SOURCE—PLANE' }

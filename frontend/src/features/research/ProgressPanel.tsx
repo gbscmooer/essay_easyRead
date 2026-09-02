@@ -8,6 +8,7 @@ const STAGE_LABELS = {
   embed: '向量嵌入',
   digest: '图谱速读',
   graph: '构建图谱',
+  synthesize: '领域认知综合',
   persist: '持久化',
 } satisfies Record<ResearchStage, string>
 
@@ -21,7 +22,7 @@ export function getStageOrder(mode?: ResearchMode | null, autoDigest = true): Re
   if (autoDigest) {
     stages.push('digest')
   }
-  stages.push('graph', 'persist')
+  stages.push('graph', 'synthesize', 'persist')
   return stages
 }
 

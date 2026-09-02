@@ -289,9 +289,34 @@ async def run_pipeline(run_id: int):
         await emit("stage_done", stage="graph",
                    summary={"nodes": len(graph["nodes"]), "edges": len(graph["edges"])})
 
+        # 5.6) 领域认知综合：在算法骨架上注入学术语义（节点角色 / 引用因果 / 流派 / 全景简报）。
+        # 未配置 Key / 关闭开关 → 跳过；单任务失败不阻塞（partial 产物照常持久化）。
+        synthesis_dict = None
+        _set_stage(run_id, "synthesize")
+        await emit("stage_start", stage="synthesize")
+        try:
+            from .domain_synthesizer import synthesize_domain
+            synthesis = await synthesize_domain(graph, {p.id: p for p in papers})
+            if synthesis is not None:
+                synthesis_dict = synthesis.model_dump()
+                await emit("synthesis_ready", **synthesis_dict)
+                st = synthesis.stats or {}
+                await emit("stage_done", stage="synthesize", summary={
+                    "nodes_labeled": st.get("nodes_labeled", 0),
+                    "edges_labeled": st.get("edges_labeled", 0),
+                    "paradigms": st.get("paradigms", 0),
+                    "partial": synthesis.partial,
+                })
+            else:
+                await emit("stage_done", stage="synthesize",
+                           summary={"skipped": "未配置解读 API Key 或开关关闭"})
+        except Exception as se:
+            logger.warning(f"synthesize failed (non-fatal): {se}")
+            await emit("stage_done", stage="synthesize", summary={"error": str(se)})
+
         _set_stage(run_id, "persist")
         await emit("stage_start", stage="persist")
-        await stage_persist(ws_id, run_id, graph)
+        await stage_persist(ws_id, run_id, graph, synthesis=synthesis_dict)
         await emit("stage_done", stage="persist", summary={})
 
         _set_stage(run_id, "persist", "done")

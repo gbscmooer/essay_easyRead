@@ -69,9 +69,13 @@ export interface HybridRetrievalConfig {
 }
 
 export interface ResearchConfig {
-  provider: 'openalex' | 'semantic_scholar' | 'local'
+  provider: 'auto' | 'scopus' | 'openalex' | 'semantic_scholar' | 'local'
   email: string
   api_key: string
+  /** Elsevier / Scopus API Key（机构订阅校外访问用；校园网内可留空） */
+  elsevier_api_key?: string
+  /** 领域认知综合（stage_synthesize）：图谱后注入节点角色/引用因果/流派/全景简报 */
+  synthesize?: { enabled: boolean }
   /** 研究地图密度：每篇论文平均连几条关系边 */
   map_density?: number
   backbone_alpha?: number
@@ -188,9 +192,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     max_input_chars: 0,
   },
   research: {
-    provider: 'openalex',
+    provider: 'auto',
     email: '',
     api_key: '',
+    elsevier_api_key: '',
+    synthesize: { enabled: true },
     map_density: 8,
     backbone_alpha: 0.25,
     link_distance: 50,

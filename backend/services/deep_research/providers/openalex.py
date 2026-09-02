@@ -21,8 +21,11 @@ logger = logging.getLogger(__name__)
 OA_BASE = "https://api.openalex.org"
 WORK_FIELDS = (
     "id,title,publication_year,cited_by_count,doi,ids,open_access,"
-    "primary_location,locations,abstract_inverted_index,authorships"
+    "primary_location,locations,abstract_inverted_index,authorships,"
+    "counts_by_year,keywords"
 )
+# 逐篇补查（get_citation_history）的精简字段：逐年引用 + 摘要 + 关键词 + 期刊身份
+HISTORY_FIELDS = "id,doi,cited_by_count,counts_by_year,abstract_inverted_index,keywords,primary_location"
 
 
 class OpenAlexProvider:
@@ -43,7 +46,7 @@ class OpenAlexProvider:
         params = dict(params or {})
         if self.email:
             params["mailto"] = self.email
-        for attempt in range(3):
+        for attempt in range(4):
             async with self._lock:
                 gap = time.monotonic() - self._last_req
                 if gap < 0.12:
@@ -52,14 +55,17 @@ class OpenAlexProvider:
             try:
                 r = await self._http().get(f"{OA_BASE}{path}", params=params)
                 if r.status_code == 429:
-                    wait = 2.0 * (attempt + 1)
-                    logger.warning(f"OpenAlex 429, retry {attempt+1}/3 in {wait}s")
+                    from ...rate_limiter import parse_retry_after
+                    wait = parse_retry_after(r.headers, default_wait=2.0 * (attempt + 1))
+                    logger.warning(f"OpenAlex 429, retry {attempt+1}/4 in {wait:.1f}s")
                     await asyncio.sleep(wait)
                     continue
                 r.raise_for_status()
                 return r.json()
             except httpx.HTTPError as e:
-                if attempt == 2:
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+                    return {}
+                if attempt == 3:
                     raise
                 logger.warning(f"OpenAlex error (attempt {attempt+1}): {e}")
                 await asyncio.sleep(1.0 * (attempt + 1))
@@ -230,16 +236,21 @@ class OpenAlexProvider:
             logger.warning(f"OpenAlex get_recommendations failed: {e}")
             return []
 
-    async def search_works(self, query: str, limit: int = 20) -> list[RecallCandidate]:
+    async def search_works(self, query: str, limit: int = 20, *, academic_only: bool = False) -> list[RecallCandidate]:
         try:
             if not query or not query.strip():
                 return []
-            data = await self._safe_get("/works", {
+            params = {
                 "search": query.strip(),
                 "per-page": min(limit, 50),
                 "sort": "relevance_score:desc",
                 "select": WORK_FIELDS,
-            })
+            }
+            if academic_only:
+                # 排除 editorial / letter / erratum / newsletter 等噪声类型；
+                # 保留 preprint——CV/ML 领域 arXiv 预印本是一等公民
+                params["filter"] = "type:article|review|preprint|book-chapter"
+            data = await self._safe_get("/works", params)
             if not data:
                 return []
             return self._works_to_candidates(
@@ -274,10 +285,61 @@ class OpenAlexProvider:
                 out.append(cand)
         return out
 
+    async def find_pdf_by_doi(self, doi: str) -> Optional[str]:
+        """通过 DOI 精确查询 Open Access PDF URL。"""
+        if not doi:
+            return None
+        clean_doi = doi.replace("https://doi.org/", "").strip()
+        data = await self._safe_get(
+            f"/works/doi:{clean_doi}",
+            {"select": "id,doi,open_access,primary_location,locations"},
+        )
+        if not data:
+            return None
+        return _extract_pdf(data)
+
+    async def get_citation_history(self, doi: str) -> dict | None:
+        """按 DOI 拉逐年引用曲线 + 摘要 + 关键词 + 期刊身份（指标富化用）。
+
+        Scopus 的 Citation Overview/Count API 对个人 dev Key 404 无权限（2026-09-02
+        实测），逐年引用曲线唯一免费来源就是 OpenAlex 的 counts_by_year；Scopus 检索
+        结果又不带摘要——本方法一次补齐探索侧富化需要的全部字段。
+        """
+        if not doi:
+            return None
+        clean_doi = doi.replace("https://doi.org/", "").strip()
+        work = await self._safe_get(
+            f"/works/doi:{clean_doi}", {"select": HISTORY_FIELDS},
+        )
+        if not work or not work.get("id"):
+            return None
+        venue_name, venue_issn = _venue_of(work)
+        return {
+            "openalex_cited_by": work.get("cited_by_count") or 0,
+            "counts_by_year": work.get("counts_by_year") or [],
+            "abstract": _reconstruct_abstract(work),
+            "keywords": _extract_keywords(work),
+            "venue_name": venue_name,
+            "venue_issn": venue_issn,
+        }
+
     async def aclose(self):
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+
+_shared_oa_provider: Optional[OpenAlexProvider] = None
+
+
+def get_shared_openalex_provider(email: str = "") -> OpenAlexProvider:
+    """获取应用全局共享的 OpenAlexProvider 实例（复用限速与连接池）。"""
+    global _shared_oa_provider
+    if _shared_oa_provider is None:
+        _shared_oa_provider = OpenAlexProvider(email=email)
+    elif email and not _shared_oa_provider.email:
+        _shared_oa_provider.email = email
+    return _shared_oa_provider
 
 
 def _strip_id(oid: str) -> str:
@@ -341,6 +403,49 @@ def _reconstruct_abstract(work: dict) -> str | None:
     return " ".join(w for _, w in positions)
 
 
+# OpenAlex keywords 的 score 是 0~1 的相关度（ResNet 实测最高 0.91），阈值按此标定
+_KEYWORD_MIN_SCORE = 0.5
+# 学科级泛化词：在任何语料里都是全场高频，进热力图只会贡献平铺的噪声行
+_GENERIC_KEYWORDS = {
+    "computer science", "artificial intelligence", "machine learning", "deep learning",
+    "neural network", "neural networks", "pattern recognition", "pattern recognition (psychology)",
+    "mathematics", "physics", "engineering", "medicine", "biology", "chemistry", "psychology",
+    "science", "technology", "data science", "big data", "statistics", "algorithm", "computer vision",
+}
+
+
+def _extract_keywords(work: dict, *, min_score: float = _KEYWORD_MIN_SCORE, cap: int = 6) -> list[str]:
+    """OpenAlex keywords（算法标注的领域短语，score 0~1）→ 每篇最多 cap 个。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in work.get("keywords") or []:
+        name = str((k or {}).get("display_name") or "").strip()
+        try:
+            score = float((k or {}).get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        folded = name.casefold()
+        if len(name) < 3 or score < min_score or folded in seen or folded in _GENERIC_KEYWORDS:
+            continue
+        seen.add(folded)
+        out.append(name)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _venue_of(work: dict) -> tuple[str | None, str | None]:
+    """primary_location.source → (期刊名, 首个 ISSN)。"""
+    src = ((work.get("primary_location") or {}).get("source")) or {}
+    name = str(src.get("display_name") or "").strip() or None
+    issn = ""
+    for cand in src.get("issn") or []:
+        if cand and str(cand).strip():
+            issn = str(cand).strip()
+            break
+    return name, (issn or None)
+
+
 def _work_to_candidate(
     work: dict,
     *,
@@ -357,6 +462,7 @@ def _work_to_candidate(
     pdf_url = _extract_pdf(work)
     oa = work.get("open_access") or {}
     openalex_id = _strip_id(work.get("id") or "")
+    venue_name, venue_issn = _venue_of(work)
 
     return build_recall_candidate(
         title=work["title"],
@@ -375,4 +481,10 @@ def _work_to_candidate(
         is_open_access=bool(oa.get("is_oa")) if oa else bool(pdf_url),
         citation_count=work.get("cited_by_count") or 0,
         provenance=["provider:openalex", f"method:{source.value}"],
+        extra={
+            "counts_by_year": work.get("counts_by_year") or [],
+            "keywords": _extract_keywords(work),
+            "venue_name": venue_name,
+            "venue_issn": venue_issn,
+        },
     )

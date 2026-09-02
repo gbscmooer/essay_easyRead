@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import type { GraphNode, ResearchGraph, GraphEdgeKind, RelationDetail, CitationContext } from '@/types'
+import type { GraphNode, ResearchGraph, GraphEdgeKind, RelationDetail, CitationContext, EdgeSemantic } from '@/types'
 
 export interface SelectedEdge {
   sourceLabel: string
@@ -9,6 +9,7 @@ export interface SelectedEdge {
   weight: number
   detail?: RelationDetail
   contexts?: CitationContext[]
+  semantic?: EdgeSemantic
 }
 
 interface GraphCanvasProps {
@@ -22,9 +23,15 @@ interface GraphCanvasProps {
 const ZOOM_MIN = 0.1
 const ZOOM_MAX = 8
 const ZOOM_STEP = 1.4
-import { EDGE_INK, NODE_INK, clusterInk } from '@/theme/graphPalette'
+import { EDGE_INK, NODE_INK, RELATION_INK, ROLE_META, clusterInk } from '@/theme/graphPalette'
 
 const DEFAULT_LINK_DISTANCE = 50
+
+// 因果关系 → 中文标签（与后端 EDGE_RELATIONS 对应）
+const RELATION_LABEL: Record<string, string> = {
+  improves: '改进继承', replaces: '范式替代', evaluates_on: '基准评测',
+  inspires: '跨界借鉴', cites: '引用',
+}
 
 // 研究子方向（Louvain 社区）配色与边色统一取自 theme/graphPalette 的油墨分类色。
 // 之前这里是一串 Tailwind 默认色，饱和度比界面主色高一大截，落在米黄纸面上
@@ -39,6 +46,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   const labelColorRef = useRef<string>('rgba(230,230,230,0.92)')
   const strokeColorRef = useRef<string>('rgba(255,255,255,0.9)')
   const expandedStrokeColorRef = useRef<string>('rgba(245,158,11,0.95)')
+  const badgeBgRef = useRef<string>('rgba(38,38,40,0.95)')
 
   // Cache CSS variable values for canvas drawing (avoid reading per-frame)
   useEffect(() => {
@@ -49,6 +57,8 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     if (border) strokeColorRef.current = border
     const warning = style.getPropertyValue('--warning').trim()
     if (warning) expandedStrokeColorRef.current = warning
+    const elev = style.getPropertyValue('--bg-elevated').trim()
+    if (elev) badgeBgRef.current = elev
   }, [])
 
   // 监听容器尺寸 → 显式传给 ForceGraph2D（否则它默认用 window 尺寸，flex 布局下会渲染失败）
@@ -120,6 +130,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         name: n.label,
         kind: n.kind,
         meta: n.meta,
+        semantic: n.semantic,
         _raw: n,
       })),
       links: filteredEdges.map(e => ({
@@ -129,6 +140,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         weight: e.weight,
         detail: e.detail,
         contexts: e.contexts,
+        semantic: e.semantic,
       })),
     }
   }, [graph, edgeFilter])
@@ -170,7 +182,12 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
   }, [])
 
   const linkColor = useCallback((link: any) => {
-    if (link.kind === 'cites') return EDGE_INK.cites
+    if (link.kind === 'cites') {
+      // 有因果研判的引用边按关系类型着色（改进=石绿 / 替代=朱红 / 评测=赭石 / 借鉴=绛紫）
+      const rel = link.semantic?.relation_type
+      if (rel && rel in RELATION_INK) return RELATION_INK[rel as keyof typeof RELATION_INK]
+      return EDGE_INK.cites
+    }
     if (link.kind === 'related' || link.kind === 'similar') return EDGE_INK.related
     if (link.kind === 'bibcoupling') return EDGE_INK.bibcoupling
     if (link.kind === 'cocitation') return EDGE_INK.cocitation
@@ -197,10 +214,12 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       weight: link.weight,
       detail: link.detail,
       contexts: link.contexts,
+      semantic: link.semantic,
     })
   }, [onSelectEdge])
 
-  // 节点绘制：半径随 importance（PageRank）放大，边框按来源区分上传/扩展
+  // 节点绘制：半径随 importance（PageRank）放大，边框按来源区分上传/扩展；
+  // 有学术角色研判的节点在右上角绘制角色徽章，高倍缩放下直接外显一句话创新
   const drawNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const label = node.name || ''
     const importance = typeof node.meta?.importance === 'number' ? node.meta.importance : 0
@@ -214,6 +233,27 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     ctx.lineWidth = (importance > 0.6 ? 4.0 : 2.5) / globalScale
     ctx.stroke()
 
+    const sem = node.semantic
+    // 角色徽章：右上角小圆片（图标 + 专色描边），缩放很小时隐藏避免糊成一片
+    if (sem && sem.role && sem.role !== 'regular' && ROLE_META[sem.role as keyof typeof ROLE_META]) {
+      const meta = ROLE_META[sem.role as keyof typeof ROLE_META]
+      const br = Math.max(5.5, r * 0.62)
+      const bx = node.x + r * 0.72
+      const by = node.y - r * 0.72
+      ctx.beginPath()
+      ctx.arc(bx, by, br, 0, 2 * Math.PI)
+      ctx.fillStyle = badgeBgRef.current
+      ctx.fill()
+      ctx.strokeStyle = meta.ink
+      ctx.lineWidth = 1.6 / globalScale
+      ctx.stroke()
+      ctx.font = `${br * 1.25}px ui-sans-serif, system-ui, -apple-system, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(meta.icon, bx, by + br * 0.06)
+    }
+
     // 文字（缩放过小时隐藏，避免过密）
     if (globalScale > 0.6) {
       const fontSize = 12 / globalScale
@@ -224,6 +264,16 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       const maxLen = 24
       const text = label.length > maxLen ? label.slice(0, maxLen) + '…' : label
       ctx.fillText(text, node.x, node.y + r + 2)
+      // 一句话核心创新：放大看图时直接外显，免点开详情
+      if (sem?.short_takeaway && globalScale > 1.1) {
+        const tk = sem.short_takeaway.length > 34 ? sem.short_takeaway.slice(0, 34) + '…' : sem.short_takeaway
+        ctx.font = `${fontSize * 0.85}px ui-sans-serif, system-ui, -apple-system, sans-serif`
+        const roleInk = sem.role !== 'regular' && ROLE_META[sem.role as keyof typeof ROLE_META]
+          ? ROLE_META[sem.role as keyof typeof ROLE_META].ink
+          : labelColorRef.current
+        ctx.fillStyle = roleInk
+        ctx.fillText(tk, node.x, node.y + r + 2 + fontSize * 1.15)
+      }
     }
   }, [nodeColor])
 
@@ -269,7 +319,14 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
           nodeColor={nodeColor}
           nodeRelSize={6}
           nodeVal={(node: any) => Math.pow((4 + (node.meta?.importance ?? 0) * 8) / 6, 2)}
-          nodeLabel={(node: any) => `<b>${node.name}</b><br/><small>${node.meta?.cluster_label ? '子方向: ' + node.meta.cluster_label : node.kind}</small>`}
+          nodeLabel={(node: any) => {
+            const sem = node.semantic
+            const roleLine = sem && sem.role !== 'regular' && ROLE_META[sem.role as keyof typeof ROLE_META]
+              ? `<br/><small>${ROLE_META[sem.role as keyof typeof ROLE_META].icon} ${ROLE_META[sem.role as keyof typeof ROLE_META].label}</small>`
+              : ''
+            const tkLine = sem?.short_takeaway ? `<br/><small>${sem.short_takeaway}</small>` : ''
+            return `<b>${node.name}</b>${roleLine}${tkLine}<br/><small>${node.meta?.cluster_label ? '子方向: ' + node.meta.cluster_label : node.kind}</small>`
+          }}
           nodeCanvasObject={drawNode}
           nodeCanvasObjectMode={() => 'replace'}
           linkColor={linkColor}
@@ -286,8 +343,14 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
             return Math.max(1, link.weight * 3)
           }}
           linkLabel={(link: any) => {
-            if (link.kind === 'cites' && link.contexts?.length) {
-              return `引用 · ${link.contexts.length} 处上下文 · 点击查看`
+            if (link.kind === 'cites') {
+              const rel = link.semantic?.relation_type
+              const relText = rel && rel !== 'cites' ? ` · ${RELATION_LABEL[rel] ?? rel}` : ''
+              const summary = link.semantic?.relation_summary ? ` · ${link.semantic.relation_summary}` : ''
+              if (link.contexts?.length) {
+                return `引用${relText} · ${link.contexts.length} 处上下文 · 点击查看`
+              }
+              return `引用${relText}${summary} · 点击查看`
             }
             if (link.detail) {
               return `综合相似度 ${link.weight.toFixed(2)} · 点击查看分解`
@@ -371,7 +434,12 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
           颜色 = 研究子方向
         </span>
         <span><i className="rs-legend__ring" />扩展论文</span>
-        <span><i className="rs-legend__line" style={{ background: EDGE_INK.cites }} />引用</span>
+        <span>
+          <i className="rs-legend__line" style={{ background: RELATION_INK.improves }} />改进
+          <i className="rs-legend__line rs-legend__line--gap" style={{ background: RELATION_INK.replaces }} />替代
+          <i className="rs-legend__line rs-legend__line--gap" style={{ background: RELATION_INK.evaluates_on }} />评测
+          <i className="rs-legend__line rs-legend__line--gap" style={{ background: RELATION_INK.inspires }} />借鉴
+        </span>
         <span><i className="rs-legend__line" style={{ background: EDGE_INK.related }} />关联</span>
       </div>
     </div>
