@@ -6,6 +6,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 论文精读助手 — 面向 CV/ML 研究者的论文精读 Web 应用。上传 PDF 论文，AI 自动解析为结构化内容：核心贡献、方法论、实验设置、代码映射、面试问答。支持关联代码仓库进行代码分析。支持工作区管理（多论文组织）与深度研究（引文图谱构建 + 向量检索 RAG 问答）。
 
+**总目标与开发原则见根目录 `GOAL.md`**（毕设最高优先级指导：让学者免读单篇论文即可客观了解领域现状与 idea 查新；文档地图也在其中——写新文档前先查它，避免重复）。
+
 ## 技术栈
 
 - **前端**: React 18 + TypeScript + Tailwind CSS + Vite + Recharts + Mermaid + xterm.js + highlight.js
@@ -52,6 +54,7 @@ backend/
 │   ├── analysis.py       # AnalysisResult + 子结构（MethodModel, ExperimentModel 等）
 │   ├── code_analysis.py  # CodeAnalysis 模型（文件树、数据流、依赖图）
 │   ├── research.py       # ResearchRun + ResearchGraph 模型
+│   ├── exploration.py    # ExplorationRun 模型（问句驱动的领域探索，见 GOAL.md）
 │   ├── workspace.py      # Workspace + WorkspacePaper 模型（多对多）
 │   └── schemas.py        # API Schema（PaperResponse, AnalysisResponse 等）
 ├── routers/         # API 路由
@@ -59,7 +62,8 @@ backend/
 │   ├── analysis.py       # /api/analysis/*（解析、SSE 流、配置、文本操作、相关论文）
 │   ├── code.py           # /api/code/*（URL 提取、clone、文件树、文件内容、分析）
 │   ├── workspaces.py     # /api/workspaces/*（工作区 CRUD + 论文关联）
-│   └── research.py       # /api/research/*（深度研究 run、SSE 进度、图谱、RAG 问答）
+│   ├── research.py       # /api/research/*（深度研究 run、SSE 进度、图谱、RAG 问答）
+│   └── exploration.py    # /api/exploration/*（领域探索 run、SSE 进度、产物查询）
 ├── services/        # 业务逻辑
 │   ├── ai_analyzer.py    # Anthropic API 调用（论文分析、流式输出）
 │   ├── ai_config.py      # AI 配置读写（data/ai_config.json，含 GROBID/findpapers 配置）
@@ -73,7 +77,9 @@ backend/
 │   ├── semantic_scholar.py # Semantic Scholar 相关论文搜索
 │   ├── terminal.py       # WebSocket PTY 终端
 │   └── deep_research/    # 深度研究子模块
-│       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→graph→persist）
+│       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
+│       ├── explorer.py        # 领域探索流水线（decompose→recall→metrics/cluster→synthesize，问句冷启动，见 GOAL.md）
+│       ├── domain_synthesizer.py # 领域认知综合（节点角色/引用因果/流派/全景简报，LLM 批量注入）
 │       ├── embedder.py        # 文本向量化
 │       ├── vector_store.py    # 向量存储 + RAG 查询
 │       ├── graph_builder.py   # 引文图谱构建
@@ -134,7 +140,7 @@ frontend/src/
 2. **SSE 流式推送**: 分析运行在后台任务中，前端连接 `/api/analysis/{id}/stream` 订阅进度；断开只取消订阅，分析继续执行；重连后回放已缓冲事件
 3. **代码仓库分析**: 正则提取代码 URL → clone → 构建文件树 → 静态分析依赖（import_parser）→ AI 分析数据流和论文-代码映射
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
-5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ persist → 前端图谱可视化 + RAG 问答
+5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
 6. **论文关联度**（图谱关系的唯一算法，`graphkit/relatedness.py`）: 主题向量 / 研究目的 / 方法 / IDF 术语 / 共享数据集 / 共享 baseline / 文献耦合 / 共引 八个通道各自分位数归一 → 加权融合成一个分数 → Disparity Filter 抽骨架 → 该分数同时决定连边、社区划分、节点重要性与图检索。权重在设置页「论文关联度」调整
 
 ### 路由
@@ -146,6 +152,7 @@ frontend/src/
 | `/code/:id` | 代码分析（文件浏览器 + 代码查看器 + 分析面板）|
 | `/library` | 论文库 |
 | `/settings` | 设置（AI 模型配置 + UI 配置）|
+| `/explore` | 领域探索（问句驱动：拆解检索式→多源检索→计量聚类→LLM 跨文献结论，见 GOAL.md）|
 | `/workspace` | 工作区列表 |
 | `/workspace/:id` | 工作区详情（论文管理）|
 | `/workspace/:id/research` | 深度研究（引文图谱 + RAG 问答）|
