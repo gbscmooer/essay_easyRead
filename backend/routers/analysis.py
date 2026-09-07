@@ -35,6 +35,10 @@ class AIModelConfig(BaseModel):
     system_prompt: str = ""
     temperature: float = 0.1
     max_tokens: int = 4096
+    # 思考强度 off | low | medium | high，翻译成各协议的思考参数
+    # （Claude thinking.budget_tokens / OpenAI reasoning_effort / DeepSeek thinking.type）。
+    # 仅对支持的推理模型生效；Anthropic 协议开启思考时强制 temperature=1。
+    thinking_effort: str = "medium"
 
 class UIConfig(BaseModel):
     highlight_duration: int = 3000
@@ -707,7 +711,14 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
         raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
 
     try:
-        from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format, _extract_text
+        from ..services.ai_analyzer import (
+            _create_client, _create_openai_client, _is_openai_format, _extract_text, resolve_thinking,
+        )
+        thinking_kwargs, temp_override = resolve_thinking(
+            _is_openai_format(base_url), base_url, model,
+            cfg.get("thinking_effort", "off"), max_tokens)
+        if temp_override is not None:
+            temperature = temp_override
         if _is_openai_format(base_url):
             client = _create_openai_client(api_key, base_url)
             try:
@@ -719,6 +730,7 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
                         {"role": "system", "content": system},
                         {"role": "user", "content": req.text},
                     ],
+                    **thinking_kwargs,
                 )
                 result = (resp.choices[0].message.content or "").strip()
                 return TextActionResponse(result=result)
@@ -733,6 +745,7 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
                     system=system,
                     messages=[{"role": "user", "content": req.text}],
                     temperature=temperature,
+                    **thinking_kwargs,
                 )
                 result = _extract_text(message).strip()
                 return TextActionResponse(result=result)

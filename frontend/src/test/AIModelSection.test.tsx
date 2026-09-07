@@ -12,6 +12,7 @@ const OPENAI_CONFIG: AIModelConfig = {
   system_prompt: '',
   temperature: 0.1,
   max_tokens: 4096,
+  thinking_effort: 'medium',
 }
 
 describe('AIModelSection', () => {
@@ -35,6 +36,35 @@ describe('AIModelSection', () => {
       ...OPENAI_CONFIG,
       base_url: 'https://api.anthropic.com',
       model: 'claude-sonnet-4-6',
+    })
+  })
+
+  it('changes thinking effort from advanced params (default medium)', async () => {
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <AIModelSection
+        title="解读模型"
+        description="测试配置"
+        config={OPENAI_CONFIG}
+        onChange={onChange}
+        defaultMaxTokens={4096}
+      />,
+    )
+
+    expect(OPENAI_CONFIG.thinking_effort).toBe('medium')
+
+    await user.click(screen.getByRole('button', { name: '高级参数' }))
+    const group = screen.getByRole('radiogroup', { name: '思考强度' })
+    expect(group).toBeDefined()
+    expect(screen.getByRole('radio', { name: '中' })).toBeChecked()
+
+    await user.click(screen.getByRole('radio', { name: '高' }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...OPENAI_CONFIG,
+      thinking_effort: 'high',
     })
   })
 })

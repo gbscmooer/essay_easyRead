@@ -52,6 +52,7 @@ async def _request_completion(
     user: str,
     max_tokens: int,
     timeout_seconds: float,
+    thinking_effort: str | None = None,
 ) -> str:
     """Issue one bounded completion and always close the SDK client."""
 
@@ -78,6 +79,8 @@ async def _request_completion(
                 user,
                 max_tokens=max_tokens,
                 temperature=0.0,
+                thinking_effort=thinking_effort,
+                base_url=base_url,
             ),
             timeout=timeout_seconds,
         )
@@ -165,6 +168,7 @@ async def plan_research_goal(
         user=user,
         max_tokens=token_limit,
         timeout_seconds=timeout,
+        thinking_effort=cfg.get("thinking_effort"),
     )
     plan = _parse_plan(raw).model_dump(mode="json")
     plan["planner"] = "llm"

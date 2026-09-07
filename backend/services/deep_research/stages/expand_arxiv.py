@@ -79,23 +79,34 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
     )
 
     try:
-        from ...ai_analyzer import _create_client
+        from ...ai_analyzer import (
+            _create_client,
+            _extract_text,
+            anthropic_thinking_budget_tokens,
+            normalize_thinking_effort,
+            resolve_thinking,
+        )
         client = _create_client(api_key, cfg.get("base_url", ""))
+        model = cfg.get("model", "claude-haiku-4-5-20251001")
+        # 思考强度跟随解读模型配置；max_tokens 在预算之外始终给正文留 ≥3072，
+        # 之前固定 2048/4096 时思考一长输出就被截断成空。
+        effort = normalize_thinking_effort(cfg.get("thinking_effort"))
+        max_tokens = max(4096, anthropic_thinking_budget_tokens(effort) + 3072)
+        thinking_kwargs, temp_override = resolve_thinking(
+            False, cfg.get("base_url", ""), model, effort, max_tokens)
         try:
             msg = await client.messages.create(
-                model=cfg.get("model", "claude-haiku-4-5-20251001"),
-                # max_tokens 必须远大于 thinking.budget_tokens：留 1024 给思考，
-                # 其余给 JSON 输出。之前 2048 太小，思考一长输出就被截断成空。
-                max_tokens=4096,
-                temperature=1,
-                thinking={"type": "enabled", "budget_tokens": 1024},
+                model=model,
+                max_tokens=max_tokens,
+                # Anthropic 协议开启思考时强制 temperature=1（原硬编码 1 的来源）
+                temperature=temp_override if temp_override is not None else 0.1,
                 system="只输出 JSON 数组，不含任何其他文字。",
                 messages=[{"role": "user", "content": prompt}],
+                **thinking_kwargs,
             )
         finally:
             await client.close()
 
-        from ...ai_analyzer import _extract_text
         content = _extract_text(msg).strip()
 
         # 诊断：文本为空时打印 stop_reason 和返回的 block 类型，定位是被截断还是只有思考块

@@ -57,6 +57,8 @@ DEFAULT_CONFIG = {
         "system_prompt": "你是一个专业的学术翻译助手。将用户提供的英文论文片段翻译为中文。只输出翻译结果，不要添加任何解释。保持学术术语的准确性。",
         "temperature": 0.3,
         "max_tokens": 2048,
+        # 翻译不需要推理，默认关闭思考；用户可在设置页手动调高
+        "thinking_effort": "off",
     },
     "analysis": {
         "api_key": "",
@@ -64,6 +66,9 @@ DEFAULT_CONFIG = {
         "model": "gpt-4o-mini",
         "temperature": 0.1,
         "max_tokens": 16384,
+        # 思考强度：off | low | medium | high（详见 ai_analyzer.resolve_thinking）。
+        # 仅对支持的推理模型生效，其余模型沿用服务商默认。
+        "thinking_effort": "medium",
     },
     # 解读系统提示词：内置(builtin)只读，用户可创建可编辑副本并选用替换
     "analysis_prompt": {

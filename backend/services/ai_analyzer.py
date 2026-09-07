@@ -301,6 +301,71 @@ def _is_openai_format(base_url: str) -> bool:
     return "anthropic" not in base_url.lower()
 
 
+# ============================================================
+# 思考强度（thinking effort）—— 统一配置项，按协议翻译成请求参数
+# ============================================================
+
+# 用户可选项（设置页「高级参数 → 思考强度」）：
+#   off    关闭，不附加思考参数（Anthropic SDK 默认即关闭）
+#   low / medium / high  各协议映射：
+#     - Anthropic Messages：thinking={"type":"enabled","budget_tokens":B}；
+#       API 强制要求此时 temperature=1（否则 400），这也是引用标题提取处
+#       temperature=1 的原因。
+#     - OpenAI o 系 / gpt-5：顶层 reasoning_effort 参数。
+#     - DeepSeek v4+（OpenAI 兼容）：extra_body {"thinking":{"type":...}}。
+# 未识别为推理模型时不附加任何思考参数，沿用服务商默认——硬塞会被 400 拒绝。
+THINKING_EFFORTS = ("off", "low", "medium", "high")
+
+_ANTHROPIC_THINKING_BUDGET = {"low": 1024, "medium": 4096, "high": 16384}
+# 支持扩展思考的 Claude：3.7 / 3.8 / 4 及以上（含 sonnet/opus/haiku-4 命名）
+_ANTHROPIC_THINKING_MODEL_RE = re.compile(
+    r"claude-(?:3[.-][7-9]|[4-9]|(?:sonnet|opus|haiku)-[4-9])"
+)
+_OPENAI_REASONING_MODEL_RE = re.compile(r"^(o\d|gpt-5)")
+_DEEPSEEK_THINKING_MODEL_RE = re.compile(r"deepseek-v[4-9]")
+
+
+def normalize_thinking_effort(effort) -> str:
+    """归一化思考强度；空值/非法值回退 medium（配置默认）。"""
+    val = str(effort or "").strip().lower()
+    return val if val in THINKING_EFFORTS else "medium"
+
+
+def anthropic_thinking_budget_tokens(effort: str) -> int:
+    """思考强度 → Anthropic 协议的目标 budget_tokens（off/未知 = 0）。
+
+    供调用方在思考预算之外预留正文输出空间时估算 max_tokens。
+    """
+    return _ANTHROPIC_THINKING_BUDGET.get(normalize_thinking_effort(effort), 0) \
+        if normalize_thinking_effort(effort) != "off" else 0
+
+
+def resolve_thinking(use_openai: bool, base_url: str, model: str,
+                     effort: str, max_tokens: int) -> tuple[dict, float | None]:
+    """把思考强度翻译成请求参数。
+
+    返回 (附加到 create() 的 kwargs, 需覆盖的 temperature 或 None)。
+    不支持的组合返回 ({}, None)。Anthropic 协议下 budget 至少 1024 且必须
+    给正文留出输出空间（max_tokens - budget >= 1024），塞不下就不开思考。
+    """
+    level = normalize_thinking_effort(effort)
+
+    if use_openai:
+        # DeepSeek v4+ 默认开思考，off 需要显式关闭；low/medium/high 映射为开启
+        if _DEEPSEEK_THINKING_MODEL_RE.search(model or ""):
+            state = "enabled" if level != "off" else "disabled"
+            return {"extra_body": {"thinking": {"type": state}}}, None
+        if level != "off" and _OPENAI_REASONING_MODEL_RE.match(model or ""):
+            return {"reasoning_effort": level}, None
+        return {}, None
+
+    if level != "off" and _ANTHROPIC_THINKING_MODEL_RE.search(model or ""):
+        budget = min(_ANTHROPIC_THINKING_BUDGET[level], max_tokens - 1024)
+        if budget >= 1024:
+            return {"thinking": {"type": "enabled", "budget_tokens": budget}}, 1.0
+    return {}, None
+
+
 def _create_client(api_key: str, base_url: str):
     """创建标准 Anthropic Messages API 客户端。"""
     from anthropic import AsyncAnthropic
@@ -355,13 +420,32 @@ DIGEST_SYSTEM_PROMPT = """你是论文速读助手。请只为"知识图谱"抽�
 
 
 async def _complete_once(client, use_openai: bool, model: str, system: str, user: str,
-                         *, max_tokens: int, temperature: float, extra_body: dict | None = None) -> str:
-    """非流式单次补全，返回纯文本（速读用，无需增量解析）。"""
+                         *, max_tokens: int, temperature: float, extra_body: dict | None = None,
+                         thinking_effort: str | None = None, base_url: str = "") -> str:
+    """非流式单次补全，返回纯文本（速读用，无需增量解析）。
+
+    thinking_effort 非空时按 resolve_thinking 翻译成各协议的思考参数；
+    Anthropic 协议开启思考会强制 temperature=1（覆盖调用方传入值）。
+    """
+    thinking_kwargs: dict = {}
+    if thinking_effort is not None:
+        thinking_kwargs, temp_override = resolve_thinking(
+            use_openai, base_url, model, thinking_effort, max_tokens)
+        if temp_override is not None:
+            temperature = temp_override
     if use_openai:
+        create_kwargs: dict = {}
+        if extra_body:
+            create_kwargs["extra_body"] = dict(extra_body)
+        for key, val in thinking_kwargs.items():
+            if key == "extra_body" and "extra_body" in create_kwargs:
+                create_kwargs["extra_body"].update(val)
+            else:
+                create_kwargs[key] = val
         resp = await client.chat.completions.create(
             model=model, max_tokens=max_tokens, temperature=temperature,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            **({"extra_body": extra_body} if extra_body else {}),
+            **create_kwargs,
         )
         if not resp.choices:
             return ""
@@ -376,6 +460,7 @@ async def _complete_once(client, use_openai: bool, model: str, system: str, user
     resp = await client.messages.create(
         model=model, max_tokens=max_tokens, temperature=temperature,
         system=system, messages=[{"role": "user", "content": user}],
+        **thinking_kwargs,
     )
     return _extract_text(resp)
 
@@ -406,12 +491,14 @@ def _normalize_digest(data: dict, model: str) -> dict:
 
 async def generate_graph_digest(pdf_text: str, api_key: str, base_url: str, model: str,
                                 *, title: str = "", temperature: float = 0.1,
-                                max_tokens: int = 1500) -> dict:
+                                max_tokens: int = 1500,
+                                thinking_effort: str | None = None) -> dict:
     """图谱速读：一次非流式 LLM 调用，只抽知识图谱需要的 facet + 一段简短总结。
 
     与全量精读（analyze_paper_stream）的区别：输入截断（头 8000 + 尾 1500 字符，摘要/引言/
     方法多在前部、结论/实验在尾部），输出只有 7 个小字段，不生成大纲/逐图分析/代码映射/
     面试问答——token 成本约为全量精读的 1/5~1/10。返回 _normalize_digest 后的 dict。
+    默认 max_tokens=1500 放不下思考预算，resolve_thinking 会自动跳过思考参数。
     """
     text = _sanitize_content(pdf_text or "")
     head, tail = 8000, 1500
@@ -426,7 +513,8 @@ async def generate_graph_digest(pdf_text: str, api_key: str, base_url: str, mode
         client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
         try:
             raw = await _complete_once(client, use_openai, model, DIGEST_SYSTEM_PROMPT, user,
-                                       max_tokens=max_tokens, temperature=temperature)
+                                       max_tokens=max_tokens, temperature=temperature,
+                                       thinking_effort=thinking_effort, base_url=base_url)
             payload = _extract_json_value(raw) or raw
             try:
                 data = json.loads(payload)
@@ -456,8 +544,19 @@ async def _get_text_stream(
     client, use_openai: bool,
     model: str, system: str, user_content: str,
     temperature: float, max_tokens: int,
+    thinking_effort: str | None = None, base_url: str = "",
 ) -> AsyncGenerator[str, None]:
-    """统一文本流抽象：Anthropic 和 OpenAI 格式均输出纯文本 chunk"""
+    """统一文本流抽象：Anthropic 和 OpenAI 格式均输出纯文本 chunk。
+
+    thinking_effort 非空时按 resolve_thinking 附加思考参数；
+    Anthropic 协议开启思考强制 temperature=1（API 要求）。
+    """
+    thinking_kwargs: dict = {}
+    if thinking_effort is not None:
+        thinking_kwargs, temp_override = resolve_thinking(
+            use_openai, base_url, model, thinking_effort, max_tokens)
+        if temp_override is not None:
+            temperature = temp_override
     if use_openai:
         stream = await client.chat.completions.create(
             model=model,
@@ -468,6 +567,7 @@ async def _get_text_stream(
                 {"role": "user", "content": user_content},
             ],
             stream=True,
+            **thinking_kwargs,
         )
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
@@ -480,6 +580,7 @@ async def _get_text_stream(
             system=system,
             messages=[{"role": "user", "content": user_content}],
             temperature=temperature,
+            **thinking_kwargs,
         ) as stream:
             async for text in stream.text_stream:
                 yield text
@@ -489,6 +590,7 @@ async def analyze_paper_stream(
     pdf_text: str, api_key: str, base_url: str, model: str,
     temperature: float = 0.1, max_tokens: int = 16384,
     system_prompt: str | None = None,
+    thinking_effort: str | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     真流式调用 AI 分析论文，自动适配 Anthropic 格式和 OpenAI 兼容格式。
@@ -514,7 +616,8 @@ async def analyze_paper_stream(
             accumulated = ""
             yielded_fields: set[str] = set()
 
-            async for text_chunk in _get_text_stream(client, use_openai, model, system, pdf_text, temperature, max_tokens):
+            async for text_chunk in _get_text_stream(client, use_openai, model, system, pdf_text, temperature, max_tokens,
+                                                     thinking_effort=thinking_effort, base_url=base_url):
                 accumulated += text_chunk
 
                 # 尝试增量解析

@@ -7,6 +7,9 @@
 import type { Theme } from '@/theme/themes'
 
 
+/** 思考强度：off=关闭；仅对支持的推理模型生效（Claude 3.7+/4+、OpenAI o 系/gpt-5、DeepSeek v4+） */
+export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high'
+
 export interface AIModelConfig {
   api_key: string
   base_url: string
@@ -14,6 +17,7 @@ export interface AIModelConfig {
   system_prompt: string
   temperature: number
   max_tokens: number
+  thinking_effort: ThinkingEffort
 }
 
 export interface UIConfig {
@@ -161,6 +165,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     system_prompt: '',
     temperature: 0.3,
     max_tokens: 2048,
+    thinking_effort: 'off',
   },
   analysis: {
     api_key: '',
@@ -169,6 +174,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     system_prompt: '',
     temperature: 0.1,
     max_tokens: 16384,
+    thinking_effort: 'medium',
   },
   analysis_prompt: {
     active: 'builtin',

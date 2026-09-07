@@ -367,17 +367,23 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
 
     try:
+        from ..services.ai_analyzer import resolve_thinking
+        thinking_kwargs, temp_override = resolve_thinking(
+            _is_openai_format(base_url), base_url, model,
+            cfg.get("thinking_effort", "medium"), 2048)
+        temperature = temp_override if temp_override is not None else 0.2
         if _is_openai_format(base_url):
             client = _create_openai_client(api_key, base_url)
             try:
                 resp = await client.chat.completions.create(
                     model=model,
                     max_tokens=2048,
-                    temperature=0.2,
+                    temperature=temperature,
                     messages=[
                         {"role": "system", "content": system_msg},
                         {"role": "user", "content": prompt},
                     ],
+                    **thinking_kwargs,
                 )
                 answer = (resp.choices[0].message.content or "").strip()
             finally:
@@ -390,7 +396,8 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
                     max_tokens=2048,
                     system=system_msg,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.2,
+                    temperature=temperature,
+                    **thinking_kwargs,
                 )
                 answer = _extract_text(msg).strip()
             finally:

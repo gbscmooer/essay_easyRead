@@ -271,6 +271,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                 temperature=ai_cfg.get("temperature", 0.1),
                 max_tokens=ai_cfg.get("max_tokens", 16384),
                 system_prompt=get_active_analysis_prompt(),
+                thinking_effort=ai_cfg.get("thinking_effort", "medium"),
             ):
                 # analyze_paper_stream 自己会发 error 事件，但我们用异常路径统一处理，
                 # 这里仅转发 status / field，done 留给最终阶段统一发。
