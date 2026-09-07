@@ -1,16 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.5.0'
+const APP_VERSION = '5.5.1'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-09-07',
   changes: [
-    '全面重构前端视觉与排版体系：移除生硬的构造主义/野兽派装饰，建立以学者阅读效率为中心的清晰、高可读界面',
-    '导航与布局轻量化：重构为 56px 现代化统一顶栏，支持单键亮色/暗色主题无缝切换与全域快捷键',
-    '阅读与分析体验升级：优化精读 Tab 页面排版、信息卡片留白与圆角层次，提升核心贡献、方法步骤与问答的阅读舒适度',
-    '全面消除样式强制覆盖：解除输入框、列表行与图表容器的零圆角与纯平限制，恢复自然的悬停反馈与视觉层次',
+    '修复后端日志流并发迭代异常（RuntimeError: deque mutated during iteration），解决终端面板仅显示初始一行的问题',
+    '强化日志流订阅者线程安全与异常隔离，支持历史日志安全快照回放与实时无缝推送',
+    '过滤 SSE 自身请求的高频访问日志，保持日志面板清晰可读',
   ],
 }
 
