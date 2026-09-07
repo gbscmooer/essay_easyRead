@@ -23,6 +23,18 @@ from backend.services.deep_research.explorer import (
 )
 
 
+@pytest.fixture(autouse=True)
+def offline_retrieval(monkeypatch):
+    from backend.services.deep_research import literature_retrieval as retrieval
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("offline test")
+    monkeypatch.setattr(retrieval, "document_vectors", unavailable)
+    monkeypatch.setattr(retrieval, "get_reranker_config", lambda: {"enabled": False})
+    async def audit(*args, **kwargs):
+        return {"status": "skipped", "support_rate": None}
+    monkeypatch.setattr(explorer, "audit_answer", audit)
+
+
 # ── 测试材料 ────────────────────────────────────────────────────────────────
 
 def _cand(title, *, year=None, cites=0, doi=None, abstract=None, key=None):
@@ -131,13 +143,13 @@ def test_dedupe_merges_by_key_and_takes_max_citations():
     assert merged["abstract"] == "abs"
 
 
-def test_cap_keeps_recent_slots():
+def test_cap_preserves_upstream_relevance_order():
     old = [_paper(f"old {i}", 2015, 100 + i) for i in range(10)]
     fresh = [_paper(f"new {i}", 2025, 1) for i in range(3)]
     capped = _cap_papers(old + fresh, cap=12, now_year=2026)
     assert len(capped) == 12
-    # cap//4 = 3 席留给近三年：3 篇新工作全部保留（纯按被引裁剪会全部丢失）
-    assert sum(1 for p in capped if p["title"].startswith("new")) == 3
+    assert capped == (old + fresh)[:12]
+    assert _cap_papers(fresh + old, cap=3, now_year=2026) == fresh
 
 
 # ── 3) metrics ───────────────────────────────────────────────────────────────
@@ -153,7 +165,7 @@ def test_metrics_velocity_surge_and_stats():
     by_title = {p["title"]: p for p in papers}
     assert by_title["classic"]["citation_velocity"] == 50.0
     assert by_title["classic"]["surge"] is False
-    assert by_title["rising"]["surge"] is True
+    assert by_title["rising"]["surge"] is False  # Missing history cannot establish growth.
     assert by_title["recent slow"]["surge"] is False
     assert by_title["unknown year"]["citation_velocity"] is None
     assert m["total"] == 4
@@ -161,7 +173,7 @@ def test_metrics_velocity_surge_and_stats():
     assert m["recent_share"] == round(2 / 3, 3)
     assert m["year_span"] == [2016, 2025]
     assert m["top_cited"][0] == "k:classic"
-    assert "k:rising" in m["rising"]
+    assert m["rising"] == []
 
 
 # ── 3b) metrics 升级：近 2 年动态 / 轨迹 / 同年百分位 / 期刊 / 关键词 ─────────
@@ -169,9 +181,9 @@ def test_metrics_velocity_surge_and_stats():
 def _with_history(paper, *, w2, w1=0):
     """给论文注入 OpenAlex 风格 counts_by_year（近 2 年合计 w2，再往前 2 年合计 w1）。"""
     paper["counts_by_year"] = [
-        {"year": 2026, "cited_by_count": w2 // 2},
+        {"year": 2024, "cited_by_count": w2 // 2},
         {"year": 2025, "cited_by_count": w2 - w2 // 2},
-        {"year": 2024, "cited_by_count": w1 // 2},
+        {"year": 2022, "cited_by_count": w1 // 2},
         {"year": 2023, "cited_by_count": w1 - w1 // 2},
     ]
     return paper
@@ -190,7 +202,7 @@ def test_metrics_recent_window_and_trajectory():
     assert flat_old["trajectory"] == "steady"
     assert young["trajectory"] is None          # 历史 <4 年不算轨迹
     # 突增用近 2 年速度：young 近 2 年 10 → 5/年 ≥ 2 → surge
-    assert young["surge"] is True
+    assert young["surge"] is False  # Publication year is not a complete exposure year.
 
 
 def test_metrics_surge_prefers_recent_velocity_over_lifetime():

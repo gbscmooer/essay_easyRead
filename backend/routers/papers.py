@@ -10,6 +10,7 @@ import shutil
 import uuid
 import asyncio
 import logging
+from typing import Literal
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
@@ -100,23 +101,7 @@ async def upload_paper(file: UploadFile = File(...)) -> PaperResponse:
 
     # 不自动启动分析，用户在阅读页面手动点击"开始分析"
 
-    return PaperResponse(
-        id=paper.id,
-        filename=paper.filename,
-        title=paper.title,
-        authors=paper.authors,
-        venue=paper.venue,
-        year=paper.year,
-        category=paper.category,
-        status=paper.status,
-        index_status=paper.index_status or "none",
-        error_message=paper.error_message,
-        code_url=paper.code_url,
-        code_path=paper.code_path,
-        code_status=paper.code_status or "none",
-        created_at=paper.created_at,
-        updated_at=paper.updated_at,
-    )
+    return PaperResponse(**{**paper.model_dump(), **paper_metadata.view(paper)})
 
 
 # ============================================================
@@ -132,6 +117,10 @@ async def get_papers_list(
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     source: str = Query("uploaded", description="uploaded | expanded | all"),
     sort: str = Query("recent", description=f"排序方式：{' | '.join(PAPER_SORTS)}"),
+    subject: str = Query(None),
+    venue: str = Query(None),
+    publication_type: str = Query(None),
+    provider: str = Query(None),
 ) -> PaperListResponse:
     """获取论文列表，支持筛选、排序和搜索"""
     # Validate date_added format
@@ -144,6 +133,7 @@ async def get_papers_list(
             session, search=search, category=category, year=year,
             date_added=date_added, page=page, per_page=per_page, source=source,
             sort=sort if sort in PAPER_SORTS else "recent",
+            subject=subject, venue=venue, publication_type=publication_type, provider=provider,
         )
 
     # 批量查出有全量精读结果的论文 ID（用于 read_level 判断）
@@ -157,26 +147,7 @@ async def get_papers_list(
             )
 
     paper_responses = [
-        PaperResponse(
-            id=p["id"],
-            filename=p["filename"],
-            title=p["title"],
-            authors=p.get("authors"),
-            venue=p["venue"],
-            year=p["year"],
-            category=p.get("category"),
-            status=p["status"],
-            index_status=p.get("index_status", "none"),
-            error_message=p["error_message"],
-            code_url=p.get("code_url"),
-            code_path=p.get("code_path"),
-            code_status=p.get("code_status", "none"),
-            source=p.get("source", "uploaded"),
-            level=p.get("level", 1),
-            read_level="full" if p["id"] in analyzed_ids else ("digest" if p.get("graph_digest") else "none"),
-            created_at=p["created_at"],
-            updated_at=p["updated_at"],
-        )
+        PaperResponse(**p, read_level="full" if p["id"] in analyzed_ids else ("digest" if p.get("graph_digest") else "none"))
         for p in papers
     ]
 
@@ -237,6 +208,10 @@ async def smart_search(
     include_expanded: bool = Query(False, description="开启则一并搜索深度研究联网下载的相关论文"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    subject: str = Query(None),
+    venue: str = Query(None),
+    publication_type: str = Query(None),
+    provider: str = Query(None),
 ):
     """论文库统一智能搜索：元数据 + 解读内容 + 可选全文，命中并集 + 命中标签。"""
     from ..models.paper import Paper as PaperModel
@@ -258,6 +233,8 @@ async def smart_search(
         if date_added:
             from sqlalchemy import func as _func
             stmt = stmt.where(_func.date(PaperModel.created_at) == date_added)
+        from ..services.paper_metadata import filter_query, view
+        stmt = filter_query(stmt, session, subject=subject, venue=venue, publication_type=publication_type, provider=provider)
         papers = session.exec(stmt).all()
 
         # 预取所有匹配论文的 AnalysisResult（消除 N+1）
@@ -270,6 +247,7 @@ async def smart_search(
 
         for p in papers:
             matched: list[dict] = []
+            meta = view(p)
             # 元数据
             if p.title and ql in p.title.lower():
                 matched.append({"field": "title", "snippet": p.title})
@@ -284,6 +262,11 @@ async def smart_search(
                 matched.append({"field": "venue", "snippet": p.venue})
             if p.year and ql in str(p.year):
                 matched.append({"field": "year", "snippet": str(p.year)})
+            for field in ("subjects", "providers", "doi", "publisher"):
+                value = meta.get(field)
+                text = ", ".join(value) if isinstance(value, list) else str(value or "")
+                if text and ql in text.lower():
+                    matched.append({"field": field, "snippet": text})
 
             # 解读内容（从预取的 ar_map 中查找，避免 N+1 查询）
             try:
@@ -316,6 +299,7 @@ async def smart_search(
                     "year": p.year,
                     "source": p.source,
                     "matched_fields": matched,
+                    **meta,
                 })
 
     # 命中字段越多越靠前
@@ -330,6 +314,34 @@ async def smart_search(
 # 批量重新索引：用 GROBID 强制重提元数据，覆盖未解读论文的脏数据。
 # 注意：必须定义在 /{paper_id} 之前，否则 "reindex" 会被当成 paper_id → 422
 # ============================================================
+from ..models.schemas import PaperMetadataUpdate
+from ..services import paper_metadata
+
+
+@router.get("/metadata/status")
+async def metadata_status():
+    return paper_metadata.refresh_status()
+
+
+@router.post("/metadata/refresh")
+async def refresh_metadata(source: Literal["uploaded", "expanded", "all"] = "uploaded"):
+    return paper_metadata.start_refresh(source)
+
+
+@router.post("/{paper_id}/metadata", response_model=PaperResponse)
+async def update_metadata(paper_id: int, req: PaperMetadataUpdate):
+    from ..models.paper import Paper
+    with Session(get_engine()) as session:
+        paper = session.get(Paper, paper_id)
+        if not paper:
+            raise HTTPException(404, detail={"detail": "论文不存在", "code": "NOT_FOUND"})
+        paper_metadata.merge(paper, req.model_dump(), "manual")
+        session.add(paper)
+        session.commit()
+        session.refresh(paper)
+        return PaperResponse(**{**paper.model_dump(), **paper_metadata.view(paper)})
+
+
 @router.post("/reindex")
 async def reindex_library_endpoint(
     include_expanded: bool = Query(False, description="是否一并重索引联网扩展下载的论文"),
@@ -363,23 +375,7 @@ async def get_paper_detail(paper_id: int) -> PaperResponse:
             detail={"detail": f"Paper {paper_id} not found", "code": "NOT_FOUND"},
         )
 
-    return PaperResponse(
-        id=paper.id,
-        filename=paper.filename,
-        title=paper.title,
-        authors=paper.authors,
-        venue=paper.venue,
-        year=paper.year,
-        category=paper.category,
-        status=paper.status,
-        index_status=paper.index_status or "none",
-        error_message=paper.error_message,
-        code_url=paper.code_url,
-        code_path=paper.code_path,
-        code_status=paper.code_status or "none",
-        created_at=paper.created_at,
-        updated_at=paper.updated_at,
-    )
+    return PaperResponse(**{**paper.model_dump(), **paper_metadata.view(paper)})
 
 
 # ============================================================

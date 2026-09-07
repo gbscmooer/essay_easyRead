@@ -65,13 +65,14 @@ class RecallWeightsConfig(BaseModel):
     """多路召回 RRF 各通道权重。"""
     pdf_ref: float = 1.0
     backward: float = 1.0
-    forward: float = 0.9
-    recommend: float = 0.85
-    graph_ppr: float = 0.8
+    forward: float = 1.0
+    recommend: float = 1.0
+    graph_ppr: float = 1.0
 
 
 class RecallConfig(BaseModel):
     """联网扩展多路召回 / RRF 融合配置（research.recall）。"""
+    method: str = "weighted_rrf_v1"
     enabled_sources: list[str] = ["backward", "forward", "recommend", "pdf_ref", "graph_ppr"]
     rrf_k: int = 60
     weights: RecallWeightsConfig = RecallWeightsConfig()
@@ -80,8 +81,8 @@ class RecallConfig(BaseModel):
 
 class HybridWeightsConfig(BaseModel):
     dense: float = 1.0
-    bm25: float = 0.95
-    graph_ppr: float = 0.8
+    bm25: float = 1.0
+    graph_ppr: float = 1.0
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -91,6 +92,7 @@ class GraphRetrievalConfig(BaseModel):
 
 
 class HybridRetrievalConfig(BaseModel):
+    method: str = "weighted_rrf_v1"
     rrf_k: int = 60
     weights: HybridWeightsConfig = HybridWeightsConfig()
     graph: GraphRetrievalConfig = GraphRetrievalConfig()
@@ -106,8 +108,9 @@ class ResearchConfig(BaseModel):
     email: str = ""
     api_key: str = ""
     elsevier_api_key: str = ""    # Elsevier / Scopus API Key（校园网内可留空）
-    map_density: float = 8.0       # 研究地图密度：每篇论文平均连几条关系边
-    backbone_alpha: float = 0.25   # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
+    map_density: float = 8.0       # 兼容旧配置，当前骨架算法忽略
+    backbone_alpha: float = 0.05   # Disparity Filter 局部显著性阈值，不是准确率
+    backbone_method: str = "mutual_knn_with_disparity_annotation_v1"
     link_distance: int = 50        # 图谱节点边长基准
     auto_digest: bool = True       # 深度研究时自动「图谱速读」未解读论文
     discovery_v2: bool = False     # 发布门禁通过前默认关闭，可显式启用 discovery v2
@@ -126,19 +129,20 @@ class RerankerConfig(BaseModel):
 
 class RelationWeightsConfig(BaseModel):
     """论文关联度的八个通道权重（见 graphkit/relatedness.py）。"""
-    topic: float = 0.18
-    purpose: float = 0.24
-    method: float = 0.16
-    term: float = 0.14
-    dataset: float = 0.06
-    baseline: float = 0.04
-    bibcoupling: float = 0.12
-    cocitation: float = 0.06
+    topic: float = 0.125
+    purpose: float = 0.125
+    method: float = 0.125
+    term: float = 0.125
+    dataset: float = 0.125
+    baseline: float = 0.125
+    bibcoupling: float = 0.125
+    cocitation: float = 0.125
 
 class RelationsConfig(BaseModel):
     """论文关联度配置（全系统唯一一套算法，无 provider 可选）。"""
-    # 用工作区自身的引用结构当弱标签校准语义通道权重；关掉即纯用下面的先验权重
-    calibrate: bool = True
+    method: str = "weighted_rrf_v1"
+    # 兼容旧配置；保存和计算均不再启用自动校准
+    calibrate: bool = False
     weights: RelationWeightsConfig = RelationWeightsConfig()
 
 class ArxivExpandConfig(BaseModel):
@@ -202,8 +206,8 @@ async def get_config() -> AppConfig:
         research=ResearchConfig(**research_payload),
         reranker=RerankerConfig(**config.get("reranker", {})),
         relations=RelationsConfig(
-            calibrate=bool((config.get("relations") or {}).get(
-                "calibrate", DEFAULT_CONFIG["relations"]["calibrate"])),
+            method=(config.get("relations") or {}).get("method", DEFAULT_CONFIG["relations"]["method"]),
+            calibrate=False,
             weights=RelationWeightsConfig(**(config.get("relations", {}).get("weights") or {})),
         ),
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
@@ -227,30 +231,30 @@ async def update_config(req: AppConfig) -> dict:
     # relations：权重子段深合并，避免只改一个通道时丢失其他通道
     default_weights = DEFAULT_CONFIG.get("relations", {}).get("weights", {})
     relations = {
-        "calibrate": bool(req.relations.calibrate),
+        "method": DEFAULT_CONFIG["relations"]["method"],
+        "calibrate": False,
         "weights": {
             **default_weights,
             **((prior.get("relations") or {}).get("weights") or {}),
-            **req.relations.weights.model_dump(),
+            **req.relations.weights.model_dump(exclude_unset=True),
         },
     }
     prior_research = prior.get("research", {})
-    research_dump = req.research.model_dump()
+    research_dump = req.research.model_dump(exclude_unset=True)
     research_merged = {**prior_research, **research_dump}
-    # recall 子段深合并，避免只改 provider 时丢失 weights 等嵌套字段
-    prior_recall = prior_research.get("recall") or {}
-    new_recall = research_dump.get("recall") or {}
-    if prior_recall or new_recall:
-        default_recall = DEFAULT_CONFIG.get("research", {}).get("recall", {})
-        research_merged["recall"] = {**default_recall, **prior_recall, **new_recall}
-        w_prior = prior_recall.get("weights") or {}
-        w_new = new_recall.get("weights") or {}
-        if w_prior or w_new:
-            research_merged["recall"]["weights"] = {
-                **(default_recall.get("weights") or {}),
-                **w_prior,
-                **w_new,
+    # 保留部分更新未指定的检索偏好与图参数。
+    for name in ("recall", "hybrid_retrieval"):
+        defaults = DEFAULT_CONFIG["research"][name]
+        before = prior_research.get(name) or {}
+        patch = research_dump.get(name) or {}
+        merged = {**defaults, **before, **patch, "method": defaults["method"]}
+        for nested in ("weights", "graph"):
+            if nested not in defaults:
+                continue
+            merged[nested] = {
+                **defaults[nested], **(before.get(nested) or {}), **(patch.get(nested) or {}),
             }
+        research_merged[name] = merged
     config = {
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),

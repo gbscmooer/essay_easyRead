@@ -50,34 +50,13 @@ def _get_engine():
     return _engine
 
 
-# 主题代表性强的章节关键词（命中则加权，让质心更偏向"研究主题/目的"）
-_TOPIC_SECTIONS = ("abstract", "intro", "conclusion", "overview")
-
-
 def _chunk_weight(meta: dict) -> float:
-    """单个 chunk 在论文质心里的权重。
-
-    全文平均会让到处雷同的实现细节（backbone/优化器/超参）稀释主题信号。按章节/位置
-    加权可让质心更贴近研究方向：
-    - 摘要/引言/结论：最能代表主题 → 2.0
-    - 正文滑窗（section_name=="Body"）：按位置衰减，开头（题录/摘要/引言）更代表主题
-      —— 这对**没有章节信息的叶子论文**也有效（它们全是 Body，只能靠位置区分）
-    - 引用上下文：讲的是别人的工作 → 0.5 弱化
-    - 其他具名章节（method/experiment…）：1.0 正常
-    """
-    name = (meta.get("section_name") or "").strip().lower()
-    idx = int(meta.get("chunk_index") or 0)
-    if any(k in name for k in _TOPIC_SECTIONS):
-        return 2.0
-    if "citation context" in name:
-        return 0.5
-    if name in ("body", ""):
-        return max(0.7, 1.5 - 0.1 * idx)
+    """Equal mean pooling; metadata does not imply validated relevance weights."""
     return 1.0
 
 
 def _doc_centroids(ws_id: int, paper_ids: list[int]) -> dict[int, list[float]]:
-    """ChromaDB 里每篇论文 chunk embedding 的加权质心。"""
+    """Mean-pool normalized chunk embeddings without positional priors."""
     import numpy as np
 
     out: dict[int, list[float]] = {}
@@ -198,7 +177,7 @@ async def compute_paper_relations(
     if weights is None:
         weights = cfg.get("weights") or None
     if calibrate is None:
-        calibrate = bool(cfg.get("calibrate", True))
+        calibrate = False
     return await compute_relations(
         feats, embed_fn=embed_texts, weights=weights,
         bibcoupling=bib, cocitation=cocite, calibrate=calibrate,

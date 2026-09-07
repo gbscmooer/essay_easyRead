@@ -21,8 +21,8 @@ CHANNEL_GRAPH = "graph_ppr"
 
 DEFAULT_HYBRID_WEIGHTS: dict[str, float] = {
     CHANNEL_DENSE: 1.0,
-    CHANNEL_BM25: 0.95,
-    CHANNEL_GRAPH: 0.85,
+    CHANNEL_BM25: 1.0,
+    CHANNEL_GRAPH: 1.0,
 }
 
 

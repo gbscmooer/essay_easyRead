@@ -23,20 +23,22 @@ const CHANNEL_LABEL: Record<string, string> = {
   dataset: '数据集', baseline: '对比基线', bibcoupling: '文献耦合', cocitation: '共引',
 }
 
-/** 图谱质量摘要：地图密度工作点 + 本次是否按工作区自动调过权。 */
+/** 展示保存的图谱统计；不把平均度解释成当前算法的目标。 */
 function graphQualityHint(graph: ResearchGraph): string {
   const st = graph.stats
   const lines: string[] = []
   if (st?.backbone) {
     lines.push(
-      `多尺度骨架：从 ${st.backbone.candidate_pairs} 对候选里留下 ${Math.round(st.backbone.mean_degree * (st.node_count ?? graph.nodes.length) / 2)} 条关系边`
-      + `（目标密度 ${st.backbone.map_density} 边/篇，实际 ${st.backbone.mean_degree.toFixed(1)}）`
+      `${st.backbone.method === 'mutual_knn' ? '互近邻图' : st.backbone.method === 'disparity' ? 'Disparity 骨架' : '旧版骨架'}：从 ${st.backbone.candidate_pairs} 对候选里留下 ${Math.round(st.backbone.mean_degree * (st.node_count ?? graph.nodes.length) / 2)} 条关系边`
+      + `（平均度 ${st.backbone.mean_degree.toFixed(1)}）`
       + (st.backbone.bridge_pairs ? `，其中 ${st.backbone.bridge_pairs} 条为保证地图连通补的桥接边` : ''),
     )
   }
-  if (st?.modularity != null) lines.push(`子方向划分质量 modularity=${st.modularity.toFixed(3)}（越高说明子方向越分明）`)
+  if (st?.modularity != null) lines.push(`modularity=${st.modularity.toFixed(3)}（图结构指标，不等于主题准确率）`)
   const cal = st?.relation_channels?.calibration
-  if (cal?.applied) {
+  if (st?.relation_channels?.method === 'weighted_rrf_v1') {
+    lines.push('RRF 排名融合；权重为用户偏好，不使用弱标签拟合')
+  } else if (cal?.applied) {
     const top = Object.entries(cal.weights).sort((a, b) => b[1] - a[1])
       .map(([k, v]) => `${CHANNEL_LABEL[k] ?? k} ${(v * 100).toFixed(0)}%`).join(' · ')
     lines.push(`已按本工作区的 ${cal.n_positives} 对引用证据自动调权：${top}`)

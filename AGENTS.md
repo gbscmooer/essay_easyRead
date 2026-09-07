@@ -78,7 +78,8 @@ backend/
 │   ├── terminal.py       # WebSocket PTY 终端
 │   └── deep_research/    # 深度研究子模块
 │       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
-│       ├── explorer.py        # 领域探索流水线（decompose→recall→metrics/cluster→synthesize，问句冷启动，见 GOAL.md）
+│       ├── explorer.py        # 统一研究（问题+可选母论文→召回→计量→综合→报告）
+│       ├── survey_report.py   # 证据抽取、框架/指标/任务表、覆盖矩阵、HTML/Markdown导出
 │       ├── domain_synthesizer.py # 领域认知综合（节点角色/引用因果/流派/全景简报，LLM 批量注入）
 │       ├── embedder.py        # 文本向量化
 │       ├── vector_store.py    # 向量存储 + RAG 查询
@@ -94,7 +95,7 @@ backend/
 │       ├── stages/            # 流水线各阶段实现
 │       ├── providers/         # 外部数据源适配器
 │       └── graphkit/          # 图谱算法纯净核心（无 DB 依赖）
-│           ├── relatedness.py     # ★ 唯一的关联度算法：八通道分位数归一 + 加权融合
+│           ├── relatedness.py     # 唯一关联度：八通道对称排名 RRF（等权默认，不做弱标签调权）
 │           ├── backbone.py        # 多尺度骨架提取（Disparity Filter）
 │           ├── lexical.py         # IDF 加权术语重叠
 │           ├── structural.py      # 文献耦合 / 共引（Salton）
@@ -141,7 +142,8 @@ frontend/src/
 3. **代码仓库分析**: 正则提取代码 URL → clone → 构建文件树 → 静态分析依赖（import_parser）→ AI 分析数据流和论文-代码映射
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
-6. **论文关联度**（图谱关系的唯一算法，`graphkit/relatedness.py`）: 主题向量 / 研究目的 / 方法 / IDF 术语 / 共享数据集 / 共享 baseline / 文献耦合 / 共引 八个通道各自分位数归一 → 加权融合成一个分数 → Disparity Filter 抽骨架 → 该分数同时决定连边、社区划分、节点重要性与图检索。权重在设置页「论文关联度」调整
+6. **论文关联度**（`graphkit/relatedness.py`）: 八通道逐端排名的对称 RRF（k=60、默认等权）→ mutual-kNN（k=10）→ Leiden 与关系 PageRank。原始 Disparity Filter（alpha=.05）独立标记，不控制选边；展示桥不参与统计；自定义权重仅表示偏好，不做引文弱监督拟合。实际方法与解释随图谱保存。
+7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、热力图）。`ExplorationRun.options`保存输入快照；历史材料可单独补生成报告。契约见 `document.md` 2.9–2.11。
 
 ### 路由
 
@@ -152,10 +154,12 @@ frontend/src/
 | `/code/:id` | 代码分析（文件浏览器 + 代码查看器 + 分析面板）|
 | `/library` | 论文库 |
 | `/settings` | 设置（AI 模型配置 + UI 配置）|
-| `/explore` | 领域探索（问句驱动：拆解检索式→多源检索→计量聚类→LLM 跨文献结论，见 GOAL.md）|
+| `/explore` | 统一文献研究（自然语言问题 + 可选母论文 + 联网补充）|
+| `/explorer/:id` | 研究报告、分析结果、全部资料与连续追问 |
 | `/workspace` | 工作区列表 |
 | `/workspace/:id` | 工作区详情（论文管理）|
-| `/workspace/:id/research` | 深度研究（引文图谱 + RAG 问答）|
+| `/workspace/:id/research` | 兼容跳转到统一入口并携带工作区 |
+| `/workspace/:id/graph` | 原工作区图谱与全文索引工具 |
 
 ## 开发约定
 

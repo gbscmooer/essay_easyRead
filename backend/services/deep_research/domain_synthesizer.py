@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 from ..ai_analyzer import (
@@ -79,8 +80,16 @@ async def _llm_json(cfg: dict, system: str, user: str, *, max_tokens: int,
         client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
         try:
             raw = await _complete_once(client, use_openai, model, system, user,
-                                       max_tokens=max_tokens, temperature=temperature)
-            payload = _extract_json_value(raw) or raw
+                                       max_tokens=max_tokens, temperature=temperature,
+                                       **({"extra_body": {"thinking": {"type": "disabled"}}}
+                                          if urlparse(base_url).hostname == "api.deepseek.com"
+                                          and model.startswith("deepseek-v4") else {}))
+            framed = raw.strip()
+            if framed.startswith("```") and framed.endswith("```"):
+                first_line, separator, body = framed.partition("\n")
+                if separator and first_line.lower() in ("```", "```json"):
+                    framed = body.rsplit("```", 1)[0].strip()
+            payload = _extract_json_value(framed) or framed
             try:
                 data = json.loads(payload)
             except json.JSONDecodeError:

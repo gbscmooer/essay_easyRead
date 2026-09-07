@@ -48,6 +48,7 @@ export interface RecallWeightsConfig {
 }
 
 export interface RecallConfig {
+  method?: string
   enabled_sources: string[]
   rrf_k: number
   weights: RecallWeightsConfig
@@ -55,6 +56,7 @@ export interface RecallConfig {
 }
 
 export interface HybridRetrievalConfig {
+  method?: string
   rrf_k: number
   weights: {
     dense: number
@@ -76,9 +78,10 @@ export interface ResearchConfig {
   elsevier_api_key?: string
   /** 领域认知综合（stage_synthesize）：图谱后注入节点角色/引用因果/流派/全景简报 */
   synthesize?: { enabled: boolean }
-  /** 研究地图密度：每篇论文平均连几条关系边 */
+  /** 旧配置兼容；当前骨架算法忽略目标度数 */
   map_density?: number
   backbone_alpha?: number
+  backbone_method?: string
   link_distance?: number
   auto_digest?: boolean
   /** 多路召回 + RRF 融合扩展（discovery v2） */
@@ -103,9 +106,10 @@ export type RelationChannelName =
 
 /** 论文关联度配置（后端 graphkit/relatedness.py 的唯一一套算法） */
 export interface RelationsConfig {
-  /** 用工作区自身的引用结构当弱标签，按各语义通道的实际判别力自动调权 */
+  method?: string
+  /** 旧配置兼容；当前算法不执行自动校准 */
   calibrate: boolean
-  /** 通道权重先验；开启校准时它是拟合的起点与证据不足时的兜底 */
+  /** 全部通道共同归一的用户偏好，默认等权 */
   weights: Record<RelationChannelName, number>
 }
 
@@ -198,28 +202,31 @@ export const DEFAULT_CONFIG: AppConfig = {
     elsevier_api_key: '',
     synthesize: { enabled: true },
     map_density: 8,
-    backbone_alpha: 0.25,
+    backbone_alpha: 0.05,
+    backbone_method: 'mutual_knn_with_disparity_annotation_v1',
     link_distance: 50,
     auto_digest: true,
     discovery_v2: false,
     recall: {
+      method: 'weighted_rrf_v1',
       enabled_sources: ['backward', 'forward', 'recommend', 'pdf_ref', 'graph_ppr'],
       rrf_k: 60,
       weights: {
         pdf_ref: 1.0,
         backward: 1.0,
-        forward: 0.9,
-        recommend: 0.85,
-        graph_ppr: 0.8,
+        forward: 1.0,
+        recommend: 1.0,
+        graph_ppr: 1.0,
       },
       candidate_limit: 50,
     },
     hybrid_retrieval: {
+      method: 'weighted_rrf_v1',
       rrf_k: 60,
       weights: {
         dense: 1.0,
-        bm25: 0.95,
-        graph_ppr: 0.8,
+        bm25: 1.0,
+        graph_ppr: 1.0,
       },
       graph: {
         ppr_alpha: 0.85,
@@ -238,16 +245,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     top_n: 5,
   },
   relations: {
-    calibrate: true,
+    method: 'weighted_rrf_v1',
+    calibrate: false,
     weights: {
-      topic: 0.18,
-      purpose: 0.24,
-      method: 0.16,
-      term: 0.14,
-      dataset: 0.06,
-      baseline: 0.04,
-      bibcoupling: 0.12,
-      cocitation: 0.06,
+      topic: 0.125,
+      purpose: 0.125,
+      method: 0.125,
+      term: 0.125,
+      dataset: 0.125,
+      baseline: 0.125,
+      bibcoupling: 0.125,
+      cocitation: 0.125,
     },
   },
   arxiv_expand: {

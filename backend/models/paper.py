@@ -39,6 +39,7 @@ class Paper(SQLModel, table=True):
     venue: Optional[str] = None  # 会议/期刊，如 "CVPR", "NeurIPS"
     year: Optional[int] = None  # 发表年份
     category: Optional[str] = None  # arXiv 学科分类，如 "cs.LG"（自动索引提取）
+    bibliography: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 召回时带回的摘要与被引数（领域认知 synthesize 阶段的输入；PDF 全文缺省时是唯一语料）
     abstract: Optional[str] = None
     citation_count: Optional[int] = None

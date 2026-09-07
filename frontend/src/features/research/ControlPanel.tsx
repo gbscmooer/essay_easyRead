@@ -45,7 +45,6 @@ export function ControlPanel({
   const [deep, setDeep] = useState(1)
   const [rebuild, setRebuild] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [mapDensity, setMapDensity] = useState(8)
   const [digesting, setDigesting] = useState(false)
   const [digestProgress, setDigestProgress] = useState<{ done: number; total: number } | null>(null)
   const [backfilling, setBackfilling] = useState(false)
@@ -187,10 +186,8 @@ export function ControlPanel({
   }
 
   useEffect(() => {
-    get<{ research?: { map_density?: number; link_distance?: number } }>('/analysis/config')
+    get<{ research?: { link_distance?: number } }>('/analysis/config')
       .then(cfg => {
-        const savedDensity = cfg.research?.map_density
-        if (typeof savedDensity === 'number') setMapDensity(savedDensity)
         const savedDist = cfg.research?.link_distance
         if (typeof savedDist === 'number') onLinkDistanceChange(savedDist)
       })
@@ -232,7 +229,6 @@ export function ControlPanel({
       expand_top_k: topK,
       deep,
       rebuild,
-      map_density: mapDensity,
     })
   }
 
@@ -275,7 +271,6 @@ export function ControlPanel({
         ...fullCfg,
         research: {
           ...(fullCfg.research || {}),
-          map_density: mapDensity,
           link_distance: linkDistance,
         },
       }
@@ -447,7 +442,7 @@ export function ControlPanel({
           </label>
         </Tooltip>
 
-        <Tooltip content="调整地图密度（每篇论文平均连几条关系边）等高级参数。">
+        <Tooltip content="调整图谱节点间距。">
           <button
             type="button"
             onClick={() => setShowAdvanced(v => !v)}
@@ -587,22 +582,6 @@ export function ControlPanel({
       {/* 高级设置面板 */}
       {showAdvanced && (
         <div className="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap" style={{ borderColor: 'var(--border)' }}>
-          <Tooltip content={'地图密度：每篇论文平均连几条关系边。多尺度骨架（Disparity Filter）按这个预算反解阈值，只留相对每篇论文「自己的关联度分布」而言异常突出的边，逐节点自适应；骨架裂开时用最强跨块边补成连通图，不会留下孤立点。调小=只看最强关系、主线清晰；调大=保留更多线索、更接近全貌。默认 8。'}>
-            <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>地图密度</span>
-              <input
-                type="range"
-                min={3}
-                max={20}
-                step={1}
-                value={mapDensity}
-                onChange={e => setMapDensity(Number(e.target.value))}
-                className="w-24 h-1 accent-blue-500"
-              />
-              <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{mapDensity} 边/篇</span>
-            </div>
-          </Tooltip>
-
           <Tooltip content={'知识图谱中节点之间连线的基准长度。值越大节点间距越远、图谱越松散；值越小节点越紧凑。默认 50。'}>
             <div className="flex items-center gap-2">
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>节点边长</span>

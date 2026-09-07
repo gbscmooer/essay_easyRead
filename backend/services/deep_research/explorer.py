@@ -9,9 +9,8 @@ Domain Explorer — 问句驱动的领域探索工作流（GOAL.md 核心命题�
                带学术类型过滤排干扰，去重合并
     enrich     指标富化（非致命）：OpenAlex 按 DOI 补逐年引用/摘要/关键词（Scopus 检索
                不带、Citation API 又无权限），Scopus Serial Title 批量查期刊 SJR/SNIP
-    metrics    纯算法计量：被引分布、引用速度、近 2 年增量与轨迹、突增、**同年百分位**
-               （ESI 高被引的语料内复刻）、年份直方图、主阵地期刊、关键词×年份矩阵
-    cluster    标题+摘要的 TF-IDF 词法相似图 → Louvain 社区 → 子方向标签（复用 graph_analytics）
+    metrics    完整年份引用率检验、多重比较校正、样本内百分位与描述性统计
+    cluster    预训练论文表示 → mutual-kNN → Leiden（复用 graph_analytics）
     synthesize LLM 只基于召回材料：查新判定 / 成熟度 / 流派 / 热点 / 空白 / Markdown 报告
     persist    产物整体落 ExplorationRun.result
 
@@ -23,13 +22,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
 import networkx as nx
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlmodel import Session
 
 from ...models.exploration import (
@@ -39,7 +39,13 @@ from ...models.research import ParadigmInfo
 from ...models.schemas import StreamEvent
 from ..database import get_engine
 from .event_bus import EventBus
-from .graph_analytics import _detect_communities, _label_clusters, _merge_small, _tokenize
+from .graph_analytics import _detect_communities, _label_clusters, _tokenize
+from .literature_retrieval import paper_similarity, retrieve_materials
+from .citation_metrics import annotate_citation_metrics
+from .evidence_audit import audit_answer
+from .graphkit.backbone import mutual_knn
+from .survey_report import build_survey_report
+from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +56,6 @@ DEPTH_PRESETS: dict[str, dict] = {
     "deep": {"max_queries": 5, "per_query": 50, "cap": 240, "llm_papers": 40},
 }
 
-# 引用速度（被引/年龄）达到该值且发表在近窗口内 → 突增候选
-_SURGE_MIN_VELOCITY = 2.0
 _RECENT_WINDOW = 2          # 「近期」= 最近 N 年（相对当前年份）
 _ABSTRACT_CLIP = 500        # 送入 LLM 的摘要截断
 _MIN_SYNTH_PAPERS = 3       # 证据少于该数不做 LLM 综合（材料不足，防编造）
@@ -170,6 +174,8 @@ def _dedupe_candidates(candidates: list) -> list[dict]:
                 "citation_count": getattr(cand, "citation_count", None) or 0,
                 "doi": getattr(cand, "doi", None),
                 "arxiv_id": getattr(cand, "arxiv_id", None),
+                "url": getattr(cand, "url", None),
+                "pdf_url": getattr(cand, "pdf_url", None),
                 "authors": getattr(cand, "authors", None),
                 "abstract": getattr(cand, "abstract", None),
                 "source_query": getattr(cand, "seed_relation", None) or "",
@@ -192,24 +198,8 @@ def _dedupe_candidates(candidates: list) -> list[dict]:
 
 
 def _cap_papers(papers: list[dict], *, cap: int, now_year: int, recent_window: int = 3) -> list[dict]:
-    """超量时的裁剪：主体给高被引（证据骨干），预留 1/4 席位给近三年的新工作（新兴热点）。"""
-    if len(papers) <= cap:
-        return papers
-    recent_slots = max(1, cap // 4)
-    main = sorted(papers, key=lambda p: p.get("citation_count") or 0, reverse=True)[: cap - recent_slots]
-    chosen = {p["key"] for p in main}
-    recent = sorted(
-        (p for p in papers if p["key"] not in chosen and (p.get("year") or 0) >= now_year - recent_window),
-        key=lambda p: (p.get("year") or 0, p.get("citation_count") or 0),
-        reverse=True,
-    )[:recent_slots]
-    seen: set[str] = set()
-    out = []
-    for p in main + recent:
-        if p["key"] not in seen:
-            seen.add(p["key"])
-            out.append(p)
-    return out
+    """Retain upstream retrieval order; citation count is not query relevance."""
+    return list({p["key"]: p for p in papers}.values())[:max(0, cap)]
 
 
 async def recall_papers(
@@ -261,6 +251,14 @@ async def recall_papers(
                 pass
 
     papers = _dedupe_candidates(candidates)
+    # Equal-query RRF; no publication-age quota or citation-popularity preference.
+    ranks: dict[str, float] = defaultdict(float)
+    for hits in batches:
+        for rank, paper in enumerate(_dedupe_candidates(hits), 1):
+            ranks[paper["key"]] += 1.0 / (60 + rank)
+    papers.sort(key=lambda p: (-ranks[p["key"]], p["key"]))
+    for p in papers:
+        p["retrieval_score"] = ranks[p["key"]]
     papers = _cap_papers(papers, cap=cap, now_year=now_year)
     aclose = getattr(provider, "aclose", None)
     if aclose:
@@ -386,58 +384,13 @@ async def enrich_papers(papers: list[dict], *, progress=None) -> dict:
 # ── Stage 4: metrics + cluster（纯算法，客观性的来源）────────────────────────
 
 def _citation_dynamics(p: dict, *, now_year: int) -> None:
-    """就地写入近 2 年被引增量 / 近 2 年速度 / 引用轨迹（缺 counts_by_year 时全空）。"""
-    cby = [c for c in (p.get("counts_by_year") or []) if isinstance(c, dict)]
-    if not cby:
-        p["recent_citations"] = None
-        p["citation_velocity_2y"] = None
-        p["trajectory"] = None
-        return
-    # 近 2 年 = 最近两个日历年（含当年；当年未走完属口径保守）
-    w2 = sum(c.get("cited_by_count") or 0 for c in cby if (c.get("year") or 0) >= now_year - 1)
-    w1 = sum(c.get("cited_by_count") or 0 for c in cby if now_year - 3 <= (c.get("year") or 0) <= now_year - 2)
-    p["recent_citations"] = w2
-    p["citation_velocity_2y"] = round(w2 / 2, 2)
-    # 引用轨迹：近 2 年均速 vs 之前 2 年均速（发表满 4 年才定型，新论文不算回落）
-    year = p.get("year")
-    p["trajectory"] = None
-    if isinstance(year, int) and 1900 < year <= now_year - 4:
-        r2, r1 = w2 / 2, w1 / 2
-        if r1 <= 0:
-            p["trajectory"] = "rising" if r2 >= _SURGE_MIN_VELOCITY else None
-        elif r2 >= 1.5 * r1:
-            p["trajectory"] = "rising"
-        elif r2 <= 0.5 * r1:
-            p["trajectory"] = "declining"
-        else:
-            p["trajectory"] = "steady"
+    """Compatibility entry; production corrects multiple tests over the full cohort."""
+    annotate_citation_metrics([p], now_year=now_year)
 
 
 def _cohort_percentiles(papers: list[dict]) -> None:
-    """ESI「高被引」的语料内可复刻版：按**发表年份**分组算被引百分位。
-
-    ESI 官方口径是全领域同年 top 1%；召回语料只是领域的抽样，绝对 1% 噪声太大，
-    故取同年语料前 5% 且 cohort ≥5 才打 highly_cited 徽章。百分位本身就是
-    年龄无关的公平指标（老论文不再天然占优）。
-    """
-    cohorts: dict[int, list[int]] = defaultdict(list)
-    for p in papers:
-        y = p.get("year")
-        if isinstance(y, int) and 1900 < y:
-            cohorts[y].append(p.get("citation_count") or 0)
-    for p in papers:
-        y = p.get("year")
-        cohort = cohorts.get(y) if isinstance(y, int) else None
-        if not cohort:
-            p["citation_percentile"] = None
-            p["highly_cited"] = False
-            continue
-        mine = p.get("citation_count") or 0
-        less = sum(1 for c in cohort if c < mine)
-        equal = sum(1 for c in cohort if c == mine)
-        pr = (less + equal / 2) / len(cohort) * 100
-        p["citation_percentile"] = round(pr, 1)
-        p["highly_cited"] = bool(len(cohort) >= 5 and pr >= 95)
+    """Compatibility entry for descriptive sample percentiles."""
+    annotate_citation_metrics(papers, now_year=datetime.now(timezone.utc).year)
 
 
 def _venue_ranking(papers: list[dict]) -> list[dict]:
@@ -482,38 +435,18 @@ def _keyword_trend(papers: list[dict], *, now_year: int) -> dict:
     return {"years": years, "rows": rows[:20]}
 
 
-def compute_metrics(papers: list[dict], *, now_year: int) -> None:
-    """就地写入引用速度 / 突增 / 近 2 年动态 / 同年百分位，并给出聚合统计。"""
-    for p in papers:
-        year, cites = p.get("year"), p.get("citation_count") or 0
-        if isinstance(year, int) and 1900 < year <= now_year + 1:
-            age = max(1, now_year - year)
-            p["citation_velocity"] = round(cites / age, 2)
-        else:
-            p["citation_velocity"] = None
-        _citation_dynamics(p, now_year=now_year)
-        # 突增：近窗口发表 + 当前动量达标。动量优先取近 2 年速度（真·当前热度，
-        # 老论文全周期速度会高估），缺逐年数据时退回全周期速度
-        if p["citation_velocity"] is None:
-            p["surge"] = False
-        else:
-            eff = p["citation_velocity_2y"]
-            eff = p["citation_velocity"] if eff is None else eff
-            p["surge"] = bool(
-                isinstance(year, int) and year >= now_year - _RECENT_WINDOW
-                and eff >= _SURGE_MIN_VELOCITY
-            )
-    _cohort_percentiles(papers)
-
-    known = [p["year"] for p in papers if isinstance(p.get("year"), int)]
+def compute_metrics(papers: list[dict], *, now_year: int) -> dict:
+    """Descriptive counts plus exact rate comparison over complete calendar years."""
+    annotate_citation_metrics(papers, now_year=now_year)
+    known = [p["year"] for p in papers if isinstance(p.get("year"), int) and 1900 < p["year"] <= now_year]
     by_year = dict(sorted(Counter(y for y in known if y > 1900).items()))
     recent_n = sum(1 for y in known if y >= now_year - _RECENT_WINDOW)
     top_cited = [p["key"] for p in sorted(papers, key=lambda x: x.get("citation_count") or 0, reverse=True)[:10]]
     rising = [
         p["key"]
         for p in sorted(
-            (x for x in papers if x.get("citation_velocity") is not None),
-            key=lambda x: x["citation_velocity"], reverse=True,
+            (x for x in papers if x.get("trajectory") == "rising"),
+            key=lambda x: x.get("citation_velocity_2y") or 0, reverse=True,
         )[:10]
     ]
     highly_cited = [
@@ -526,6 +459,12 @@ def compute_metrics(papers: list[dict], *, now_year: int) -> None:
     ]
     return {
         "total": len(papers),
+        "citation_method": {
+            "algorithm": "conditional_poisson_rate_test", "version": 1,
+            "adjustment": "benjamini_hochberg", "alpha": 0.05,
+            "recent_years": [now_year - 2, now_year - 1],
+            "baseline_years": [now_year - 4, now_year - 3],
+        },
         "by_year": by_year,
         "recent_share": round(recent_n / len(known), 3) if known else 0.0,
         "year_span": [min(known), max(known)] if known else [],
@@ -541,64 +480,38 @@ def compute_metrics(papers: list[dict], *, now_year: int) -> None:
     }
 
 
-def _tfidf_vectors(texts: list[str]) -> list[dict[str, float]]:
-    """标题+摘要的 TF-IDF 稀疏向量（L2 归一化）。分词复用 graph_analytics（EN + 中文 bigram）。"""
-    token_lists = [_tokenize(t) for t in texts]
-    n = max(1, len(token_lists))
-    df: Counter = Counter()
-    for toks in token_lists:
-        df.update(set(toks))
-    vecs = []
-    for toks in token_lists:
-        tf = Counter(toks)
-        vec = {t: c * math.log(1 + n / df[t]) for t, c in tf.items()}
-        norm = math.sqrt(sum(w * w for w in vec.values())) or 1.0
-        vecs.append({t: w / norm for t, w in vec.items()})
-    return vecs
-
-
-def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
-    if len(b) < len(a):
-        a, b = b, a
-    return sum(w * b.get(t, 0.0) for t, w in a.items())
-
-
 def cluster_papers(
-    papers: list[dict], *, min_sim: float = 0.08, max_neighbors: int = 8,
+    papers: list[dict], *, min_sim: float = 0.0, max_neighbors: int = 10,
+    similarities: np.ndarray | None = None,
 ) -> tuple[dict[str, int], list[dict], float]:
-    """词法相似图 → Louvain 社区。返回（node key → cluster（-1 孤立）, related 边, modularity）。
-
-    与深度研究图谱共用同一套社区/标签口径（graph_analytics），前端总览视图无需区分数据来源。
-    """
+    """Mutual-kNN similarity graph and Leiden. TF-IDF is an explicit offline fallback."""
     if not papers:
         return {}, [], 0.0
 
-    vecs = _tfidf_vectors([f'{p["title"]} {p.get("abstract") or ""}' for p in papers])
+    if similarities is None:
+        try:
+            matrix = TfidfVectorizer(tokenizer=_tokenize, token_pattern=None, lowercase=False).fit_transform(
+                [f'{p["title"]} {p.get("abstract") or ""}' for p in papers])
+            similarities = (matrix @ matrix.T).toarray()
+        except ValueError:
+            similarities = np.zeros((len(papers), len(papers)))
+    if similarities.shape != (len(papers), len(papers)) or not np.isfinite(similarities).all():
+        raise ValueError("invalid paper similarity matrix")
     sims: list[tuple[int, int, float]] = []
     for i in range(len(papers)):
         for j in range(i + 1, len(papers)):
-            s = _cosine(vecs[i], vecs[j])
-            if s >= min_sim:
+            s = float(similarities[i, j])
+            if s > min_sim:
                 sims.append((i, j, s))
 
-    # 每个节点只保留最强的 max_neighbors 条边（稀疏化，防 hub 拉扯社区结构）
-    top: dict[int, list[tuple[float, int]]] = defaultdict(list)
-    for i, j, s in sims:
-        top[i].append((s, j))
-        top[j].append((s, i))
-    keep: set[tuple[int, int]] = set()
-    for i, lst in top.items():
-        lst.sort(reverse=True)
-        for _, j in lst[:max_neighbors]:
-            keep.add((min(i, j), max(i, j)))
-
+    neighbors = mutual_knn(sims, k=max_neighbors, min_sim=min_sim)
+    keep = {(i, j) for i, j, _ in neighbors}
     rel = nx.Graph()
     rel.add_nodes_from(range(len(papers)))
-    for i, j in keep:
-        s = next((s for a, b, s in sims if (a, b) == (i, j)), 0.0)
-        rel.add_edge(i, j, weight=round(s, 4))
+    for i, j, similarity in neighbors:
+        rel.add_edge(i, j, weight=similarity)
 
-    communities = _merge_small(rel, _detect_communities(rel), min_size=2)
+    communities = _detect_communities(rel)
     node2cluster: dict[int, int] = {}
     key2cluster: dict[str, int] = {}
     for cid, members in enumerate(communities):
@@ -680,8 +593,7 @@ def _clip(text: str | None, limit: int) -> str:
 
 def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dict, *, max_papers: int) -> tuple[str, list[dict]]:
     """材料装配。返回 (user prompt, 送入的论文子集)——子集编号 E1..En 供证据引用。"""
-    ordered = sorted(papers, key=lambda x: (x.get("citation_count") or 0), reverse=True)
-    subset = ordered[:max_papers]
+    subset = papers[:max_papers]
     by_key = {p["key"]: p for p in papers}
 
     lines = [f"## 学者的问题\n{question}", ""]
@@ -717,7 +629,7 @@ def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dic
             "⚠ 检索质量提示：本次未经检索式拆解（原句直检索），查全率可能显著偏低。"
             "若材料未覆盖主题，应判 unclear（检索不可靠）而非 gap。"
         )
-    lines += ["", "## 论文材料（按被引排序；E 编号用于证据引用）", ""]
+    lines += ["", "## 论文材料（按问题相关性检索与重排；E 编号用于证据引用）", ""]
     for i, p in enumerate(subset, start=1):
         p["_evidence_no"] = f"E{i}"
         bits = [f'- [E{i}] {p["title"]}']
@@ -727,15 +639,15 @@ def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dic
         if p.get("citation_velocity") is not None:
             bits.append(f'速度{p["citation_velocity"]}/年')
         if p.get("recent_citations") is not None:
-            bits.append(f'近2年被引{p["recent_citations"]}')
+            bits.append(f'最近两个完整年份被引{p["recent_citations"]}')
         if p.get("highly_cited"):
-            bits.append('★同年前5%')
+            bits.append('本次样本同年前5%')
         if p.get("trajectory") == "rising":
             bits.append('引用爬升')
         elif p.get("trajectory") == "declining":
             bits.append('引用回落')
         if p.get("surge"):
-            bits.append('🔥突增')
+            bits.append('引用率检验上升')
         venue = p.get("venue") or {}
         if venue.get("name"):
             bits.append(f'期刊[{venue["name"]}]')
@@ -761,6 +673,8 @@ def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dic
         "要求：status 严格按定义——done_extensively=已有多个成熟实现；done_partial=有相关工作但未完全覆盖"
         "问题的全部条件；emerging=近1~2年才出现；gap=材料中确实没有直接实现（≠检索失败）；"
         "unclear=证据不足。evidence 引用的 E 编号必须真实存在于材料中。",
+        "未检索到直接实现不能证明全领域空白；gap 仅限本次材料和检索时间范围。"
+        "confidence 仅是模型自评，不是正确概率。趋势统计仅描述引用变化，不证明创新性或因果关系。",
     ]
     return "\n".join(lines), [by_key[p["key"]] for p in subset]
 
@@ -865,19 +779,28 @@ async def synthesize_exploration(
     from .domain_synthesizer import _llm_json
 
     synth: Optional[ExplorationSynthesis] = None
+    retrieval = {}
+    audit = None
+    subset = []
     try:
-        user, subset = _synth_user(question, decompose, papers, metrics, max_papers=max_papers)
+        selected, retrieval = await retrieve_materials(
+            papers, question + "\n" + " ".join(decompose.get("en_queries") or []), limit=max_papers)
+        user, subset = _synth_user(question, decompose, selected, metrics, max_papers=max_papers)
         # 富化后摘要覆盖率高（run 14 实测 117/155），材料变大 → markdown 输出更长；
         # 推理模型的 hidden reasoning 与 content 共享 max_tokens，4000 会截断 JSON
         # （2026-09-02 run 14 实测全重试失败），提到 8000 留足余量
-        data = await _llm_json(llm_cfg, _SYNTH_SYSTEM, user, max_tokens=8000)
+        data = await asyncio.wait_for(_llm_json(llm_cfg, _SYNTH_SYSTEM, user, max_tokens=8000), timeout=150)
         synth = _normalize_synthesis(data, subset, retrieval_fallback=bool(decompose.get("fallback")))
+        audit = await audit_answer(synth.markdown_report, [
+            {"id": p["_evidence_no"], "title": p.get("title") or "", "abstract": p.get("abstract") or ""}
+            for p in subset
+        ], llm_cfg)
     except Exception as e:
         logger.warning(f"explorer synthesize main task failed (non-fatal): {e}")
         synth = ExplorationSynthesis(partial=True)
 
     try:
-        synth.paradigms = await _task_paradigms(llm_cfg, papers)
+        synth.paradigms = await asyncio.wait_for(_task_paradigms(llm_cfg, papers), timeout=90)
     except Exception as e:
         synth.partial = True
         logger.warning(f"explorer synthesize paradigms failed (non-fatal): {e}")
@@ -893,6 +816,10 @@ async def synthesize_exploration(
         "model": llm_cfg.get("model", ""),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "partial": synth.partial,
+        "retrieval": retrieval,
+        "confidence_kind": "uncalibrated_model_self_report",
+        "evidence_audit": audit,
+        "citations": {p["_evidence_no"]: p["key"] for p in subset},
     }
     return synth
 
@@ -927,6 +854,8 @@ async def run_exploration(run_id: int) -> None:
             run = s.get(ExplorationRun, run_id)
             question = (run.question or "").strip() if run else ""
             depth = run.depth if run else "standard"
+            options = dict(run.options or {}) if run else {}
+            seeds, seed_rows = load_seeds(s, options)
         preset = _preset_for_depth(depth)
         now_year = datetime.now(timezone.utc).year
         llm_cfg = get_analysis_config()
@@ -934,7 +863,10 @@ async def run_exploration(run_id: int) -> None:
         # 1) decompose
         _set_stage(run_id, "decompose")
         await emit("stage_start", stage="decompose")
-        decompose = await decompose_question(question, llm_cfg, max_queries=preset["max_queries"])
+        decomposition_question = question
+        if seeds:
+            decomposition_question += "\n母论文（用于限定研究范围）：\n" + "\n".join(p["title"] for p in seeds[:12])
+        decompose = await decompose_question(decomposition_question, llm_cfg, max_queries=preset["max_queries"])
         with Session(get_engine()) as s:
             run = s.get(ExplorationRun, run_id)
             if run is not None:
@@ -954,10 +886,28 @@ async def run_exploration(run_id: int) -> None:
         async def _recall_progress(query: str, hit_count: int, total_so_far: int):
             await emit("recall_progress", query=query, hit_count=hit_count, total_so_far=total_so_far)
 
-        papers, provider_name = await recall_papers(
-            decompose["en_queries"], per_query=preset["per_query"], cap=preset["cap"],
-            now_year=now_year, progress=_recall_progress,
-        )
+        source_warnings = []
+        neighbors = []
+        seed_recall = {}
+        if options.get("search_online", True):
+            papers, provider_name = await recall_papers(
+                decompose["en_queries"], per_query=preset["per_query"], cap=preset["cap"],
+                now_year=now_year, progress=_recall_progress,
+            )
+            if seed_rows:
+                try:
+                    neighbors, seed_recall = await recall_seed_neighbors(seed_rows, depth)
+                except Exception as exc:
+                    source_warnings.append(f"母论文关联扩展未完成（{type(exc).__name__}），保留母论文与问句检索材料。")
+        else:
+            papers, provider_name = [], "workspace"
+        if neighbors:
+            papers = merge_corpus(seeds, [*papers, *neighbors], len(seeds) + len(papers) + len(neighbors))
+            papers, seed_recall["corpus_selection"] = await retrieve_materials(
+                papers, question, [p["key"] for p in seeds], limit=max(preset["cap"], len(seeds)),
+            )
+        else:
+            papers = merge_corpus(seeds, papers, preset["cap"])
         _set_stage(run_id, "recall", "running", provider=provider_name)
         await emit("stage_done", stage="recall", summary={
             "provider": provider_name, "total": len(papers),
@@ -971,7 +921,7 @@ async def run_exploration(run_id: int) -> None:
             await emit("enrich_progress", done=done, total=len(papers))
 
         try:
-            enrich_stats = await enrich_papers(papers, progress=_enrich_progress)
+            enrich_stats = await enrich_papers(papers, progress=_enrich_progress) if options.get("search_online", True) else {}
         except Exception as ee:
             logger.warning(f"explorer enrich failed (non-fatal): {ee}")
             enrich_stats = {}
@@ -981,7 +931,9 @@ async def run_exploration(run_id: int) -> None:
         _set_stage(run_id, "metrics")
         await emit("stage_start", stage="metrics")
         metrics = compute_metrics(papers, now_year=now_year)
-        _, edges, modularity = cluster_papers(papers)
+        similarities, representation = await paper_similarity(papers)
+        _, edges, modularity = cluster_papers(papers, similarities=similarities)
+        metrics["clustering"] = {**representation, "algorithm": "leiden", "graph": "mutual_knn", "neighbors": 10}
         metrics["clusters"] = len({p.get("cluster") for p in papers if p.get("cluster", -1) >= 0})
         metrics["modularity"] = modularity
         graph = build_graph_payload(papers, edges, modularity=modularity)
@@ -998,7 +950,9 @@ async def run_exploration(run_id: int) -> None:
             ],
             "metrics": metrics,
             "graph": graph,
+            "sources": {**options, "seed_count": len(seeds), "seed_recall": seed_recall, "warnings": source_warnings},
         }
+        _set_stage(run_id, "metrics", result=result)
         await emit("metrics_ready", **result)
 
         # 5) synthesize（无 Key / 证据不足自动跳过）
@@ -1022,7 +976,28 @@ async def run_exploration(run_id: int) -> None:
             logger.warning(f"explorer synthesize failed (non-fatal): {se}")
             await emit("stage_done", stage="synthesize", summary={"error": str(se)})
 
-        # 6) persist
+        _set_stage(run_id, "synthesize", result=result)
+
+        # 6) Evidence tables are shared by cold-start and seeded research.
+        _set_stage(run_id, "report")
+        await emit("stage_start", stage="report")
+
+        async def report_progress(done: int, total: int):
+            await emit("report_progress", done=done, total=total)
+
+        try:
+            result["survey_report"] = await build_survey_report(
+                question, papers, metrics, synthesis_dict, llm_cfg, depth=depth, progress=report_progress,
+                fetch_full_text=options.get("search_online", True),
+            )
+            result["papers"] = [{k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
+            await emit("report_ready", **result["survey_report"])
+        except Exception as exc:
+            logger.exception("Survey tables failed; existing research artifacts retained")
+            result["report_error"] = f"报告表格未完成（{type(exc).__name__}），可从已有材料重新生成。"
+        await emit("stage_done", stage="report", summary={})
+
+        # 7) persist
         _set_stage(run_id, "persist")
         await emit("stage_start", stage="persist")
         with Session(get_engine()) as s:
@@ -1032,6 +1007,7 @@ async def run_exploration(run_id: int) -> None:
                 s.add(run)
                 s.commit()
         await emit("stage_done", stage="persist", summary={})
+        await emit("metrics_ready", **result)
 
         _set_stage(run_id, "persist", "done")
         await emit("done", run_id=run_id, total=metrics["total"])
@@ -1055,6 +1031,41 @@ async def run_exploration(run_id: int) -> None:
             await emit("error", message=err_msg, stage=current_stage)
         except Exception:
             logger.exception("Failed to emit error event for exploration run %s", run_id)
+    finally:
+        await bus.close()
+        drop_exploration_bus(run_id)
+
+
+async def rebuild_survey_report(run_id: int) -> None:
+    """Regenerate a report from a saved corpus, without repeating online recall."""
+    from ..ai_config import get_analysis_config
+    bus = get_exploration_bus(run_id)
+    try:
+        with Session(get_engine()) as session:
+            run = session.get(ExplorationRun, run_id)
+            result = dict(run.result or {})
+            question, depth = run.question, run.depth
+            options = dict(run.options or {})
+        _set_stage(run_id, "report")
+        await bus.publish(StreamEvent(event="stage_start", data={"stage": "report"}))
+        await bus.publish(StreamEvent(event="metrics_ready", data=result))
+
+        async def progress(done, total):
+            await bus.publish(StreamEvent(event="report_progress", data={"done": done, "total": total}))
+
+        report = await build_survey_report(question, result.get("papers", []), result.get("metrics", {}),
+                                           result.get("synthesis"), get_analysis_config(), depth=depth, progress=progress,
+                                           fetch_full_text=options.get("search_online", True))
+        result["survey_report"] = report
+        result.pop("report_error", None)
+        _set_stage(run_id, "persist", "done", result=result, error_message=None)
+        await bus.publish(StreamEvent(event="metrics_ready", data=result))
+        await bus.publish(StreamEvent(event="report_ready", data=report))
+        await bus.publish(StreamEvent(event="done", data={"run_id": run_id}))
+    except Exception as exc:
+        logger.exception("Report regeneration failed")
+        _set_stage(run_id, "report", "failed", error_message=f"报告生成失败（{type(exc).__name__}）")
+        await bus.publish(StreamEvent(event="error", data={"message": "报告生成失败，原材料已保留"}))
     finally:
         await bus.close()
         drop_exploration_bus(run_id)

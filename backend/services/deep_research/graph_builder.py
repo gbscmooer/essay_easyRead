@@ -16,27 +16,39 @@ Graph Builder — 知识图谱构建
 """
 
 import logging
+import warnings
 
 from sqlmodel import Session
 
 from .graph_analytics import annotate_graph
-from .graphkit import extract_backbone_with_bridges
-from .paper_relatedness import compute_paper_relations, structural_channels
-from ..ai_config import get_relations_config
+from .graphkit import add_display_bridges, extract_backbone, mutual_knn
+from .paper_relatedness import compute_paper_relations
 from ..paper_identity import clean_display_title
 
 logger = logging.getLogger(__name__)
 
-# 关联度地板：低于此值的对当噪声丢弃，不参与骨架的强度统计
-# （避免一堆近乎无关的弱边拉高节点强度分母）。骨架提取是主控，这是兜底。
-MIN_RELATEDNESS = 0.05
+# Rank-fusion scores have no absolute relevance threshold.
+MIN_RELATEDNESS = 0.0
 
-# 目标平均度：每篇论文平均连几条关系边。这是地图密度的主控参数（与打分尺度无关），
-# 实测 ws1 上 8 是"可读且不丢结构"的平衡点。可被运行参数覆盖。
+# Legacy signature compatibility only; does not control statistical significance.
 DEFAULT_MAP_DENSITY = 8.0
 
-# Disparity Filter 显著性水平 α：控制"局部显著"的判据（密度由 map_density 控制）。
-DEFAULT_BACKBONE_ALPHA = 0.25
+DEFAULT_BACKBONE_ALPHA = 0.05
+DEFAULT_RELATION_KNN_K = 10
+
+
+def _select_relation_edges(pairs, *, alpha: float, knn_k: int) -> tuple:
+    """Build a mutual-kNN analysis graph; disparity is an independent annotation.
+
+    RRF compresses weight differences. Using a disparity null model to select
+    this graph can isolate most papers even when some edges pass its test.
+    """
+    disparity = extract_backbone(pairs, alpha=alpha, min_sim=MIN_RELATEDNESS)
+    disparity_pairs = {(a, b) for a, b, _ in disparity}
+    retained = mutual_knn(pairs, k=knn_k, min_sim=MIN_RELATEDNESS)
+    method = "mutual_knn"
+    edges, bridges = add_display_bridges(pairs, retained)
+    return edges, bridges, disparity_pairs, method
 
 
 def _build_structural_edges(
@@ -137,12 +149,16 @@ async def build_graph(
     enable_shared_method: bool = False,
     map_density: float = DEFAULT_MAP_DENSITY,
     backbone_alpha: float = DEFAULT_BACKBONE_ALPHA,
+    relation_knn_k: int = DEFAULT_RELATION_KNN_K,
     enable_bibcoupling: bool = True,
     enable_cocitation: bool = True,
     citation_contexts: dict[int, list[dict]] | None = None,
     session: Session | None = None,
     references: list | None = None,
 ) -> dict:
+    if map_density != DEFAULT_MAP_DENSITY:
+        warnings.warn("map_density is deprecated and ignored; use backbone_alpha or relation_knn_k",
+                      DeprecationWarning, stacklevel=2)
     # 防御性去重：同一 paper_id 只建一个节点（旧数据/上游 join 异常曾产生重复节点，
     # 重复条目会污染前端渲染并使离线分析的度数虚高）。
     seen_ids: set[int] = set()
@@ -179,26 +195,30 @@ async def build_graph(
     cite_edges, cites_count = _build_cites_edges(papers, references or [], by_id)
     edges.extend(cite_edges)
 
-    # 2) related 边：唯一的关联度算法。结构信号（文献耦合/共引）作为通道进入分数，
-    #    再由 Disparity Filter 决定留哪些边——结构证据因此参与"选边"，而不只是配色。
+    # 2) Mutual-kNN analysis graph, independent disparity annotation, display bridges.
     relations = await compute_paper_relations(
         papers, ws_id=ws_id, references=references or [],
     )
-    kept, bridge_keys = extract_backbone_with_bridges(
+    kept, bridge_keys, disparity_pairs, selection_method = _select_relation_edges(
         relations.pairs,
-        target_degree=map_density,
         alpha=backbone_alpha,
-        min_sim=MIN_RELATEDNESS,
+        knn_k=relation_knn_k,
     )
     related_count = 0
     for a_id, b_id, score in kept:
         pair_key = (min(a_id, b_id), max(a_id, b_id))
-        detail = relations.explain(a_id, b_id)
         is_bridge = pair_key in bridge_keys
+        selection = "display_bridge" if is_bridge else selection_method
         for s, t in ((a_id, b_id), (b_id, a_id)):
+            detail = {
+                **relations.explain(s, t),
+                "selection_method": selection,
+                "disparity_retained": pair_key in disparity_pairs,
+            }
             e = {
                 "source": f"paper:{s}", "target": f"paper:{t}",
                 "kind": "related", "weight": score, "detail": detail,
+                "selection_method": selection,
             }
             if is_bridge:
                 e["bridge"] = True
@@ -257,14 +277,26 @@ async def build_graph(
         "clusters": analytics["clusters"],
         "top_papers": analytics["top_papers"],
         "modularity": analytics.get("modularity", 0.0),
+        "community_method": analytics.get("community_method"),
+        "importance_method": analytics.get("importance_method"),
         "backbone": {
-            "map_density": map_density,
+            "method": selection_method,
+            "policy": "mutual_knn_with_disparity_annotation_v1",
+            "knn_k": relation_knn_k,
+            "knn_ties": "include_boundary",
+            "disparity_retained_pairs": len(disparity_pairs),
+            "disparity_role": "annotation_only",
             "alpha": backbone_alpha,
             "mean_degree": round(related_count / max(1, len(nodes)), 2),
+            "analysis_mean_degree": round((related_count - 2 * len(bridge_keys)) / max(1, len(nodes)), 2),
             "bridge_pairs": len(bridge_keys),
             "candidate_pairs": len(relations.pairs),
         },
         "relation_channels": {
+            "method": "weighted_rrf_v1",
+            "rrf_k": 60,
+            "symmetrization": "mean_endpoint_reciprocal_ranks",
+            "score_semantics": "normalized_rank_fusion",
             "weights": {k: round(v, 4) for k, v in relations.weights.items()},
             "coverage": relations.coverage,
             "calibration": relations.calibration.to_dict() if relations.calibration else None,

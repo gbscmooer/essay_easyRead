@@ -6,7 +6,7 @@ Pydantic 模型，用于 FastAPI 的请求验证和响应序列化。
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper, FigureAnalysis
 
@@ -14,6 +14,28 @@ from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, Ou
 # ============================================================
 # Paper 相关 Schema
 # ============================================================
+
+
+class ExplorationMessageCreate(BaseModel):
+    question: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    search_more: bool = False
+    selected_keys: list[str] = Field(default_factory=list, max_length=12)
+
+
+class ExplorationMessageResponse(BaseModel):
+    id: int
+    run_id: int
+    question: str
+    answer: str
+    status: str
+    search_more: bool
+    selected_keys: list[str]
+    papers: list[dict]
+    evidence_keys: list[str]
+    context: dict
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class PaperCreate(BaseModel):
@@ -43,6 +65,14 @@ class PaperResponse(BaseModel):
     venue: Optional[str] = None
     year: Optional[int] = None
     category: Optional[str] = None      # arXiv 学科分类，如 "cs.LG"
+    subjects: list[str] = Field(default_factory=list)
+    publication_type: str = "unknown"
+    publisher: Optional[str] = None
+    providers: list[str] = Field(default_factory=list)
+    metadata_sources: dict[str, str] = Field(default_factory=dict)
+    metadata_updated_at: Optional[str] = None
+    doi: Optional[str] = None
+    arxiv_id: Optional[str] = None
     status: str  # pending | extracting | analyzing | done | failed | indexed
     index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None
@@ -65,6 +95,16 @@ class PaperListResponse(BaseModel):
 
     papers: list[PaperResponse]
     total: int  # 总数（用于分页）
+
+
+class PaperMetadataUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+    authors: str = Field(default="", max_length=4000)
+    venue: str = Field(default="", max_length=500)
+    year: Optional[int] = Field(default=None, ge=1900, le=2100)
+    publication_type: Literal["journal", "conference", "preprint", "book", "other", "unknown"] = "unknown"
+    subjects: list[str] = Field(default_factory=list, max_length=30)
+    publisher: str = Field(default="", max_length=500)
 
 
 # ============================================================
@@ -387,11 +427,10 @@ class ResearchRunCreate(BaseModel):
     expand_top_k: int = Field(5, ge=1, le=50)
     expand_total_limit: int = Field(50, ge=1, le=500)
     rebuild: bool = False
-    # 研究地图密度：每篇论文平均连几条关系边。骨架按此目标反解环境关联度地板，
-    # 是与打分尺度无关的密度主控参数。
+    # Compatibility only; no longer changes the statistical backbone.
     map_density: float = Field(8.0, ge=1.0, le=40.0)
-    # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据（密度由 map_density 控制）。
-    backbone_alpha: float = Field(0.25, ge=0.01, le=0.9)
+    # Original disparity filter; unrelated to a target edge count.
+    backbone_alpha: float = Field(0.05, ge=0.01, le=0.9)
     enable_shared_method: bool = False
 
 
@@ -429,8 +468,11 @@ class ResearchGraphResponse(BaseModel):
 
 class ExplorationRunCreate(BaseModel):
     """创建领域探索任务的请求体（问句驱动，见 GOAL.md）"""
-    question: str = Field(..., min_length=2, max_length=500)
+    question: str = Field(..., min_length=2, max_length=4000)
     depth: str = Field("standard", pattern=r"^(quick|standard|deep)$")
+    workspace_id: Optional[int] = Field(None, ge=1)
+    seed_paper_ids: Optional[list[int]] = Field(None, max_length=240)
+    search_online: bool = True
 
 
 class ExplorationRunResponse(BaseModel):
@@ -442,6 +484,7 @@ class ExplorationRunResponse(BaseModel):
     current_stage: Optional[str] = None
     error_message: Optional[str] = None
     provider: str = ""
+    options: dict = Field(default_factory=dict)
     decompose: Optional[dict] = None
     result: Optional[dict] = None
     created_at: datetime
@@ -455,6 +498,7 @@ class ExplorationRunSummary(BaseModel):
     depth: str
     status: str
     provider: str = ""
+    options: dict = Field(default_factory=dict)
     created_at: datetime
 
 

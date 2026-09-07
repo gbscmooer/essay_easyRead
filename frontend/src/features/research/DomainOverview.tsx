@@ -16,6 +16,9 @@ import { Fragment, useMemo } from 'react'
 import type { GraphNode, GraphSynthesis, ResearchGraph } from '@/types'
 import { ROLE_META, clusterInk, inkWash } from '@/theme/graphPalette'
 import { aggregateDomain, type DomainAggregates, type ParadigmBucket } from './domainAggregates'
+import { ChartView } from './ChartView'
+import { PaperTitle, type PaperReference } from './paperLinks'
+import { FileText } from 'lucide-react'
 
 interface DomainOverviewProps {
   graph: ResearchGraph | null
@@ -23,10 +26,7 @@ interface DomainOverviewProps {
   onSelectNode: (node: GraphNode | null) => void
   /** 跳到图谱视图并定位某节点（"在图谱中查看"按钮） */
   onViewInGraph?: (nodeId: string) => void
-}
-
-function short(s: string, n = 12): string {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s
+  paperForNode?: (node: GraphNode) => PaperReference | undefined
 }
 
 function fmtCitations(n: number | null | undefined): string {
@@ -68,11 +68,11 @@ function Heatmap({ agg, onFocusNode }: {
               <button
                 type="button"
                 className="rs-heat__rowhead"
-                title={rep ? `点击查看代表作：${rep.label}` : b.name}
+                title={b.name}
                 onClick={() => rep && onFocusNode(rep)}
               >
                 <span className="rs-heat__dot" style={{ background: ink }} />
-                <span className="rs-heat__name">{short(b.name, 16)}</span>
+                <span className="rs-heat__name">{b.name}</span>
                 <span className="rs-heat__count">{b.paperCount}</span>
               </button>
               {agg.years.map(y => {
@@ -118,7 +118,7 @@ function StrategicDiagram({ agg, onFocusNode }: {
 }) {
   const W = 640
   const H = 380
-  const PAD = { l: 60, r: 26, t: 36, b: 48 }
+  const PAD = { l: 68, r: 52, t: 58, b: 58 }
   const plotW = W - PAD.l - PAD.r
   const plotH = H - PAD.t - PAD.b
 
@@ -134,59 +134,65 @@ function StrategicDiagram({ agg, onFocusNode }: {
   const splitY = yOf(agg.medianDensity)
 
   return (
-    <svg className="rs-quad" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="子方向战略坐标四象限图">
+    <div className="rs-strategic"><svg className="rs-quad" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="子方向战略坐标四象限图">
       <rect className="rs-quad__frame" x={PAD.l} y={PAD.t} width={plotW} height={plotH} />
       <line className="rs-quad__split" x1={splitX} y1={PAD.t} x2={splitX} y2={PAD.t + plotH} />
       <line className="rs-quad__split" x1={PAD.l} y1={splitY} x2={PAD.l + plotW} y2={splitY} />
-      <text className="rs-quad__corner" x={PAD.l + plotW - 6} y={PAD.t + 16} textAnchor="end">核心引擎</text>
-      <text className="rs-quad__corner" x={PAD.l + 6} y={PAD.t + 16}>内聚深耕</text>
-      <text className="rs-quad__corner" x={PAD.l + plotW - 6} y={PAD.t + plotH - 8} textAnchor="end">跨域桥梁</text>
-      <text className="rs-quad__corner" x={PAD.l + 6} y={PAD.t + plotH - 8}>边缘方向</text>
+      <text className="rs-quad__corner" x={PAD.l + plotW - 6} y={PAD.t - 36} textAnchor="end">核心引擎</text>
+      <text className="rs-quad__corner" x={PAD.l + 6} y={PAD.t - 36}>内聚深耕</text>
+      <text className="rs-quad__corner" x={PAD.l + plotW - 6} y={PAD.t + plotH + 40} textAnchor="end">跨域桥梁</text>
+      <text className="rs-quad__corner" x={PAD.l + 6} y={PAD.t + plotH + 40}>边缘方向</text>
       <text className="rs-quad__axislabel" x={PAD.l + plotW / 2} y={H - 18} textAnchor="middle">跨流派中心性 →</text>
       <text className="rs-quad__axislabel" x={16} y={PAD.t + plotH / 2} textAnchor="middle" transform={`rotate(-90 16 ${PAD.t + plotH / 2})`}>簇内密度 →</text>
-      {valid.map(b => {
+      {valid.map((b, index) => {
         const ink = clusterInk(b.clusterId)
         const cx = xOf(b.centrality)
         const cy = yOf(b.density)
         const r = 9 + 17 * Math.sqrt(b.paperCount / maxN)
         const rep = b.representatives[0] ?? b.nodes[0]
-        const above = cy - r - 6 > PAD.t
         return (
           <g
             key={b.clusterId}
             className="rs-quad__bubble"
             onClick={() => rep && onFocusNode(rep)}
+            role="button" tabIndex={0} aria-label={b.name}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (rep) onFocusNode(rep) } }}
           >
             <title>{[
               b.name,
               `${b.paperCount} 篇`,
               `簇内密度 ${b.density.toFixed(3)}`,
               `篇均外部关联 ${b.centrality.toFixed(3)}`,
-              `近三年占比 ${(b.recentShare * 100).toFixed(0)}%`,
+              `样本末三年占比 ${(b.recentShare * 100).toFixed(0)}%`,
             ].join('\n')}</title>
             <circle cx={cx} cy={cy} r={r} fill={inkWash(ink, 42)} stroke={ink} strokeWidth={1.5} />
             <text
               className="rs-quad__blabel"
               x={cx}
-              y={above ? cy - r - 5 : cy + r + 13}
+              y={cy + 4}
               textAnchor="middle"
             >
-              {short(b.name, 9)}{b.recentShare >= 0.45 ? '🔥' : ''}
+              {index + 1}
             </text>
           </g>
         )
       })}
-    </svg>
+    </svg><ol className="rs-quad-key">{valid.map((b, index) => <li key={b.clusterId}>
+      <button type="button" onClick={() => onFocusNode(b.representatives[0] ?? b.nodes[0])}>
+        <span style={{ color: clusterInk(b.clusterId) }}>{index + 1}</span><span>{b.name}</span>
+        <small>{b.paperCount} 篇 · 密度 {b.density.toFixed(3)} · 中心性 {b.centrality.toFixed(3)}</small>
+      </button></li>)}</ol></div>
   )
 }
 
 // ── 子方向卡片 ────────────────────────────────────────────────────────
 
-function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph }: {
+function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph, paperForNode }: {
   bucket: ParadigmBucket
   synthesis?: GraphSynthesis | null
   onSelectNode: (node: GraphNode) => void
   onViewInGraph?: (nodeId: string) => void
+  paperForNode?: (node: GraphNode) => PaperReference | undefined
 }) {
   const ink = clusterInk(bucket.clusterId)
   const paradigm = synthesis?.paradigms?.find(p => p.cluster_id === bucket.clusterId)
@@ -198,11 +204,9 @@ function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph }: {
         <span className="rs-card__dot" style={{ background: ink }} />
         <h4 className="rs-card__name" title={bucket.name}>{bucket.name}</h4>
         <span className="rs-card__size">{bucket.paperCount} 篇</span>
-        {bucket.recentShare >= 0.45 && (
-          <span className="rs-card__rising" title={`近三年论文占比 ${(bucket.recentShare * 100).toFixed(0)}%`}>
-            🔥 上升中
-          </span>
-        )}
+        <span className="rs-card__rising" title="以样本最新年份为终点的三年论文占比；不表示增长趋势">
+          末三年 {(bucket.recentShare * 100).toFixed(0)}%
+        </span>
       </header>
       {paradigm?.core_philosophy && (
         <p className="rs-card__philosophy">{paradigm.core_philosophy}</p>
@@ -235,11 +239,12 @@ function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph }: {
           const line = repLine(node)
           return (
             <li key={node.id}>
-              <button type="button" onClick={() => onSelectNode(node)} title={node.label}>
+              <div className="rs-rep-row">
                 {rm && <span style={{ color: rm.ink }}>{rm.icon}</span>}
-                <span className="rs-card__replabel">{short(node.label, 34)}</span>
+                <PaperTitle paper={paperForNode?.(node) ?? { title: node.label }} className="rs-card__replabel" onSelect={() => onSelectNode(node)} />
                 {line && <span className="rs-card__repline">{line}</span>}
-              </button>
+                <button type="button" className="ex-icon" title="查看摘要" aria-label={`查看摘要：${node.label}`} onClick={() => onSelectNode(node)}><FileText size={15} /></button>
+              </div>
             </li>
           )
         })}
@@ -259,7 +264,7 @@ function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph }: {
 
 // ── 总览主组件 ────────────────────────────────────────────────────────
 
-export function DomainOverview({ graph, synthesis, onSelectNode, onViewInGraph }: DomainOverviewProps) {
+export function DomainOverview({ graph, synthesis, onSelectNode, onViewInGraph, paperForNode }: DomainOverviewProps) {
   const agg = useMemo(
     () => aggregateDomain(graph, synthesis ?? graph?.synthesis ?? null),
     [graph, synthesis],
@@ -305,13 +310,15 @@ export function DomainOverview({ graph, synthesis, onSelectNode, onViewInGraph }
       </p>
 
       <section className="rs-overview__section">
-        <h3 className="rs-overview__title">子方向 × 年份 <span>领域热度何时烧到哪里、现在聚焦什么</span></h3>
+        <ChartView title="子方向 × 年份">
         <Heatmap agg={agg} onFocusNode={focusNode} />
+        </ChartView>
       </section>
 
       <section className="rs-overview__section">
-        <h3 className="rs-overview__title">战略坐标 <span>横轴篇均跨流派关联，纵轴簇内密度；气泡大小 = 论文规模</span></h3>
+        <ChartView title="战略坐标">
         <StrategicDiagram agg={agg} onFocusNode={focusNode} />
+        </ChartView>
       </section>
 
       <section className="rs-overview__section">
@@ -322,6 +329,7 @@ export function DomainOverview({ graph, synthesis, onSelectNode, onViewInGraph }
             .map(b => (
               <ParadigmCard
                 key={b.clusterId}
+                paperForNode={paperForNode}
                 bucket={b}
                 synthesis={synthesis}
                 onSelectNode={onSelectNode}

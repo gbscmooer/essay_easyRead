@@ -1,0 +1,76 @@
+.survey-report { min-width: 0; color: var(--text-primary); }
+.survey-toolbar, .survey-toolbar > div, .survey-matrix-footer, .survey-pager { display: flex; align-items: center; gap: 10px; }
+.survey-toolbar { justify-content: space-between; flex-wrap: wrap; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.survey-toolbar > div { flex-wrap: wrap; }
+.survey-toolbar h2 { margin: 0; font-size: 18px; }
+.survey-toolbar span, .survey-note, .survey-matrix-footer { font-size: 12px; color: var(--text-secondary); }
+.survey-toolbar button, .survey-toolbar a { display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elevated); font-size: 12px; color: var(--text-primary); }
+.survey-toolbar button:disabled { opacity: .5; cursor: wait; }
+.survey-toc { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 15px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.survey-toc a { color: var(--accent); }
+.survey-section { padding: 26px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 90px; min-width: 0; }
+.survey-section h3 { display: flex; align-items: center; gap: 9px; font-size: 17px; margin: 0 0 18px; }
+.survey-section h3 svg { color: #288b7d; flex-shrink: 0; }
+.survey-section p, .survey-section li { font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.survey-section ul { padding-left: 20px; }
+.survey-stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 22px 0; padding: 18px 0; }
+.survey-stat-strip dt { font-size: 12px; color: var(--text-secondary); }
+.survey-stat-strip dd { font-size: 24px; font-variant-numeric: tabular-nums; margin: 5px 0 0; }
+.survey-stat-strip small { font-size: 12px; color: var(--text-muted); }
+.survey-year-chart { min-width: 0; }
+.survey-year-chart h4 { font-size: 13px; font-weight: 500; }
+.survey-table-scroll { overflow: auto; max-width: 100%; }
+.survey-table, .survey-heat { width: 100%; border-collapse: collapse; font-size: 12px; }
+.survey-table { min-width: 640px; }
+.survey-table caption { text-align: left; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+.survey-table th, .survey-table td { border-bottom: 1px solid var(--border); padding: 11px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; min-width: 80px; max-width: 320px; }
+.survey-table thead { background: var(--bg-elevated); }
+.survey-table th { font-weight: 600; }
+.survey-evidence { min-width: 90px; }
+.survey-evidence summary { cursor: pointer; color: var(--accent); white-space: nowrap; }
+.survey-evidence[open] { min-width: 220px; }
+.survey-evidence > div { margin: 14px 0; }
+.survey-evidence blockquote { border-left: 2px solid #288b7d; padding-left: 9px; margin: 7px 0; color: var(--text-secondary); line-height: 1.65; }
+.survey-source-kind { display: block; font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+.survey-empty { color: var(--text-muted); padding: 22px 0; font-size: 13px; }
+.survey-error { color: #bd4949; font-size: 13px; }
+.survey-matrix { margin-top: 26px; min-width: 0; }
+.survey-heat { table-layout: fixed; min-width: 650px; }
+.survey-heat th:first-child { width: 170px; }
+.survey-heat th { text-align: left; font-size: 11px; padding: 8px; overflow-wrap: anywhere; font-weight: 500; }
+.survey-heat td { padding: 2px; height: 38px; }
+.survey-heat td button { display: block; width: 100%; height: 34px; border: 0; border-radius: 2px; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.survey-heat td button:disabled { cursor: default; }
+.survey-heat td button:hover:enabled { outline: 2px solid var(--accent); outline-offset: -2px; }
+.survey-matrix-footer { justify-content: space-between; flex-wrap: wrap; padding-top: 12px; }
+.survey-pager button { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 4px; }
+.survey-pager button:disabled { opacity: .35; }
+.survey-cell-sources { margin-top: 16px; border-left: 3px solid #288b7d; padding-left: 16px; font-size: 13px; }
+.survey-references { padding-left: 24px; }
+.survey-references li { margin: 10px 0; }
+.survey-references li > span { display: block; font-size: 11px; color: var(--text-muted); }
+.survey-filter { width: min(100%,300px); border: 1px solid var(--border); background: var(--bg-elevated); border-radius: 4px; padding: 7px 10px; margin-bottom: 12px; font-size: 12px; }
+.survey-text-button { color: var(--accent); font-size: 12px; padding: 12px 0; }
+.research-source-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 14px 0; }
+.research-source-controls label { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.research-source-controls select { max-width: 260px; border: 1px solid var(--border); background: var(--bg-elevated); padding: 7px; border-radius: 4px; }
+.research-seeds { border-top: 1px solid var(--border); padding: 12px 0; font-size: 12px; }
+.research-seeds summary { cursor: pointer; }
+.research-seed-list { max-height: 230px; overflow: auto; margin-top: 12px; }
+.research-seed-list label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; overflow-wrap: anywhere; }
+.research-seed-list input { margin-top: 3px; flex-shrink: 0; }
+.research-seed-actions { display: flex; gap: 16px; padding-top: 10px; color: var(--accent); }
+.research-workspace-link { font-size: 12px; color: var(--accent); }
+@media(max-width:600px) {
+  .er-experience[data-route='explore'] > header { height: auto; min-height: 96px; position: relative; padding-bottom: 42px; }
+  .er-experience[data-route='explore'] > header > div:first-child { gap: 0; }
+  .er-experience[data-route='explore'] > header nav[aria-label='主要导航'] { position: absolute; bottom: 4px; left: 12px; right: 12px; justify-content: space-between; }
+  .er-experience[data-route='explore'] > header nav a { white-space: nowrap; padding-inline: 8px; }
+  .er-experience[data-route='explore'] > header a[href='/'] { white-space: nowrap; }
+  .survey-stat-strip { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; }
+  .survey-toolbar { align-items: flex-start; }
+  .survey-toolbar > div:last-child { width: 100%; }
+  .research-source-controls { align-items: flex-start; flex-direction: column; }
+  .research-source-controls select { max-width: 230px; }
+  .survey-toc { gap: 10px 16px; }
+}

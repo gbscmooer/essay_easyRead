@@ -36,6 +36,7 @@ const INTENT_META: Record<string, { label: string; color: string; bg: string }> 
 export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClose: () => void }) {
   if (!edge) return null
   const detail = edge.detail
+  const rankFusion = detail?.method === 'weighted_rrf_v1'
   const totalContribution = detail
     ? detail.components.reduce((s, c) => s + Math.max(0, c.contribution), 0)
     : 0
@@ -138,9 +139,9 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
           <>
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-label" style={{ color: 'var(--text-muted)' }}>综合关联度</span>
+                <span className="text-label" style={{ color: 'var(--text-muted)' }}>{rankFusion ? 'RRF 排名得分' : '旧版综合关联度'}</span>
                 <span className="text-[19px] font-semibold tabular-nums" style={{ color: 'var(--accent)' }}>
-                  {(edge.weight * 100).toFixed(0)}%
+                  {rankFusion ? edge.weight.toFixed(3) : `${(edge.weight * 100).toFixed(0)}%`}
                 </span>
               </div>
               {detail && totalContribution > 0 && (
@@ -148,7 +149,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                   {detail.components.filter(c => c.contribution > 0).map(c => (
                     <div
                       key={c.facet}
-                      title={`${c.label} 贡献 ${(c.contribution * 100).toFixed(1)}%`}
+                      title={`${c.label} 贡献 ${c.contribution.toFixed(3)}`}
                       style={{
                         width: `${(c.contribution / totalContribution) * 100}%`,
                         backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280',
@@ -158,6 +159,16 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                 </div>
               )}
             </div>
+
+            {rankFusion && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {detail?.selection_method === 'display_bridge' ? '展示桥接边，不参与社区与中心性统计。'
+                : detail?.selection_method === 'mutual_knn' ? '互近邻关系，不代表统计显著或正确概率。'
+                : '局部 Disparity Filter 保留边，得分不代表正确概率。'}
+            </p>}
+
+            {rankFusion && detail?.disparity_retained && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Disparity 保留标记（包含度数为 1 时的保留约定），不代表关联正确率。
+            </p>}
 
             {detail ? (
               <div className="space-y-3">
@@ -170,14 +181,17 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
                         {c.label}
                       </span>
                       <span className="tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-                        {(c.sim * 100).toFixed(0)}% × {(c.weight * 100).toFixed(0)}% →{' '}
-                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{(c.contribution * 100).toFixed(1)}%</span>
+                        {c.sim.toFixed(3)} × {c.weight.toFixed(3)} →{' '}
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{c.contribution.toFixed(3)}</span>
                       </span>
                     </div>
                     <div className="h-1 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
                       <div className="h-full" style={{ width: `${c.sim * 100}%`, backgroundColor: FACET_COLORS[c.facet] ?? '#6b7280' }} />
                     </div>
                     <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>{c.reason}</p>
+                    {rankFusion && c.rank_source != null && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      双端排名：{c.rank_source} / {c.rank_target ?? '未知'}
+                    </p>}
                     {c.shared.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {c.shared.map((s, i) => (

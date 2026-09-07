@@ -39,6 +39,16 @@ CANDIDATE_CONFIG_PATHS = [
 # 保持模块级 CONFIG_PATH 变量，兼顾既有单测 monkeypatch 与历史代码
 CONFIG_PATH = DEFAULT_YAML_PATH if os.path.isfile(DEFAULT_YAML_PATH) else DEFAULT_JSON_PATH
 
+RELATIONS_METHOD = "weighted_rrf_v1"
+_LEGACY_RELATION_WEIGHTS = {
+    "topic": 0.18, "purpose": 0.24, "method": 0.16, "term": 0.14,
+    "dataset": 0.06, "baseline": 0.04, "bibcoupling": 0.12, "cocitation": 0.06,
+}
+_LEGACY_RETRIEVAL_WEIGHTS = {
+    "recall": {"pdf_ref": 1.0, "backward": 1.0, "forward": 0.9, "recommend": 0.85, "graph_ppr": 0.8},
+    "hybrid_retrieval": {"dense": 1.0, "bm25": 0.95, "graph_ppr": 0.8},
+}
+
 DEFAULT_CONFIG = {
     "translate": {
         "api_key": "",
@@ -89,8 +99,9 @@ DEFAULT_CONFIG = {
         "api_key": "",                # Semantic Scholar API key（可选）
         "elsevier_api_key": "",       # Elsevier / ScienceDirect API key（可选，校外需配置）
         "download_concurrency": 4,    # 多线程并发下载数（默认 4）
-        "map_density": 8.0,           # 研究地图密度：每篇论文平均连几条关系边（骨架按此反解地板）
-        "backbone_alpha": 0.25,       # 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
+        "map_density": 8.0,           # 旧配置兼容字段；原始 Disparity Filter 不使用目标度数
+        "backbone_alpha": 0.05,       # 局部显著性阈值，不是准确率
+        "backbone_method": "mutual_knn_with_disparity_annotation_v1",
         "link_distance": 50,          # 知识图谱节点边长基准（d3 默认 30）
         "auto_digest": True,          # 深度研究时自动「图谱速读」未解读论文（轻量，补全可解释 facet 关系）
         # discovery_v2：多路召回 + RRF 融合扩展（backward/forward/recommend/pdf_ref）
@@ -101,23 +112,25 @@ DEFAULT_CONFIG = {
             "enabled": True,
         },
         "recall": {
+            "method": RELATIONS_METHOD,
             "enabled_sources": ["backward", "forward", "recommend", "pdf_ref", "graph_ppr"],
             "rrf_k": 60,
             "weights": {
                 "pdf_ref": 1.0,
                 "backward": 1.0,
-                "forward": 0.9,
-                "recommend": 0.85,
-                "graph_ppr": 0.8,
+                "forward": 1.0,
+                "recommend": 1.0,
+                "graph_ppr": 1.0,
             },
             "candidate_limit": 50,
         },
         "hybrid_retrieval": {
+            "method": RELATIONS_METHOD,
             "rrf_k": 60,
             "weights": {
                 "dense": 1.0,
-                "bm25": 0.95,
-                "graph_ppr": 0.8,
+                "bm25": 1.0,
+                "graph_ppr": 1.0,
             },
             "graph": {
                 "ppr_alpha": 0.85,
@@ -135,24 +148,11 @@ DEFAULT_CONFIG = {
         "candidate_k": 30,        # 向量检索召回数（送入 rerank 的池子大小）
         "top_n": 5,               # rerank 后送入 LLM 的条数
     },
-    # 论文关联度：全系统唯一一套算法（backend/services/deep_research/graphkit/relatedness.py）。
-    # 八个通道各自分位数归一后加权求和，同一个分数决定连边 / 社区 / 重要性 / 图检索。
-    # 语义组（topic/purpose/method/term）与证据组（dataset/baseline/bibcoupling/cocitation）
-    # 各自按组内比例归一，组间比例固定，改单个权重不会让另一组整体漂移。
+    # 八通道 RRF，等权默认值；手动权重表示全体通道上的相对偏好。
     "relations": {
-        # 权重自监督校准：用工作区自身的引用结构（谁引用谁 / 谁与谁共享参考文献）当弱标签，
-        # 按各语义通道的实际判别力重新分配权重；证据不足时自动沿用下面的先验权重。
-        "calibrate": True,
-        "weights": {
-            "topic": 0.18,        # 全文/题录主题向量余弦（粗粒度锚点）
-            "purpose": 0.24,      # 研究目的语义相似
-            "method": 0.16,       # 方法语义相似
-            "term": 0.14,         # IDF 加权术语重叠（稀有专名 = 细分方向指纹）
-            "dataset": 0.06,      # 共享数据集
-            "baseline": 0.04,     # 共享对比基线
-            "bibcoupling": 0.12,  # 文献耦合（引同一批文献）
-            "cocitation": 0.06,   # 共引（被同一批论文引用）
-        },
+        "method": RELATIONS_METHOD,
+        "calibrate": False,  # 兼容旧客户端；不再参与计算
+        "weights": {name: 0.125 for name in _LEGACY_RELATION_WEIGHTS},
     },
     "arxiv_expand": {
         # 是否启用引用列表扩展（解析 seed 论文参考文献并联网下载）
@@ -408,6 +408,7 @@ def load_config(path: Optional[str] = None) -> dict:
         return _deep_copy_default()
     try:
         saved = read_file_config(target_path)
+        saved = _migrate_relations_config(saved)
         # 合并默认值（防止缺少字段；嵌套段如 recall / relations.weights 递归合并）
         config = {}
         for key in DEFAULT_CONFIG:
@@ -426,6 +427,32 @@ def load_config(path: Optional[str] = None) -> dict:
 def _deep_copy_default() -> dict:
     """深拷贝默认配置"""
     return copy.deepcopy(DEFAULT_CONFIG)
+
+
+def _migrate_relations_config(saved: dict) -> dict:
+    """Migrate recognized shipped defaults in memory; never write on load."""
+    migrated = copy.deepcopy(saved)
+    relations = migrated.get("relations")
+    if isinstance(relations, dict):
+        # Match before merging: partial maps and explicit versioned preferences
+        # must not be mistaken for the old shipped eight-channel defaults.
+        if not relations.get("method") and relations.get("weights") == _LEGACY_RELATION_WEIGHTS:
+            relations["weights"] = copy.deepcopy(DEFAULT_CONFIG["relations"]["weights"])
+        relations["method"] = RELATIONS_METHOD
+        relations["calibrate"] = False
+    research = migrated.get("research")
+    if isinstance(research, dict):
+        if not research.get("backbone_method") and research.get("backbone_alpha") == 0.25:
+            research["backbone_alpha"] = 0.05
+        research["backbone_method"] = "mutual_knn_with_disparity_annotation_v1"
+        for name, legacy in _LEGACY_RETRIEVAL_WEIGHTS.items():
+            section = research.get(name)
+            if not isinstance(section, dict):
+                continue
+            if not section.get("method") and section.get("weights") == legacy:
+                section["weights"] = {channel: 1.0 for channel in legacy}
+            section["method"] = RELATIONS_METHOD
+    return migrated
 
 
 def save_config(config: dict, path: Optional[str] = None) -> None:
@@ -567,11 +594,10 @@ def get_recall_config() -> dict:
 
 
 def get_relations_config() -> dict:
-    """论文关联度配置：通道权重先验 + 是否自监督校准（缺失字段用默认补全）。"""
+    """RRF 方法版本和用户通道偏好；自动校准字段只用于旧客户端兼容。"""
     saved = load_config().get("relations") or {}
     weights = {**DEFAULT_CONFIG["relations"]["weights"], **(saved.get("weights") or {})}
-    calibrate = saved.get("calibrate", DEFAULT_CONFIG["relations"]["calibrate"])
-    return {"weights": weights, "calibrate": bool(calibrate)}
+    return {"method": RELATIONS_METHOD, "weights": weights, "calibrate": False}
 
 
 def get_arxiv_expand_config() -> dict:

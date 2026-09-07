@@ -9,15 +9,23 @@
  * synthesis_ready / done）。历史 run 通过 SSE 回放（后端 done 状态会重发产物事件）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import '@/styles/exploration-detail.css'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Download, FileText, MessageSquare } from 'lucide-react'
+import { PaperTitle, paperLink, EvidenceMarkdown } from '@/features/research/paperLinks'
+import { ChartView } from '@/features/research/ChartView'
+import { ExplorationConversation } from '@/features/research/ExplorationConversation'
+import { EvidenceAuditPanel } from '@/features/research/EvidenceAuditPanel'
+import { SurveyReportView } from '@/features/research/SurveyReportView'
+import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
-import { createExploration, deleteExploration, listExplorations } from '@/api/exploration'
+import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, regenerateReport } from '@/api/exploration'
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
+  ExplorationRun, ExplorationMessage, CitationMethod,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
 
@@ -37,9 +45,10 @@ const STAGE_META: { key: string; label: string; hint: string }[] = [
   { key: 'decompose', label: '① 拆解检索式', hint: 'LLM 把口语问题译成学术检索式' },
   { key: 'recall', label: '② 多源检索', hint: 'Scopus 首选 / OpenAlex 回退' },
   { key: 'enrich', label: '③ 指标富化', hint: '逐年引用 · 摘要 · 关键词 · 期刊 SJR/SNIP（OpenAlex 补查 + Scopus Serial Title）' },
-  { key: 'metrics', label: '④ 计量与聚类', hint: '同年百分位 · 近2年动量 · 引用轨迹 · 子方向（纯算法）' },
+  { key: 'metrics', label: '④ 计量与聚类', hint: '样本内同年百分位 · 完整年份引用率 · 子方向' },
   { key: 'synthesize', label: '⑤ 跨文献综合', hint: 'LLM 只基于召回材料作答' },
-  { key: 'persist', label: '⑥ 落盘', hint: '产物持久化' },
+  { key: 'report', label: '⑥ 报告', hint: '提取框架、指标、任务与数据集证据' },
+  { key: 'persist', label: '⑦ 落盘', hint: '产物持久化' },
 ]
 
 const VERDICT_META: Record<NoveltyStatus, { label: string; ink: string; note: string }> = {
@@ -63,23 +72,76 @@ function fmtCitations(n: number | null | undefined): string {
   return String(n)
 }
 
-function paperLink(p: ExplorationPaper): string | null {
-  if (p.doi) return `https://doi.org/${p.doi}`
-  if (p.arxiv_id) return `https://arxiv.org/abs/${p.arxiv_id}`
-  return null
+function isExactCitationMethod(method: CitationMethod | string | undefined): method is CitationMethod {
+  return typeof method === 'object' && method !== null
+    && method.algorithm === 'conditional_poisson_rate_test'
+    && method.version === 1 && method.adjustment === 'benjamini_hochberg'
 }
 
 export default function ExplorePage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialWorkspace = Number(searchParams.get('workspace_id')) || null
+  const { id } = useParams()
+  const runId = id && /^\d+$/.test(id) && Number.isSafeInteger(Number(id)) && Number(id) > 0 ? Number(id) : null
+  const detail = id !== undefined
   const [question, setQuestion] = useState('')
   const [depth, setDepth] = useState<ExplorationDepth>('standard')
-  const [runId, setRunId] = useState<number | null>(null)
+  const [savedRun, setSavedRun] = useState<ExplorationRun | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [tab, setTab] = useState<'report' | 'analysis' | 'papers' | 'chat'>('report')
+  const [revision, setRevision] = useState(0)
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
+  const [workspaceId, setWorkspaceId] = useState<number | null>(initialWorkspace)
+  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null)
+  const [seedIds, setSeedIds] = useState<number[]>([])
+  const [searchOnline, setSearchOnline] = useState(true)
+  const [sourceError, setSourceError] = useState('')
+  const [sourceLoading, setSourceLoading] = useState(false)
+  useEffect(() => { setWorkspaceId(initialWorkspace) }, [initialWorkspace])
+  const [messages, setMessages] = useState<ExplorationMessage[]>([])
+  const [paperSearch, setPaperSearch] = useState('')
   const [history, setHistory] = useState<ExplorationRunSummary[]>([])
   const [selected, setSelected] = useState<ExplorationPaper | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const stream = useExplorationStream(runId)
-  const { result, synthesis } = stream
+  const stream = useExplorationStream(runId, revision)
+  const result = stream.result ?? savedRun?.result ?? null
+  const synthesis = stream.synthesis ?? result?.synthesis ?? null
   const running = stream.status === 'running' || submitting
+
+  useEffect(() => {
+    setSavedRun(null); setLoadError(''); setMessages([]); setQuestion(''); setTab('report')
+    if (!detail) return
+    if (runId === null) { setLoadError('探索编号无效'); return }
+    const controller = new AbortController()
+    getExploration(runId, controller.signal).then(run => {
+      if (!controller.signal.aborted) setSavedRun(run)
+    }).catch(e => { if (!controller.signal.aborted) setLoadError(e instanceof Error ? e.message : '探索加载失败') })
+    return () => controller.abort()
+  }, [detail, runId])
+
+  useEffect(() => {
+    if (!detail) listWorkspaces().then(setWorkspaces).catch(() => setSourceError('工作区列表加载失败'))
+  }, [detail])
+  useEffect(() => {
+    let active = true
+    setWorkspace(null); setSeedIds([]); setSourceError('')
+    if (!workspaceId) { setSearchOnline(true); setSourceLoading(false); return }
+    setSourceLoading(true)
+    getWorkspace(workspaceId).then(ws => {
+      if (active) { setWorkspace(ws); setSeedIds(ws.papers.filter(p => (p.level ?? 1) === 1).map(p => p.id)) }
+    }).catch(() => { if (active) setSourceError('工作区资料加载失败') })
+      .finally(() => { if (active) setSourceLoading(false) })
+    return () => { active = false }
+  }, [workspaceId])
+
+  const allPapers = useMemo(() => {
+    const map = new Map<string, ExplorationPaper>()
+    result?.papers.forEach(p => map.set(p.key, p))
+    messages.forEach(m => m.papers.forEach(p => map.set(p.key, { ...map.get(p.key), ...p })))
+    return [...map.values()]
+  }, [result, messages])
 
   const refreshHistory = useCallback(async () => {
     try { setHistory(await listExplorations(20)) } catch { /* 历史加载失败不打断主流程 */ }
@@ -94,30 +156,37 @@ export default function ExplorePage() {
     if (q.length < 2) { toast({ type: 'error', message: '请先输入想探索的问题' }); return }
     setSubmitting(true)
     try {
-      const run = await createExploration(q, depth)
-      setRunId(run.id)
+      if (workspaceId && !seedIds.length) throw new Error('请至少选择一篇母论文')
+      const run = await createExploration(q, depth, { workspace_id: workspaceId, seed_paper_ids: workspaceId ? seedIds : null, search_online: searchOnline })
+      navigate(`/explorer/${run.id}`)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '探索任务创建失败'
       toast({ type: 'error', message })
     } finally {
       setSubmitting(false)
     }
-  }, [question, depth])
+  }, [question, depth, navigate, workspaceId, seedIds, searchOnline])
 
-  const loadRun = useCallback(async (id: number) => {
-    setRunId(null)  // 先断开旧流，再接新 run
-    requestAnimationFrame(() => setRunId(id))
-  }, [])
+  const generateReport = async () => {
+    if (!runId) return
+    setSubmitting(true)
+    try {
+      setSavedRun(await regenerateReport(runId))
+      setRevision(v => v + 1)
+      setTab('report')
+    } catch (e) { toast({ type: 'error', message: e instanceof Error ? e.message : '报告生成失败' }) }
+    finally { setSubmitting(false) }
+  }
 
   const removeRun = useCallback(async (id: number) => {
     try {
       await deleteExploration(id)
-      if (runId === id) { setRunId(null) }
+      if (runId === id) navigate('/explore')
       void refreshHistory()
     } catch (e: unknown) {
       toast({ type: 'error', message: e instanceof Error ? e.message : '删除失败' })
     }
-  }, [runId, refreshHistory])
+  }, [runId, refreshHistory, navigate])
 
   // 证据定位：graph.nodes[i] ↔ papers[i]（后端按同序构建）
   const handleSelectNode = useCallback((node: GraphNode | null) => {
@@ -153,6 +222,13 @@ export default function ExplorePage() {
   const verdict = synthesis?.verdict
   const verdictMeta = verdict ? VERDICT_META[verdict.status] : null
   const total = result?.metrics.total ?? 0
+  const citationMethod = result?.metrics.citation_method
+  const exactCitations = isExactCitationMethod(citationMethod)
+  const selectedMethod = selected?.citation_metrics ?? citationMethod
+  const selectedExact = isExactCitationMethod(selectedMethod)
+  const trendTitle = selectedExact
+    ? `最近两个完整年份与此前两年比较：精确 Poisson 率检验，BH 校正，α = ${selectedMethod.alpha ?? '未记录'}。α 是显著性阈值，不是准确率。`
+    : '旧版启发式指标，未按精确 Poisson 检验和 BH 校正重新计算。'
 
   const currentStageMeta = useMemo(() => {
     if (submitting) return STAGE_META[0]
@@ -169,19 +245,37 @@ export default function ExplorePage() {
     return 0
   }, [stream.status, stream.progress, submitting])
 
+  const exportContext = async () => {
+    if (!runId) return
+    try {
+      const [run, turns] = await Promise.all([getExploration(runId), getExplorationMessages(runId)])
+      const archive = new Map((run.result?.papers ?? []).map(p => [p.key, p]))
+      turns.forEach(m => m.papers.forEach(p => archive.set(p.key, { ...archive.get(p.key), ...p })))
+      const blob = new Blob([JSON.stringify({ ...run, messages: turns, papers: [...archive.values()] }, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `exploration-${runId}.json`; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '导出失败' })
+    }
+  }
+
   return (
     <div className="er-page er-page--explore">
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">领域探索 · 问句驱动的免读领域认知</p>
-        <h1 className="er-page-head__title">领域探索</h1>
-        <p className="ex-lead">
-          提一个问题，系统自动拆解检索式、检索真实文献、统计被引与突增、聚类子方向，
-          最后给出只基于召回证据的跨文献结论——不读单篇论文，也不依赖大模型的记忆。
-        </p>
+        {detail && <Link to="/explore">返回文献研究</Link>}
+        <h1 className={`er-page-head__title${detail ? ' ex-detail-title' : ''}`}>{detail ? savedRun?.question ?? '研究详情' : '文献研究'}</h1>
+        {detail && savedRun && <div className="ex-detail-meta"><span>{new Date(savedRun.created_at).toLocaleString()}</span>
+          <span>研究 #{runId}</span><span>{allPapers.length} 篇资料</span>
+          <span>{savedRun.options?.workspace_name || '无母论文'}{savedRun.options?.seed_paper_ids?.length ? ` · ${savedRun.options.seed_paper_ids.length} 篇母论文` : ''}</span>
+          {savedRun.options?.workspace_id && <Link to={`/workspace/${savedRun.options.workspace_id}/graph`}>工作区图谱</Link>}
+          <button type="button" className="ex-icon" title="导出全部上下文" aria-label="导出全部上下文" onClick={exportContext}><Download size={18} /></button>
+        </div>}
       </header>
+      {loadError && <div role="alert" className="ex-empty ex-empty--error">{loadError}</div>}
 
       {/* 提问表单 */}
-      <section className="ex-ask" aria-label="探索提问">
+      {!detail && <section className="ex-ask" aria-label="探索提问">
         <textarea
           className="ex-ask__input"
           value={question}
@@ -189,10 +283,25 @@ export default function ExplorePage() {
           onKeyDown={e => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit() }
           }}
-          placeholder="例：我想看看用 AI 识别肿瘤有没有人做，做的怎样"
+          placeholder="描述研究问题、关注的技术、评估方式或数据集"
+          aria-label="研究问题"
+          maxLength={4000}
           rows={2}
           disabled={running}
         />
+        <div className="research-source-controls">
+          <label>母论文集合<select aria-label="母论文集合" value={workspaceId ?? ''} disabled={running} onChange={e => setWorkspaceId(Number(e.target.value) || null)}>
+            <option value="">无母论文</option>{workspaces.map(ws => <option value={ws.id} key={ws.id}>{ws.name} ({ws.paper_count} 篇)</option>)}
+          </select></label>
+          <label><input type="checkbox" checked={searchOnline} disabled={!workspaceId || running} onChange={e => setSearchOnline(e.target.checked)} />联网补充文献</label>
+          {workspaceId && <Link className="research-workspace-link" to={`/workspace/${workspaceId}/graph`}>已有工作区图谱</Link>}
+        </div>
+        {sourceLoading && <p role="status">正在加载母论文…</p>}
+        {sourceError && <p role="alert" className="survey-error">{sourceError}</p>}
+        {workspace && <details className="research-seeds"><summary>母论文 · 已选 {seedIds.length} / {workspace.papers.length} 篇</summary>
+          <div className="research-seed-actions"><button type="button" onClick={() => setSeedIds(workspace.papers.map(p => p.id))}>全选</button><button type="button" onClick={() => setSeedIds([])}>清空选择</button></div>
+          <div className="research-seed-list">{workspace.papers.map(p => <label key={p.id}><input type="checkbox" checked={seedIds.includes(p.id)} onChange={e => setSeedIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))} />{p.title || p.filename}</label>)}</div>
+        </details>}
         <div className="ex-ask__row">
           <div className="ex-ask__depth" role="radiogroup" aria-label="探索深度">
             {DEPTHS.map(d => (
@@ -210,8 +319,8 @@ export default function ExplorePage() {
               </button>
             ))}
           </div>
-          <button type="button" className="ex-ask__run" onClick={() => void submit()} disabled={running}>
-            {running ? '探索中…' : '开始探索'}
+          <button type="button" className="ex-ask__run" onClick={() => void submit()} disabled={running || sourceLoading || !!workspaceId && (!workspace || !seedIds.length)}>
+            {running ? '研究中…' : '开始研究'}
           </button>
         </div>
         <div className="ex-ask__examples">
@@ -219,8 +328,7 @@ export default function ExplorePage() {
             <button key={ex} type="button" onClick={() => setQuestion(ex)} disabled={running}>{ex}</button>
           ))}
         </div>
-        <p className="ex-ask__hint">⌘/Ctrl + Enter 提交 · 结论只基于检索到的真实文献，每条可点开核验</p>
-      </section>
+      </section>}
 
       {/* 探索进行中：进度条与实时动态分析反馈 */}
       {(stream.status === 'running' || submitting) && (
@@ -280,15 +388,15 @@ export default function ExplorePage() {
       )}
 
       {/* 历史记录 */}
-      {history.length > 0 && (
+      {!detail && history.length > 0 && (
         <section className="ex-history" aria-label="历史探索">
-          <span className="ex-history__label">最近探索</span>
+          <span className="ex-history__label">最近研究</span>
           <div className="ex-history__list">
             {history.map(h => (
               <span key={h.id} className={`ex-history__item${runId === h.id ? ' is-active' : ''}`}>
-                <button type="button" onClick={() => void loadRun(h.id)} title={h.question}>
-                  {h.status === 'failed' ? '⚠ ' : ''}{h.question.length > 26 ? `${h.question.slice(0, 26)}…` : h.question}
-                </button>
+                <Link to={`/explorer/${h.id}`} title={h.question}>
+                  {h.status === 'failed' ? '⚠ ' : ''}{h.question}
+                </Link>
                 <button
                   type="button"
                   className="ex-history__del"
@@ -306,9 +414,32 @@ export default function ExplorePage() {
         <section className="ex-empty ex-empty--error">探索失败：{stream.error}</section>
       )}
 
+      {detail && savedRun && <>
+        <div className="ex-detail-tabs" role="tablist" aria-label="探索视图">
+          {([{ key: 'report', label: '研究报告' }, { key: 'analysis', label: '分析结果' }, { key: 'papers', label: `全部资料 (${allPapers.length})` }, { key: 'chat', label: '连续追问' }] as const).map(t =>
+            <button key={t.key} id={`tab-${t.key}`} type="button" role="tab" aria-selected={tab === t.key} aria-controls={`panel-${t.key}`} onClick={() => setTab(t.key)}>{t.label}</button>)}
+        </div>
+        <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden={tab !== 'report'}>
+          <SurveyReportView report={result?.survey_report} runId={runId!} busy={running} onGenerate={generateReport} error={result?.report_error} />
+        </div>
+        <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={tab !== 'chat'}>
+          <ExplorationConversation key={runId} runId={runId!} papers={allPapers} disabled={running}
+            onMessages={setMessages} question={question} setQuestion={setQuestion} selected={selected} onClearSelection={() => setSelected(null)} />
+        </div>
+        <div id="panel-papers" role="tabpanel" aria-labelledby="tab-papers" hidden={tab !== 'papers'}>
+          <input className="ex-paper-search" type="search" aria-label="搜索资料" placeholder="搜索标题、摘要或作者" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} />
+          <ul className="ex-paper-archive">{allPapers.filter(p => `${p.title} ${p.abstract ?? ''} ${p.authors ?? ''}`.toLowerCase().includes(paperSearch.toLowerCase())).map(p => <li key={p.key}>
+            <PaperTitle paper={p} /><span>{p.year ?? '年份未知'} · {p.authors ?? ''}</span>
+            <button type="button" className="ex-icon" title="针对论文提问" aria-label={`针对论文提问：${p.title}`} onClick={() => { setSelected(p); setTab('chat') }}><MessageSquare size={17} /></button>
+            <details><summary>摘要与来源</summary><p>{p.abstract || '暂无摘要'}</p><p>{p.doi || p.arxiv_id || p.key}</p></details>
+          </li>)}</ul>
+          {!allPapers.length && <p>暂无资料</p>}
+        </div>
+      </>}
+
       {/* 结果 */}
       {result && (
-        <div className="ex-result">
+        <div className="ex-result" id="panel-analysis" role={detail ? 'tabpanel' : undefined} aria-labelledby={detail ? 'tab-analysis' : undefined} hidden={detail && tab !== 'analysis'}>
           {/* 结论卡 */}
           {verdict && verdictMeta && (
             <section className="ex-verdict" aria-label="查新结论">
@@ -317,14 +448,10 @@ export default function ExplorePage() {
                   {verdictMeta.label}
                 </span>
                 <span className="ex-verdict__note">{verdictMeta.note}</span>
-                <span className="ex-verdict__conf" title="证据充分度">
-                  证据充分度
-                  <i style={{ width: `${Math.round(verdict.confidence * 100)}%`, background: verdictMeta.ink }} />
-                </span>
               </div>
-              <p className="ex-verdict__expl">{verdict.explanation}</p>
+              <div className="ex-verdict__expl"><EvidenceMarkdown text={verdict.explanation} papers={allPapers} /></div>
               {synthesis?.maturity && (
-                <p className="ex-verdict__maturity"><strong>实现程度：</strong>{synthesis.maturity}</p>
+                <div className="ex-verdict__maturity"><strong>实现程度：</strong><EvidenceMarkdown text={synthesis.maturity} papers={allPapers} /></div>
               )}
               {verdict.evidence_keys.length > 0 && (
                 <div className="ex-verdict__evidence">
@@ -333,9 +460,7 @@ export default function ExplorePage() {
                     const p = papersByKey.get(k)
                     if (!p) return null
                     return (
-                      <button key={k} type="button" onClick={() => setSelected(p)} title={p.title}>
-                        {p.title.length > 34 ? `${p.title.slice(0, 34)}…` : p.title}
-                      </button>
+                      <span key={k}><PaperTitle paper={p} onSelect={() => setSelected(p)} /><button type="button" className="ex-icon" aria-label={`查看摘要：${p.title}`} title="查看摘要" onClick={() => setSelected(p)}><FileText size={15} /></button></span>
                     )
                   })}
                 </div>
@@ -357,14 +482,20 @@ export default function ExplorePage() {
               {result.metrics.year_span.length === 2 && (
                 <span>年份 <strong>{result.metrics.year_span[0]}–{result.metrics.year_span[1]}</strong></span>
               )}
-              <span>近 2 年占比 <strong>{Math.round(result.metrics.recent_share * 100)}%</strong></span>
+              <span>近年发表占比 <strong>{Math.round(result.metrics.recent_share * 100)}%</strong></span>
+              <span>引用计量 <strong>{exactCitations ? '精确 Poisson + BH（v1）' : citationMethod ? '未识别的方法版本' : '旧版指标（未重新计算）'}</strong></span>
               <span>子方向 <strong>{result.metrics.clusters}</strong> 个</span>
               {result.metrics.enriched && result.metrics.enriched.with_history > 0 && (
-                <span title="OpenAlex 按 DOI 补齐的逐年引用曲线覆盖数（突增与轨迹判定的数据底座）">
+                <span title="获得逐年引用记录的论文数；不等于满足完整年份检验条件的论文数">
                   逐年引用富化 <strong>{result.metrics.enriched.with_history}/{total}</strong>
                 </span>
               )}
             </div>
+            {exactCitations && <p className="ex-heat__note">
+              最近两个完整年份{citationMethod.recent_years?.length === 2 ? `（${citationMethod.recent_years.join('、')}）` : ''}与此前两年比较，
+              精确 Poisson 率检验经 BH 多重检验校正；α = {citationMethod.alpha ?? '未记录'} 是显著性阈值，不是准确率。
+              缺少完整记录时不判定趋势。检验依赖 Poisson 计数与多重检验假设，未检出变化不代表没有变化。
+            </p>}
             {result.decompose.fallback && (
               <p className="ex-transparency__warn">
                 未配置 LLM Key：跳过了检索式拆解与综合报告，使用原句直检索（统计视图照常可用）。
@@ -381,27 +512,31 @@ export default function ExplorePage() {
           {selected && (
             <section className="ex-evidence-card" aria-label="证据详情">
               <div className="ex-evidence-card__head">
-                <h3>{selected.title}</h3>
+                <h3><PaperTitle paper={selected} /></h3>
                 <button type="button" aria-label="关闭" onClick={() => setSelected(null)}>×</button>
               </div>
               <div className="ex-evidence-card__meta">
                 {selected.year ? <span>{selected.year} 年</span> : null}
                 <span>被引 {fmtCitations(selected.citation_count)}</span>
-                {selected.citation_velocity != null && <span>速度 {selected.citation_velocity}/年</span>}
+                {selected.citation_velocity != null && <span title="累计被引除以日历年龄，仅为描述值，不用于显著性判断">累计年均 {selected.citation_velocity}/年</span>}
                 {selected.recent_citations != null && (
-                  <span title="OpenAlex 逐年引用曲线的近两个日历年合计（含预印本引用）">
-                    近2年被引 {fmtCitations(selected.recent_citations)}
+                  <span title={selectedExact ? `最近两个完整年份：${selectedMethod.recent_years?.join('、') ?? '年份未记录'}` : '旧运行保存的窗口值，未按完整年份重算'}>
+                    {selectedExact ? '最近两个完整年份被引' : '旧版近2年被引'} {fmtCitations(selected.recent_citations)}
                   </span>
                 )}
+                {selected.citation_velocity_2y != null && <span>
+                  {selectedExact ? '最近两个完整年份年均' : '旧版近2年年均'} {selected.citation_velocity_2y}/年
+                </span>}
                 {selected.citation_percentile != null && selected.citation_percentile >= 90 && (
-                  <span title="同年语料内被引百分位（ESI 高被引的语料内复刻，年龄无关的公平指标）">
-                    同年 P{selected.citation_percentile}
+                  <span title="仅比较本次样本中同年发表论文，不代表领域总体排名或 ESI 高被引">
+                    {selectedExact ? '样本内同年' : '旧版样本内同年'} P{selected.citation_percentile}
                   </span>
                 )}
-                {selected.highly_cited && <span className="ex-surge">★ 同年前5%</span>}
-                {selected.trajectory === 'rising' && <span title="近 2 年引用均速 ≥ 之前 2 年 ×1.5">↗ 引用爬升</span>}
-                {selected.trajectory === 'declining' && <span title="近 2 年引用均速 ≤ 之前 2 年 ×0.5">↘ 引用回落</span>}
-                {selected.surge && <span className="ex-surge">🔥 突增</span>}
+                {selected.highly_cited && <span className="ex-surge">{selectedExact ? '样本内同年高被引' : '旧版样本内高被引'}</span>}
+                {selected.trajectory === 'rising' && <span title={trendTitle}>{selectedExact ? '引用率显著上升' : '旧版引用爬升'}</span>}
+                {selected.trajectory === 'declining' && <span title={trendTitle}>{selectedExact ? '引用率显著下降' : '旧版引用回落'}</span>}
+                {selected.trajectory === 'steady' && <span title={trendTitle}>{selectedExact ? '未检出显著变化' : '旧版平稳标记'}</span>}
+                {selected.surge && !selectedExact && <span className="ex-surge" title={trendTitle}>旧版突增候选</span>}
                 {selected.venue?.name && (
                   <span title={selected.venue.sjr != null ? 'SJR = SCImago 期刊等级分（Serial Title API 实时值）' : undefined}>
                     {selected.venue.name}{selected.venue.sjr != null ? ` · SJR ${selected.venue.sjr}` : ''}
@@ -424,6 +559,7 @@ export default function ExplorePage() {
                 </div>
               )}
               {selected.abstract && <p className="ex-evidence-card__abstract">{selected.abstract}</p>}
+              {detail && <button type="button" className="er-btn er-btn--secondary" onClick={() => setTab('chat')}><MessageSquare size={16} />针对这篇论文提问</button>}
             </section>
           )}
 
@@ -435,6 +571,7 @@ export default function ExplorePage() {
                 graph={overviewGraph}
                 synthesis={overviewSynthesis}
                 onSelectNode={handleSelectNode}
+                paperForNode={node => result.papers[result.graph.nodes.findIndex(n => n.id === node.id)]}
               />
             </section>
           )}
@@ -463,8 +600,9 @@ export default function ExplorePage() {
           {/* 关键词 × 年份热力图（GOAL 承诺的热力图，v1.4 兑现） */}
           {result.metrics.keyword_trend && result.metrics.keyword_trend.rows.length > 0 && (
             <section className="ex-section" aria-label="关键词趋势热力图">
-              <h2 className="ex-section__title">关键词 × 年份热力图 · 子话题的时间分布</h2>
+              <ChartView title="关键词 × 年份热力图">
               <KeywordHeatmap trend={result.metrics.keyword_trend} />
+              </ChartView>
               <p className="ex-heat__note">颜色越深 = 当年含该关键词的新发表论文越多（语料内计数，≥3 篇才入图）</p>
             </section>
           )}
@@ -475,16 +613,18 @@ export default function ExplorePage() {
               <h2 className="ex-section__title">证据列表 · 点击查看摘要与原文链接</h2>
               <div className="ex-evidence-cols">
                 <EvidenceList
-                  title="🏛️ 高被引经典"
-                  hint="领域证据的骨干"
+                  title="样本内高被引"
+                  hint="按本次检索样本累计被引排序，不代表领域排名"
                   keys={result.metrics.top_cited}
+                  citationMethod={citationMethod}
                   papersByKey={papersByKey}
                   onSelect={setSelected}
                 />
                 <EvidenceList
-                  title="🔥 近期上升"
-                  hint="按引用速度排序的新工作"
+                  title={exactCitations ? '引用率显著上升' : '旧版引用速度排序'}
+                  hint={exactCitations ? '精确 Poisson 检验 + BH 校正；按最近两个完整年份年均被引排序' : '历史累计被引年均排序，未验证显著上升'}
                   keys={result.metrics.rising}
+                  citationMethod={citationMethod}
                   papersByKey={papersByKey}
                   onSelect={setSelected}
                 />
@@ -497,14 +637,14 @@ export default function ExplorePage() {
             <section className="ex-section" aria-label="热点与空白">
               <h2 className="ex-section__title">热点 · 空白 · 后续动作</h2>
               <div className="ex-evidence-cols">
-                <ChipList title="📈 近期热点" items={synthesis.hotspots} ink="#d94a38" />
-                <ChipList title="🧭 尚未解决的空白" items={synthesis.gaps} ink="#2f7d78" />
+                <ChipList title="📈 近期热点" items={synthesis.hotspots} ink="#d94a38" papers={allPapers} />
+                <ChipList title="🧭 尚未解决的空白" items={synthesis.gaps} ink="#2f7d78" papers={allPapers} />
               </div>
               {synthesis.follow_ups.length > 0 && (
                 <div className="ex-followups">
                   <span>建议下一步：</span>
                   {synthesis.follow_ups.map((f, i) => (
-                    <button key={i} type="button" onClick={() => setQuestion(f)} title="点击填入提问框">{f}</button>
+                    <button key={i} type="button" onClick={() => { setQuestion(f); if (detail) setTab('chat') }}>{f}</button>
                   ))}
                 </div>
               )}
@@ -516,17 +656,18 @@ export default function ExplorePage() {
             <section className="ex-section" aria-label="探索报告">
               <h2 className="ex-section__title">探索报告</h2>
               <div className="ex-report">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{synthesis.markdown_report}</ReactMarkdown>
+                <EvidenceMarkdown text={synthesis.markdown_report} papers={allPapers} />
               </div>
             </section>
           )}
+          <EvidenceAuditPanel audit={synthesis?.stats?.evidence_audit} />
         </div>
       )}
 
       {/* 尚无结果时的引导 */}
       {!result && stream.status !== 'running' && !submitting && stream.status !== 'failed' && (
         <section className="ex-empty">
-          {runId ? '该探索没有可展示的产物。' : '输入一个问题开始。系统会给出：查新结论 → 检索透明度 → 子方向×年份热力图 → 高被引与上升黑马证据 → 跨文献报告。'}
+          {runId ? '该探索没有可展示的产物。' : '输入一个问题开始。系统会给出：查新结论 → 检索透明度 → 子方向×年份热力图 → 样本内被引与引用率变化 → 跨文献报告。'}
         </section>
       )}
     </div>
@@ -549,13 +690,14 @@ function isAfterStage(stage: string | null, key: string, result?: { metrics?: un
 }
 
 function EvidenceList({
-  title, hint, keys, papersByKey, onSelect,
+  title, hint, keys, papersByKey, onSelect, citationMethod,
 }: {
   title: string
   hint: string
   keys: string[]
   papersByKey: Map<string, ExplorationPaper>
   onSelect: (p: ExplorationPaper) => void
+  citationMethod?: CitationMethod | string
 }) {
   const papers = keys.map(k => papersByKey.get(k)).filter((p): p is ExplorationPaper => Boolean(p))
   return (
@@ -564,17 +706,20 @@ function EvidenceList({
       <ol>
         {papers.map((p, i) => (
           <li key={p.key}>
-            <button type="button" className="ex-evlist__row" onClick={() => onSelect(p)}>
+            <div className="ex-evlist__row">
               <span className="ex-evlist__idx">{i + 1}</span>
-              <span className="ex-evlist__title">{p.title}</span>
+              <PaperTitle paper={p} className="ex-evlist__title" onSelect={() => onSelect(p)} />
               <span className="ex-evlist__nums">
                 {p.year ?? '—'} · 被引{fmtCitations(p.citation_count)}
-                {p.citation_velocity != null && ` · ${p.citation_velocity}/年`}
-                {p.recent_citations != null && ` · 2y ${fmtCitations(p.recent_citations)}`}
-                {p.highly_cited ? ' ★' : ''}
-                {p.surge ? ' 🔥' : ''}
+                {p.citation_velocity != null && ` · 累计年均 ${p.citation_velocity}/年`}
+                {p.recent_citations != null && ` · ${isExactCitationMethod(p.citation_metrics ?? citationMethod) ? '完整两年被引' : '旧版2y'} ${fmtCitations(p.recent_citations)}`}
+                {p.highly_cited && <span title="仅限本次样本内同年排名"> · 样本高被引</span>}
+                {p.surge && <span title={isExactCitationMethod(p.citation_metrics ?? citationMethod) ? '精确 Poisson 检验 + BH 校正' : '旧版启发式标记，未重新检验'}>
+                  {isExactCitationMethod(p.citation_metrics ?? citationMethod) ? ' · 显著上升' : ' · 旧版候选'}
+                </span>}
               </span>
-            </button>
+              <button type="button" className="ex-icon" aria-label={`查看摘要：${p.title}`} title="查看摘要" onClick={() => onSelect(p)}><FileText size={16} /></button>
+            </div>
           </li>
         ))}
         {papers.length === 0 && <li className="ex-evlist__empty">暂无</li>}
@@ -618,14 +763,14 @@ function KeywordHeatmap({ trend }: { trend: ExplorationKeywordTrend }) {
   )
 }
 
-function ChipList({ title, items, ink }: { title: string; items: string[]; ink: string }) {
+function ChipList({ title, items, ink, papers }: { title: string; items: string[]; ink: string; papers: ExplorationPaper[] }) {
   return (
     <div className="ex-chips">
       <div className="ex-chips__head" style={{ color: ink }}>{title}</div>
       {items.length === 0 && <p className="ex-chips__empty">—</p>}
       <ul>
         {items.map((t, i) => (
-          <li key={i} style={{ borderColor: inkWash(ink, 45), background: inkWash(ink, 8) }}>{t}</li>
+          <li key={i} style={{ borderColor: inkWash(ink, 45), background: inkWash(ink, 8) }}><EvidenceMarkdown text={t} papers={papers} /></li>
         ))}
       </ul>
     </div>

@@ -7,7 +7,10 @@ import { Layout } from '@/components/Layout'
 import { setSettingsFormDirty } from '@/hooks/useConfig'
 
 vi.mock('@/components/TerminalPanel', () => ({ TerminalPanel: () => null }))
-vi.mock('@/components/VersionPopup', () => ({ VersionPopup: () => null }))
+vi.mock('@/components/VersionPopup', async importOriginal => ({
+  ...await importOriginal<typeof import('@/components/VersionPopup')>(),
+  VersionPopup: () => null,
+}))
 vi.mock('@/components/ShortcutHelp', () => ({ ShortcutHelp: () => null }))
 vi.mock('@/components/ThemeProvider', () => ({ ThemeProvider: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('@/hooks/useKeyboardShortcuts', () => ({

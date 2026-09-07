@@ -35,6 +35,7 @@ const ExplorePage = React.lazy(() => import('@/pages/ExplorePage'))
 const WorkspacePage = React.lazy(() => import('@/pages/WorkspacePage'))
 const WorkspaceDetailPage = React.lazy(() => import('@/pages/WorkspaceDetailPage'))
 const ResearchPage = React.lazy(() => import('@/pages/ResearchPage'))
+const ResearchEntryRedirect = React.lazy(() => import('@/pages/ResearchEntryRedirect'))
 const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'))
 
 function LoadingFallback() {
@@ -78,9 +79,11 @@ export const router = createBrowserRouter(
         { path: '/library', element: <PageErrorBoundary pageName="论文库"><LibraryPage /></PageErrorBoundary> },
         { path: '/settings', element: <PageErrorBoundary pageName="设置"><SettingsPage /></PageErrorBoundary> },
         { path: '/explore', element: <PageErrorBoundary pageName="领域探索"><ExplorePage /></PageErrorBoundary> },
+        { path: '/explorer/:id', element: <PageErrorBoundary pageName="探索详情"><ExplorePage /></PageErrorBoundary> },
         { path: '/workspace', element: <PageErrorBoundary pageName="工作区"><WorkspacePage /></PageErrorBoundary> },
         { path: '/workspace/:id', element: <PageErrorBoundary pageName="工作区详情"><WorkspaceDetailPage /></PageErrorBoundary> },
-        { path: '/workspace/:id/research', element: <PageErrorBoundary pageName="深度研究"><ResearchPage /></PageErrorBoundary> },
+        { path: '/workspace/:id/research', element: <ResearchEntryRedirect /> },
+        { path: '/workspace/:id/graph', element: <PageErrorBoundary pageName="工作区图谱"><ResearchPage /></PageErrorBoundary> },
         { path: '*', element: <NotFoundPage /> },
       ],
     },

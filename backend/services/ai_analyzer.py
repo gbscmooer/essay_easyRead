@@ -355,12 +355,13 @@ DIGEST_SYSTEM_PROMPT = """你是论文速读助手。请只为"知识图谱"抽�
 
 
 async def _complete_once(client, use_openai: bool, model: str, system: str, user: str,
-                         *, max_tokens: int, temperature: float) -> str:
+                         *, max_tokens: int, temperature: float, extra_body: dict | None = None) -> str:
     """非流式单次补全，返回纯文本（速读用，无需增量解析）。"""
     if use_openai:
         resp = await client.chat.completions.create(
             model=model, max_tokens=max_tokens, temperature=temperature,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            **({"extra_body": extra_body} if extra_body else {}),
         )
         if not resp.choices:
             return ""

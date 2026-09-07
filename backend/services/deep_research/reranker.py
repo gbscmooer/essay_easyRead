@@ -13,6 +13,7 @@ SiliconFlow / 其他 OpenAI 兼容厂商的 /v1/rerank 端点。
 """
 
 import logging
+import math
 import httpx
 from ..ai_config import get_reranker_config
 
@@ -73,12 +74,20 @@ async def rerank(query: str, documents: list[str], top_n: int | None = None) -> 
 
     out: list[dict] = []
     for item in results:
+        if not isinstance(item, dict):
+            continue
         idx = item.get("index")
-        if idx is None or idx < 0 or idx >= len(documents):
+        if not isinstance(idx, int) or isinstance(idx, bool) or idx < 0 or idx >= len(documents):
+            continue
+        try:
+            score = float(item.get("relevance_score") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(score):
             continue
         out.append({
             "index": idx,
-            "score": float(item.get("relevance_score") or 0.0),
+            "score": score,
             "document": documents[idx],
         })
     out.sort(key=lambda x: x["score"], reverse=True)
@@ -90,6 +99,6 @@ async def rerank(query: str, documents: list[str], top_n: int | None = None) -> 
 def _fallback(documents: list[str], top_n: int | None) -> list[dict]:
     n = len(documents) if top_n is None else min(top_n, len(documents))
     return [
-        {"index": i, "score": 0.0, "document": documents[i]}
+        {"index": i, "score": 0.0, "document": documents[i], "fallback": True}
         for i in range(n)
     ]

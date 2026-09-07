@@ -535,10 +535,10 @@
 }
 
 .rs-heat__name {
-  overflow: hidden;
   min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 5px 0;
 }
 
 .rs-heat__count {
@@ -672,11 +672,10 @@
 }
 
 .rs-card__name {
-  overflow: hidden;
   min-width: 0;
   margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
   font-size: var(--fs-ui);
   font-weight: 650;
@@ -750,10 +749,9 @@
 }
 
 .rs-card__replabel {
-  overflow: hidden;
   min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
   font-size: var(--fs-label);
 }
@@ -1165,7 +1163,7 @@
   background: var(--accent-subtle);
 }
 
-.ex-history__item > button:first-child {
+.ex-history__item > :first-child {
   max-width: 30ch;
   overflow: hidden;
   padding: 4px var(--s2);
@@ -1178,7 +1176,7 @@
   cursor: pointer;
 }
 
-.ex-history__item.is-active > button:first-child {
+.ex-history__item.is-active > :first-child {
   color: var(--accent);
   font-weight: 600;
 }
@@ -1877,7 +1875,7 @@
 
 .ex-heat__row {
   display: grid;
-  grid-template-columns: minmax(9rem, 1.2fr) repeat(var(--heat-cols, 12), minmax(2.1rem, auto)) 2.4rem;
+  grid-template-columns: minmax(180px, 240px) repeat(var(--heat-cols, 12), minmax(44px, 1fr)) 44px;
   gap: 2px;
   align-items: stretch;
 }
@@ -1888,9 +1886,8 @@
 }
 
 .ex-heat__kw {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   padding-right: var(--s2);
   align-self: center;
 }

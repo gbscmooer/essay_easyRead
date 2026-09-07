@@ -119,6 +119,27 @@ describe('论文库搜索', () => {
 })
 
 describe('筛选与排序', () => {
+  it('多源方向、会议期刊和来源分别筛选，清除后一起重置', () => {
+    const props = renderList({ facets: { ...FACETS, subjects: ['Computer Vision', '机器学习'], venues: ['Information Fusion'], providers: ['scopus'] } })
+    fireEvent.click(screen.getByText('筛选', { exact: true }))
+    fireEvent.change(screen.getByLabelText('按方向筛选'), { target: { value: 'Computer Vision' } })
+    fireEvent.change(screen.getByLabelText('按会议期刊筛选'), { target: { value: 'Information Fusion' } })
+    fireEvent.change(screen.getByLabelText('按元数据来源筛选'), { target: { value: 'scopus' } })
+    expect(props.onFilter).toHaveBeenLastCalledWith(expect.objectContaining({ subject: 'Computer Vision', venue: 'Information Fusion', provider: 'scopus' }))
+    fireEvent.click(screen.getByText('清除筛选'))
+    expect(props.onFilter).toHaveBeenLastCalledWith({})
+    expect(screen.getByLabelText('按方向筛选')).toHaveValue('')
+  })
+
+  it('独立展示发表类型与元数据来源，编辑操作不会打开论文', () => {
+    const onEdit = vi.fn()
+    const props = renderList({ papers: [makePaper(1, 'Elsevier article', { venue: 'Information Fusion', publication_type: 'journal', subjects: ['Computer Vision'], providers: ['scopus'] })], onEdit })
+    expect(screen.getByText('期刊论文', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.getByText('Scopus / Elsevier', { selector: 'span' })).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('编辑论文信息 Elsevier article'))
+    expect(onEdit).toHaveBeenCalledOnce()
+    expect(props.onSelect).not.toHaveBeenCalled()
+  })
   it('筛选项来自全库 facets，而不是当前页的论文', () => {
     renderList({ papers: [makePaper(1, 'Attention', { category: 'cs.CL', year: 2017 })] })
 

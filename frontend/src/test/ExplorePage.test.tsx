@@ -10,15 +10,32 @@ import ExplorePage from '@/pages/ExplorePage'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
 import { createExploration } from '@/api/exploration'
 import type { ExplorationResult, ExplorationSynthesis } from '@/types'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { getExploration, getExplorationMessages, listExplorations } from '@/api/exploration'
+import { getWorkspace } from '@/api/workspaces'
+
+function renderPage(path = '/explore') {
+  return render(<MemoryRouter initialEntries={[path]}><Routes>
+    <Route path="/explore" element={<ExplorePage />} />
+    <Route path="/explorer/:id" element={<ExplorePage />} />
+  </Routes></MemoryRouter>)
+}
 
 vi.mock('@/hooks/useExplorationStream', () => ({
   useExplorationStream: vi.fn(),
+}))
+vi.mock('@/api/workspaces', () => ({
+  listWorkspaces: vi.fn().mockResolvedValue([{ id: 1, name: 'Seed collection', paper_count: 1 }]),
+  getWorkspace: vi.fn().mockResolvedValue({ id: 1, name: 'Seed collection', papers: [{ id: 10, title: 'Seed paper', level: 1 }] }),
 }))
 vi.mock('@/api/exploration', () => ({
   createExploration: vi.fn(),
   listExplorations: vi.fn().mockResolvedValue([]),
   deleteExploration: vi.fn(),
   getExploration: vi.fn(),
+  getExplorationMessages: vi.fn().mockResolvedValue([]),
+  askExploration: vi.fn(),
+  regenerateReport: vi.fn(),
 }))
 
 const mockUse = vi.mocked(useExplorationStream)
@@ -84,20 +101,33 @@ describe('ExplorePage', () => {
       id: 7, question: 'q', depth: 'standard', status: 'pending',
       provider: '', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
     })
-    const { unmount } = render(<ExplorePage />)
-    expect(screen.getByPlaceholderText(/用 AI 识别肿瘤/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '开始探索' })).toBeEnabled()
+    vi.mocked(getExploration).mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01' })
+    const { unmount } = renderPage()
+    expect(screen.getByRole('textbox', { name: '研究问题' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '开始研究' })).toBeEnabled()
     expect(screen.getByText(/输入一个问题开始/)).toBeInTheDocument()
 
-    fireEvent.change(screen.getByPlaceholderText(/用 AI 识别肿瘤/), { target: { value: '肿瘤检测有人做吗' } })
-    fireEvent.click(screen.getByRole('button', { name: '开始探索' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard'))
+    fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: '肿瘤检测有人做吗' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true }))
     unmount()
+  })
+
+  it('工作区母论文进入同一任务并可关闭联网检索', async () => {
+    mockCreate.mockResolvedValue({ id: 8, question: 'dataset survey', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01' })
+    vi.mocked(getExploration).mockResolvedValue({ id: 8, question: 'dataset survey', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01' })
+    renderPage('/explore?workspace_id=1')
+    await waitFor(() => expect(getWorkspace).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始研究' })).toBeEnabled())
+    fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: 'dataset survey' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '联网补充文献' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false }))
   })
 
   it('成品视图：结论卡 / 透明度 / 总览复用 / 证据列表 / 报告齐备，证据可点开', () => {
     mockUse.mockReturnValue({ ...IDLE, status: 'done', result: makeResult(), synthesis: SYNTHESIS })
-    render(<ExplorePage />)
+    renderPage()
 
     // 结论卡
     expect(screen.getByText('已被充分实现')).toBeInTheDocument()
@@ -114,13 +144,16 @@ describe('ExplorePage', () => {
     const statsStrip = document.querySelector('.rs-overview__stats')
     expect(statsStrip?.textContent).toContain('4 篇论文')
     expect(statsStrip?.textContent).toContain('2 个子方向')
-    expect(screen.getByText('🏛️ 高被引经典')).toBeInTheDocument()
-    expect(screen.getByText('🔥 近期上升')).toBeInTheDocument()
+    expect(screen.getByText('样本内高被引')).toBeInTheDocument()
+    expect(screen.getByText('旧版引用速度排序')).toBeInTheDocument()
+    expect(screen.getByText('旧版指标（未重新计算）')).toBeInTheDocument()
+    expect(screen.queryByTitle('证据充分度')).not.toBeInTheDocument()
+    expect(document.querySelector('.ex-verdict__conf')).toBeNull()
 
     // 证据列表首行（被引最高，同时出现在两个列表）→ 点开详情卡
-    fireEvent.click(screen.getAllByText('Language model pretraining')[0])
+    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Language model pretraining' })[0])
     expect(screen.getAllByText('Language model pretraining').length).toBeGreaterThanOrEqual(2)
-    // 详情卡的「速度 714.3/年」读数（列表行里也有同串，断言存在即可）
+    // 累计年均被引是描述指标。
     expect(screen.getAllByText(/714\.3\/年/).length).toBeGreaterThan(0)
     expect(screen.getByText('Pretraining.')).toBeInTheDocument()
 
@@ -131,6 +164,42 @@ describe('ExplorePage', () => {
 
     // Markdown 报告
     expect(screen.getByText('这里是报告正文。')).toBeInTheDocument()
+  })
+
+  it('新运行按方法元数据展示完整年份与显著性，旧运行不被重新解释', () => {
+    const result = makeResult()
+    result.metrics.citation_method = {
+      algorithm: 'conditional_poisson_rate_test', version: 1,
+      adjustment: 'benjamini_hochberg', alpha: 0.05,
+      recent_years: [2024, 2025], baseline_years: [2022, 2023],
+    }
+    result.papers[0] = {
+      ...result.papers[0], trajectory: 'rising', highly_cited: true,
+      recent_citations: 60, citation_velocity_2y: 30,
+    }
+    mockUse.mockReturnValue({ ...IDLE, status: 'done', result, synthesis: SYNTHESIS })
+    renderPage()
+    expect(screen.getByText('精确 Poisson + BH（v1）')).toBeInTheDocument()
+    expect(screen.getByText(/α = 0.05 是显著性阈值，不是准确率/)).toBeInTheDocument()
+    expect(screen.queryByText('旧版引用速度排序')).not.toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Tumor detection with CNN' })[0])
+    expect(screen.getByText('最近两个完整年份被引 60')).toBeInTheDocument()
+    expect(screen.getByText('最近两个完整年份年均 30/年')).toBeInTheDocument()
+    expect(screen.getByText('样本内同年高被引')).toBeInTheDocument()
+    expect(screen.getAllByText('引用率显著上升')).toHaveLength(2)
+  })
+
+  it('历史趋势保留旧版标签，不显示新检验的显著性', () => {
+    const result = makeResult()
+    result.papers[0] = { ...result.papers[0], trajectory: 'rising', surge: true, recent_citations: 60 }
+    mockUse.mockReturnValue({ ...IDLE, status: 'done', result, synthesis: SYNTHESIS })
+    renderPage()
+    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Tumor detection with CNN' })[0])
+    expect(screen.getByText('旧版引用爬升')).toBeInTheDocument()
+    expect(screen.getByText('旧版突增候选')).toBeInTheDocument()
+    expect(screen.getByText('旧版近2年被引 60')).toBeInTheDocument()
+    expect(screen.queryByText('引用率显著上升')).not.toBeInTheDocument()
+    expect(screen.queryByText('精确 Poisson + BH（v1）')).not.toBeInTheDocument()
   })
 
   it('降级态：无 Key 回退提示与检索未命中提示', () => {
@@ -145,14 +214,14 @@ describe('ExplorePage', () => {
         graph: { nodes: [], edges: [], stats: { node_count: 0, edge_count: 0, by_kind: {} } },
       }),
     })
-    render(<ExplorePage />)
+    renderPage()
     expect(screen.getByText(/未配置 LLM Key/)).toBeInTheDocument()
     expect(screen.getByText(/检索未命中/)).toBeInTheDocument()
   })
 
   it('失败态：展示错误信息', () => {
     mockUse.mockReturnValue({ ...IDLE, status: 'failed', error: 'provider 不可用' })
-    render(<ExplorePage />)
+    renderPage()
     expect(screen.getByText(/探索失败：provider 不可用/)).toBeInTheDocument()
   })
 
@@ -164,11 +233,26 @@ describe('ExplorePage', () => {
       message: '检索「tumor detection」命中 15 篇（累计 15 篇）',
       progress: 45,
     })
-    render(<ExplorePage />)
+    renderPage()
     expect(screen.getByRole('progressbar')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45')
     expect(screen.getByText('45%')).toBeInTheDocument()
     expect(screen.getByText(/正在进行：② 多源检索/)).toBeInTheDocument()
     expect(screen.getByText(/检索「tumor detection」命中 15 篇/)).toBeInTheDocument()
+  })
+
+  it('近期探索进入独立详情，刷新读取资料和持久化对话', async () => {
+    vi.mocked(listExplorations).mockResolvedValue([{ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
+    vi.mocked(getExploration).mockResolvedValue({ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', result: makeResult() })
+    vi.mocked(getExplorationMessages).mockResolvedValue([{ id: 1, run_id: 17, question: 'Follow-up', answer: 'Saved answer [P1]', status: 'done', search_more: false, selected_keys: [], papers: [], evidence_keys: ['k:a'], context: { citations: { P1: 'k:a' } }, error_message: null, created_at: '2026-01-01', updated_at: '2026-01-01' }])
+    renderPage()
+    const link = await screen.findByRole('link', { name: 'Saved question' })
+    expect(link).toHaveAttribute('href', '/explorer/17')
+    fireEvent.click(link)
+    await screen.findByRole('heading', { name: 'Saved question' })
+    fireEvent.click(screen.getByRole('tab', { name: '连续追问' }))
+    expect(await screen.findByText('Follow-up')).toBeVisible()
+    expect(screen.getByRole('link', { name: '[P1]' })).toHaveAttribute('href', 'https://doi.org/10.1/a')
+    expect(screen.queryByPlaceholderText(/用 AI 识别肿瘤/)).not.toBeInTheDocument()
   })
 })

@@ -82,6 +82,7 @@ export function aggregateDomain(
   const interWeight = new Map<number, number>()
   const seenPairs = new Set<string>()
   for (const e of graph.edges) {
+    if (e.bridge || e.selection_method === 'display_bridge') continue
     if (e.kind !== 'related' && e.kind !== 'similar') continue
     const a = nodeCluster.get(e.source)
     const b = nodeCluster.get(e.target)
@@ -120,7 +121,7 @@ export function aggregateDomain(
       if (typeof y === 'number' && y >= spanStart && y <= maxYear) {
         byYear[y] = (byYear[y] ?? 0) + 1
       }
-      if (typeof y === 'number' && y >= maxYear - RECENT_WINDOW) recentCount++
+      if (typeof y === 'number' && y >= maxYear - RECENT_WINDOW && y <= maxYear) recentCount++
       citationMass += node.meta.citation_count ?? 0
     }
     const pairs = n > 1 ? (n * (n - 1)) / 2 : 0

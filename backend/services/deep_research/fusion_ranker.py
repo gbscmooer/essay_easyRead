@@ -23,9 +23,9 @@ DEFAULT_RRF_K = 60
 DEFAULT_WEIGHTS: dict[str, float] = {
     CHANNEL_PDF_REF: 1.0,
     CHANNEL_BACKWARD: 1.0,
-    CHANNEL_FORWARD: 0.9,
-    CHANNEL_RECOMMEND: 0.85,
-    CHANNEL_GRAPH_PPR: 0.8,
+    CHANNEL_FORWARD: 1.0,
+    CHANNEL_RECOMMEND: 1.0,
+    CHANNEL_GRAPH_PPR: 1.0,
 }
 
 _SOURCE_TO_CHANNEL: dict[RecallSource, str] = {
@@ -84,7 +84,28 @@ def _pick_representative(existing: RecallCandidate, new: RecallCandidate) -> Rec
         for f in (c.doi, c.arxiv_id, c.openalex_id, c.s2_id, c.abstract, c.authors, c.pdf_url)
         if f
     )
-    return new if score(new) > score(existing) else existing
+    winner, other = (new, existing) if score(new) > score(existing) else (existing, new)
+    from ..paper_metadata import FORMAL_TYPES, publication_type
+    def sources(candidate):
+        provider = next((p.split(":", 1)[1] for p in candidate.provenance if p.startswith("provider:")), "import")
+        return {**{("venue" if key == "venue_name" else key): provider for key, value in candidate.extra.items() if value},
+                "year": provider, **candidate.extra.get("field_sources", {})}
+    winner_sources, other_sources = sources(winner), sources(other)
+    extra = {**{key: value for key, value in other.extra.items() if value},
+             **{key: value for key, value in winner.extra.items() if value}}
+    field_sources = {**other_sources, **winner_sources}
+    # A richer abstract must not discard a formal publication's venue and year.
+    formal = next((c for c in (winner, other) if publication_type(c.extra.get("publication_type"), c.extra.get("venue_name")) in FORMAL_TYPES), None)
+    if formal:
+        for key in ("venue_name", "venue_issn", "publication_type", "publisher"):
+            if formal.extra.get(key):
+                extra[key] = formal.extra[key]
+                field = "venue" if key == "venue_name" else key
+                field_sources[field] = sources(formal).get(field, "import")
+        if formal.year:
+            field_sources["year"] = sources(formal)["year"]
+    extra["field_sources"] = field_sources
+    return winner.model_copy(update={"extra": extra, "year": formal.year if formal and formal.year else winner.year})
 
 
 def fuse_candidates(

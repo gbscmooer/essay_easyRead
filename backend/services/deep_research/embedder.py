@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 
 _model = None  # 本地模型单例（lazy）
 _model_lock = asyncio.Lock()
+_tokenizers = {}
+
+
+async def _model_truncate(texts: list[str], cfg: dict) -> list[str]:
+    """Respect the actual token window of the BGE v1.5 family."""
+    model = cfg.get("model") or ""
+    if not model.lower().startswith("baai/bge-") or not model.lower().endswith("-v1.5"):
+        return texts
+    def truncate():
+        if model not in _tokenizers:
+            from transformers import AutoTokenizer
+            _tokenizers[model] = AutoTokenizer.from_pretrained(model)
+        tokenizer = _tokenizers[model]
+        limit = min(510, int(cfg.get("max_input_tokens") or 510))
+        encoded = tokenizer(texts, add_special_tokens=False, truncation=True, max_length=limit)
+        return tokenizer.batch_decode(encoded["input_ids"], skip_special_tokens=True)
+    return await asyncio.to_thread(truncate)
 
 
 def _est_tokens(s: str) -> int:
@@ -57,7 +74,7 @@ async def _get_local_model():
                     "mps" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "cpu"
                 )
             logger.info(f"Loading {cfg['model']} on {device}...")
-            _model = SentenceTransformer(cfg["model"], device=device)
+            _model = await asyncio.to_thread(SentenceTransformer, cfg["model"], device=device)
         return _model
 
 
@@ -116,6 +133,8 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
     if n_trunc:
         logger.info(f"embedding: 已按 ~{max_tokens} token 上限截断 {n_trunc}/{len(texts)} 条超长输入（避免 400）")
 
+    safe_texts = await _model_truncate(safe_texts, cfg)
+
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
@@ -127,7 +146,7 @@ async def _embed_openai_compatible(texts, cfg, max_retries: int = 3):
                 )
                 r.raise_for_status()
                 data = r.json()["data"]
-                return [d["embedding"] for d in data]
+                return [d["embedding"] for d in sorted(data, key=lambda d: d.get("index", 0))]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
             last_err = e
         except httpx.HTTPStatusError as e:
