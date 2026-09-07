@@ -36,13 +36,17 @@ export async function uploadPaperWithProgress(file: File, onProgress?: (pct: num
 export async function listPapers(params?: {
   search?: string
   category?: string
+  subject?: string
+  venue?: string
+  publication_type?: string
+  provider?: string
   year?: number
   date_added?: string
   page?: number
   per_page?: number
   source?: 'uploaded' | 'expanded' | 'all'
   sort?: string
-}): Promise<PaperListResponse> {
+}, signal?: AbortSignal): Promise<PaperListResponse> {
   const query = new URLSearchParams()
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -52,7 +56,7 @@ export async function listPapers(params?: {
     })
   }
   const qs = query.toString()
-  return get<PaperListResponse>(`/papers${qs ? `?${qs}` : ''}`)
+  return get<PaperListResponse>(`/papers${qs ? `?${qs}` : ''}`, signal)
 }
 
 
@@ -62,6 +66,10 @@ export interface PaperFacets {
   years: number[]
   dates: string[]
   sorts: { value: string; label: string }[]
+  subjects?: string[]
+  venues?: string[]
+  publication_types?: string[]
+  providers?: string[]
 }
 
 /**
@@ -272,18 +280,29 @@ export async function exportBibtex(paperId: number): Promise<string> {
 /** 论文库统一智能搜索：元数据 + 解读内容 + 可选全局正文全文 */
 export async function smartSearch(
   q: string,
-  opts: { category?: string; year?: number; dateAdded?: string; global?: boolean; includeExpanded?: boolean; page?: number; perPage?: number } = {},
+  opts: { category?: string; subject?: string; venue?: string; publication_type?: string; provider?: string; year?: number; dateAdded?: string; global?: boolean; includeExpanded?: boolean; page?: number; perPage?: number } = {},
+  signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const params = new URLSearchParams({ q })
   if (opts.category) params.set('category', opts.category)
+  for (const key of ['subject', 'venue', 'publication_type', 'provider'] as const) if (opts[key]) params.set(key, opts[key]!)
   if (opts.year) params.set('year', String(opts.year))
   if (opts.dateAdded) params.set('date_added', opts.dateAdded)
   if (opts.global) params.set('global', 'true')
   if (opts.includeExpanded) params.set('include_expanded', 'true')
   if (opts.page) params.set('page', String(opts.page))
   if (opts.perPage) params.set('per_page', String(opts.perPage))
-  return get<SearchResponse>(`/papers/smart-search?${params.toString()}`)
+  return get<SearchResponse>(`/papers/smart-search?${params.toString()}`, signal)
 }
+
+export interface MetadataProgress { running: boolean; total: number; completed: number; unmatched: number }
+export const getMetadataStatus = () => get<MetadataProgress>('/papers/metadata/status')
+export const refreshMetadata = (includeExpanded: boolean) => post<MetadataProgress>(`/papers/metadata/refresh?source=${includeExpanded ? 'all' : 'uploaded'}`)
+export interface MetadataEdit {
+  title: string; authors: string; venue: string; year: number | null
+  publication_type: string; subjects: string[]; publisher: string
+}
+export const updatePaperMetadata = (id: number, data: MetadataEdit) => post<Paper>(`/papers/${id}/metadata`, data)
 
 
 /** 获取论文 PDF 标题位置（用于大纲精确定位） */

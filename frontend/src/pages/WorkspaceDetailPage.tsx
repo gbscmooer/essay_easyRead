@@ -296,8 +296,8 @@ export default function WorkspaceDetailPage() {
             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
           </svg>
           <span className="ws-research__copy">
-            <strong>深度研究</strong>
-            <small>{workspace.papers.length === 0 ? '先往集合里放入论文' : '跨论文构建知识图谱 · RAG 问答'}</small>
+            <strong>发起文献研究</strong>
+            <small>{workspace.papers.length === 0 ? '先往集合里放入论文' : `${workspace.papers.length} 篇母论文`}</small>
           </span>
           <span className="ws-research__go" aria-hidden="true">→</span>
         </button>

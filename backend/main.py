@@ -44,7 +44,7 @@ from .routers.annotations import router as annotations_router
 from .routers.agent_tools import router as agent_tools_router
 
 
-APP_VERSION = "5.0.1"
+APP_VERSION = "6.0.0"
 DEFAULT_RATE_LIMIT = "120/minute"
 
 _STATUS_ERROR_CODES = {

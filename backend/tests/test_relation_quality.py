@@ -1,32 +1,22 @@
 """
-细分方向可分性回归测试
+Offline synthetic graph regression, not an estimate of real-world accuracy.
 
-这是 v3 重写要守住的核心指标。旧算法只用"全文质心余弦"定拓扑，在"一个大领域里
-有多个细分方向"的语料上稳定退化成只能还原**大方向**（合成对照：真值 4 个细分方向，
-聚出 2 个大簇，骨架里只有 ~46% 的边连接同一细分方向）。
-
-合成语料的生成过程贴近真实：
-- doc 质心（全文平均）= 领域公共成分强 + 大方向 + 细分方向弱 + 噪声小
-  → 单看它就是"大方向表示"，这正是旧实现的输入；
-- purpose / method 向量（短文本）= 公共成分弱 + 细分方向强 + 噪声大；
-- 标题里带细分方向特有的稀有专名（term 通道）、共享数据集、文献耦合。
-
-断言的是**相对关系**（融合口径显著优于只用 topic 通道）与绝对下限，不依赖具体
-embedding 模型，因此可长期当回归门禁用。
+The corpus has broad topic vectors and narrower lexical/entity evidence. Tests
+compare the production disparity-or-mutual-kNN policy on fixed synthetic data.
+No labels are used by the ranking or community algorithms.
 """
-
 import asyncio
 from collections import Counter
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
 from backend.services.deep_research.graph_analytics import annotate_graph
-from backend.services.deep_research.graph_builder import DEFAULT_MAP_DENSITY
+from backend.services.deep_research.graph_builder import _select_relation_edges
 from backend.services.deep_research.graphkit import (
     PaperFeatures,
     compute_relations,
-    extract_backbone,
 )
 
 DIM = 64
@@ -122,17 +112,18 @@ def _adjusted_rand(true_labels, pred_labels) -> float:
 
 def _evaluate(pairs, labels, **backbone_kw) -> dict:
     """跑生产的骨架提取 + 社区检测，返回细分方向 ARI / 骨架边纯度 / 簇数。"""
-    kw = {"target_degree": DEFAULT_MAP_DENSITY, "alpha": 0.25,
-          "min_sim": 0.05, "ensure_connected": True, **backbone_kw}
-    kept = extract_backbone(pairs, **kw)
+    kw = {"alpha": 0.05, "knn_k": 10, **backbone_kw}
+    kept, bridges, disparity, method = _select_relation_edges(pairs, **kw)
     nodes = [{"id": f"paper:{i + 1}", "label": f"p{i + 1}", "meta": {}} for i in range(len(labels))]
     edges = []
     for a, b, w in kept:
         for s, t in ((a, b), (b, a)):
-            edges.append({"source": f"paper:{s}", "target": f"paper:{t}", "kind": "related", "weight": w})
+            edges.append({"source": f"paper:{s}", "target": f"paper:{t}", "kind": "related", "weight": w,
+                          "bridge": (min(a, b), max(a, b)) in bridges})
     stats = annotate_graph(nodes, edges)
     pred = [n["meta"]["cluster"] for n in nodes]
-    purity = sum(1 for a, b, _ in kept if labels[a - 1] == labels[b - 1]) / max(1, len(kept))
+    analysis_edges = [(a, b, w) for a, b, w in kept if (a, b) not in bridges]
+    purity = sum(1 for a, b, _ in analysis_edges if labels[a - 1] == labels[b - 1]) / max(1, len(analysis_edges))
     top1_correct = 0
     best: dict[int, tuple[int, float]] = {}
     for a, b, w in pairs:
@@ -143,6 +134,9 @@ def _evaluate(pairs, labels, **backbone_kw) -> dict:
     for a, (b, _) in best.items():
         top1_correct += int(labels[a - 1] == labels[b - 1])
     return {
+        "method": method,
+        "disparity_pairs": len(disparity),
+        "analysis_pairs": len(analysis_edges),
         "ari": _adjusted_rand(labels, pred),
         "purity": purity,
         "clusters": stats["clusters"],
@@ -181,8 +175,9 @@ TOPIC_ONLY = {"topic": 1.0, "purpose": 0.0, "method": 0.0, "term": 0.0,
 
 
 def test_fused_beats_topic_only_baseline(corpus):
-    """同样的地图密度下，多通道融合的骨架边比只用全文质心更贴细分方向。"""
+    """Additional channels resolve subfields when topic vectors are indistinguishable."""
     papers, vec_table, labels, bib = corpus
+    papers = [replace(p, doc_vector=[1.0, 0.0]) for p in papers]
     baseline = _score(TOPIC_ONLY, papers, vec_table, labels, bib)
     fused = _score(None, papers, vec_table, labels, bib)
 
@@ -192,41 +187,33 @@ def test_fused_beats_topic_only_baseline(corpus):
     assert fused["ari"] >= baseline["ari"], f"细分方向 ARI 不应低于基线: {fused} vs {baseline}"
 
 
-def test_density_control_prevents_subfield_collapse(corpus):
-    """密度控制本身就是质量手段：毛球密度下细分方向会塌成大方向。
-
-    旧口径（α + "最小边权"当地板，v3.0 行为）在这份语料上留下 231 条边、只剩 2 个大簇；
-    按目标平均度反解地板后同一份分数能还原 4 个细分方向。真实工作区上同样的退化更严重
-    （ws1：平均度 41.8 的毛球）。
-    """
+def test_empty_disparity_uses_explicit_mutual_knn_policy(corpus):
     papers, vec_table, labels, bib = corpus
-    hairball = _score(TOPIC_ONLY, papers, vec_table, labels, bib,
-                      target_degree=None, baseline="auto")
-    controlled = _score(TOPIC_ONLY, papers, vec_table, labels, bib)
+    result = _score(None, papers, vec_table, labels, bib)
+    assert result["disparity_pairs"] == 0
+    assert result["method"] == "mutual_knn"
+    assert result["analysis_pairs"] > 0
+    assert result["clusters"] == N_AREA * N_SUB
+    assert result["ari"] >= 0.80
 
-    assert hairball["clusters"] < N_AREA * N_SUB, "旧口径本应塌成大方向"
-    assert controlled["clusters"] == N_AREA * N_SUB
-    assert controlled["purity"] > hairball["purity"] + 0.2, f"{controlled} vs {hairball}"
 
-
-def test_calibration_does_not_hurt_a_corpus_where_prior_is_right(corpus):
-    """自监督校准是自适应机制，不能在"先验本来就对"的语料上帮倒忙。"""
+def test_legacy_calibration_flag_cannot_change_graph_or_weights(corpus):
     papers, vec_table, labels, bib = corpus
-    rel_cal = asyncio.run(compute_relations(
+    enabled = asyncio.run(compute_relations(
         papers, embed_fn=_fake_embed(vec_table), bibcoupling=bib, calibrate=True))
-    rel_raw = asyncio.run(compute_relations(
+    disabled = asyncio.run(compute_relations(
         papers, embed_fn=_fake_embed(vec_table), bibcoupling=bib, calibrate=False))
-    cal = _evaluate(rel_cal.pairs, labels)
-    raw = _evaluate(rel_raw.pairs, labels)
-
-    assert rel_cal.calibration is not None and rel_cal.calibration.applied
-    assert cal["ari"] >= raw["ari"] - 0.02, f"校准后 ARI 明显变差: {cal} vs {raw}"
-    assert cal["purity"] >= raw["purity"] - 0.02, f"校准后骨架纯度明显变差: {cal} vs {raw}"
+    assert not enabled.calibration.applied
+    assert enabled.weights == disabled.weights
+    assert enabled.pairs == disabled.pairs
+    assert _evaluate(enabled.pairs, labels) == _evaluate(disabled.pairs, labels)
 
 
 def test_evidence_channels_contribute_on_top_of_semantics(corpus):
-    """关掉证据通道（数据集/baseline/文献耦合/共引）纯度应下降——证明结构证据真的参与了选边。"""
+    """Entity and citation evidence resolve an otherwise tied semantic graph."""
     papers, vec_table, labels, bib = corpus
+    papers = [replace(p, title="common", purpose_text="", method_text="",
+                      doc_vector=[1.0, 0.0]) for p in papers]
     semantic_only = {"dataset": 0.0, "baseline": 0.0, "bibcoupling": 0.0, "cocitation": 0.0}
     without_evidence = _score(semantic_only, papers, vec_table, labels, bib)
     fused = _score(None, papers, vec_table, labels, bib)
@@ -235,9 +222,8 @@ def test_evidence_channels_contribute_on_top_of_semantics(corpus):
     )
 
 
-def test_analytics_falls_back_when_backbone_is_empty():
-    """权重高度均匀的小工作区里骨架可能一条显著边都留不下，全部关系边被标成桥接边。
-    此时社区检测必须回退用桥接边，而不是产出"全是孤立点"的空图谱。"""
+def test_analytics_never_uses_display_bridges_when_backbone_is_empty():
+    """The builder must choose an explicit analysis policy; analytics cannot invent one."""
     nodes = [{"id": f"paper:{i}", "label": f"p{i}", "meta": {}} for i in (1, 2, 3, 4)]
     edges = []
     for a, b in ((1, 2), (2, 3), (1, 3)):
@@ -245,5 +231,6 @@ def test_analytics_falls_back_when_backbone_is_empty():
             edges.append({"source": f"paper:{s}", "target": f"paper:{t}",
                           "kind": "related", "weight": 0.8, "bridge": True})
     stats = annotate_graph(nodes, edges)
-    assert stats["clusters"] >= 1
-    assert any(n["meta"]["cluster"] >= 0 for n in nodes)
+    assert stats["clusters"] == 0
+    assert all(n["meta"]["cluster"] == -1 for n in nodes)
+    assert all(n["meta"]["importance"] == 0 for n in nodes)

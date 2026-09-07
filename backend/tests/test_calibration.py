@@ -155,7 +155,7 @@ async def _embed(texts):
     return [[1.0, 0.0] for _ in texts]      # 所有短文本向量一样 → purpose/method 无判别力
 
 
-def test_compute_relations_reports_calibration():
+def test_compute_relations_reports_unsupervised_weights_despite_structural_labels():
     papers = _corpus()
     # 同方向论文共享参考文献 → 弱监督正样本
     bib = {}
@@ -167,15 +167,13 @@ def test_compute_relations_reports_calibration():
                 bib[(a, b)] = (0.3, 5)
     rel = asyncio.run(compute_relations(papers, embed_fn=_embed, bibcoupling=bib))
     report = rel.calibration
-    assert report is not None and report.applied, report.reason if report else "no report"
-    # term 通道能分开两个方向，purpose/method 常量向量分不开 → 权重此消彼长
-    assert report.weights["term"] > report.weights["purpose"]
-    assert report.weights["term"] > report.weights["method"]
-    assert rel.weights["term"] == report.weights["term"]
+    assert report is not None and not report.applied
+    assert report.n_positives == report.n_negatives == 0
+    assert all(weight == 0.125 for weight in rel.weights.values())
 
 
 def test_calibration_can_be_disabled():
     papers = _corpus()
     rel = asyncio.run(compute_relations(papers, embed_fn=_embed, calibrate=False))
     assert rel.calibration is not None and not rel.calibration.applied
-    assert rel.weights["term"] == 0.14        # 默认先验原样保留
+    assert rel.weights["term"] == 0.125

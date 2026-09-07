@@ -131,6 +131,8 @@ def _parse_entry(xml_text: str) -> Optional[dict]:
         "authors": authors or None,
         "year": year,
         "category": _extract_category(entry),
+        "doi": entry.findtext("arxiv:doi", default=None, namespaces=_ARXIV_NS),
+        "venue": entry.findtext("arxiv:journal_ref", default=None, namespaces=_ARXIV_NS),
     }
 
 

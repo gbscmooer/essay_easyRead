@@ -17,6 +17,14 @@ export interface Paper {
   venue: string | null
   year: number | null
   category?: string | null       // arXiv 学科分类，如 "cs.LG"，自动索引提取
+  subjects?: string[]
+  publication_type?: string
+  publisher?: string | null
+  providers?: string[]
+  metadata_sources?: Record<string, string>
+  metadata_updated_at?: string | null
+  doi?: string | null
+  arxiv_id?: string | null
   status: PaperStatus
   index_status?: 'none' | 'indexing' | 'indexed' | 'failed'  // 自动索引状态
   error_message: string | null
@@ -232,7 +240,7 @@ export interface ResearchRunCreate {
   expand_top_k?: number
   expand_total_limit?: number
   rebuild?: boolean
-  map_density?: number           // 研究地图密度：每篇论文平均连几条关系边（骨架按此反解阈值）
+  map_density?: number           // 兼容旧请求，当前骨架算法忽略
   backbone_alpha?: number        // 多尺度骨架显著性 α（Disparity Filter）：局部显著性判据
   enable_shared_method?: boolean
 }
@@ -294,11 +302,16 @@ export interface RelationComponent {
   contribution: number     // sim × weight，对总分的实际贡献（各通道之和 = 总分）
   reason: string           // 该通道的说明（相似度档位或共享项描述）
   shared: string[]         // 共享项（术语 / 数据集 / baseline）
+  rank_source?: number | null
+  rank_target?: number | null
 }
 
 export interface RelationDetail {
   weight: number                    // 综合关联度
   components: RelationComponent[]   // 各通道分解
+  method?: string
+  selection_method?: string
+  disparity_retained?: boolean
 }
 
 export interface CitationContext {
@@ -312,6 +325,8 @@ export interface GraphEdge {
   target: string
   kind: GraphEdgeKind
   weight: number
+  bridge?: boolean
+  selection_method?: string
   detail?: RelationDetail
   contexts?: CitationContext[]
   /** 领域认知综合的因果研判（仅 cites 边有；related 无向边不猜因果） */
@@ -385,7 +400,9 @@ export interface ResearchGraph {
     top_papers?: { id: string; label: string; importance: number }[]
     /** 骨架提取的工作点：目标密度、实际平均度、连通兜底桥接边数 */
     backbone?: {
-      map_density: number
+      map_density?: number
+      method?: string
+      knn_k?: number | null
       alpha: number
       mean_degree: number
       bridge_pairs: number
@@ -393,6 +410,7 @@ export interface ResearchGraph {
     }
     /** 本次建图使用的关联度通道权重与各通道覆盖的论文/对数 */
     relation_channels?: {
+      method?: string
       weights: Record<string, number>
       coverage: Record<string, number>
       /** 自监督权重校准报告（用工作区自身引用结构当弱标签） */
@@ -412,27 +430,49 @@ export interface ResearchGraph {
 
 // ── 领域探索（explorer，问句驱动免读领域认知，与后端 models/exploration.py 一一对应）──
 
+export interface CitationMethod {
+  algorithm: string
+  version?: number
+  adjustment?: string
+  alpha?: number
+  recent_years?: number[]
+  baseline_years?: number[]
+}
+
 export interface ExplorationPaper {
   key: string
+  paper_id?: number
+  is_seed?: boolean
+  source_kind?: string
   title: string
   year?: number | null
   citation_count: number
   /** 被引 / 年龄（引用速度）；年份未知为 null */
   citation_velocity?: number | null
-  /** 近 2 年被引增量与均速（OpenAlex counts_by_year 富化；缺数据为 null） */
+  /** 新方法使用最近两个完整日历年；旧运行须按方法元数据区分 */
   recent_citations?: number | null
   citation_velocity_2y?: number | null
-  /** 引用轨迹：近 2 年均速 vs 之前 2 年（发表满 4 年才定型） */
+  /** 新方法为精确 Poisson 率检验 + BH；steady 仅表示未检出变化 */
   trajectory?: 'rising' | 'steady' | 'declining' | null
-  /** 同年语料内被引百分位（ESI 高被引的语料内复刻）；年份未知为 null */
+  /** 同年样本内百分位，不是全领域或 ESI 百分位 */
   citation_percentile?: number | null
   highly_cited?: boolean
-  /** 近窗口 + 当前动量达标 → 突增候选 */
+  /** 新方法为显著上升；旧运行保留旧启发式标记 */
   surge?: boolean
+  citation_metrics?: CitationMethod & {
+    status?: string
+    p_value?: number | null
+    p_adjusted?: number | null
+    significant?: boolean
+    [key: string]: unknown
+  }
   cluster: number
   cluster_label?: string
   doi?: string | null
   arxiv_id?: string | null
+  url?: string | null
+  pdf_url?: string | null
+  scopus_id?: string | null
   authors?: string | null
   abstract?: string | null
   source_query?: string
@@ -465,13 +505,14 @@ export interface ExplorationDecompose {
 
 export interface ExplorationMetrics {
   total: number
+  citation_method?: CitationMethod | string
   /** 年份 → 篇数（JSON 序列化后键为字符串） */
   by_year: Record<string, number>
   recent_share: number
   year_span: number[]
   top_cited: string[]
   rising: string[]
-  /** 同年语料前 5% 的高被引论文（ESI 式语料内复刻，v1.4） */
+  /** 样本内同年高被引，不能解释为领域排名 */
   highly_cited?: string[]
   /** 主阵地期刊（语料内 ≥2 篇，带 SJR/SNIP，v1.4） */
   venue_ranking?: ExplorationVenueRanking[]
@@ -487,6 +528,7 @@ export type NoveltyStatus = 'done_extensively' | 'done_partial' | 'emerging' | '
 
 export interface ExplorationVerdict {
   status: NoveltyStatus
+  /** 仅保留旧数据兼容；未校准，不显示为概率或证据充分度 */
   confidence: number
   explanation: string
   evidence_keys: string[]
@@ -507,6 +549,9 @@ export interface ExplorationSynthesis {
 }
 
 export interface ExplorationResult {
+  survey_report?: import('./survey').SurveyReport
+  report_error?: string
+  sources?: ResearchSourceOptions & { seed_count?: number; warnings?: string[] }
   decompose: ExplorationDecompose
   provider: string
   papers: ExplorationPaper[]
@@ -527,6 +572,22 @@ export interface ExplorationResult {
 
 export type ExplorationDepth = 'quick' | 'standard' | 'deep'
 
+export interface ExplorationMessage {
+  id: number
+  run_id: number
+  question: string
+  answer: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  search_more: boolean
+  selected_keys: string[]
+  papers: ExplorationPaper[]
+  evidence_keys: string[]
+  context: { citations?: Record<string, string>; queries?: string[]; warnings?: string[]; paper_keys?: string[]; evidence_audit?: unknown }
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ExplorationRun {
   id: number
   question: string
@@ -535,6 +596,7 @@ export interface ExplorationRun {
   current_stage?: string | null
   error_message?: string | null
   provider: string
+  options?: ResearchSourceOptions
   decompose?: ExplorationDecompose | null
   result?: ExplorationResult | null
   created_at: string
@@ -547,7 +609,15 @@ export interface ExplorationRunSummary {
   depth: string
   status: string
   provider: string
+  options?: ResearchSourceOptions
   created_at: string
+}
+
+export interface ResearchSourceOptions {
+  workspace_id?: number | null
+  workspace_name?: string
+  seed_paper_ids?: number[] | null
+  search_online?: boolean
 }
 
 export interface RagCitationDebug {
@@ -655,6 +725,11 @@ export interface SearchResult {
   venue?: string | null
   year?: number | null
   source?: 'uploaded' | 'expanded'
+  subjects?: string[]
+  publication_type?: string
+  providers?: string[]
+  doi?: string | null
+  arxiv_id?: string | null
   matched_fields: SearchMatch[]
 }
 

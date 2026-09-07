@@ -81,6 +81,8 @@ def _fused_to_work(fused: FusedCandidate, parent: Paper, next_level: int) -> Pap
         legacy_ext = f"arxiv:{c.arxiv_id}"
     return PaperWork(
         title=c.title,
+        venue=c.extra.get("venue_name"),
+        bibliography={**c.extra, "providers": [p.split(":", 1)[1] for p in fused.provenance if p.startswith("provider:")]},
         authors=c.authors,
         year=c.year,
         doi=c.doi,

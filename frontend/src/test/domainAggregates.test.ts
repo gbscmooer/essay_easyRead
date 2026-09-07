@@ -127,6 +127,16 @@ describe('aggregateDomain', () => {
     expect(c1.centrality).toBeCloseTo(0.5, 6)
   })
 
+  it('展示桥不进入子方向密度与中心性', () => {
+    const agg = aggregateDomain(graph([
+      node('a', { cluster: 0 }), node('b', { cluster: 0 }), node('c', { cluster: 1 }),
+    ], [
+      { ...edge('a', 'b'), bridge: true },
+      { ...edge('a', 'c'), selection_method: 'display_bridge' },
+    ]))
+    expect(agg!.buckets.every(b => b.density === 0 && b.centrality === 0)).toBe(true)
+  })
+
   it('近三年窗口锚定数据 maxYear', () => {
     const agg = aggregateDomain(graph([
       node('a', { cluster: 0, year: 2024 }),

@@ -11,8 +11,13 @@
 import { useState, useMemo, useEffect, memo, type ReactNode } from 'react'
 import type { Paper, SearchResult } from '@/types'
 import type { PaperFacets } from '@/api/papers'
-import { ConfirmDialog, Tooltip, SkeletonCard, LoadingSpinner } from '@/ds-entry'
+import { ConfirmDialog, Tooltip, LoadingSpinner } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
+import { SlidersHorizontal, Pencil, Trash2, FolderPlus, ExternalLink } from 'lucide-react'
+import { paperLink } from '@/features/research/paperLinks'
+
+export const PUBLICATION_TYPES: Record<string, string> = { journal: '期刊论文', conference: '会议论文', preprint: '预印本', book: '书籍 / 章节', other: '其他', unknown: '类型未识别' }
+const PROVIDERS: Record<string, string> = { arxiv: 'arXiv', scopus: 'Scopus / Elsevier', openalex: 'OpenAlex', crossref: 'Crossref', semantic_scholar: 'Semantic Scholar', import: '外部导入' }
 
 /** 搜索输入停下多久后自动发起检索（毫秒）。 */
 const SEARCH_DEBOUNCE_MS = 350
@@ -31,8 +36,12 @@ export interface PaperSelection {
   actions: ReactNode
 }
 
-interface FilterParams {
+export interface FilterParams {
   category?: string
+  subject?: string
+  venue?: string
+  publication_type?: string
+  provider?: string
   year?: number
   dateAdded?: string   // "YYYY-MM-DD"
 }
@@ -56,6 +65,10 @@ const FIELD_LABEL: Record<string, string> = {
   method: '方法',
   experiments: '实验',
   fulltext: '正文',
+  subjects: '研究方向',
+  providers: '元数据来源',
+  doi: 'DOI',
+  publisher: '出版社',
 }
 
 interface PaperListProps {
@@ -81,6 +94,8 @@ interface PaperListProps {
   sort: string
   onSortChange: (sort: string) => void
   selection: PaperSelection
+  onEdit?: (paper: Paper) => void
+  onPromote?: (id: number) => void
 }
 
 /** 高亮搜索关键词。命中段用 <mark>，配色由样式层的赭石高亮统一给。 */
@@ -181,18 +196,21 @@ export const PaperList = memo(function PaperList({
   sort,
   onSortChange,
   selection,
+  onEdit,
+  onPromote,
 }: PaperListProps) {
   const [searchInput, setSearchInput] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [yearFilter, setYearFilter] = useState('')
   const [dateFilter, setDateFilter] = useState('')
+  const [extraFilters, setExtraFilters] = useState<{ venue: string; publication_type: string; provider: string }>({ venue: '', publication_type: '', provider: '' })
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   /* 筛选下拉的选项来自全库 facets。后端不可达时才回落到当前页派生 ——
      那正是老行为：翻一页选项就换一批，跨页的方向和年份根本选不到。 */
   const categories = useMemo(() => {
-    if (facets) return facets.categories
-    return Array.from(new Set(papers.map(p => p.category).filter(Boolean))).sort() as string[]
+    if (facets) return facets.subjects ?? facets.categories
+    return Array.from(new Set(papers.flatMap(p => p.subjects ?? (p.category ? [p.category] : [])))).sort()
   }, [facets, papers])
 
   const years = useMemo(() => {
@@ -225,14 +243,17 @@ export const PaperList = memo(function PaperList({
     onSearch('')
   }
 
-  const applyFilter = (next: { category?: string; year?: string; date?: string }) => {
+  const applyFilter = (next: { category?: string; year?: string; date?: string; venue?: string; publication_type?: string; provider?: string }) => {
     const category = next.category ?? categoryFilter
     const year = next.year ?? yearFilter
     const date = next.date ?? dateFilter
     onFilter({
-      category: category || undefined,
+      ...(facets?.subjects ? { subject: category || undefined } : { category: category || undefined }),
       year: year ? Number(year) : undefined,
       dateAdded: date || undefined,
+      venue: (next.venue ?? extraFilters.venue) || undefined,
+      publication_type: (next.publication_type ?? extraFilters.publication_type) || undefined,
+      provider: (next.provider ?? extraFilters.provider) || undefined,
     })
   }
 
@@ -300,7 +321,7 @@ export const PaperList = memo(function PaperList({
         </Tooltip>
 
         <Tooltip
-          content="开启后，搜索范围一并包含深度研究通过联网下载的相关论文（L2+）。默认只搜已加入论文库的论文。"
+          content="包含深度研究发现的论文，浏览与搜索使用相同范围。"
           delay={1000}
           placement="bottom"
         >
@@ -327,7 +348,11 @@ export const PaperList = memo(function PaperList({
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
-
+      </div>
+      <details className="arc-filters">
+        <summary><SlidersHorizontal size={16} />筛选{[categoryFilter, yearFilter, dateFilter, ...Object.values(extraFilters)].filter(Boolean).length > 0 && <span> · {[categoryFilter, yearFilter, dateFilter, ...Object.values(extraFilters)].filter(Boolean).length} 项</span>}</summary>
+        <div className="arc-filter-grid">
+        <label>研究方向
         <select
           className="er-select"
           value={categoryFilter}
@@ -336,8 +361,19 @@ export const PaperList = memo(function PaperList({
         >
           <option value="">全部方向</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          {facets?.subjects && <option value="__missing__">方向未识别</option>}
         </select>
-
+        </label>
+        <label>发表类型<select className="er-select" aria-label="按发表类型筛选" value={extraFilters.publication_type} onChange={e => { const value = e.target.value; setExtraFilters(f => ({ ...f, publication_type: value })); applyFilter({ publication_type: value }) }}>
+          <option value="">全部类型</option>{Object.entries(PUBLICATION_TYPES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select></label>
+        <label>会议 / 期刊<select className="er-select" aria-label="按会议期刊筛选" value={extraFilters.venue} onChange={e => { const value = e.target.value; setExtraFilters(f => ({ ...f, venue: value })); applyFilter({ venue: value }) }}>
+          <option value="">全部会议 / 期刊</option>{(facets?.venues ?? []).map(v => <option key={v} value={v}>{v}</option>)}<option value="__missing__">会议 / 期刊未识别</option>
+        </select></label>
+        <label>元数据来源<select className="er-select" aria-label="按元数据来源筛选" value={extraFilters.provider} onChange={e => { const value = e.target.value; setExtraFilters(f => ({ ...f, provider: value })); applyFilter({ provider: value }) }}>
+          <option value="">全部来源</option>{(facets?.providers ?? []).map(v => <option key={v} value={v}>{PROVIDERS[v] ?? v}</option>)}<option value="__missing__">来源未识别</option>
+        </select></label>
+        <label>发表年份
         <select
           className="er-select"
           value={yearFilter}
@@ -347,7 +383,7 @@ export const PaperList = memo(function PaperList({
           <option value="">全部年份</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-
+        </label><label>添加日期
         <select
           className="er-select"
           value={dateFilter}
@@ -357,7 +393,10 @@ export const PaperList = memo(function PaperList({
           <option value="">全部日期</option>
           {dates.map(d => <option key={d} value={d}>{formatDate(d)}</option>)}
         </select>
-      </div>
+        </label>
+        <button type="button" className="er-btn er-btn--ghost" onClick={() => { setCategoryFilter(''); setYearFilter(''); setDateFilter(''); setExtraFilters({ venue: '', publication_type: '', provider: '' }); onFilter({}) }}>清除筛选</button>
+        </div>
+      </details>
 
       {searchResults === null && selection.ids.size > 0 && (
         <div className="arc-selection" role="status" aria-live="polite">
@@ -382,31 +421,24 @@ export const PaperList = memo(function PaperList({
       )}
 
       <div className="er-scroll arc-list__scroll">
-        {searchResults !== null ? (
-          searchLoading ? (
-            <div className="arc-list__loading" aria-busy="true" aria-label="搜索中">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <SkeletonCard key={i} style={{ animationDelay: `${i * 60}ms` }} />
-              ))}
-            </div>
-          ) : searchResults.length === 0 ? (
+        {searchLoading ? <div role="status" className="arc-loading">正在加载论文…</div> : searchResults !== null ? (
+          searchResults.length === 0 ? (
             <div className="er-empty">
               <span className="er-empty__mark" aria-hidden="true">00</span>
               <div className="er-empty__body">
                 <p className="er-empty__title">没有匹配的论文</p>
-                <p className="er-empty__text">
-                  换一个关键词，或者打开「全文」把匹配范围扩大到 PDF 正文。
-                </p>
               </div>
             </div>
           ) : (
             <div className="er-ledger">
               {searchResults.map((r, index) => (
-                <button
+                <div
                   key={r.paper_id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className="er-ledger__row arc-result"
                   onClick={() => onSelect(r.paper_id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.paper_id) } }}
                 >
                   <span className="er-ledger__index" aria-hidden="true">
                     {String((page - 1) * perPage + index + 1).padStart(2, '0')}
@@ -417,9 +449,16 @@ export const PaperList = memo(function PaperList({
                       {r.source === 'expanded' && <span className="er-tag er-tag--warn">联网扩展</span>}
                     </span>
                     <span className="er-ledger__meta">
-                      {r.authors && <span className="arc-result__authors"><HighlightText text={r.authors} query={searchQuery} /></span>}
-                      {r.venue && <span><HighlightText text={r.venue} query={searchQuery} /></span>}
-                      {r.year && <span>{r.year}</span>}
+                      {r.authors && <span className="arc-authors" title={r.authors}><HighlightText text={r.authors} query={searchQuery} /></span>}
+                    </span>
+                    <span className="arc-publication">
+                      <span className={`arc-kind arc-kind--${r.publication_type || 'unknown'}`}>{PUBLICATION_TYPES[r.publication_type || 'unknown']}</span>
+                      <span>{r.venue || (r.publication_type === 'preprint' ? '尚无正式发表载体' : '会议 / 期刊未识别')}</span>
+                      <span>{r.year || '年份未识别'}</span>
+                    </span>
+                    <span className="arc-paper-details">
+                      {(r.subjects ?? []).map(s => <span key={s}>{s}</span>)}
+                      <span>{r.providers?.map(v => PROVIDERS[v] || v).join(' · ')}</span>
                     </span>
                     <span className="arc-result__hits">
                       {r.matched_fields.slice(0, 3).map((m, i) => (
@@ -435,8 +474,9 @@ export const PaperList = memo(function PaperList({
                   </span>
                   <span className="er-ledger__aside">
                     <span className="er-tag er-tag--mute">{r.matched_fields.length} 处命中</span>
+                    {paperLink(r) && <a className="arc-icon" href={paperLink(r)!} target="_blank" rel="noopener noreferrer" title="打开论文来源" aria-label={`打开论文来源 ${r.title}`} onClick={e => e.stopPropagation()} onKeyDown={stopRowActivation}><ExternalLink size={16} /></a>}
                   </span>
-                </button>
+                </div>
               ))}
             </div>
           )
@@ -444,9 +484,9 @@ export const PaperList = memo(function PaperList({
           <div className="er-empty">
             <span className="er-empty__mark" aria-hidden="true">00</span>
             <div className="er-empty__body">
-              <p className="er-empty__title">论文库还是空的</p>
+              <p className="er-empty__title">暂无符合条件的论文</p>
               <p className="er-empty__text">
-                从首页放入一篇 PDF，解析完成后它会出现在这张账本上。
+                当前范围内没有记录。
               </p>
             </div>
           </div>
@@ -487,10 +527,16 @@ export const PaperList = memo(function PaperList({
                       <span>{paper.title || paper.filename}</span>
                     </span>
                     <span className="er-ledger__meta">
-                      {paper.venue && <span>{paper.venue}</span>}
-                      {paper.year && <span>{paper.year}</span>}
-                      {paper.category && <span>{paper.category}</span>}
-                      <span>{new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
+                      <span className="arc-authors" title={paper.authors || undefined}>{paper.authors || '作者未识别'}</span>
+                    </span>
+                    <span className="arc-publication"><span className={`arc-kind arc-kind--${paper.publication_type || 'unknown'}`}>{PUBLICATION_TYPES[paper.publication_type || 'unknown']}</span>
+                      <span>{paper.venue || (paper.publication_type === 'preprint' ? '尚无正式发表载体' : '会议 / 期刊未识别')}</span><span>{paper.year || '年份未识别'}</span>
+                    </span>
+                    <span className="arc-paper-details">
+                      {(paper.subjects ?? []).map(s => <span key={s}>{s}</span>)}
+                      <span>{paper.providers?.length ? paper.providers.map(v => PROVIDERS[v] || v).join(' · ') : '来源未识别'}</span>
+                      {paper.source === 'expanded' && <span>扩展发现</span>}
+                      <span>添加于 {new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
                     </span>
                   </span>
                   <span className="er-ledger__aside">
@@ -499,15 +545,21 @@ export const PaperList = memo(function PaperList({
                       <StatusBadgeIcon icon={icon} />
                       {statusText}
                     </span>
+                    <span className="arc-row-actions">
+                    {paperLink({ ...paper, title: paper.title || paper.filename }) && <a className="arc-icon" href={paperLink({ ...paper, title: paper.title || paper.filename })!} target="_blank" rel="noopener noreferrer" title="打开论文来源" aria-label={`打开论文来源 ${paper.title}`} onClick={e => e.stopPropagation()} onKeyDown={stopRowActivation}><ExternalLink size={16} /></a>}
+                    {onEdit && <button type="button" className="arc-icon" title="编辑论文信息" aria-label={`编辑论文信息 ${paper.title}`} onClick={e => { e.stopPropagation(); onEdit(paper) }} onKeyDown={stopRowActivation}><Pencil size={16} /></button>}
+                    {paper.source === 'expanded' && onPromote && <button type="button" className="arc-icon" title="加入论文库" aria-label={`加入论文库 ${paper.title}`} onClick={e => { e.stopPropagation(); onPromote(paper.id) }} onKeyDown={stopRowActivation}><FolderPlus size={16} /></button>}
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); setDeleteTarget(paper.id) }}
                       onKeyDown={stopRowActivation}
                       aria-label={`删除论文 ${paper.title || paper.filename}`}
+                      title="删除论文"
                       className="er-btn er-btn--ghost er-btn--destructive er-btn--sm er-ledger__action"
                     >
-                      删除
+                      <Trash2 size={16} />
                     </button>
+                    </span>
                   </span>
                 </div>
               )

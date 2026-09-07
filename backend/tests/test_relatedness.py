@@ -63,9 +63,10 @@ def test_normalize_entity_unifies_writing_variants():
 # ---------------------------------------------------------------------------
 # 权重归一
 # ---------------------------------------------------------------------------
-def test_weights_sum_to_one_and_keep_group_shares():
+def test_equal_channel_priors_sum_to_one():
     w = normalize_weights(None)
     assert sum(w.values()) == pytest.approx(1.0)
+    assert set(w.values()) == {0.125}
     assert sum(w[c] for c in SEMANTIC) == pytest.approx(sum(DEFAULT_WEIGHTS[c] for c in SEMANTIC))
 
 
@@ -148,7 +149,7 @@ def test_explain_components_sum_to_score():
 
 
 def test_leaf_papers_without_analysis_still_get_scored():
-    """只有标题的叶子论文不能因为缺 purpose/method 就掉出图谱（语义通道按可用者归一）。"""
+    """Missing channels cast no vote, while available text still supplies ranks."""
     papers = [
         PaperFeatures(id=1, title="Diffusion models for image synthesis", is_analyzed=True,
                       purpose_text="generative image synthesis", method_text="denoising",
@@ -164,7 +165,7 @@ def test_leaf_papers_without_analysis_still_get_scored():
 
     assert scores[(1, 2)] > 0, "叶子论文必须能连边"
     assert scores[(1, 2)] > scores.get((1, 3), 0.0)
-    # 叶子对的分解里，缺数据的通道要显式说明，而不是静默记 0 分拉低总分
+    # The omitted vote and its prior remain visible in the explanation.
     purpose = next(c for c in rel.explain(2, 3)["components"] if c["facet"] == "purpose")
     assert purpose["weight"] == 0.0
     assert "缺少可比文本" in purpose["reason"]
@@ -201,3 +202,88 @@ def test_structural_channel_matches_reference_overlap():
     mapped = pair_map(pairs)
     assert mapped[(1, 2)][1] == 2          # 共享 2 篇参考文献
     assert (1, 3) not in mapped
+
+def test_custom_weights_preserve_requested_ratios_across_groups():
+    weights = {c: 0.0 for c in SEMANTIC + EVIDENCE}
+    weights.update(topic=1.0, dataset=3.0)
+    normalized = normalize_weights(weights)
+    assert normalized["topic"] == .25
+    assert normalized["dataset"] == .75
+    assert normalize_weights({c: 1e308 for c in weights}) == DEFAULT_WEIGHTS
+    with pytest.raises(ValueError, match="Non-finite"):
+        normalize_weights({"topic": float("nan")})
+
+
+def _structural_only_relations(values, ids=(1, 2, 3, 4), **kwargs):
+    async def no_embed(texts):
+        return [[] for _ in texts]
+    weights = dict.fromkeys(SEMANTIC + EVIDENCE, 0.0)
+    weights["bibcoupling"] = 1.0
+    return _run(compute_relations(
+        [PaperFeatures(id=i, title="") for i in ids], embed_fn=no_embed,
+        weights=weights, bibcoupling={pair: (value, 1) for pair, value in values.items()}, **kwargs,
+    ))
+
+
+def test_rrf_matches_endpoint_reciprocal_ranks_with_average_ties():
+    rel = _structural_only_relations({(1, 2): 9, (1, 3): 9, (2, 3): 1, (2, 4): 2})
+    # From node 1, node 2 ties for ranks 1 and 2. From node 2 it ranks first.
+    expected = (61 / 61.5 + 61 / 61) / 2
+    assert rel.score(1, 2) == pytest.approx(expected)
+    assert rel.score(2, 1) == rel.score(1, 2)
+    detail = rel.explain(1, 2)
+    component = next(c for c in detail["components"] if c["facet"] == "bibcoupling")
+    assert component["rank_source"] == 1.5
+    assert component["rank_target"] == 1
+    assert detail["method"] == "weighted_rrf_v1"
+    assert detail["symmetrization"] == "mean_endpoint_reciprocal_ranks"
+
+
+def test_rrf_is_invariant_to_positive_monotone_rescaling_and_input_order():
+    values = {(1, 2): .8, (1, 3): .2, (1, 4): .1, (2, 3): .3, (3, 4): .9}
+    before = _structural_only_relations(values)
+    after = _structural_only_relations({p: v ** 3 for p, v in reversed(list(values.items()))}, ids=(4, 2, 1, 3))
+    assert after.pairs == before.pairs
+
+
+def test_zeros_missing_invalid_external_and_self_pairs_never_vote():
+    rel = _structural_only_relations({
+        (1, 2): 1.0, (2, 3): 0, (1, 3): -1, (3, 4): float("nan"),
+        (2, 4): float("inf"), (1, 99): 100, (1, 1): 100,
+    })
+    assert rel.pairs == [(1, 2, 1.0)]
+    assert rel.score(1, 1) == rel.score(1, 99) == 0
+
+
+def test_missing_channels_do_not_inflate_a_single_evidence_vote():
+    async def empty_embed(texts):
+        return [[] for _ in texts]
+    rel = _run(compute_relations(
+        [PaperFeatures(id=1, title=""), PaperFeatures(id=2, title="")],
+        embed_fn=empty_embed, bibcoupling={(1, 2): (.1, 1)},
+    ))
+    assert rel.score(1, 2) == .125
+    assert sum(c["contribution"] for c in rel.explain(1, 2)["components"]) == .125
+
+
+def test_calibrate_parameter_cannot_refit_custom_weights():
+    values = {(1, 2): .9, (1, 3): .1, (2, 3): .2}
+    before = _structural_only_relations(values, calibrate=False)
+    after = _structural_only_relations(values, calibrate=True)
+    assert after.pairs == before.pairs
+    assert after.weights == before.weights
+    assert not after.calibration.applied
+
+
+def test_dense_rank_ties_and_nonpositive_scores_do_not_create_votes():
+    import numpy as np
+    from backend.services.deep_research.graphkit.relatedness import _DenseChannel
+    channel = _DenseChannel(
+        "topic", {1: 0, 2: 1, 3: 2},
+        np.array([[1, .8, .8], [.8, 1, 0], [.8, 0, 1]]),
+        np.array([True, True, True]),
+    )
+    channel.prepare_ranks()
+    assert channel.rank_pair(1, 2) == (1.5, 1)
+    assert channel.norm(1, 2) == pytest.approx((61 / 61.5 + 1) / 2)
+    assert channel.norm(2, 3) == channel.norm(1, 1) == 0

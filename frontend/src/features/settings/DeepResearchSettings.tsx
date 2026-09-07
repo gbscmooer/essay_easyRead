@@ -407,7 +407,7 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         </summary>
         <p className="text-[10px] mt-2" style={{ color: 'var(--text-disabled)' }}>
           「相似度阈值 similarity_threshold」「kNN 条数 knn_k」「共享方法边」已删除：
-          留哪些边由多尺度骨架提取（骨架密度 α，研究页「高级设置」可调）决定，
+          关系图使用互近邻选边，Disparity Filter 单独标记局部权重突出的边，
           边多重由「论文关联度」的通道权重决定。旧配置里的这些字段会被忽略。
         </p>
       </details>
@@ -429,9 +429,10 @@ const RECALL_SOURCE_OPTIONS: { key: string; label: string; hint: string }[] = [
 ]
 
 const DEFAULT_RECALL: RecallConfig = {
+  method: 'weighted_rrf_v1',
   enabled_sources: ['backward', 'forward', 'recommend', 'pdf_ref', 'graph_ppr'],
   rrf_k: 60,
-  weights: { pdf_ref: 1.0, backward: 1.0, forward: 0.9, recommend: 0.85, graph_ppr: 0.8 },
+  weights: { pdf_ref: 1.0, backward: 1.0, forward: 1.0, recommend: 1.0, graph_ppr: 1.0 },
   candidate_limit: 50,
 }
 
@@ -444,8 +445,9 @@ function ensureRecall(research: AppConfig['research']): RecallConfig {
 }
 
 const DEFAULT_HYBRID: HybridRetrievalConfig = {
+  method: 'weighted_rrf_v1',
   rrf_k: 60,
-  weights: { dense: 1.0, bm25: 0.95, graph_ppr: 0.8 },
+  weights: { dense: 1.0, bm25: 1.0, graph_ppr: 1.0 },
   graph: { ppr_alpha: 0.85, top_k: 50, bridge_weight_factor: 0 },
 }
 
@@ -703,7 +705,7 @@ export function RerankerSection({ config, setConfig }: SectionProps) {
             重排序模型（Reranker）
           </h2>
           <p className="text-xs mt-0.5" style={LABEL}>
-            在 RAG 跨论文问答时使用。向量检索召回 candidate_k 条候选，再由重排序模型按语义重排，最终取 top_n 喂给 LLM。提升答非所问的概率。
+            按问题相关性重排候选资料。
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
@@ -811,8 +813,8 @@ interface RelationChannel {
 }
 
 const GROUP_TITLE: Record<RelationChannel['group'], string> = {
-  semantic: '语义通道（有文本就能算，组内按可用通道归一）',
-  evidence: '证据通道（有数据才加分，缺失记 0）',
+  semantic: '语义通道',
+  evidence: '证据通道',
 }
 
 // 本地兜底通道表：接口 /analysis/relations/channels 拉不到（后端未起 / 网络失败 / 返回空）
@@ -820,14 +822,14 @@ const GROUP_TITLE: Record<RelationChannel['group'], string> = {
 // backend/services/deep_research/graphkit/relatedness.py 的 CHANNEL_LABELS /
 // CHANNEL_HINTS / DEFAULT_WEIGHTS 保持一致；接口可用时以接口返回为准。
 const FALLBACK_CHANNELS: RelationChannel[] = [
-  { name: 'topic', label: '主题', group: 'semantic', default_weight: 0.18, hint: '全文/题录主题向量的余弦，粗粒度锚点。' },
-  { name: 'purpose', label: '研究目的', group: 'semantic', default_weight: 0.24, hint: '研究目的文本（问题 + 一句话 + 核心贡献）的语义相似度。' },
-  { name: 'method', label: '方法', group: 'semantic', default_weight: 0.16, hint: '方法文本（overview + pipeline）的语义相似度。' },
-  { name: 'term', label: '术语', group: 'semantic', default_weight: 0.14, hint: 'IDF 加权术语重叠：共享的稀有专名越多越高。' },
-  { name: 'dataset', label: '数据集', group: 'evidence', default_weight: 0.06, hint: '共享实验数据集（冷门数据集权重更高）。' },
-  { name: 'baseline', label: '对比基线', group: 'evidence', default_weight: 0.04, hint: '共享对比基线。' },
-  { name: 'bibcoupling', label: '文献耦合', group: 'evidence', default_weight: 0.12, hint: '引用了相同的参考文献（Salton 归一）。' },
-  { name: 'cocitation', label: '共引', group: 'evidence', default_weight: 0.06, hint: '被相同论文共同引用（Salton 归一）。' },
+  { name: 'topic', label: '主题', group: 'semantic', default_weight: 0.125, hint: '全文/题录主题向量的余弦，粗粒度锚点。' },
+  { name: 'purpose', label: '研究目的', group: 'semantic', default_weight: 0.125, hint: '研究目的文本（问题 + 一句话 + 核心贡献）的语义相似度。' },
+  { name: 'method', label: '方法', group: 'semantic', default_weight: 0.125, hint: '方法概述与流程的语义相似度。' },
+  { name: 'term', label: '术语', group: 'semantic', default_weight: 0.125, hint: 'IDF 加权术语重叠：共享的稀有专名越多越高。' },
+  { name: 'dataset', label: '数据集', group: 'evidence', default_weight: 0.125, hint: '共享实验数据集（冷门数据集权重更高）。' },
+  { name: 'baseline', label: '对比基线', group: 'evidence', default_weight: 0.125, hint: '共享对比基线。' },
+  { name: 'bibcoupling', label: '文献耦合', group: 'evidence', default_weight: 0.125, hint: '引用了相同的参考文献（Salton 归一）。' },
+  { name: 'cocitation', label: '共引', group: 'evidence', default_weight: 0.125, hint: '被相同论文共同引用（Salton 归一）。' },
 ]
 
 export function RelationsSection({ config, setConfig }: SectionProps) {
@@ -850,18 +852,12 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
     }))
   }
 
-  // 前端按后端同样的规则预览"实际生效权重"：两组各自组内归一，组间比例固定
-  const semanticNames = channels.filter(c => c.group === 'semantic').map(c => c.name)
-  const evidenceNames = channels.filter(c => c.group === 'evidence').map(c => c.name)
-  const sum = (names: RelationChannelName[]) => names.reduce((acc, n) => acc + Math.max(0, weights[n] ?? 0), 0)
-  const semSum = sum(semanticNames)
-  const eviSum = sum(evidenceNames)
-  const semShare = channels.filter(c => c.group === 'semantic').reduce((a, c) => a + c.default_weight, 0)
-  const effective = (c: RelationChannel) => {
-    const raw = Math.max(0, weights[c.name] ?? 0)
-    if (c.group === 'semantic') return semSum > 0 ? (raw / semSum) * (eviSum > 0 ? semShare : 1) : 0
-    return eviSum > 0 ? (raw / eviSum) * (semSum > 0 ? 1 - semShare : 1) : 0
+  const positiveWeight = (c: RelationChannel) => {
+    const value = weights[c.name] ?? c.default_weight
+    return Number.isFinite(value) ? Math.max(0, value) : 0
   }
+  const totalWeight = channels.reduce((total, c) => total + positiveWeight(c), 0)
+  const preference = (c: RelationChannel) => totalWeight > 0 ? positiveWeight(c) / totalWeight : 1 / channels.length
 
   return (
     <div className="panel-section space-y-4" style={CARD}>
@@ -870,37 +866,11 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
           论文关联度（知识图谱唯一的关系打分）
         </h2>
         <p className="text-xs mt-0.5" style={LABEL}>
-          八个通道各自分位数归一后加权求和，<b>同一个分数</b>决定连哪条边、社区怎么分、
-          谁是关键论文、图检索推荐谁。想让图谱更贴细分方向，就调高 研究目的 / 术语 / 文献耦合；
-          想更贴大方向，就调高 主题。算法实现见{' '}
-          <code className="px-1" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-            backend/services/deep_research/graphkit/relatedness.py
-          </code>
-          。
+          八通道排名通过 RRF 融合，默认等权；权重表示用户偏好，按全部通道的总和归一。
+          缺少数据的通道不提供该项证据。关系图使用互近邻，社区使用 Leiden；Disparity Filter 独立标记。
+          全部权重为 0 时使用等权默认值。
         </p>
       </div>
-
-      <label className="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={config.relations.calibrate !== false}
-          onChange={e => setConfig(prev => ({
-            ...prev,
-            relations: { ...prev.relations, calibrate: e.target.checked },
-          }))}
-          className="mt-0.5 accent-blue-500"
-        />
-        <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
-          自动按工作区调权（推荐）
-          <span className="block text-[10px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>
-            建图时用工作区自己的引用结构（谁引用谁 / 谁与谁共享参考文献）当弱标签，
-            量出每个<b>语义</b>通道在<b>本工作区</b>里的实际判别力，据此重新分配语义组权重
-            —— 哪个信号管用是随语料变的（实测一个 179 篇的真实工作区里 主题 的判别力
-            AUC 0.89，而 方法 只有 0.57 ≈ 随机）。证据不足或判别力与随机无异时自动沿用
-            下面的先验权重；权重调成 0 的通道不会被重新打开。
-          </span>
-        </span>
-      </label>
 
       {(['semantic', 'evidence'] as const).map(group => (
         <div key={group} className="space-y-2">
@@ -915,7 +885,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
                   type="range"
                   min={0}
                   max={1}
-                  step={0.01}
+                  step={0.005}
                   value={weights[c.name] ?? c.default_weight}
                   onChange={e => setWeight(c.name, Number(e.target.value))}
                   className="flex-1"
@@ -925,7 +895,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
                   type="number"
                   min={0}
                   max={1}
-                  step={0.01}
+                  step={0.005}
                   value={weights[c.name] ?? c.default_weight}
                   onChange={e => setWeight(c.name, Number(e.target.value))}
                   className="w-16 px-2 py-1 text-xs border focus:outline-none tabular-nums"
@@ -933,7 +903,7 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
                   aria-label={`${c.label} 权重数值`}
                 />
                 <div className="w-16 shrink-0 text-[10px] tabular-nums text-right" style={{ color: 'var(--text-disabled)' }}>
-                  实际 {(effective(c) * 100).toFixed(0)}%
+                  偏好 {(preference(c) * 100).toFixed(1)}%
                 </div>
               </div>
               <p className="text-[10px] leading-relaxed pl-20" style={{ color: 'var(--text-disabled)' }}>
@@ -950,7 +920,8 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
           onClick={() => setConfig(prev => ({
             ...prev,
             relations: {
-              calibrate: prev.relations.calibrate,
+              method: DEFAULT_CONFIG.relations.method,
+              calibrate: false,
               weights: { ...DEFAULT_CONFIG.relations.weights },
             },
           }))}
@@ -960,6 +931,24 @@ export function RelationsSection({ config, setConfig }: SectionProps) {
         <span className="text-[10px]" style={{ color: 'var(--text-disabled)' }}>
           改完需要重新运行一次深度研究，图谱才会按新权重重建。
         </span>
+      </div>
+      <div>
+        <label className="block text-xs mb-1" style={LABEL} htmlFor="relations-backbone-alpha">Disparity 标记阈值 α</label>
+        <input
+          id="relations-backbone-alpha"
+          type="number" min={0.01} max={0.9} step={0.01}
+          value={config.research.backbone_alpha ?? 0.05}
+          onChange={e => {
+            const value = Number(e.target.value)
+            if (Number.isFinite(value)) setConfig(prev => ({ ...prev, research: {
+              ...prev.research, backbone_alpha: Math.min(0.9, Math.max(0.01, value)),
+            } }))
+          }}
+          className="w-24 px-2 py-1 text-xs border" style={INPUT}
+        />
+        <p className="text-[10px] mt-1" style={LABEL}>
+          默认 α = 0.05，仅控制边详情中的 Disparity 标记，不改变互近邻选边与聚类。标记不代表关联正确率。
+        </p>
       </div>
     </div>
   )

@@ -189,7 +189,7 @@ from ..models.paper import Paper
 from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
 from ..models.research import ResearchRun, ResearchGraph, PaperReference
-from ..models.exploration import ExplorationRun
+from ..models.exploration import ExplorationRun, ExplorationMessage
 from ..models.tag import Tag, PaperTag
 from ..models.note import Note
 from ..models.annotation import Annotation
@@ -249,6 +249,11 @@ def _migrate_schema(engine) -> None:
                 except Exception as e:
                     logger.warning(f"Migration failed for {col_name}: {e}")
 
+        exploration_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(exploration_runs)")}
+        if exploration_cols and "options" not in exploration_cols:
+            conn.exec_driver_sql("ALTER TABLE exploration_runs ADD COLUMN options JSON DEFAULT '{}'")
+            conn.commit()
+
         # papers 表迁移：代码仓库相关字段
         try:
             result = conn.exec_driver_sql("PRAGMA table_info(papers)")
@@ -269,6 +274,7 @@ def _migrate_schema(engine) -> None:
             ("full_text", "TEXT"),
             ("index_status", "TEXT DEFAULT 'none'"),
             ("category", "TEXT"),
+            ("bibliography", "JSON"),
             ("graph_digest", "JSON"),
             # 论文身份字段（P1）
             ("canonical_id", "TEXT"),
@@ -429,6 +435,14 @@ def _migrate_schema(engine) -> None:
         except Exception as e:
             logger.warning(f"Migration failed for active research_runs unique index: {e}")
 
+        # create_all does not add new indexes to an already existing table.
+        if conn.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE type='table' AND name='exploration_messages'").first():
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_exploration_active_message "
+                "ON exploration_messages(run_id) WHERE status IN ('pending', 'running')"
+            )
+            conn.commit()
+
         # paper_references 表索引（create_all 已建表，此处确保索引存在）
         try:
             conn.exec_driver_sql(
@@ -519,7 +533,17 @@ def reconcile_interrupted_runs(engine=None) -> int:
                 )
             )
             session.commit()
-        return len(ids)
+        count = len(ids)
+        for model in (ExplorationRun, ExplorationMessage):
+            rows = session.exec(select(model).where(model.status.in_(orphan_statuses))).all()
+            for row in rows:
+                row.status = "failed"
+                row.error_message = "后端重启导致任务中断，请重试"
+                row.updated_at = now
+                session.add(row)
+            count += len(rows)
+        session.commit()
+        return count
 
 
 def create_paper(session: Session, filename: str, pdf_path: str, file_size: int) -> int:
@@ -758,6 +782,10 @@ def list_papers(
     per_page: int = 20,
     source: str = "uploaded",
     sort: str = "recent",
+    subject: str = None,
+    venue: str = None,
+    publication_type: str = None,
+    provider: str = None,
 ) -> tuple[list[dict], int]:
     """
     列出论文，支持筛选、排序和分页。
@@ -775,6 +803,7 @@ def list_papers(
         Paper.year, Paper.category, Paper.status, Paper.index_status,
         Paper.error_message, Paper.code_url, Paper.code_path, Paper.code_status, Paper.source,
         Paper.level, Paper.created_at, Paper.updated_at, Paper.graph_digest,
+        Paper.bibliography, Paper.source_ids, Paper.doi, Paper.arxiv_id, Paper.openalex_id, Paper.s2_id,
     )
 
     # source 过滤
@@ -793,6 +822,9 @@ def list_papers(
         statement = statement.where(Paper.year == year)
     if date_added:
         statement = statement.where(func.date(Paper.created_at) == date_added)
+
+    from .paper_metadata import filter_query, view
+    statement = filter_query(statement, session, subject=subject, venue=venue, publication_type=publication_type, provider=provider)
 
     count_statement = select(func.count()).select_from(statement.subquery())
     total = session.exec(count_statement).one()
@@ -821,6 +853,7 @@ def list_papers(
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "graph_digest": row.graph_digest,
+            **view(dict(row._mapping)),
         }
         for row in rows
     ]
@@ -835,15 +868,24 @@ def list_paper_facets(session: Session, source: str = "uploaded") -> dict:
     筛选下拉此前是从「当前这一页的 20 条」里推出来的：翻页时选项会跳变，
     跨页存在的方向和年份根本选不到。筛选器必须以全库为定义域，不是以当前页。
     """
-    statement = select(Paper.category, Paper.year, Paper.created_at)
+    from .paper_metadata import view
+    statement = select(Paper.category, Paper.year, Paper.created_at, Paper.venue, Paper.bibliography,
+                       Paper.source_ids, Paper.doi, Paper.arxiv_id, Paper.openalex_id, Paper.s2_id)
     if source in ("uploaded", "expanded"):
         statement = statement.where(Paper.source == source)
 
     categories: set[str] = set()
     years: set[int] = set()
     dates: set[str] = set()
+    subjects, venues, kinds, providers = set(), set(), set(), set()
 
     for row in session.exec(statement).all():
+        meta = view(dict(row._mapping))
+        subjects.update(meta["subjects"])
+        providers.update(meta["providers"])
+        kinds.add(meta["publication_type"])
+        if meta["venue"]:
+            venues.add(meta["venue"])
         if row.category:
             categories.add(row.category)
         # 过滤脏年份（GROBID 偶尔会解析出 20 / 2 这类残值）
@@ -856,6 +898,8 @@ def list_paper_facets(session: Session, source: str = "uploaded") -> dict:
         "categories": sorted(categories),
         "years": sorted(years, reverse=True),
         "dates": sorted(dates, reverse=True),
+        "subjects": sorted(subjects), "venues": sorted(venues),
+        "publication_types": sorted(kinds), "providers": sorted(providers),
     }
 
 

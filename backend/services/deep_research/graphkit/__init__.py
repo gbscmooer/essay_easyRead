@@ -15,12 +15,12 @@ graphkit — 论文图谱算法的纯净核心（decoupled）
     vectors.py      主题向量（doc_vector 优先，回退 topic_text embedding）
     lexical.py      IDF 加权术语重叠
     structural.py   文献耦合 / 共引（Salton）
-    relatedness.py  ★ 唯一的关联度算法：多通道分位数归一 + 加权融合 + 可解释分解
-    calibration.py  ★ 通道权重自监督校准：用工作区自身引用结构当弱标签定权重
-    backbone.py     多尺度骨架提取（Disparity Filter + 目标密度反解），决定"留哪些边"
+    relatedness.py  等先验 RRF（逐节点排名后双端对称）+ 可解释分解
+    calibration.py  历史离线评测兼容工具；不用于生产权重拟合
+    backbone.py     原始 Disparity Filter / 独立 mutual-kNN / 展示桥接
 """
 
-from .backbone import extract_backbone, extract_backbone_with_bridges
+from .backbone import add_display_bridges, extract_backbone, extract_backbone_with_bridges, mutual_knn
 from .calibration import (
     CalibrationReport,
     build_supervision,
@@ -58,5 +58,6 @@ __all__ = [
     "build_cited_by_map", "compute_co_citation_pairs",
     "co_citation_from_cites_edges", "pair_map",
     "extract_backbone", "extract_backbone_with_bridges",
+    "mutual_knn", "add_display_bridges",
     "CalibrationReport", "build_supervision", "calibrate_weights", "rank_auc",
 ]

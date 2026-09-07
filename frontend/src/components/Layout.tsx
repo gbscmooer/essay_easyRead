@@ -16,7 +16,7 @@ import {
 import { Link, useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
 import { ThemeProvider } from './ThemeProvider'
-import { VersionPopup } from './VersionPopup'
+import { APP_VERSION, VersionPopup } from './VersionPopup'
 import { ShortcutHelp } from './ShortcutHelp'
 import { ConfirmDialog } from '@/ds-entry'
 import { useConfigDirty, useUIConfig, setUIPreview } from '@/hooks/useConfig'
@@ -42,7 +42,7 @@ const primaryNav = [
   { path: '/', label: '首页' },
   { path: '/library', label: '论文库' },
   { path: '/workspace', label: '工作区' },
-  { path: '/explore', label: '领域探索' },
+  { path: '/explore', label: '文献研究' },
   { path: '/settings', label: '设置' },
 ] as const
 
@@ -53,8 +53,8 @@ function routeVisual(pathname: string): RouteVisual {
   if (/^\/code\//.test(pathname)) {
     return { index: '06', route: 'code', scene: 'process', eyebrow: 'SOURCE / IMPLEMENTATION MAP', title: '源码分析', register: 'CODE—TRACE' }
   }
-  if (/^\/workspace\/\d+\/research/.test(pathname)) {
-    return { index: '07', route: 'research', scene: 'field', eyebrow: 'RELATION / RESEARCH MODEL', title: '深度研究', register: 'GRAPH—FIELD' }
+  if (/^\/workspace\/\d+\/(research|graph)/.test(pathname)) {
+    return { index: '07', route: 'research', scene: 'field', eyebrow: 'RELATION / RESEARCH MODEL', title: '工作区图谱', register: 'GRAPH—FIELD' }
   }
   if (/^\/workspace\/\d+/.test(pathname)) {
     return { index: '02', route: 'workspace-detail', scene: 'field', eyebrow: 'COLLECTION / READING FIELD', title: '工作区详情', register: 'SET—INDEX' }
@@ -65,8 +65,8 @@ function routeVisual(pathname: string): RouteVisual {
   if (pathname === '/workspace') {
     return { index: '02', route: 'workspace', scene: 'field', eyebrow: 'COLLECTION / RELATION FIELD', title: '研究工作区', register: 'FIELD—SET' }
   }
-  if (pathname === '/explore') {
-    return { index: '03', route: 'explore', scene: 'field', eyebrow: 'QUESTION / DOMAIN SURVEY', title: '领域探索', register: 'SCOUT—FIELD' }
+  if (pathname === '/explore' || pathname.startsWith('/explorer/')) {
+    return { index: '03', route: 'explore', scene: 'field', eyebrow: 'QUESTION / DOMAIN SURVEY', title: '文献研究', register: 'SCOUT—FIELD' }
   }
   if (pathname === '/settings') {
     return { index: '04', route: 'settings', scene: 'process', eyebrow: 'PROTOCOL / SYSTEM CONTROL', title: '系统设置', register: 'CONTROL—AXIS' }
@@ -171,7 +171,8 @@ export function Layout({ children }: LayoutProps) {
   } else if (workspaceId) {
     contextItems.push(
       <ContextLink key="detail" to={`/workspace/${workspaceId}`} active={location.pathname === `/workspace/${workspaceId}`}>论文集合</ContextLink>,
-      <ContextLink key="research" to={`/workspace/${workspaceId}/research`} active={location.pathname.includes('/research')}>深度研究</ContextLink>,
+      <ContextLink key="research" to={`/explore?workspace_id=${workspaceId}`} active={false}>发起研究</ContextLink>,
+      <ContextLink key="graph" to={`/workspace/${workspaceId}/graph`} active={location.pathname.includes('/graph')}>工作区图谱</ContextLink>,
     )
   }
 
@@ -205,7 +206,7 @@ export function Layout({ children }: LayoutProps) {
                 title="查看版本与更新日志"
                 aria-label="查看论文精读辅助分析软件版本信息"
               >
-                v5.4
+                v{APP_VERSION}
               </button>
             </div>
 

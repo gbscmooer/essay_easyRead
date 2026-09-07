@@ -19,7 +19,7 @@ result 列的完整结构（explorer.py 产出）：
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Index, text
 
 from .research import ParadigmInfo
 
@@ -74,9 +74,32 @@ class ExplorationRun(SQLModel, table=True):
 
     # 实际使用的检索源（scopus/openalex/…，透明度用）
     provider: str = ""
+    options: dict = Field(default_factory=dict, sa_column=Column(JSON))
 
     decompose: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     result: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ExplorationMessage(SQLModel, table=True):
+    """一次追问及其回答；证据快照独立保存，不覆盖最初探索结果。"""
+
+    __tablename__ = "exploration_messages"
+    __table_args__ = (Index("uq_exploration_active_message", "run_id", unique=True,
+                           sqlite_where=text("status IN ('pending', 'running')")),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="exploration_runs.id", index=True)
+    question: str
+    answer: str = ""
+    status: str = "pending"
+    search_more: bool = False
+    selected_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    papers: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
+    evidence_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    context: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    error_message: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

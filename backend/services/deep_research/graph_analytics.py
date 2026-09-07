@@ -1,30 +1,15 @@
 """
-Graph Analytics — 图谱分析：关键论文识别 + 研究子方向发现（v2 强化版）
+Graph analytics with mandatory Leiden and weighted PageRank.
 
-在 build_graph 产出 nodes/edges 之后调用，就地为每个节点的 meta 注入：
-- importance:    综合影响力 [0,1]（前端按此放大节点），= 奠基性 ⊕ 主题枢纽性 的融合
-- foundational:  有向引用 PageRank [0,1]——被很多论文引用 = 领域奠基（"先读这几篇"）
-- centrality:    关联图加权 PageRank [0,1]——某子方向里的连接枢纽
-- cluster:       研究子方向编号（-1 表示孤立点）
-- cluster_label: 子方向标题（从簇内标题做 TF-ICF 关键词抽取，比"取最大论文标题"更准）
+Leiden: Traag, Waltman & van Eck (2019), doi:10.1038/s41598-019-41695-z.
+Community detection optimizes the weighted RB configuration objective at
+resolution 1, with seed 42. No heuristic small-community merging is applied.
 
-相比 v1 的三处关键改进（直接回应"图谱毛球、看不出重点"）：
-1. **区分两种重要性**：奠基性用**有向** cites 图（谁被引得多），不再被无向折叠抹平；
-   主题枢纽性用关联图。旧版把 cites + similar 折叠成一条无向边取 max 权，方向丢失、
-   两种结构性质混淆。
-2. **社区只在关联图上做**，不掺引用树——否则社区退化成"每个 seed 的引用子树"这种
-   平凡结构。算完再把**过小/单点社区并入最强邻居**。
-3. **可解释簇标签**：TF-ICF 选出本簇相对全局更"独特"的关键词，而非簇内最大论文标题。
-
-v3 的关键修正：关联图**只收 related 边**。旧版把 bibcoupling / cocitation 也放进同
-一张图并按 max 折叠权重——related 边权恒在 0.8 上下，Salton 常在 0.05~0.3，取 max
-等于把结构证据整个抹掉。现在结构信号已经在 relatedness 里作为通道进入 related 边权，
-这里再收一次既会重复计数，又会因尺度不一致污染社区划分。
-
-依赖 networkx（requirements 已有，>=3.2 内置 Louvain）。若环境装了 igraph+leidenalg，
-社区检测会自动用更稳的 Leiden；否则回退 Louvain。无新增硬依赖。
+importance and centrality use relation-graph PageRank; foundational separately
+reports citation-graph PageRank. Raw stationary mass is also retained. Scores
+displayed in [0,1] are min-max-scaled PageRank, not relevance probabilities.
+Display bridges never affect community membership or any centrality.
 """
-
 import logging
 import math
 import re
@@ -58,8 +43,7 @@ def _split_graphs(
 ) -> tuple[nx.DiGraph, nx.Graph, list[tuple[str, str, float]]]:
     """拆成"有向引用图"（奠基性）与"无向关联图"（子方向 + 枢纽性），另返回桥接边。
 
-    桥接边（骨架里仅为连通性保留、统计上不显著的边）不进关联图，免得弱边影响社区划分与
-    中心性；但它们是节点唯一的归属线索，在外面用于给"只有桥接边"的节点兜底分配子方向。
+    桥接边仅用于展示，不进入社区划分、中心性或孤立节点的归属。
     """
     cite = nx.DiGraph()
     rel = nx.Graph()
@@ -70,33 +54,24 @@ def _split_graphs(
     bridges: list[tuple[str, str, float]] = []
     for e in edges:
         s, t = e.get("source"), e.get("target")
-        if not s or not t or s == t:
+        if not s or not t or s == t or s not in rel or t not in rel:
             continue
         kind = e.get("kind")
-        w = float(e.get("weight", 1.0) or 1.0)
+        raw_weight = e.get("weight", 1.0)
+        w = float(raw_weight) if raw_weight is not None else 0.0
+        if not math.isfinite(w) or w <= 0:
+            continue
+        if e.get("bridge"):
+            bridges.append((s, t, w))
+            continue
         if kind == "cites":
             cite.add_edge(s, t, weight=w)            # 方向：citing → cited
         elif kind in RELATION_EDGE_KINDS:
-            # bridge 仅用于视觉连通，正常情况下不进中心性 / 社区 / PPR seed boost。
-            if e.get("bridge"):
-                bridges.append((s, t, w))
-                continue
             if rel.has_edge(s, t):
                 rel[s][t]["weight"] = max(rel[s][t]["weight"], w)   # 同对双向边取一次
             else:
                 rel.add_edge(s, t, weight=w)
 
-    # 退化兜底：骨架显著性检验一条边都没留下时（权重高度均匀的小工作区会这样），
-    # 全部关系边都被标成桥接边。此时若仍然排除桥接边，关联图会是空图 —— 社区、
-    # 中心性、簇标签全部失效。宁可用这些边算，也不要产出"全是孤立点"的图谱。
-    if rel.number_of_edges() == 0 and bridges:
-        for s, t, w in bridges:
-            if rel.has_edge(s, t):
-                rel[s][t]["weight"] = max(rel[s][t]["weight"], w)
-            else:
-                rel.add_edge(s, t, weight=w)
-        logger.info("graph analytics: 骨架为空，回退用 %d 条桥接边计算社区/中心性", len(bridges))
-        bridges = []
     return cite, rel, bridges
 
 
@@ -124,50 +99,36 @@ def _safe_pagerank(g) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# 社区检测：Leiden（可选）→ Louvain（默认）；再合并过小社区
+# Community detection: mandatory Leiden, without post-hoc merges
 # ---------------------------------------------------------------------------
 def _detect_communities(rel: nx.Graph) -> list[set]:
     if rel.number_of_edges() == 0:
-        return [{n} for n in rel.nodes()]
-    try:  # 可选更优：Leiden（需 igraph + leidenalg），未安装则静默回退
+        return [{n} for n in sorted(rel.nodes())]
+    try:
         import igraph as ig
         import leidenalg
-        idx = {n: i for i, n in enumerate(rel.nodes())}
-        rev = {i: n for n, i in idx.items()}
-        g_ig = ig.Graph(n=len(idx))
-        g_ig.add_edges([(idx[u], idx[v]) for u, v in rel.edges()])
-        g_ig.es["weight"] = [rel[u][v]["weight"] for u, v in rel.edges()]
-        part = leidenalg.find_partition(
-            g_ig, leidenalg.RBConfigurationVertexPartition, weights="weight", seed=42
-        )
-        return [set(rev[i] for i in comm) for comm in part]
-    except Exception:
-        return [set(c) for c in nx.community.louvain_communities(rel, weight="weight", seed=42)]
+    except ImportError as ex:
+        raise RuntimeError(
+            "Leiden community detection requires igraph and leidenalg; "
+            "install the backend requirements."
+        ) from ex
+    names = sorted(rel.nodes())
+    idx = {node: i for i, node in enumerate(names)}
+    edges = sorted((min(idx[u], idx[v]), max(idx[u], idx[v]), d.get("weight", 1.0))
+                   for u, v, d in rel.edges(data=True))
+    g_ig = ig.Graph(n=len(names), edges=[(u, v) for u, v, _ in edges])
+    g_ig.es["weight"] = [w for _, _, w in edges]
+    part = leidenalg.find_partition(
+        g_ig, leidenalg.RBConfigurationVertexPartition, weights="weight",
+        resolution_parameter=1.0, seed=42, n_iterations=-1,
+    )
+    communities = [set(names[i] for i in comm) for comm in part]
+    return sorted(communities, key=lambda comm: min(comm))
 
 
 def _merge_small(rel: nx.Graph, communities: list[set], *, min_size: int = 2) -> list[set]:
-    """把过小（< min_size）社区并入"边权之和最大的邻居社区"，消除碎屑/单点社区。
-
-    没有任何跨社区邻居的真·孤立点保留为独立社区（它们本就该是 cluster=-1 的候选）。
-    """
-    comms = [set(c) for c in communities]
-    node2c = {n: i for i, c in enumerate(comms) for n in c}
-    for i in sorted(range(len(comms)), key=lambda x: len(comms[x])):
-        if not comms[i] or len(comms[i]) >= min_size:
-            continue
-        weight_to: dict[int, float] = defaultdict(float)
-        for node in comms[i]:
-            for nb in rel.neighbors(node):
-                cj = node2c.get(nb)
-                if cj is not None and cj != i and comms[cj]:
-                    weight_to[cj] += rel[node][nb].get("weight", 1.0)
-        if weight_to:
-            best = max(weight_to, key=weight_to.get)
-            comms[best] |= comms[i]
-            for node in comms[i]:
-                node2c[node] = best
-            comms[i] = set()
-    return [c for c in comms if c]
+    """Compatibility shim for older callers; preserve the Leiden partition."""
+    return [set(community) for community in communities]
 
 
 # ---------------------------------------------------------------------------
@@ -226,36 +187,16 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
     if not nodes:
         return {"clusters": 0, "top_papers": [], "modularity": 0.0}
 
-    cite, rel, bridges = _split_graphs(nodes, edges)
+    cite, rel, _bridges = _split_graphs(nodes, edges)
 
-    foundational = _minmax(_safe_pagerank(cite))   # 有向引用图：奠基性
-    centrality = _minmax(_safe_pagerank(rel))      # 无向关联图：子方向内的枢纽性
+    foundational_raw = _safe_pagerank(cite)
+    centrality_raw = _safe_pagerank(rel)
+    foundational = _minmax(foundational_raw)
+    centrality = _minmax(centrality_raw)
+    importance = centrality
 
-    # 综合影响力：奠基性优先（被引是更硬的信号），主题枢纽性次之；缺一不互相拉低。
-    importance: dict[str, float] = {}
-    for n in nodes:
-        nid = n["id"]
-        importance[nid] = 0.6 * foundational.get(nid, 0.0) + 0.4 * centrality.get(nid, 0.0)
-    importance = _minmax(importance) if importance else {}
-
-    communities = [set(c) for c in _merge_small(rel, _detect_communities(rel), min_size=2)]
-    # 骨架里没有任何显著关系边的节点：它挂不进任何子方向。
+    communities = _detect_communities(rel)
     isolated = {n["id"] for n in nodes if rel.degree(n["id"]) == 0}
-
-    # 其中"只有桥接边"的节点，按最强桥接边并进邻居的子方向——地图上它确实挂在某处，
-    # 否则用户会看到一堆"连着线却没有归属"的孤点。真·零边的才是孤立点（cluster=-1）。
-    attach = _bridge_attachments(isolated, bridges)
-    if attach:
-        member_of = {nid: i for i, c in enumerate(communities) for nid in c}
-        for nid, host in attach.items():
-            src, dst = member_of.get(nid), member_of.get(host)
-            if src is None or dst is None or src == dst or host in isolated:
-                continue
-            communities[src].discard(nid)
-            communities[dst].add(nid)
-            member_of[nid] = dst
-            isolated.discard(nid)
-        communities = [c for c in communities if c]
 
     node2cluster: dict[str, int] = {}
     for cid, members in enumerate(communities):
@@ -269,6 +210,10 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         meta["foundational"] = round(float(foundational.get(nid, 0.0)), 4)
         meta["centrality"] = round(float(centrality.get(nid, 0.0)), 4)
         meta["cluster"] = node2cluster.get(nid, -1)
+        meta["cluster_label"] = ""
+        meta["pagerank"] = centrality_raw.get(nid, 0.0)
+        meta["citation_pagerank"] = foundational_raw.get(nid, 0.0)
+        meta["importance_method"] = "relation_pagerank"
 
     # 簇标签只用标题：CV/ML 标题本身就是领域术语（"anomaly detection" / "few-shot"），
     # 而速读总结是中文长文本，滑窗 bigram 会切出"棒性""器翻"这类碎片并盖过标题词。
@@ -303,9 +248,9 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
     for e in edges:
         by_kind[str(e.get("kind", "unknown"))] += 1
 
-    n_real = sum(1 for c in communities if len(c) > 1)
+    n_real = sum(1 for c in communities if any(n not in isolated for n in c))
     logger.info(
-        f"graph analytics v2: {n_real} 子方向(+{len(communities)-n_real} 孤立), "
+        f"graph analytics Leiden: {n_real} 子方向(+{len(communities)-n_real} 孤立), "
         f"modularity={modularity:.3f}, top={top_papers[0]['importance'] if top_papers else 0}"
     )
     return {
@@ -313,19 +258,12 @@ def annotate_graph(nodes: list[dict], edges: list[dict]) -> dict:
         "top_papers": top_papers,
         "modularity": round(float(modularity), 4),
         "edge_counts_by_kind": dict(by_kind),
+        "community_method": "leiden_rb_configuration",
+        "community_resolution": 1.0,
+        "community_seed": 42,
+        "importance_method": "relation_pagerank",
+        "display_bridge_count": len(_bridges),
     }
-
-
-def _bridge_attachments(
-    isolated: set[str], bridges: list[tuple[str, str, float]]
-) -> dict[str, str]:
-    """{只有桥接边的节点: 它最强桥接边的对端}。"""
-    best: dict[str, tuple[float, str]] = {}
-    for s, t, w in bridges:
-        for a, b in ((s, t), (t, s)):
-            if a in isolated and w > best.get(a, (-1.0, ""))[0]:
-                best[a] = (w, b)
-    return {nid: host for nid, (_w, host) in best.items()}
 
 
 def _fallback_label(members: set, nodes: list[dict]) -> str:

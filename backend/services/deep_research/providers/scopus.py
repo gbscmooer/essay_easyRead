@@ -138,6 +138,8 @@ class ScopusProvider:
                 "scopus_id": cls._entry_eid(entry),
                 "venue_source_id": str(entry.get("source-id") or "") or None,
                 "venue_name": entry.get("prism:publicationName") or None,
+                "publication_type": entry.get("prism:aggregationType") or entry.get("subtypeDescription"),
+                "publisher": entry.get("dc:publisher"),
             }
             cand = build_recall_candidate(
                 title=title,
@@ -281,7 +283,7 @@ class ScopusProvider:
                 "count": count,
                 "start": start,
                 "sort": "relevancy",
-                "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName",
+                "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
             })
             page = self._search_entries(data)
             entries.extend(page)

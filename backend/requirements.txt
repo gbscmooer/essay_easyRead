@@ -15,6 +15,11 @@ PyYAML>=6.0
 chromadb>=0.5.0
 sentence-transformers>=3.0.0
 networkx>=3.2
+igraph>=0.11.8,<0.12
+leidenalg>=0.10.2,<0.11
+rank-bm25==0.2.2
+scikit-learn>=1.4
+scipy>=1.11
 torch>=2.0
 numpy>=1.24.0
 # Research Agent Harness

@@ -108,11 +108,15 @@ async def create_run(ws_id: int, req: ResearchRunCreate) -> ResearchRunResponse:
         if not _has_collectable_papers(session, ws_id, req):
             raise HTTPException(400, detail={"detail": "工作区没有可用于深度研究的论文", "code": "WORKSPACE_EMPTY"})
 
+        from ..services.ai_config import get_research_config
+        params = req.model_dump()
+        if "backbone_alpha" not in req.model_fields_set:
+            params["backbone_alpha"] = get_research_config().get("backbone_alpha", 0.05)
         run = ResearchRun(
             workspace_id=ws_id,
             mode=req.mode,
             status="pending",
-            params=req.model_dump(),
+            params=params,
         )
         session.add(run)
         try:

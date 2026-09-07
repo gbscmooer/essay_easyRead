@@ -94,10 +94,12 @@ def _heuristic_meta(metadata: dict, first_page: str) -> dict:
     arxiv_id = aid_m.group(1) if aid_m else None
     cat_m = _CATEGORY_RE.search(first_page)
     category = cat_m.group(1) if cat_m else None
+    doi_matches = re.findall(r"(?:https?://(?:dx\.)?doi\.org/|\bdoi\s*:\s*)(10\.\d{4,9}/[^\s<>]+)", first_page, re.I)
+    doi = doi_matches[0].rstrip(".,;)").lower() if len(set(doi_matches)) == 1 else None
 
     return {
         "title": title or None, "authors": authors, "year": year,
-        "venue": None, "category": category, "arxiv_id": arxiv_id,
+        "venue": None, "category": category, "arxiv_id": arxiv_id, "doi": doi,
     }
 
 
@@ -160,15 +162,15 @@ async def auto_index(
         p = s.get(Paper, paper_id)
         if p is None:
             return
-        had_title = bool(p.title)  # 已有标题（如联网扩展论文）则跳过元数据提取，只取全文
+        had_metadata = all((p.title, p.authors, p.venue, p.year))
         p.index_status = "indexing"
         s.add(p)
         s.commit()
 
     try:
         full, metadata, first_page = await asyncio.to_thread(_extract, pdf_path)
-        # 标题已有且非强制时跳过元数据提取，避免无谓 GROBID 调用
-        need_meta = force_meta or not had_title
+        # 核心题录完整且非强制时跳过元数据提取。
+        need_meta = force_meta or not had_metadata
         meta = await _extract_meta(pdf_path, metadata, first_page) if need_meta else {}
 
         with Session(engine) as s:
@@ -177,8 +179,8 @@ async def auto_index(
                 return
             if full:
                 p.full_text = full
-            # GROBID 是论文库元数据的唯一来源，overwrite=True 时直接覆盖旧值；
-            # 脏年份（如 20、2）视同缺失——即使非覆盖模式也允许用 GROBID 的合理年份修复
+            # PDF 提取只覆盖尚无可靠来源的字段；脏年份视同缺失。
+            protected = (p.bibliography or {}).get("field_sources") or {}
             can_overwrite = overwrite
             for field in _META_FIELDS:
                 val = meta.get(field)
@@ -188,12 +190,24 @@ async def auto_index(
                     continue  # 不写入脏年份
                 cur = getattr(p, field)
                 cur_bad_year = field == "year" and cur is not None and not _valid_year(cur)
+                if field in protected:
+                    continue
                 if can_overwrite or not cur or cur_bad_year:
                     setattr(p, field, val)
+            if meta.get("arxiv_id") and not p.arxiv_id:
+                p.arxiv_id = meta["arxiv_id"]
+            if meta.get("doi") and not p.doi:
+                p.doi = meta["doi"]
             p.index_status = "indexed"
             s.add(p)
             s.commit()
         logger.info(f"auto_index: paper {paper_id} indexed (title={meta.get('title')!r}, category={meta.get('category')!r})")
+        if need_meta and full and (meta.get("doi") or meta.get("arxiv_id")):
+            try:
+                from .paper_metadata import enrich
+                await asyncio.wait_for(enrich(paper_id, engine=engine), timeout=90)
+            except Exception:
+                logger.info("auto_index: bibliographic enrichment unavailable for paper %s", paper_id)
     except Exception as ex:
         logger.warning(f"auto_index: paper {paper_id} 失败: {ex}")
         with Session(engine) as s:

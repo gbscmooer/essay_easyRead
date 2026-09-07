@@ -22,7 +22,7 @@ OA_BASE = "https://api.openalex.org"
 WORK_FIELDS = (
     "id,title,publication_year,cited_by_count,doi,ids,open_access,"
     "primary_location,locations,abstract_inverted_index,authorships,"
-    "counts_by_year,keywords"
+    "counts_by_year,keywords,type,topics,primary_topic"
 )
 # 逐篇补查（get_citation_history）的精简字段：逐年引用 + 摘要 + 关键词 + 期刊身份
 HISTORY_FIELDS = "id,doi,cited_by_count,counts_by_year,abstract_inverted_index,keywords,primary_location"
@@ -463,6 +463,8 @@ def _work_to_candidate(
     oa = work.get("open_access") or {}
     openalex_id = _strip_id(work.get("id") or "")
     venue_name, venue_issn = _venue_of(work)
+    from ...paper_metadata import openalex_metadata
+    bibliography = openalex_metadata(work)
 
     return build_recall_candidate(
         title=work["title"],
@@ -484,7 +486,10 @@ def _work_to_candidate(
         extra={
             "counts_by_year": work.get("counts_by_year") or [],
             "keywords": _extract_keywords(work),
-            "venue_name": venue_name,
+            "venue_name": bibliography["venue"],
             "venue_issn": venue_issn,
+            "subjects": bibliography["subjects"],
+            "publication_type": bibliography["publication_type"],
+            "publisher": ((work.get("primary_location") or {}).get("source") or {}).get("host_organization_name"),
         },
     )

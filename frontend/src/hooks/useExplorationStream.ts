@@ -18,10 +18,11 @@ const STAGE_DEFAULT_MESSAGES: Record<string, string> = {
   enrich: '正在获取文献被引轨迹、摘要、关键词与期刊指标…',
   metrics: '正在执行纯算法计量分析与子方向聚类…',
   synthesize: '正在深度研判文献证据、查新结论与技术成熟度…',
+  report: '正在逐篇提取评估框架、指标、任务与数据集的原文证据…',
   persist: '正在持久化分析产物并构建知识图谱…',
 }
 
-export function useExplorationStream(runId: number | null) {
+export function useExplorationStream(runId: number | null, revision = 0) {
   const [streamRunId, setStreamRunId] = useState<number | null>(null)
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
   const [stage, setStage] = useState<string | null>(null)
@@ -77,6 +78,7 @@ export function useExplorationStream(runId: number | null) {
           else if (st === 'enrich') setProgress(52)
           else if (st === 'metrics') setProgress(74)
           else if (st === 'synthesize') setProgress(86)
+          else if (st === 'report') setProgress(90)
           else if (st === 'persist') setProgress(96)
         }
       } catch { /* noop */ }
@@ -92,7 +94,7 @@ export function useExplorationStream(runId: number | null) {
           setMessage(`检索式拆解完成，生成 ${count} 组学术检索式`)
           setProgress(25)
         } else if (st === 'recall') {
-          const total = data.summary?.total_deduped ?? data.summary?.total_recalled ?? 0
+          const total = data.summary?.total ?? data.summary?.total_deduped ?? data.summary?.total_recalled ?? 0
           setMessage(`文献检索完成，去重合并得到 ${total} 篇相关论文`)
           setProgress(50)
         } else if (st === 'enrich') {
@@ -143,6 +145,21 @@ export function useExplorationStream(runId: number | null) {
         setProgress(prev => Math.max(prev, 94))
       } catch { /* noop */ }
     })
+    es.addEventListener('report_progress', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const data = JSON.parse(e.data)
+        setMessage(`报告证据提取：${data.done}/${data.total} 篇`)
+        setProgress(90 + Math.round(5 * data.done / Math.max(1, data.total)))
+      } catch { /* noop */ }
+    })
+    es.addEventListener('report_ready', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const report = JSON.parse(e.data)
+        setResult(prev => prev ? { ...prev, survey_report: report } : prev)
+      } catch { /* noop */ }
+    })
     es.addEventListener('done', () => {
       if (!shouldIgnore()) {
         setStatus('done')
@@ -158,7 +175,7 @@ export function useExplorationStream(runId: number | null) {
     })
 
     return () => { closed = true; es.close(); esRef.current = null }
-  }, [runId])
+  }, [runId, revision])
 
   const isCurrentRun = runId !== null && streamRunId === runId
 

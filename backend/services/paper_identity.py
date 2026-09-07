@@ -341,6 +341,7 @@ class PaperWork:
     # 召回时带回的摘要/被引数（领域认知 synthesize 的输入语料）
     abstract: str | None = None
     citation_count: int | None = None
+    bibliography: dict | None = None
 
 
 @dataclass
@@ -379,6 +380,7 @@ def normalize_work(work: PaperWork) -> PaperWork:
         filename=work.filename,
         abstract=(work.abstract or "").strip() or None,
         citation_count=work.citation_count,
+        bibliography=work.bibliography,
     )
 
 
@@ -457,13 +459,14 @@ def _legacy_external_variants(work: PaperWork) -> list[str]:
 def apply_identity_to_paper(paper: Paper, work: PaperWork) -> None:
     """将 work 中的身份字段写入 paper（仅填空，不覆盖已有强 ID）。"""
     work = normalize_work(work)
-    if work.title and not paper.title:
+    manual = (paper.bibliography or {}).get("field_sources") or {}
+    if work.title and not paper.title and manual.get("title") != "manual":
         paper.title = work.title
-    if work.authors and not paper.authors:
+    if work.authors and not paper.authors and manual.get("authors") != "manual":
         paper.authors = work.authors
-    if work.venue and not paper.venue:
+    if work.venue and not paper.venue and manual.get("venue") != "manual":
         paper.venue = work.venue
-    if work.year is not None and paper.year is None:
+    if work.year is not None and paper.year is None and manual.get("year") != "manual":
         paper.year = work.year
 
     if work.doi and not paper.doi:
@@ -508,7 +511,15 @@ def apply_identity_to_paper(paper: Paper, work: PaperWork) -> None:
         legacy_external_id=paper.external_id,
     )
     if merged:
-        paper.source_ids = merged
+        paper.source_ids = {**(paper.source_ids or {}), **merged}
+    if work.bibliography:
+        from .paper_metadata import merge
+        data = work.bibliography
+        providers = data.get("providers") or ["import"]
+        merge(paper, {**data, "venue": work.venue, "year": work.year}, providers[0])
+        paper.bibliography = {**paper.bibliography, "providers": sorted(set(paper.bibliography["providers"] + providers))}
+        if data.get("scopus_id"):
+            paper.source_ids = {**(paper.source_ids or {}), "scopus_id": data["scopus_id"]}
 
 
 def paper_to_work(paper: Paper) -> PaperWork:

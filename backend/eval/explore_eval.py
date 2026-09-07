@@ -6,8 +6,8 @@
 - **基线臂**：同一 LLM 仅凭参数记忆直接回答（模拟「网页上问 GPT」）。
 
 核心指标（口径对齐 docs/RESEARCH_AGENT_EVAL_PROTOCOL.md 的证据引用率/无依据句思想）：
-- 判定准确率（严格 / ±1 相邻档）：verdict 对人工预期；
-- 证据可核验率：结论引用的 DOI 能否在 OpenAlex 解析（幻觉暴露面）；
+- 判定准确率与宏平均分类指标：verdict 是名义标签，只接受完全匹配；
+- DOI 解析率：结论引用的 DOI 能否在 OpenAlex 解析，不代表证据支持结论；
 - 时效性：语料/引用的中位年份（模型记忆冻结 vs 实时检索）。
 
 使用：
@@ -16,6 +16,7 @@
     python -m backend.eval.explore_eval --skip-baseline        # 只跑系统臂
 结果写 data/eval/（gitignore，不进仓库）；questions JSON 里的 expected 是人工草案，
 正式出数前须用户/导师确认。
+显式相关性/支持标注的离线评测见 python -m backend.eval.survey_metrics --help。
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERDICT_RANK = {"unclear": 0, "gap": 1, "emerging": 2, "done_partial": 3, "done_extensively": 4}
+from backend.eval.survey_metrics import PROVENANCE, REFERENCE_CAVEAT, nominal_report
+
+VERDICT_LABELS = ("unclear", "gap", "emerging", "done_partial", "done_extensively")
 NO_RECALL = "no_recall"          # 预期「检索未命中」的题（铁律：不得声称 gap）
 _BUNDLED_QUESTIONS = Path(__file__).parent / "explore_questions.json"
 
@@ -42,14 +45,16 @@ def load_questions(path: Path | None = None) -> list[dict]:
         if not (q.get("id") and q.get("question")):
             raise ValueError(f"题目缺 id/question: {q}")
         expected = q.get("expected")
-        if expected not in VERDICT_RANK and expected != NO_RECALL:
+        if expected not in VERDICT_LABELS and expected != NO_RECALL:
             raise ValueError(f"{q['id']} 预期判定非法: {expected}")
         out.append(q)
     return out
 
 
 def score_verdict(expected: str, actual: str | None) -> str:
-    """exact / adjacent（相邻档算半对）/ miss / no_verdict；no_recall 题只有对错。"""
+    """名义标签：exact / miss / no_verdict；保留 no_recall 的 correct/miss。"""
+    if expected not in (*VERDICT_LABELS, NO_RECALL):
+        raise ValueError(f"Unknown reference verdict: {expected!r}")
     if actual == NO_RECALL:
         # 只有 no_recall 题才算对：普通题拿不到召回=系统侧失败（网络/检索源），记 miss
         return "correct" if expected == NO_RECALL else "miss"
@@ -59,8 +64,6 @@ def score_verdict(expected: str, actual: str | None) -> str:
         return "no_verdict"
     if actual == expected:
         return "exact"
-    if abs(VERDICT_RANK[actual] - VERDICT_RANK[expected]) == 1:
-        return "adjacent"
     return "miss"
 
 
@@ -182,7 +185,7 @@ async def ask_baseline(question: str, llm_cfg: dict) -> dict:
     )
     wall = round(time.monotonic() - t0, 1)
     v = data.get("verdict")
-    verdict = v if v in VERDICT_RANK else "unclear"
+    verdict = v if v in VERDICT_LABELS else None
     try:
         conf = max(0.0, min(1.0, float(data.get("confidence") or 0.0)))
     except (TypeError, ValueError):
@@ -208,7 +211,7 @@ async def ask_baseline(question: str, llm_cfg: dict) -> dict:
 
 
 async def verify_dois(dois: list[str]) -> tuple[int, int]:
-    """逐个 DOI 在 OpenAlex 解析（存在=可核验）。返回 (resolved, total)。"""
+    """返回 (resolved, attempted)，仅检查解析；失败可能是缺索引或网络错误。"""
     from backend.services.deep_research.providers.openalex import get_shared_openalex_provider
 
     if not dois:
@@ -230,15 +233,38 @@ async def verify_dois(dois: list[str]) -> tuple[int, int]:
 def build_report(meta: dict, records: list[dict]) -> dict:
     n = len(records)
 
-    def _cnt(side: str, key: str) -> int:
-        return sum(1 for r in records if (r.get(side) or {}).get("score") == key)
+    def _classification(side: str) -> dict:
+        included = [r for r in records if r.get(side) is not None and not r[side].get("skipped")]
+        scores = [score_verdict(r["expected"], r[side].get("verdict")) for r in included]
+        classification = nominal_report(
+            [r["expected"] for r in included], [r[side].get("verdict") for r in included],
+            (*VERDICT_LABELS, NO_RECALL),
+        )
+        return {
+            "n_evaluated": len(included), "n_skipped": n - len(included),
+            "exact": scores.count("exact"), "miss": scores.count("miss"),
+            "no_verdict": scores.count("no_verdict"), "no_recall_correct": scores.count("correct"),
+            "strict_accuracy": round(classification["accuracy"], 3) if included else None,
+            "classification": classification,
+        }
 
-    sys_exact, sys_adj = _cnt("system", "exact"), _cnt("system", "adjacent")
-    base_exact, base_adj = _cnt("baseline", "exact"), _cnt("baseline", "adjacent")
-    sys_doi_total = sum(len((r.get("system") or {}).get("evidence_dois") or []) for r in records)
-    sys_doi_resolved = sum((r.get("system") or {}).get("evidence_doi_resolved") or 0 for r in records)
-    base_doi_total = sum(len((r.get("baseline") or {}).get("cited_dois") or []) for r in records)
-    base_doi_resolved = sum((r.get("baseline") or {}).get("doi_resolved") or 0 for r in records)
+    def _doi_counts(side: str, ids_key: str, resolved_key: str) -> tuple[int, int, int]:
+        resolved = attempted = unchecked = 0
+        for record in records:
+            arm = record.get(side) or {}
+            if arm.get("skipped"):
+                continue
+            count = len(arm.get(ids_key) or [])
+            value = arm.get(resolved_key)
+            if isinstance(value, int) and 0 <= value <= count:
+                resolved += value
+                attempted += count
+            else:
+                unchecked += count
+        return resolved, attempted, unchecked
+
+    sys_doi_resolved, sys_doi_total, sys_unchecked = _doi_counts("system", "evidence_dois", "evidence_doi_resolved")
+    base_doi_resolved, base_doi_total, base_unchecked = _doi_counts("baseline", "cited_dois", "doi_resolved")
     sys_years = [r["system"]["median_year"] for r in records
                  if (r.get("system") or {}).get("median_year") is not None]
     base_years = [r["baseline"]["median_cited_year"] for r in records
@@ -249,26 +275,28 @@ def build_report(meta: dict, records: list[dict]) -> dict:
 
     return {
         "meta": meta,
+        "evaluation_notes": {
+            "provenance": dict(PROVENANCE),
+            "reference_set_caveat": REFERENCE_CAVEAT,
+            "verdict": "Nominal exact matching; expected labels require independent review",
+            "citation_existence": "DOI resolution only; unresolved may mean missing index coverage or service failure",
+            "evidence_support": "Not assessed by this live harness; use survey_metrics with explicit support judgments",
+            "confidence": "Model self-report, not a calibrated probability of correctness",
+        },
         "summary": {
             "n_questions": n,
             "system": {
-                "exact": sys_exact, "adjacent": sys_adj,
-                "miss": _cnt("system", "miss"), "no_verdict": _cnt("system", "no_verdict"),
-                "no_recall_correct": _cnt("system", "correct"),
-                "strict_accuracy": round((sys_exact + _cnt("system", "correct")) / n, 3) if n else None,
-                "within1_accuracy": round(
-                    (sys_exact + sys_adj + _cnt("system", "correct")) / n, 3) if n else None,
+                **_classification("system"),
                 "evidence_doi_resolved": f"{sys_doi_resolved}/{sys_doi_total}",
                 "evidence_doi_resolve_rate": _rate(sys_doi_resolved, sys_doi_total),
+                "evidence_doi_unchecked": sys_unchecked,
                 "median_corpus_year_avg": round(statistics.mean(sys_years), 1) if sys_years else None,
             },
             "baseline": {
-                "exact": base_exact, "adjacent": base_adj,
-                "miss": _cnt("baseline", "miss"), "no_verdict": _cnt("baseline", "no_verdict"),
-                "strict_accuracy": round(base_exact / n, 3) if n else None,
-                "within1_accuracy": round((base_exact + base_adj) / n, 3) if n else None,
+                **_classification("baseline"),
                 "cited_doi_resolved": f"{base_doi_resolved}/{base_doi_total}",
                 "cited_doi_resolve_rate": _rate(base_doi_resolved, base_doi_total),
+                "cited_doi_unchecked": base_unchecked,
                 "median_cited_year_avg": round(statistics.mean(base_years), 1) if base_years else None,
             },
         },
@@ -279,6 +307,14 @@ def build_report(meta: dict, records: list[dict]) -> dict:
 def render_markdown(report: dict) -> str:
     m, s = report["meta"], report["summary"]
     sys_, base = s["system"], s["baseline"]
+
+    def _macro(arm: dict) -> str:
+        report = arm["classification"]["report"]
+        if report is None:
+            return "未评测"
+        avg = report["macro avg"]
+        return " / ".join(f"{avg[key]:.3f}" for key in ("precision", "recall", "f1-score"))
+
     lines = [
         "# 领域探索评测报告（系统 vs 仅凭记忆的 LLM 基线）",
         "",
@@ -290,12 +326,17 @@ def render_markdown(report: dict) -> str:
         "| 指标 | 系统（真实检索 + LLM 综合） | 基线（同一 LLM 仅凭记忆） |",
         "|---|---|---|",
         f"| 判定严格准确 | {sys_['strict_accuracy']}（exact {sys_['exact']} + 未命中如实 {sys_['no_recall_correct']}） | {base['strict_accuracy']} |",
-        f"| 判定 ±1 档准确 | {sys_['within1_accuracy']} | {base['within1_accuracy']} |",
+        f"| 宏平均 Precision / Recall / F1 | {_macro(sys_)} | {_macro(base)} |",
+        f"| 已评测 / 已跳过 | {sys_['n_evaluated']} / {sys_['n_skipped']} | {base['n_evaluated']} / {base['n_skipped']} |",
         f"| 失误 / 无判定 | {sys_['miss']} / {sys_['no_verdict']} | {base['miss']} / {base['no_verdict']} |",
-        f"| 证据 DOI 可核验 | {sys_['evidence_doi_resolved']}（来自真实检索） | {base['cited_doi_resolved']}（幻觉暴露面） |",
+        f"| DOI 解析成功 / 已尝试 | {sys_['evidence_doi_resolved']} | {base['cited_doi_resolved']} |",
+        f"| DOI 未检查 | {sys_['evidence_doi_unchecked']} | {base['cited_doi_unchecked']} |",
         f"| 语料/引用中位年份（均值） | {sys_['median_corpus_year_avg']} | {base['median_cited_year_avg']}（受训练截止冻结） |",
         "",
-        "> 预期判定为人工标注草案；「±1 档」把相邻判定（如 done_partial↔emerging）算半对。",
+        "> 预期判定为人工标注草案；各标签为名义类别，只计完全匹配。宏平均固定包含六类，缺席类计零。",
+        "> DOI 解析成功只说明能定位论文，不说明论文支持结论；解析失败也不能证明论文不存在。",
+        "> 证据支持尚未评测；使用 survey_metrics 的显式支持标注入口。模型自报 confidence 未经过概率校准。",
+        "> 参考文献集并非完整相关集，未被引用不等于不相关。",
         "",
         "## 逐题",
         "",
@@ -384,8 +425,12 @@ async def evaluate(
                 rec["baseline"]["doi_resolved"] = None
 
         rec["system"] = rec.get("system") or {}
+        if skip_system:
+            rec["system"]["skipped"] = True
         rec["system"]["score"] = score_verdict(q["expected"], rec["system"].get("verdict"))
         rec["baseline"] = rec.get("baseline") or {}
+        if skip_baseline or not llm_cfg.get("api_key"):
+            rec["baseline"]["skipped"] = True
         rec["baseline"]["score"] = score_verdict(q["expected"], rec["baseline"].get("verdict"))
         records.append(rec)
         if on_record:
