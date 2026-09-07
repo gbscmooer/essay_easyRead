@@ -70,14 +70,14 @@ async def list_explorations(limit: int = Query(20, ge=1, le=100)) -> list[Explor
     engine = get_engine()
     with Session(engine) as session:
         runs = session.exec(
-            select(ExplorationRun).order_by(ExplorationRun.created_at.desc())
+            select(ExplorationRun).order_by(ExplorationRun.created_at.desc()).limit(limit)
         ).all()
     return [
         ExplorationRunSummary(
             id=r.id, question=r.question, depth=r.depth, status=r.status,
             provider=r.provider, created_at=r.created_at,
         )
-        for r in runs[:limit]
+        for r in runs
     ]
 
 

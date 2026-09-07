@@ -22,7 +22,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # 默认全局学术 User-Agent
-DEFAULT_USER_AGENT = "AcademicPaperReader/1.0 (https://github.com/gbscmooer/essay_easyRead; research use)"
+DEFAULT_USER_AGENT = "AcademicPaperReader/1.0 (personal research use)"
 
 
 class DomainRateLimiter:

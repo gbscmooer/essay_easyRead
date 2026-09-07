@@ -33,9 +33,14 @@ const RELATION_LABEL: Record<string, string> = {
   inspires: '跨界借鉴', cites: '引用',
 }
 
-// 研究子方向（Louvain 社区）配色与边色统一取自 theme/graphPalette 的油墨分类色。
-// 之前这里是一串 Tailwind 默认色，饱和度比界面主色高一大截，落在米黄纸面上
-// 像贴上去的塑料片；而且同一语义在 EdgeFilter / EdgeDetail 各写一遍。
+function escapeHtml(str: string): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
 
 export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, linkDistance = DEFAULT_LINK_DISTANCE }: GraphCanvasProps) {
   const fgRef = useRef<any>(null)
@@ -322,10 +327,13 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
           nodeLabel={(node: any) => {
             const sem = node.semantic
             const roleLine = sem && sem.role !== 'regular' && ROLE_META[sem.role as keyof typeof ROLE_META]
-              ? `<br/><small>${ROLE_META[sem.role as keyof typeof ROLE_META].icon} ${ROLE_META[sem.role as keyof typeof ROLE_META].label}</small>`
+              ? `<br/><small>${ROLE_META[sem.role as keyof typeof ROLE_META].icon} ${escapeHtml(ROLE_META[sem.role as keyof typeof ROLE_META].label)}</small>`
               : ''
-            const tkLine = sem?.short_takeaway ? `<br/><small>${sem.short_takeaway}</small>` : ''
-            return `<b>${node.name}</b>${roleLine}${tkLine}<br/><small>${node.meta?.cluster_label ? '子方向: ' + node.meta.cluster_label : node.kind}</small>`
+            const tkLine = sem?.short_takeaway ? `<br/><small>${escapeHtml(sem.short_takeaway)}</small>` : ''
+            const clusterOrKind = node.meta?.cluster_label
+              ? '子方向: ' + escapeHtml(node.meta.cluster_label)
+              : escapeHtml(node.kind || '')
+            return `<b>${escapeHtml(node.name || '')}</b>${roleLine}${tkLine}<br/><small>${clusterOrKind}</small>`
           }}
           nodeCanvasObject={drawNode}
           nodeCanvasObjectMode={() => 'replace'}
