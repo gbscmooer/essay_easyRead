@@ -1,0 +1,468 @@
+"""领域探索（/explore）评测 harness —— 把 GOAL.md 的「客观、系统、可核验」主张变成有数据的表。
+
+两臂对照（同题同模型，唯一差异是「有没有真实检索」）：
+- **系统臂**：走完整 explorer 流水线（拆解→Scopus 检索→富化→计量→LLM 综合），
+  在独立临时 SQLite 上运行，不污染业务库；
+- **基线臂**：同一 LLM 仅凭参数记忆直接回答（模拟「网页上问 GPT」）。
+
+核心指标（口径对齐 docs/RESEARCH_AGENT_EVAL_PROTOCOL.md 的证据引用率/无依据句思想）：
+- 判定准确率（严格 / ±1 相邻档）：verdict 对人工预期；
+- 证据可核验率：结论引用的 DOI 能否在 OpenAlex 解析（幻觉暴露面）；
+- 时效性：语料/引用的中位年份（模型记忆冻结 vs 实时检索）。
+
+使用：
+    python -m backend.eval.explore_eval --list
+    python -m backend.eval.explore_eval --only Q1,Q10          # 子集
+    python -m backend.eval.explore_eval --skip-baseline        # 只跑系统臂
+结果写 data/eval/（gitignore，不进仓库）；questions JSON 里的 expected 是人工草案，
+正式出数前须用户/导师确认。
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import statistics
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+VERDICT_RANK = {"unclear": 0, "gap": 1, "emerging": 2, "done_partial": 3, "done_extensively": 4}
+NO_RECALL = "no_recall"          # 预期「检索未命中」的题（铁律：不得声称 gap）
+_BUNDLED_QUESTIONS = Path(__file__).parent / "explore_questions.json"
+
+
+# ── 载入与计分 ────────────────────────────────────────────────────────────────
+
+def load_questions(path: Path | None = None) -> list[dict]:
+    data = json.loads((path or _BUNDLED_QUESTIONS).read_text(encoding="utf-8"))
+    out = []
+    for q in data.get("questions") or []:
+        if not (q.get("id") and q.get("question")):
+            raise ValueError(f"题目缺 id/question: {q}")
+        expected = q.get("expected")
+        if expected not in VERDICT_RANK and expected != NO_RECALL:
+            raise ValueError(f"{q['id']} 预期判定非法: {expected}")
+        out.append(q)
+    return out
+
+
+def score_verdict(expected: str, actual: str | None) -> str:
+    """exact / adjacent（相邻档算半对）/ miss / no_verdict；no_recall 题只有对错。"""
+    if actual == NO_RECALL:
+        # 只有 no_recall 题才算对：普通题拿不到召回=系统侧失败（网络/检索源），记 miss
+        return "correct" if expected == NO_RECALL else "miss"
+    if expected == NO_RECALL:
+        return "miss"
+    if not actual:
+        return "no_verdict"
+    if actual == expected:
+        return "exact"
+    if abs(VERDICT_RANK[actual] - VERDICT_RANK[expected]) == 1:
+        return "adjacent"
+    return "miss"
+
+
+def median_year(years: list) -> float | None:
+    ys = [y for y in years if isinstance(y, int) and y > 1900]
+    return float(statistics.median(ys)) if ys else None
+
+
+def _norm_doi(doi) -> str | None:
+    d = str(doi or "").strip().replace("https://doi.org/", "")
+    return d or None
+
+
+# ── 系统臂：完整 explorer 流水线（独立临时库，不污染业务库）─────────────────
+
+def _fresh_engine(td: str):
+    from sqlmodel import SQLModel, create_engine
+
+    # 显式导入全部表模型（与 tests/conftest.py 的建表集一致）
+    from backend.models.analysis import AnalysisResult  # noqa: F401
+    from backend.models.annotation import Annotation  # noqa: F401
+    from backend.models.code_analysis import CodeAnalysis  # noqa: F401
+    from backend.models.exploration import ExplorationRun
+    from backend.models.note import Note  # noqa: F401
+    from backend.models.paper import Paper  # noqa: F401
+    from backend.models.research import PaperReference, ResearchGraph, ResearchRun  # noqa: F401
+    from backend.models.tag import PaperTag, Tag  # noqa: F401
+    from backend.models.workspace import Workspace, WorkspacePaper  # noqa: F401
+
+    engine = create_engine(f"sqlite:///{td}/eval.db", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    return engine
+
+
+async def run_system_arm(question: str, depth: str = "standard") -> dict:
+    """真实跑一轮领域探索（真 LLM + 真检索源），提取可比字段。"""
+    import tempfile
+
+    from sqlmodel import Session
+
+    from backend.models.exploration import ExplorationRun
+    from backend.services.deep_research import explorer
+
+    with tempfile.TemporaryDirectory(prefix="explore_eval_") as td:
+        engine = _fresh_engine(td)
+        original = explorer.get_engine
+        explorer.get_engine = lambda: engine
+        try:
+            with Session(engine) as s:
+                run = ExplorationRun(question=question, depth=depth or "standard")
+                s.add(run)
+                s.commit()
+                s.refresh(run)
+                run_id = run.id
+            t0 = time.monotonic()
+            await explorer.run_exploration(run_id)
+            wall = round(time.monotonic() - t0, 1)
+            with Session(engine) as s:
+                run = s.get(ExplorationRun, run_id)
+                result = run.result or {}
+        finally:
+            explorer.get_engine = original
+            engine.dispose()
+
+    papers = result.get("papers") or []
+    metrics = result.get("metrics") or {}
+    synthesis = result.get("synthesis") or {}
+    verdict = synthesis.get("verdict") or {}
+    total = metrics.get("total") or len(papers)
+    doi_by_key = {p.get("key"): _norm_doi(p.get("doi")) for p in papers}
+    rec = {
+        "verdict": verdict.get("status"),
+        "confidence": verdict.get("confidence"),
+        "total": total,
+        "provider": result.get("provider", ""),
+        "median_year": median_year([p.get("year") for p in papers]),
+        "recent_share": metrics.get("recent_share"),
+        "evidence_n": len(verdict.get("evidence_keys") or []),
+        "evidence_dois": [
+            d for d in (doi_by_key.get(k) for k in (verdict.get("evidence_keys") or [])) if d
+        ],
+        "partial": bool(synthesis.get("partial")),
+        "fallback_decompose": bool((result.get("decompose") or {}).get("fallback")),
+        "wall_s": wall,
+        "error": None,
+    }
+    # 零召回题：系统应如实走「检索未命中」通道（无 verdict），不算综合失败
+    if total <= 3 and not rec["verdict"]:
+        rec["verdict"] = NO_RECALL
+    return rec
+
+
+# ── 基线臂：同一 LLM 仅凭记忆回答（模拟网页问 GPT）─────────────────────────
+
+_BASELINE_SYSTEM = (
+    "你是学术研究顾问。仅凭你已有的参数知识回答（你无法联网检索，也不要假装检索过）。"
+    "对不确定的信息如实标注，禁止编造论文。只输出 JSON，不要输出任何其他文字。"
+)
+
+_BASELINE_USER = """## 研究问题
+{q}
+
+## 输出格式
+```json
+{{"verdict": "done_extensively|done_partial|emerging|gap|unclear（该 idea/方向是否已被实现：充分实现/部分实现/近1~2年新兴/未见实现/不确定）",
+ "confidence": 0.0~1.0,
+ "explanation": "2~3 句判断依据",
+ "cited_papers": [{{"title": "论文标题", "year": 2021, "doi": "10.xxxx/yyy 或 null"}}]（支撑判断的代表论文，最多 8 篇，凭记忆给出；不确定的少列或不列）}}
+```"""
+
+
+async def ask_baseline(question: str, llm_cfg: dict) -> dict:
+    """裸 LLM 回答同题。返回与系统臂同形的记录（含引用论文 DOI/年份）。"""
+    from backend.services.deep_research.domain_synthesizer import _llm_json
+
+    t0 = time.monotonic()
+    data = await _llm_json(
+        llm_cfg, _BASELINE_SYSTEM, _BASELINE_USER.format(q=question), max_tokens=6000,
+    )
+    wall = round(time.monotonic() - t0, 1)
+    v = data.get("verdict")
+    verdict = v if v in VERDICT_RANK else "unclear"
+    try:
+        conf = max(0.0, min(1.0, float(data.get("confidence") or 0.0)))
+    except (TypeError, ValueError):
+        conf = 0.0
+    cited = [c for c in (data.get("cited_papers") or []) if isinstance(c, dict)][:8]
+    dois = [d for d in (_norm_doi(c.get("doi")) for c in cited) if d]
+    years = []
+    for c in cited:
+        try:
+            years.append(int(c.get("year")))
+        except (TypeError, ValueError):
+            pass
+    return {
+        "verdict": verdict,
+        "confidence": round(conf, 2),
+        "explanation": str(data.get("explanation") or "")[:300],
+        "cited_n": len(cited),
+        "cited_dois": dois,
+        "median_cited_year": median_year(years),
+        "wall_s": wall,
+        "error": None,
+    }
+
+
+async def verify_dois(dois: list[str]) -> tuple[int, int]:
+    """逐个 DOI 在 OpenAlex 解析（存在=可核验）。返回 (resolved, total)。"""
+    from backend.services.deep_research.providers.openalex import get_shared_openalex_provider
+
+    if not dois:
+        return 0, 0
+    oa = get_shared_openalex_provider()
+    resolved = 0
+    for doi in dois:
+        try:
+            work = await oa._safe_get(f"/works/doi:{doi}", {"select": "id"})
+            if work and work.get("id"):
+                resolved += 1
+        except Exception:
+            pass
+    return resolved, len(dois)
+
+
+# ── 汇总与报告 ────────────────────────────────────────────────────────────────
+
+def build_report(meta: dict, records: list[dict]) -> dict:
+    n = len(records)
+
+    def _cnt(side: str, key: str) -> int:
+        return sum(1 for r in records if (r.get(side) or {}).get("score") == key)
+
+    sys_exact, sys_adj = _cnt("system", "exact"), _cnt("system", "adjacent")
+    base_exact, base_adj = _cnt("baseline", "exact"), _cnt("baseline", "adjacent")
+    sys_doi_total = sum(len((r.get("system") or {}).get("evidence_dois") or []) for r in records)
+    sys_doi_resolved = sum((r.get("system") or {}).get("evidence_doi_resolved") or 0 for r in records)
+    base_doi_total = sum(len((r.get("baseline") or {}).get("cited_dois") or []) for r in records)
+    base_doi_resolved = sum((r.get("baseline") or {}).get("doi_resolved") or 0 for r in records)
+    sys_years = [r["system"]["median_year"] for r in records
+                 if (r.get("system") or {}).get("median_year") is not None]
+    base_years = [r["baseline"]["median_cited_year"] for r in records
+                  if (r.get("baseline") or {}).get("median_cited_year") is not None]
+
+    def _rate(num: int, den: int):
+        return round(num / den, 3) if den else None
+
+    return {
+        "meta": meta,
+        "summary": {
+            "n_questions": n,
+            "system": {
+                "exact": sys_exact, "adjacent": sys_adj,
+                "miss": _cnt("system", "miss"), "no_verdict": _cnt("system", "no_verdict"),
+                "no_recall_correct": _cnt("system", "correct"),
+                "strict_accuracy": round((sys_exact + _cnt("system", "correct")) / n, 3) if n else None,
+                "within1_accuracy": round(
+                    (sys_exact + sys_adj + _cnt("system", "correct")) / n, 3) if n else None,
+                "evidence_doi_resolved": f"{sys_doi_resolved}/{sys_doi_total}",
+                "evidence_doi_resolve_rate": _rate(sys_doi_resolved, sys_doi_total),
+                "median_corpus_year_avg": round(statistics.mean(sys_years), 1) if sys_years else None,
+            },
+            "baseline": {
+                "exact": base_exact, "adjacent": base_adj,
+                "miss": _cnt("baseline", "miss"), "no_verdict": _cnt("baseline", "no_verdict"),
+                "strict_accuracy": round(base_exact / n, 3) if n else None,
+                "within1_accuracy": round((base_exact + base_adj) / n, 3) if n else None,
+                "cited_doi_resolved": f"{base_doi_resolved}/{base_doi_total}",
+                "cited_doi_resolve_rate": _rate(base_doi_resolved, base_doi_total),
+                "median_cited_year_avg": round(statistics.mean(base_years), 1) if base_years else None,
+            },
+        },
+        "records": records,
+    }
+
+
+def render_markdown(report: dict) -> str:
+    m, s = report["meta"], report["summary"]
+    sys_, base = s["system"], s["baseline"]
+    lines = [
+        "# 领域探索评测报告（系统 vs 仅凭记忆的 LLM 基线）",
+        "",
+        f"- 日期：{m['date']}　题集：{m['questions_version']}（{s['n_questions']} 题）　"
+        f"模型：{m['model']}",
+        "",
+        "## 汇总",
+        "",
+        "| 指标 | 系统（真实检索 + LLM 综合） | 基线（同一 LLM 仅凭记忆） |",
+        "|---|---|---|",
+        f"| 判定严格准确 | {sys_['strict_accuracy']}（exact {sys_['exact']} + 未命中如实 {sys_['no_recall_correct']}） | {base['strict_accuracy']} |",
+        f"| 判定 ±1 档准确 | {sys_['within1_accuracy']} | {base['within1_accuracy']} |",
+        f"| 失误 / 无判定 | {sys_['miss']} / {sys_['no_verdict']} | {base['miss']} / {base['no_verdict']} |",
+        f"| 证据 DOI 可核验 | {sys_['evidence_doi_resolved']}（来自真实检索） | {base['cited_doi_resolved']}（幻觉暴露面） |",
+        f"| 语料/引用中位年份（均值） | {sys_['median_corpus_year_avg']} | {base['median_cited_year_avg']}（受训练截止冻结） |",
+        "",
+        "> 预期判定为人工标注草案；「±1 档」把相邻判定（如 done_partial↔emerging）算半对。",
+        "",
+        "## 逐题",
+        "",
+        "| 题 | 预期 | 系统 | 基线 | 系统语料 | 系统证据 | 基线引用 | 备注 |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for r in report["records"]:
+        sys_r, base_r = r.get("system") or {}, r.get("baseline") or {}
+        note = r.get("note", "")
+        if sys_r.get("fallback_decompose"):
+            note += " ⚠回退拆解"
+        if sys_r.get("partial"):
+            note += " ⚠综合部分失败"
+        if sys_r.get("error"):
+            note += f" ⚠{sys_r['error'][:40]}"
+        sys_v = sys_r.get("verdict") or "—"
+        if sys_v == NO_RECALL:
+            sys_v = "检索未命中(如实)"
+        conf = sys_r.get("confidence")
+        sys_cell = f"{sys_v}" + (f" conf{conf}" if conf is not None else "")
+        base_cell = base_r.get("verdict") or ("⚠" + base_r["error"][:20] if base_r.get("error") else "—")
+        corpus = f"{sys_r.get('total', '—')}篇/{sys_r.get('provider') or '?'}"
+        sys_ev = f"{sys_r.get('evidence_n', 0)}条(DOI核验{sys_r.get('evidence_doi_resolved', '—')}/{len(sys_r.get('evidence_dois') or [])})"
+        base_ev = f"{base_r.get('cited_n', 0)}篇(DOI核验{base_r.get('doi_resolved', '—')}/{len(base_r.get('cited_dois') or [])})"
+        lines.append(
+            f"| {r['id']} | {r['expected']} | {sys_cell} | {base_cell} | {corpus} | {sys_ev} | {base_ev} | {note} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+# ── 编排 ──────────────────────────────────────────────────────────────────────
+
+async def evaluate(
+    questions: list[dict], *, skip_system: bool = False, skip_baseline: bool = False,
+    on_record=None,
+) -> list[dict]:
+    """逐题跑两臂并计分。顺序执行：探索内部已并行，多题并发会挤压检索源限速。"""
+    from backend.services.ai_config import get_analysis_config
+
+    llm_cfg = get_analysis_config()
+    records: list[dict] = []
+    for q in questions:
+        print(f"[{q['id']}] {q['question']}")
+        rec: dict = {"id": q["id"], "question": q["question"], "expected": q["expected"],
+                     "category": q.get("category", ""), "note": ""}
+        if not skip_system:
+            try:
+                rec["system"] = await run_system_arm(q["question"], q.get("depth") or "standard")
+                # 瞬时抖动重跑：① decompose 连接失败→回退中文原句→Scopus 400 零召回；
+                # ② 有真实召回（total>3）但综合被服务端劣化打死（无 verdict）。
+                # 两种都是环境故障而非系统真实表现，有 Key 时重跑一次（记录在案）
+                sys0 = rec["system"]
+                if (not sys0.get("verdict") and (sys0.get("fallback_decompose") or (sys0.get("total") or 0) > 3)
+                        and llm_cfg.get("api_key")):
+                    rec["note"] = "系统臂重试 1 次（拆解回退/综合失败）"
+                    rec["system"] = await run_system_arm(q["question"], q.get("depth") or "standard")
+            except Exception as e:  # noqa: BLE001 —— 单题失败不中断评测
+                rec["system"] = {"error": f"{type(e).__name__}: {e}"[:300]}
+        if not skip_baseline:
+            if llm_cfg.get("api_key"):
+                try:
+                    rec["baseline"] = await ask_baseline(q["question"], llm_cfg)
+                except Exception as e:  # noqa: BLE001
+                    # 服务端瞬时劣化（连续空回复）不算基线的真实水平，歇一下重试一次
+                    await asyncio.sleep(20)
+                    try:
+                        rec["baseline"] = await ask_baseline(q["question"], llm_cfg)
+                        rec["note"] = (rec.get("note", "") + " 基线臂重试 1 次").strip()
+                    except Exception as e2:  # noqa: BLE001
+                        rec["baseline"] = {"error": f"{type(e2).__name__}: {e2}"[:300]}
+            else:
+                rec["baseline"] = {"error": "未配置 LLM Key"}
+
+        # DOI 核验（两臂同口径：OpenAlex 能否解析）
+        if rec.get("system", {}).get("evidence_dois"):
+            try:
+                resolved, _total = await verify_dois(rec["system"]["evidence_dois"])
+                rec["system"]["evidence_doi_resolved"] = resolved
+            except Exception:
+                rec["system"]["evidence_doi_resolved"] = None
+        if rec.get("baseline", {}).get("cited_dois"):
+            try:
+                resolved, _total = await verify_dois(rec["baseline"]["cited_dois"])
+                rec["baseline"]["doi_resolved"] = resolved
+            except Exception:
+                rec["baseline"]["doi_resolved"] = None
+
+        rec["system"] = rec.get("system") or {}
+        rec["system"]["score"] = score_verdict(q["expected"], rec["system"].get("verdict"))
+        rec["baseline"] = rec.get("baseline") or {}
+        rec["baseline"]["score"] = score_verdict(q["expected"], rec["baseline"].get("verdict"))
+        records.append(rec)
+        if on_record:
+            try:
+                on_record(rec, records)
+            except Exception:
+                pass
+    return records
+
+
+def _parse_args(argv: list[str] | None = None):
+    p = argparse.ArgumentParser(description="领域探索评测：系统 vs 裸 LLM 基线")
+    p.add_argument("--questions", type=Path, default=None, help="题目 JSON（默认内置题集）")
+    p.add_argument("--only", default="", help="只跑指定题号（逗号分隔，如 Q1,Q10）")
+    p.add_argument("--out-dir", type=Path, default=Path("data/eval"), help="结果输出目录")
+    p.add_argument("--skip-system", action="store_true")
+    p.add_argument("--skip-baseline", action="store_true")
+    p.add_argument("--list", action="store_true", help="列出题集后退出")
+    return p.parse_args(argv)
+
+
+async def main_async(argv: list[str] | None = None) -> int:
+    from backend.services.ai_config import get_analysis_config
+
+    args = _parse_args(argv)
+    questions = load_questions(args.questions)
+    if args.list:
+        for q in questions:
+            print(f"{q['id']:<4} [{q.get('category', ''):<14}] 预期={q['expected']:<16} {q['question']}")
+        return 0
+    if args.only:
+        keep = {x.strip() for x in args.only.split(",") if x.strip()}
+        selected = [q for q in questions if q["id"] in keep]
+        if not selected:
+            print(f"--only 未匹配任何题号（可用：{','.join(q['id'] for q in questions)}）")
+            return 2
+        questions = selected
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    out_json = args.out_dir / f"explore_eval_{stamp}.json"
+    out_md = args.out_dir / f"explore_eval_{stamp}.md"
+
+    def _flush(all_records: list[dict]) -> None:
+        out_json.write_text(
+            json.dumps({"records": all_records}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def _on_record(rec: dict, all_records: list[dict]) -> None:
+        _flush(all_records)
+        print(f"    → 系统={((rec.get('system') or {}).get('verdict'))} "
+              f"基线={((rec.get('baseline') or {}).get('verdict'))}")
+
+    print(f"评测 {len(questions)} 题 → {out_json}")
+    t0 = time.monotonic()
+    records = await evaluate(
+        questions, skip_system=args.skip_system, skip_baseline=args.skip_baseline,
+        on_record=_on_record,
+    )
+    llm_cfg = get_analysis_config()
+    report = build_report(
+        {
+            "date": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "questions_version": (args.questions or _BUNDLED_QUESTIONS).name,
+            "model": llm_cfg.get("model", ""),
+            "duration_s": round(time.monotonic() - t0, 1),
+        },
+        records,
+    )
+    out_json.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    out_md.write_text(render_markdown(report), encoding="utf-8")
+    print(f"完成（{report['meta']['duration_s']}s）：{out_md}")
+    return 0
+
+
+def main() -> None:
+    raise SystemExit(asyncio.run(main_async()))
+
+
+if __name__ == "__main__":
+    main()

@@ -434,3 +434,35 @@ hidden reasoning 共享预算，重试全灭，run 14 verdict 丢失）→ 探�
 - 后端 446 项测试全过（新增 11 项：百分位/轨迹/突增偏好/期刊榜/关键词矩阵/去重合并
   extra/enrich 非致命/Serial Title 分块解析/检索携带期刊身份/OpenAlex 动态字段）；
   前端 typecheck + 98 项 + build 全过。
+
+### v1.5 评测 harness（2026-09-02）：把「客观、系统、可核验」变成有数据的表
+
+GOAL.md 的差异化主张是「比网页问 GPT 客观」，但此前支撑它的是冒烟轶事——毕设实验章
+需要可复现的对照数据。为此建 `backend/eval/`（此前 `DEEP_RESEARCH_EVAL.md` 描述的
+P9 框架只有文档无代码，评测原则沿用之：mock/真实分离、原始结果不进 git、
+ground truth 人工确认）：
+
+- **`explore_questions.json`**：10 题草案（established×3 / partial / emerging×2 /
+  maturity×2 / **gap 构造** / **检索未命中**），每题带预期判定与依据；`expected`
+  是人工标注草案，正式出数前须用户/导师确认（尤其 Q9 这类跨界构造题）。
+- **`explore_eval.py` 两臂对照**（同题同模型，唯一差异是有没有真实检索）：
+  - 系统臂：完整 explorer 流水线跑在**独立临时 SQLite**（不污染业务库）；
+  - 基线臂：同一 LLM 仅凭参数记忆直接回答（提示词明示不可联网、禁编造），
+    要求给出 verdict + 引用论文（标题/年份/DOI）。
+- **指标**：①判定准确率（严格 + ±1 相邻档；no_recall 题以「如实报检索未命中」为对，
+  直接检验铁律）；②证据 DOI 可核验率（OpenAlex 解析，幻觉暴露面）；③时效性
+  （语料中位年份 vs 基线引用中位年份——记忆冻结 vs 实时检索）。
+- **用法**：`python -m backend.eval.explore_eval --list` / `--only Q1,Q10` /
+  `--skip-baseline`；逐题增量落盘 `data/eval/explore_eval_<时间戳>.{json,md}`
+  （data/ 已 gitignore）。单臂失败不中断（记 error + no_verdict 计分）。
+- **测试**：8 项桩测试（题集校验/计分/汇总/报告/编排非致命），CI 零网络。
+- **冒烟（2026-09-02，Q1+Q10 真实跑）**：Q1 系统 exact（done_extensively conf 0.95，
+  150 篇 scopus，证据 DOI 6/6 可核验）；**Q10（虚构的独角兽题）系统如实报「检索未命中」
+  而裸 LLM 凭记忆判 gap 且零引用**——GOAL 警告的失败模式的直接实证，论文对照表的
+  关键一格。过程中暴露并修复：①计分对「普通题拿到 no_recall」未设防（KeyError）；
+  ②DeepSeek 出现整段「空回复」服务劣化窗口（小请求正常、大提示词全空，数分钟后恢复）
+  → 两臂各加一次针对性重试（拆解回退/综合失败重跑系统臂；基线歇 20s 重试），
+  环境故障不冒充系统真实水平。
+
+下一步：用户确认题集（尤其 Q9 跨界 gap 构造题）→ 跑全量 10 题（约 1 小时）→
+结果表进论文实验章。改 `expected` 不必重跑——原始两臂 verdict 落盘，可离线重计分。

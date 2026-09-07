@@ -61,6 +61,16 @@ def _title_to_query(title: str) -> str:
 
 def _get_engine():
     """创建 findpapers Engine 实例。"""
+    import os
+    from ..config import settings
+    from .ai_config import get_research_config
+
+    key = settings.elsevier_api_key or get_research_config().get("elsevier_api_key", "")
+    if key:
+        os.environ["FINDPAPERS_SCOPUS_API_TOKEN"] = key
+        os.environ["SCOPUS_API_TOKEN"] = key
+        os.environ["SCOPUS_API_KEY"] = key
+
     import findpapers
     return findpapers.Engine()
 
