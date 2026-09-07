@@ -1,0 +1,87 @@
+{
+  "version": "draft-1",
+  "note": "expected 为人工标注草案（正式出数前需确认）；adjacent 计分时 done_extensively>done_partial>emerging>gap>unclear 相邻算半对；expected=no_recall 表示预期检索未命中（铁律：不得声称 gap）",
+  "questions": [
+    {
+      "id": "Q1",
+      "category": "established",
+      "question": "用深度学习做医学影像分割，做到什么程度了？",
+      "depth": "standard",
+      "expected": "done_extensively",
+      "rationale": "U-Net 起近十年数千篇成熟工作，多基准（BraTS 等）饱和，典型充分实现"
+    },
+    {
+      "id": "Q2",
+      "category": "established",
+      "question": "用 Transformer 做时间序列预测有人做吗？做得怎样？",
+      "depth": "standard",
+      "expected": "done_extensively",
+      "rationale": "Informer/Autoformer/PatchTST 等成体系，长程时序预测有标准基准"
+    },
+    {
+      "id": "Q3",
+      "category": "established",
+      "question": "知识图谱用于推荐系统有人做吗？",
+      "depth": "standard",
+      "expected": "done_extensively",
+      "rationale": "KG-based recsys 是成熟子领域（RippleNet、KGCN 等），综述众多"
+    },
+    {
+      "id": "Q4",
+      "category": "partial",
+      "question": "强化学习用于自动定理证明，做到什么程度了？",
+      "depth": "standard",
+      "expected": "done_partial",
+      "rationale": "有代表性工作（AlphaProof、HyperTree Proof Search 等）但远未成熟覆盖"
+    },
+    {
+      "id": "Q5",
+      "category": "emerging",
+      "question": "状态空间模型（Mamba 一类）在语音识别里应用得怎么样？",
+      "depth": "standard",
+      "expected": "emerging",
+      "rationale": "Mamba 2023 底提出，语音方向应用集中在 2024 之后，尚无公认范式"
+    },
+    {
+      "id": "Q6",
+      "category": "emerging",
+      "question": "多模态大模型用于手术视频理解有人做吗？",
+      "depth": "standard",
+      "expected": "emerging",
+      "rationale": "手术 VLM 2024 起才出现少量工作，近两年新兴"
+    },
+    {
+      "id": "Q7",
+      "category": "maturity",
+      "question": "大模型长上下文窗口扩展技术的现状如何？",
+      "depth": "standard",
+      "expected": "done_extensively",
+      "rationale": "位置编码外推/稀疏注意力/RAG 混合等路线众多且工业界大规模部署"
+    },
+    {
+      "id": "Q8",
+      "category": "maturity",
+      "question": "检索增强生成（RAG）中的幻觉抑制做到什么程度了？",
+      "depth": "standard",
+      "expected": "done_partial",
+      "rationale": "有大量缓解工作但无根治方案，基准未统一"
+    },
+    {
+      "id": "Q9",
+      "category": "gap_construct",
+      "question": "用量子纠缠解释用户界面的配色偏好，有人做过吗？",
+      "depth": "standard",
+      "expected": "gap",
+      "rationale": "跨界构造题：量子信息×UI 美学无实际交叠文献，预期语料无直接实现",
+      "needs_human_confirm": true
+    },
+    {
+      "id": "Q10",
+      "category": "retrieval_miss",
+      "question": "独角兽角蛋白的量子纠缠谱研究进展如何？",
+      "depth": "quick",
+      "expected": "no_recall",
+      "rationale": "虚构对象：应近乎零召回，检验系统是否如实报「检索未命中」而非编造 gap/结论"
+    }
+  ]
+}

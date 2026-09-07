@@ -1,17 +1,16 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.3.0'
+const APP_VERSION = '5.4.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-09-02',
+  date: '2026-09-07',
   changes: [
-    '新增领域探索页：提一个问句，自动拆解检索式、多源检索真实文献并给出可回溯的查新结论',
-    '检索主源升级为 Scopus（机构订阅），自适应限速防 429，鉴权失败自动回退 OpenAlex',
-    '文献计量升级：同年被引百分位、近两年引用增量与突增检测、期刊 SJR/SNIP 主阵地榜',
-    '新增关键词×年份热力图与子方向聚类，召回论文自动补齐摘要与逐年引用曲线',
-    '深度研究图谱新增领域认知综合：节点角色、引用因果、技术流派与领域全景简报',
+    '多源全文 PDF 下载引擎增强：集成 Unpaywall、Europe PMC、出版商规律直链与 Elsevier API 直连',
+    '出版商着陆页智能解析：自动提取 citation_pdf_url 真实 PDF 链接，支持多源级联回退与受控并发下载',
+    '新增领域探索评测体系（Eval Harness）：支持与基线大模型参数记忆直答进行两臂对照实验',
+    '评测指标覆盖查新判定准确率、证据 DOI 可核验率、时效性分析与检索未命中如实报告能力',
   ],
 }
 
