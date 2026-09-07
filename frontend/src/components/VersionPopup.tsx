@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.5.1'
+const APP_VERSION = '5.5.2'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-09-07',
   changes: [
-    '修复后端日志流并发迭代异常（RuntimeError: deque mutated during iteration），解决终端面板仅显示初始一行的问题',
-    '强化日志流订阅者线程安全与异常隔离，支持历史日志安全快照回放与实时无缝推送',
-    '过滤 SSE 自身请求的高频访问日志，保持日志面板清晰可读',
+    '领域探索视觉反馈升级：新增动态进度条与流光动效，清晰直观展示从检索式拆解到跨文献综合的全流程',
+    '即时响应与百分比计算：提交问题后立即渲染进度反馈，根据拆解、检索命中与指标富化等实际产物动态计算百分比',
+    '状态引导强化：各分析阶段配备动态标题、高能微动画与详尽进度文案，杜绝探索等待过程中的无感卡顿',
   ],
 }
 

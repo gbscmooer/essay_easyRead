@@ -154,6 +154,21 @@ export default function ExplorePage() {
   const verdictMeta = verdict ? VERDICT_META[verdict.status] : null
   const total = result?.metrics.total ?? 0
 
+  const currentStageMeta = useMemo(() => {
+    if (submitting) return STAGE_META[0]
+    if (!stream.stage) return null
+    const matched = STAGE_META.find(s => stream.stage?.startsWith(s.key))
+    return matched ?? null
+  }, [stream.stage, submitting])
+
+  const displayProgress = useMemo(() => {
+    if (stream.status === 'done') return 100
+    if (submitting) return 6
+    if (typeof stream.progress === 'number' && stream.progress > 0) return stream.progress
+    if (stream.status === 'running') return 10
+    return 0
+  }, [stream.status, stream.progress, submitting])
+
   return (
     <div className="er-page er-page--explore">
       <header className="er-page-head">
@@ -207,6 +222,63 @@ export default function ExplorePage() {
         <p className="ex-ask__hint">⌘/Ctrl + Enter 提交 · 结论只基于检索到的真实文献，每条可点开核验</p>
       </section>
 
+      {/* 探索进行中：进度条与实时动态分析反馈 */}
+      {(stream.status === 'running' || submitting) && (
+        <section className="ex-progress" aria-label="探索进度">
+          <div className="ex-progress__header">
+            <div className="ex-progress__title-group">
+              <span className="ex-progress__spinner" aria-hidden="true" />
+              <div>
+                <div className="ex-progress__title">
+                  {submitting
+                    ? '正在启动领域探索…'
+                    : (currentStageMeta?.label ? `正在进行：${currentStageMeta.label}` : '领域探索分析中…')}
+                </div>
+                <div className="ex-progress__subtitle">
+                  {stream.message || (submitting ? '正在准备分析环境并连接学术检索总线…' : (currentStageMeta?.hint ?? '系统正在自动检索学术文献并计算文献计量指标'))}
+                </div>
+              </div>
+            </div>
+            <div className="ex-progress__meta">
+              <span className="ex-progress__percent tabular-nums font-mono font-semibold">
+                {displayProgress}%
+              </span>
+            </div>
+          </div>
+
+          {/* 进度条轨道与动态填充 */}
+          <div
+            className="ex-progress__bar-track"
+            role="progressbar"
+            aria-valuenow={displayProgress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="探索总体进度"
+          >
+            <div
+              className="ex-progress__bar-fill"
+              style={{ width: `${Math.min(100, Math.max(displayProgress, 4))}%` }}
+            />
+          </div>
+
+          {/* 阶段步骤指示器 */}
+          <ol className="ex-progress__stages">
+            {STAGE_META.map((s, idx) => {
+              const done = (stream.stage ?? '').startsWith(`${s.key} 完成`) || isAfterStage(stream.stage, s.key, result ?? undefined, synthesis)
+              const active = stream.stage === s.key || (idx === 0 && (submitting || !stream.stage))
+              return (
+                <li key={s.key} className={active ? 'is-active' : done ? 'is-done' : ''} title={s.hint}>
+                  <span className="ex-progress__dot" aria-hidden="true">
+                    {done ? '✓' : ''}
+                  </span>
+                  <span className="ex-progress__stage-label">{s.label}</span>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+      )}
+
       {/* 历史记录 */}
       {history.length > 0 && (
         <section className="ex-history" aria-label="历史探索">
@@ -227,25 +299,6 @@ export default function ExplorePage() {
               </span>
             ))}
           </div>
-        </section>
-      )}
-
-      {/* 进度 */}
-      {(stream.status === 'running' || submitting) && (
-        <section className="ex-progress" aria-label="探索进度">
-          <ol className="ex-progress__stages">
-            {STAGE_META.map(s => {
-              const done = (stream.stage ?? '').startsWith(`${s.key} 完成`) || isAfterStage(stream.stage, s.key, result ?? undefined, synthesis)
-              const active = stream.stage === s.key
-              return (
-                <li key={s.key} className={active ? 'is-active' : done ? 'is-done' : ''} title={s.hint}>
-                  <span className="ex-progress__dot" aria-hidden />
-                  {s.label}
-                </li>
-              )
-            })}
-          </ol>
-          {stream.message && <p className="ex-progress__msg">{stream.message}</p>}
         </section>
       )}
 
