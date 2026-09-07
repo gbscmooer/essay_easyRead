@@ -2,14 +2,21 @@
  * AI 模型配置区块
  *
  * 翻译模型 / 解读模型共用的配置组：服务商预设、Base URL、API Key、模型名、
- * 高级参数。全部表单控件走 .er-field / .er-input 一档形制 —— 之前每个输入框
- * 各写一遍 `px-3 py-2 rounded-lg` 加一段内联 borderColor，同一列里三个框的
- * 高度和边框颜色都不一致。
+ * 高级参数（Temperature / 最大输出 Token / 思考强度）。全部表单控件走
+ * .er-field / .er-input 一档形制 —— 之前每个输入框各写一遍 `px-3 py-2 rounded-lg`
+ * 加一段内联 borderColor，同一列里三个框的高度和边框颜色都不一致。
  */
 import { useState } from 'react'
 import ProviderPresets from './ProviderPresets'
 import type { ProviderPreset } from './ProviderPresets'
-import type { AIModelConfig } from './config'
+import type { AIModelConfig, ThinkingEffort } from './config'
+
+const THINKING_EFFORT_OPTIONS: { value: ThinkingEffort; label: string }[] = [
+  { value: 'off', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+]
 
 interface AIModelSectionProps {
   title: string
@@ -153,6 +160,36 @@ export default function AIModelSection({
                 <span>默认 {defaultMaxTokens}</span>
                 <span>32768</span>
               </div>
+            </div>
+
+            <div className="set-slider">
+              <div className="set-slider__head">
+                <label id={`${title}-thinking-label`}>思考强度</label>
+                <output aria-hidden="true">{config.thinking_effort}</output>
+              </div>
+              <div
+                className="er-btn-group er-btn-group--block"
+                role="radiogroup"
+                aria-labelledby={`${title}-thinking-label`}
+              >
+                {THINKING_EFFORT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={config.thinking_effort === opt.value}
+                    data-active={config.thinking_effort === opt.value || undefined}
+                    onClick={() => onChange({ ...config, thinking_effort: opt.value })}
+                    className="er-btn er-btn--ghost er-btn--sm"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="set-group__hint">
+                仅对支持的推理模型生效（Claude 3.7+/4+、OpenAI o 系 / gpt-5、DeepSeek v4+），
+                其余沿用服务商默认；Anthropic 协议开启思考时强制 temperature=1。
+              </p>
             </div>
           </div>
         )}

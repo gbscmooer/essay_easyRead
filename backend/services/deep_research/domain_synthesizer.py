@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 from ..ai_analyzer import (
@@ -79,11 +78,12 @@ async def _llm_json(cfg: dict, system: str, user: str, *, max_tokens: int,
     for attempt in range(MAX_RETRIES + 1):
         client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
         try:
+            # 思考强度跟随解读模型配置（settings → 高级参数 → 思考强度）：
+            # DeepSeek v4+ 的开/关映射也统一收口到 resolve_thinking。
             raw = await _complete_once(client, use_openai, model, system, user,
                                        max_tokens=max_tokens, temperature=temperature,
-                                       **({"extra_body": {"thinking": {"type": "disabled"}}}
-                                          if urlparse(base_url).hostname == "api.deepseek.com"
-                                          and model.startswith("deepseek-v4") else {}))
+                                       thinking_effort=cfg.get("thinking_effort"),
+                                       base_url=base_url)
             framed = raw.strip()
             if framed.startswith("```") and framed.endswith("```"):
                 first_line, separator, body = framed.partition("\n")
