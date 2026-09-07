@@ -24,7 +24,7 @@ vi.mock('@/api/exploration', () => ({
 const mockUse = vi.mocked(useExplorationStream)
 const mockCreate = vi.mocked(createExploration)
 
-const IDLE = { status: 'idle' as const, stage: null, message: '', result: null, synthesis: null, error: null }
+const IDLE = { status: 'idle' as const, stage: null, message: '', progress: 0, result: null, synthesis: null, error: null }
 
 function makeResult(overrides: Partial<ExplorationResult> = {}): ExplorationResult {
   const papers = [
@@ -154,5 +154,21 @@ describe('ExplorePage', () => {
     mockUse.mockReturnValue({ ...IDLE, status: 'failed', error: 'provider 不可用' })
     render(<ExplorePage />)
     expect(screen.getByText(/探索失败：provider 不可用/)).toBeInTheDocument()
+  })
+
+  it('运行态：展示进度条、当前阶段百分比与动态分析反馈', () => {
+    mockUse.mockReturnValue({
+      ...IDLE,
+      status: 'running',
+      stage: 'recall',
+      message: '检索「tumor detection」命中 15 篇（累计 15 篇）',
+      progress: 45,
+    })
+    render(<ExplorePage />)
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45')
+    expect(screen.getByText('45%')).toBeInTheDocument()
+    expect(screen.getByText(/正在进行：② 多源检索/)).toBeInTheDocument()
+    expect(screen.getByText(/检索「tumor detection」命中 15 篇/)).toBeInTheDocument()
   })
 })
