@@ -14,6 +14,7 @@ import { refreshConfig, clearUIPreview, setSettingsFormDirty } from '@/hooks/use
 import { toast } from '@/hooks/useToast'
 import { PromptEditor } from '@/features/settings/PromptEditor'
 import { TestButton } from '@/features/settings/TestButton'
+import { ConfigFileManagement } from '@/features/settings/ConfigFileManagement'
 import AIModelSection from '@/features/settings/AIModelSection'
 import UIConfigSection from '@/features/settings/UIConfigSection'
 import {
@@ -179,18 +180,22 @@ function useConfigInit() {
   const [savedConfig, setSavedConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    get<AppConfig>('/analysis/config')
+  const reloadConfig = useCallback(() => {
+    return get<AppConfig>('/analysis/config')
       .then(cfg => {
         const merged = mergeConfig(cfg)
         setConfig(merged)
         setSavedConfig(merged)
+        refreshConfig()
       })
       .catch((error: unknown) => {
         toast({ type: 'error', message: error instanceof Error ? error.message : '加载配置失败' })
       })
-      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    reloadConfig().finally(() => setLoading(false))
+  }, [reloadConfig])
 
   useEffect(() => {
     return () => {
@@ -219,7 +224,7 @@ function useConfigInit() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
-  return { config, setConfig, setSavedConfig, loading, dirty }
+  return { config, setConfig, setSavedConfig, loading, dirty, reloadConfig }
 }
 
 
@@ -312,7 +317,7 @@ function ResearchPanel({
 /* ── 主页面 ────────────────────────────────────────── */
 
 export function SettingsPage() {
-  const { config, setConfig, setSavedConfig, loading, dirty } = useConfigInit()
+  const { config, setConfig, setSavedConfig, loading, dirty, reloadConfig } = useConfigInit()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('models')
@@ -360,6 +365,9 @@ export function SettingsPage() {
           <TabBar active={activeTab} onChange={handleTabChange} />
         </div>
       </header>
+
+      {/* 配置文件管理：指示当前文件、支持直接编辑/一键导出/快速导入 */}
+      <ConfigFileManagement onConfigReload={reloadConfig} />
 
       {/* 配置状态提示 — 只在「模型配置」tab 显示 */}
       {!allConfigured && activeTab === 'models' && (

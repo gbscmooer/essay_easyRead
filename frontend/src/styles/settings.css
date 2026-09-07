@@ -44,6 +44,91 @@
   opacity: 0.9;
 }
 
+/* ── 配置文件状态卡片 ──────────────────────────────────────────────── */
+
+.set-file-card {
+  padding: var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.set-file-card__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.set-file-card__meta {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.set-file-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--primary-subtle, rgba(59, 130, 246, 0.1));
+  color: var(--primary, #3b82f6);
+}
+
+.set-file-card__title {
+  font-size: var(--fs-ui, 14px);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.set-file-card__path code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.set-file-card__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.set-file-card__badge--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.set-file-card__badge--fallback {
+  background: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+
+.set-file-card__desc {
+  margin: 6px 0 0 0;
+  font-size: var(--fs-meta, 12px);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.set-file-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
 /* ── 主体 ──────────────────────────────────────────────────────────── */
 
 .set-body {

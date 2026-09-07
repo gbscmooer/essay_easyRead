@@ -29,3 +29,34 @@ export async function getGrobidStatus(): Promise<GrobidStatus> {
 export async function pullGrobidImage(): Promise<{ running: boolean; image: string }> {
   return post<{ running: boolean; image: string }>('/analysis/grobid/pull')
 }
+
+/* ── 配置文件管理（YAML / TOML / JSON 读写与导入导出） ──── */
+
+export interface ConfigFileInfo {
+  active_path: string
+  full_path: string
+  exists: boolean
+  format: 'yaml' | 'toml' | 'json'
+  supported_formats: string[]
+}
+
+/** 获取配置文件元信息（当前文件路径、格式等） */
+export async function getConfigFileInfo(): Promise<ConfigFileInfo> {
+  return get<ConfigFileInfo>('/analysis/config/file-info')
+}
+
+/** 获取导出配置文件的下载链接 */
+export function getExportConfigUrl(format: 'yaml' | 'toml' | 'json' = 'yaml', includeSecrets: boolean = true): string {
+  return `/api/analysis/config/export?format=${format}&include_secrets=${includeSecrets}`
+}
+
+/** 上传配置文件（YAML/TOML/JSON）并应用 */
+export async function importConfigFile(file: File): Promise<{ message: string; file_info: ConfigFileInfo }> {
+  const { upload } = await import('./client')
+  return upload<{ message: string; file_info: ConfigFileInfo }>('/analysis/config/import', file)
+}
+
+/** 导入配置文本（YAML/TOML/JSON）并应用 */
+export async function importConfigText(content: string, format?: string): Promise<{ message: string; file_info: ConfigFileInfo }> {
+  return post<{ message: string; file_info: ConfigFileInfo }>('/analysis/config/import', { content, format })
+}
