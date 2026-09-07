@@ -394,7 +394,7 @@ export default function LibraryPage() {
   return (
     <div className="er-page er-page--library">
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">Archive / Index—01</p>
+        <p className="er-page-head__eyebrow">论文档案库 · 检索与管理</p>
         <h1 className="er-page-head__title">论文库</h1>
         <div className="er-page-head__actions">
           {reindexNote && <span className="arc-note" role="status">{reindexNote}</span>}

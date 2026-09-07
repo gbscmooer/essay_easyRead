@@ -13,144 +13,108 @@
 
 :root {
   color-scheme: light;
-  --paper: #eee9dd;
-  --paper-bright: #f7f2e7;
-  --ink: #17181b;
-  --void: #17181b;
-  --blue: #3969a8;
-  --blue-deep: #292b55;
-  --signal: #d94a38;
-  --red: #d94a38;
-  --ochre: #d3a52f;
-  --gray: #8f9594;
+  --paper: #f8fafc;
+  --paper-bright: #ffffff;
+  --ink: #0f172a;
+  --void: #0f172a;
+  --blue: #2563eb;
+  --blue-deep: #1e3a8a;
+  --signal: #dc2626;
+  --red: #dc2626;
+  --ochre: #d97706;
+  --gray: #64748b;
 
   --seed-bg: var(--paper);
   --seed-fg: var(--ink);
   --seed-surface: var(--paper-bright);
   --seed-accent: var(--blue);
-  --seed-accent-rgb: 57, 105, 168;
-  --seed-muted: #707574;
-  --seed-radius: 0px;
+  --seed-accent-rgb: 37, 99, 235;
+  --seed-muted: #64748b;
+  --seed-radius: 8px;
 
   --bg-base: var(--paper);
   --bg-surface: var(--paper-bright);
-  --bg-elevated: #e5e0d4;
-  --border: rgba(23, 24, 27, 0.18);
-  --border-light: rgba(23, 24, 27, 0.36);
+  --bg-elevated: #f1f5f9;
+  --border: #e2e8f0;
+  --border-light: #cbd5e1;
   --text-primary: var(--ink);
-  --text-secondary: #46494b;
-  --text-muted: #707574;
-  --text-disabled: #9b9b92;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-disabled: #94a3b8;
   --accent: var(--blue);
-  --accent-subtle: rgba(57, 105, 168, 0.12);
-  --success: #557a55;
-  --success-subtle: rgba(85, 122, 85, 0.13);
+  --accent-subtle: rgba(37, 99, 235, 0.08);
+  --success: #16a34a;
+  --success-subtle: rgba(22, 163, 74, 0.09);
   --warning: var(--ochre);
-  --warning-subtle: rgba(211, 165, 47, 0.15);
+  --warning-subtle: rgba(217, 119, 6, 0.09);
   --error: var(--signal);
-  --error-subtle: rgba(217, 74, 56, 0.13);
+  --error-subtle: rgba(220, 38, 38, 0.09);
 
-  /* 字族与字号阶梯见 typography.css —— 那一层在 globals 之后加载，
-     负责改写这里 Tailwind preflight 留下的默认值。 */
-
-  /* ── 动效：缓动族 ──────────────────────────────────────────────
-     一条曲线撑不起一套语言。这五条各自对应印刷机上的一种物理动作，
-     选曲线等于选「这个东西是怎么动的」，而不是「动得快不快」。
-     linear 只保留给真正匀速的东西（进度条推进、扫描线）。 */
-  --ease-register: cubic-bezier(.22, 1, .36, 1);    /* 套准：冲到位后微沉 —— 面板、页面、元素就位 */
-  --ease-press: cubic-bezier(.2, .85, .3, 1);       /* 压印：起步即最快，末端硬停 —— 按下与释放 */
-  --ease-carriage: cubic-bezier(.65, .02, .35, 1);  /* 走纸：两端对称加减速 —— 滑轨、抽屉、擦除 */
-  --ease-exit: cubic-bezier(.45, 0, .85, .35);      /* 退场：持续加速离场，不回弹 */
-  --ease-snap: cubic-bezier(.12, .9, .08, 1);       /* 咬合：几乎瞬时就位 —— 指示条、下划线 */
+  /* ── 动效 ────────────────────────────────────────────── */
+  --ease-register: cubic-bezier(.22, 1, .36, 1);
+  --ease-press: cubic-bezier(.2, .85, .3, 1);
+  --ease-carriage: cubic-bezier(.65, .02, .35, 1);
+  --ease-exit: cubic-bezier(.45, 0, .85, .35);
+  --ease-snap: cubic-bezier(.12, .9, .08, 1);
   --spring-ease: var(--ease-register);
 
-  /* ── 动效：时长档位 ────────────────────────────────────────────
-     按「这是什么层级的变化」取值，不要现场写数字。同一层级的东西
-     必须同速，否则界面会显得各动各的。 */
-  --dur-press: 90ms;    /* 压印、咬合：手指还没离开就该结束 */
-  --dur-tint: 150ms;    /* 换色、描边：hover 的默认速度 */
-  --dur-plane: 240ms;   /* 浮层、提示、下拉 */
-  --dur-page: 380ms;    /* 页面套准 */
-  --dur-run: 560ms;     /* 走纸、路由擦除 */
+  --dur-press: 90ms;
+  --dur-tint: 150ms;
+  --dur-plane: 240ms;
+  --dur-page: 380ms;
+  --dur-run: 560ms;
 
-  /* ── 间距阶梯 ──────────────────────────────────────────────────
-     斐波那契而非 4 的倍数：等差阶梯在紧凑界面里相邻档位区分不开，
-     最后总是退化成「随手加 4px」。递增的间隔本身就是版面节奏。 */
   --s1: 4px;
   --s2: 8px;
-  --s3: 13px;
-  --s4: 21px;
-  --s5: 34px;
-  --s6: 55px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
 
-  /* ── 描边阶梯 ──────────────────────────────────────────────────
-     硬边语言里，线宽就是层级。四档各有分工，不要出现第五种宽度。 */
-  --rule-hair: 1px;   /* 分隔：同级之间 */
-  --rule-mark: 3px;   /* 标记：活动态、当前项 */
-  --rule-bar: 5px;    /* 强调：区块归属 */
-  --rule-slab: 8px;   /* 结构：平面的顶边、主色条 */
+  --rule-hair: 1px;
+  --rule-mark: 2px;
+  --rule-bar: 3px;
+  --rule-slab: 1px;
 
-  /* ── 偏移块（relief）────────────────────────────────────────────
-     零模糊的实体投影。这是构成主义的原生语汇（套色错位），不是
-     拟物阴影 —— 全局 box-shadow 禁令刻意为它开了口子。 */
-  --relief-sm: 3px;
-  --relief-md: 5px;
-  --relief-lg: 8px;
+  --relief-sm: 2px;
+  --relief-md: 4px;
+  --relief-lg: 6px;
 
-  --er-edge: clamp(22px, 4vw, 64px);
-  --er-gap: clamp(8px, 1vw, 18px);
-  --er-rule: 1px solid rgba(23, 24, 27, 0.36);
-  /* 颜色，不是 border 简写 —— 必须与 experience.css 的同名 token 同类型。
-     两处类型不一致时后加载的 experience.css 胜出，globals 里所有
-     `border: var(--er-hairline)` 就会解析成 border-style:none，
-     .panel-section / .content-section 的分隔线因此整站不可见。 */
-  --er-hairline: rgba(23, 24, 27, 0.18);
+  --er-edge: clamp(16px, 3vw, 32px);
+  --er-gap: clamp(8px, 1vw, 16px);
+  --er-rule: 1px solid var(--border);
+  --er-hairline: var(--border);
   --er-label-size: var(--fs-label);
-  --er-nav-height: 70px;
-  --er-mast-height: 68px;
+  --er-nav-height: 0px;
+  --er-mast-height: 56px;
 }
 
 [data-mode='dark'] {
   color-scheme: dark;
-  --paper: #17181b;
-  --paper-bright: #222329;
-  --ink: #f7f2e7;
-  --blue: #5f83b5;
-  --bg-base: #17181b;
-  --bg-surface: #222329;
-  --bg-elevated: #2b2d33;
-  --border: rgba(247, 242, 231, 0.17);
-  --border-light: rgba(247, 242, 231, 0.34);
-  --text-primary: #f7f2e7;
-  --text-secondary: #c6c1b8;
-  --text-muted: #9a9d99;
-  --text-disabled: #666970;
-  --accent: #5f83b5;
-  --accent-subtle: rgba(95, 131, 181, 0.18);
+  --paper: #0b0f17;
+  --paper-bright: #131c2e;
+  --ink: #f8fafc;
+  --blue: #3b82f6;
+  --bg-base: #0b0f17;
+  --bg-surface: #131c2e;
+  --bg-elevated: #1e293b;
+  --border: #334155;
+  --border-light: #475569;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-disabled: #64748b;
+  --accent: #3b82f6;
+  --accent-subtle: rgba(59, 130, 246, 0.15);
   --deco-opacity: .44;
-  --er-rule: 1px solid rgba(247, 242, 231, 0.34);
-  --er-hairline: rgba(247, 242, 231, 0.17);
+  --er-rule: 1px solid #334155;
+  --er-hairline: #334155;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
-  border-radius: 0 !important;
-}
-
-/* 阴影禁令只针对「模糊的拟物阴影」。.er-relief 与 .er-btn 例外 —— 它们用的
-   是零模糊偏移实体块（套色错位），是这套语言本身的语汇，不是要压掉的东西。
-   原先的通配符把两者一起禁了，界面因此只剩绝对平面。 */
-*:not(.er-relief):not(.er-btn),
-*:not(.er-relief):not(.er-btn)::before,
-*:not(.er-relief):not(.er-btn)::after {
-  box-shadow: none !important;
-}
-
-* {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 html {
@@ -173,7 +137,7 @@ body {
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 button,
@@ -187,10 +151,6 @@ button,
 a,
 [role='button'] {
   -webkit-tap-highlight-color: transparent;
-}
-
-button {
-  border-radius: 0 !important;
 }
 
 button:disabled,
@@ -213,13 +173,13 @@ canvas {
 }
 
 ::selection {
-  background: var(--ochre);
-  color: var(--void);
+  background: rgba(37, 99, 235, 0.2);
+  color: inherit;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -227,26 +187,20 @@ canvas {
 }
 
 ::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--text-primary) 36%, transparent);
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--signal);
+  background: color-mix(in srgb, var(--text-muted) 60%, transparent);
   background-clip: padding-box;
 }
 
 *:focus-visible {
-  outline: 3px solid var(--ochre) !important;
-  outline-offset: 3px !important;
-  border-radius: 0 !important;
-}
-
-/* 同上：聚焦时也不能把偏移块抹掉，否则键盘用户看到的按钮会比鼠标用户扁一层。 */
-*:not(.er-relief):not(.er-btn):focus-visible {
-  box-shadow: none !important;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* 展示 / 标题 / 标签三个角色类定义在 typography.css。 */
@@ -309,14 +263,13 @@ canvas {
 [data-theme] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
 [data-theme] textarea,
 [data-theme] select {
-  min-height: 40px;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  color: var(--text-primary) !important;
-  box-shadow: none !important;
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 6px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
   transition:
     border-color var(--dur-tint) var(--ease-press),
+    box-shadow var(--dur-tint) var(--ease-press),
     background-color var(--dur-tint) var(--ease-press);
 }
 
@@ -329,38 +282,37 @@ canvas {
 [data-theme] input:hover,
 [data-theme] textarea:hover,
 [data-theme] select:hover {
-  border-color: var(--text-primary) !important;
+  border-color: var(--border-light);
 }
 
 [data-theme] input:focus,
 [data-theme] textarea:focus,
 [data-theme] select:focus {
-  border-color: var(--signal) !important;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+  outline: none;
 }
 
 input[type='checkbox'],
 input[type='radio'] {
-  accent-color: var(--signal);
+  accent-color: var(--accent);
 }
 
 input[type='range'] {
-  accent-color: var(--blue);
+  accent-color: var(--accent);
 }
 
-/* Flat semantic surfaces used by legacy feature components. */
+/* Flat semantic surfaces used by feature components. */
 .glass-panel,
 .glass-toolbar {
-  border: 1px solid var(--er-hairline);
-  border-radius: 0 !important;
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 8px);
   background: var(--bg-surface);
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .panel-section {
   padding: 1.25rem 0;
-  border-top: 1px solid var(--er-hairline);
+  border-top: 1px solid var(--border);
 }
 
 .panel-section:first-child,
@@ -371,7 +323,7 @@ input[type='range'] {
 
 .content-section {
   padding: 1rem 0;
-  border-bottom: 1px solid var(--er-hairline);
+  border-bottom: 1px solid var(--border);
   background: transparent;
 }
 
@@ -381,10 +333,10 @@ input[type='range'] {
 
 .list-row {
   position: relative;
-  padding: 0.95rem 0;
+  padding: 0.95rem 0.5rem;
   border: 0;
-  border-bottom: 1px solid var(--er-hairline);
-  border-radius: 0 !important;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--seed-radius, 6px);
   background: transparent;
   cursor: pointer;
   transition:
@@ -392,37 +344,12 @@ input[type='range'] {
     color var(--dur-tint) var(--ease-press);
 }
 
-.list-row::before {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  left: -10px;
-  width: 3px;
-  background: var(--signal);
-  content: '';
-  opacity: 0;
-  transform: scaleY(0);
-  transform-origin: bottom;
-  transition:
-    opacity var(--dur-press) var(--ease-snap),
-    transform var(--dur-tint) var(--ease-snap);
-}
-
 .list-row:hover,
 .list-row:focus-visible,
 .card-hover:hover,
 .hover-lift:hover {
-  border-color: var(--border-light) !important;
-  border-radius: 0 !important;
-  background: color-mix(in srgb, var(--blue) 9%, transparent) !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-.list-row:hover::before,
-.list-row:focus-visible::before {
-  opacity: 1;
-  transform: scaleY(1);
+  border-color: var(--border-light);
+  background: var(--bg-elevated);
 }
 
 .stat-strip {
@@ -580,7 +507,7 @@ input[type='range'] {
 
 .skeleton,
 .skeleton-pulse {
-  border-radius: 0 !important;
+  border-radius: var(--seed-radius, 6px);
   background: color-mix(in srgb, var(--text-primary) 9%, transparent);
   animation: er-pulse 1.7s steps(2, end) infinite;
 }

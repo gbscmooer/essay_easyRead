@@ -1,61 +1,39 @@
 /*
- * Essay Read — route-aware constructivist presentation layer.
- *
- * This is a clean extraction of the final Frontend Experience Lab language:
- * warm paper, ink, cobalt, vermilion and ochre; an invisible 12/8/6 column
- * grid; hard edges; one dominant mass; axial motion; semantic DOM above all
- * decoration. It intentionally does not carry over the lab's historical CSS
- * cascade or mock-scene selectors.
+ * Essay Read — modern application experience shell & base layer.
  */
 
 :root {
-  --er-paper: #eee9dd;
-  --er-paper-bright: #f7f2e7;
-  --er-ink: #17181b;
-  --er-blue: #3969a8;
-  --er-blue-deep: #292b55;
-  --er-red: #d94a38;
-  --er-ochre: #d3a52f;
-  --er-gray: #8f9594;
-  --er-hairline: rgb(23 24 27 / 24%);
-  --er-muted: rgb(23 24 27 / 58%);
-  /* 「落在固定平面上的前景」。刻意不随模式翻转 —— 它配的是那些写死的底色
-     （墨块、信号红、钴蓝）。之前这些地方用的是 --er-paper-bright，底色不翻
-     前景翻，深色模式下 MOTION 读数与当前导航项直接变成深底深字。 */
-  --er-on-field: #f7f2e7;
-  --er-edge: clamp(22px, 4vw, 64px);
-  --er-column-gap: clamp(8px, 1vw, 18px);
-  --er-row-gap: clamp(8px, 1.2vh, 16px);
+  --er-paper: var(--bg-base);
+  --er-paper-bright: var(--bg-surface);
+  --er-ink: var(--text-primary);
+  --er-blue: var(--accent);
+  --er-blue-deep: var(--bg-base);
+  --er-red: var(--error);
+  --er-ochre: var(--warning);
+  --er-gray: var(--text-muted);
+  --er-hairline: var(--border);
+  --er-muted: var(--text-secondary);
+  --er-on-field: #ffffff;
+  --er-edge: clamp(16px, 3vw, 40px);
+  --er-column-gap: 16px;
+  --er-row-gap: 16px;
   --er-columns: 12;
-  --er-header-height: 72px;
-  --er-nav-height: 68px;
-  --er-pointer-x: 72vw;
-  --er-pointer-y: 32vh;
-
-  /* 单栏宽度，以及 n 栏跨度（含栏间距）。装饰层与内容共用这一套度量，
-     色块边缘才会落在栏线上。栏数跟着断点走（12 / 8 / 6），所以跨度是
-     相对的：窄屏下同样的「3 栏」占比更大，装饰随版面一起收缩。 */
-  --er-col: calc(
-    (100vw - 2 * var(--er-edge) - (var(--er-columns) - 1) * var(--er-column-gap)) /
-      var(--er-columns)
-  );
-  --er-span-3: calc(3 * var(--er-col) + 2 * var(--er-column-gap));
-  --er-span-4: calc(4 * var(--er-col) + 3 * var(--er-column-gap));
-  --er-span-5: calc(5 * var(--er-col) + 4 * var(--er-column-gap));
+  --er-header-height: 56px;
+  --er-nav-height: 0px;
 }
 
 [data-mode='dark'] {
-  --er-paper: #17181b;
-  --er-paper-bright: #24262b;
-  --er-ink: #f7f2e7;
-  --er-blue: #416da8;
-  --er-blue-deep: #292b55;
-  --er-red: #e15641;
-  --er-ochre: #ddb33f;
-  --er-gray: #8f9594;
-  --er-hairline: rgb(247 242 231 / 24%);
-  --er-muted: rgb(247 242 231 / 58%);
-  /* --er-on-field 不在此处覆盖：见 :root 的说明。 */
+  --er-paper: var(--bg-base);
+  --er-paper-bright: var(--bg-surface);
+  --er-ink: var(--text-primary);
+  --er-blue: var(--accent);
+  --er-blue-deep: var(--bg-base);
+  --er-red: var(--error);
+  --er-ochre: var(--warning);
+  --er-gray: var(--text-muted);
+  --er-hairline: var(--border);
+  --er-muted: var(--text-secondary);
+  --er-on-field: #ffffff;
 }
 
 html,
@@ -68,13 +46,13 @@ body,
 }
 
 html {
-  background: var(--er-paper);
+  background: var(--bg-base);
 }
 
 body {
   overflow: hidden;
-  background: var(--er-paper);
-  color: var(--er-ink);
+  background: var(--bg-base);
+  color: var(--text-primary);
   font-family: var(--font-ui);
   text-rendering: geometricPrecision;
 }
@@ -86,80 +64,43 @@ body {
   box-sizing: border-box;
 }
 
-/* 与 globals 同一条口径：只压模糊的拟物阴影，给 .er-relief / .er-btn 的
-   零模糊偏移实体块留出口。原先这里和 globals 各有一条通配符禁令，把套色
-   错位这个语汇也一并禁掉了。 */
-.er-experience *:not(.er-relief):not(.er-btn),
-.er-experience *:not(.er-relief):not(.er-btn)::before,
-.er-experience *:not(.er-relief):not(.er-btn)::after {
-  box-shadow: none !important;
-}
-
-.er-experience * {
-  border-radius: 0 !important;
-}
-
 .er-experience {
-  --code-bg: #e5e0d4;
-  --code-sidebar-bg: #ddd8cc;
-  --code-fg: #17181b;
-  --code-text: #17181b;
-  --code-text-muted: #686d6c;
-  --code-text-bright: #101114;
-  --code-selection: #b8c8dc;
-  --code-hover: #d4d5d0;
-  --code-border: #aaa89f;
-  --code-folder: var(--er-ochre);
+  --code-bg: var(--bg-surface);
+  --code-sidebar-bg: var(--bg-base);
+  --code-fg: var(--text-primary);
+  --code-text: var(--text-primary);
+  --code-text-muted: var(--text-muted);
+  --code-text-bright: var(--text-primary);
+  --code-selection: var(--accent-subtle);
+  --code-hover: var(--bg-elevated);
+  --code-border: var(--border);
+  --code-folder: var(--accent);
   position: relative;
-  display: grid;
-  grid-template-rows: var(--er-header-height) minmax(0, 1fr) var(--er-nav-height);
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100dvh;
   overflow: hidden;
-  color: var(--er-ink);
-  background: var(--er-paper);
+  color: var(--text-primary);
+  background: var(--bg-base);
   isolation: isolate;
 }
 
 [data-mode='dark'] .er-experience {
-  --code-bg: #111215;
-  --code-sidebar-bg: #17181b;
-  --code-fg: #eee9dd;
-  --code-text: #eee9dd;
-  --code-text-muted: #8f9594;
-  --code-text-bright: #f7f2e7;
-  --code-selection: #292b55;
-  --code-hover: #292b55;
-  --code-border: #3f4148;
-}
-
-.er-experience :where(.glass-panel, .glass-toolbar) {
-  border-color: currentColor !important;
-  background: var(--er-paper-bright) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-.er-experience :where(.app-aurora, .sheen::after, .spotlight::before) {
-  display: none !important;
-}
-
-.er-experience .text-gradient {
-  color: var(--er-ink) !important;
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-}
-
-/* 悬浮上抬与发光属于上一套语言，这里压掉。.press 不在此列 —— 按下反馈
-   是这套语言要的东西，之前被一起压掉，导致全站按钮点下去毫无反应。 */
-.er-experience :where(.btn-glow, .hover-lift, .card-hover) {
-  transform: none !important;
-  filter: none !important;
+  --code-bg: #0f172a;
+  --code-sidebar-bg: #0b0f17;
+  --code-fg: #f8fafc;
+  --code-text: #f8fafc;
+  --code-text-muted: #94a3b8;
+  --code-text-bright: #ffffff;
+  --code-selection: rgba(37, 99, 235, 0.3);
+  --code-hover: #1e293b;
+  --code-border: #334155;
 }
 
 .er-experience :where(button, a, input, textarea, select, [role='button']):focus-visible {
-  outline: 2px solid var(--er-ochre) !important;
-  outline-offset: 4px;
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
 }
 
 .er-experience button,
@@ -169,316 +110,40 @@ body {
   font: inherit;
 }
 
-.er-experience button,
-.er-experience a,
-.er-experience [role='button'] {
-  -webkit-tap-highlight-color: transparent;
-}
-
 .er-skip-link {
   position: fixed;
   z-index: 140;
   top: 10px;
   left: 10px;
-  padding: 10px 14px;
-  /* 底色是会翻转的 --er-ink，前景就必须跟着翻 —— 这里配 --er-paper，
-     不是固定的 --er-on-field（那个只配写死的底色）。 */
-  color: var(--er-paper);
-  background: var(--er-ink);
-  font-size: 11px;
-  letter-spacing: .12em;
+  padding: 8px 16px;
+  border-radius: var(--seed-radius, 8px);
+  color: #ffffff;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
   text-decoration: none;
   transform: translateY(-180%);
+  transition: transform 0.2s ease;
 }
 
 .er-skip-link:focus {
   transform: translateY(0);
 }
 
-/* --------------------------------------------------------------------------
- * Shell geometry
- * ----------------------------------------------------------------------- */
-
-.er-masthead {
-  position: relative;
-  z-index: 30;
-  display: grid;
-  grid-row: 1;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  align-items: stretch;
-  column-gap: var(--er-column-gap);
-  padding: 0 var(--er-edge);
-  border-bottom: 1px solid var(--er-ink);
-  background: var(--er-paper);
-}
-
-.er-brand {
-  grid-column: 1 / 4;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.er-brand__mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  color: var(--er-on-field);
-  background: var(--er-red);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: -.04em;
-}
-
-.er-brand > span:last-child {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-/* 外壳文字分两类，不能共用一条规则。
-   拉丁注记（品牌副题、路由眉标、寄存条、标尺、动效读数）走大写 + 展开字距，
-   在 typography.css 里统一接到等宽字族；
-   中文导航（入口 / 论文库 / 论文分析）绝不能套 uppercase 与 .16em ——
-   汉字没有大小写，展开字距只会把词拆散成一个个孤立的字。 */
-.er-brand small,
-.er-route-meta > span,
-.er-motion-control,
-.er-registration-strip,
-.er-route-rail {
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.er-primary-nav,
-.er-context-nav {
-  font-size: var(--fs-meta);
-  letter-spacing: var(--tr-ui);
-  line-height: 1.2;
-}
-
-/* 字标用展示字族的窄体重字：它是这套语言里唯一一处「标志」，
-   跟着界面字族走会让它退化成一行普通的粗体文字。 */
-.er-brand strong {
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-stretch: 86%;
-  font-weight: 800;
-  letter-spacing: -.005em;
-  text-transform: uppercase;
-}
-
-.er-brand small {
-  overflow: hidden;
-  color: var(--er-muted);
-  font-size: var(--fs-micro);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.er-route-meta {
-  grid-column: 5 / 10;
-  display: grid;
-  align-content: center;
-  gap: 6px;
-  min-width: 0;
-  border-left: 1px solid var(--er-hairline);
-  padding-left: 14px;
-}
-
-.er-route-meta span {
-  color: var(--er-muted);
-}
-
-.er-route-meta strong {
-  overflow: hidden;
-  color: var(--er-ink);
-  font-size: var(--fs-ui);
-  font-weight: 600;
-  letter-spacing: var(--tr-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.er-motion-control {
-  grid-column: 11 / 13;
-  align-self: center;
-  justify-self: end;
-  display: grid;
-  grid-template-columns: 7px auto auto;
-  align-items: center;
-  gap: 9px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-left: 4px solid var(--er-red);
-  color: var(--er-on-field);
-  background: #17181b;
-  cursor: pointer;
-}
-
-.er-motion-control i {
-  width: 7px;
-  height: 7px;
-  background: var(--er-gray);
-  transform: rotate(45deg);
-}
-
-.er-motion-control[aria-pressed='true'] i {
-  background: var(--er-ochre);
-}
-
-.er-motion-control span {
-  color: rgb(247 242 231 / 60%);
-}
-
-.er-motion-control strong {
-  min-width: 43px;
-  font-weight: 800;
-  text-align: left;
-}
-
 .er-content {
   position: relative;
   z-index: 10;
-  display: grid;
-  grid-row: 2;
-  grid-template-rows: 34px minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.er-registration-strip {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
-  padding: 0 var(--er-edge);
-  border-bottom: 1px solid var(--er-hairline);
-  color: var(--er-muted);
-  background: var(--er-paper);
-}
-
-.er-registration-strip__index {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.er-registration-strip__column {
-  justify-self: end;
-  white-space: nowrap;
-}
-
-/* 列位读数。数值由 Layout 写进 --er-cursor-col，这里只负责显示 —— 用
-   content 取变量，省掉每帧一次 React 渲染。 */
-.er-registration-strip__column::after {
-  content: ' ' var(--er-cursor-col, '--') ' / 12';
-}
-
-/* 列位游标：一格宽的底衬，量到光标所在的栏。它落在框架上，不是内容平面上。 */
-.er-registration-strip__cursor {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: var(--er-cursor-w, 0);
-  /* 只留底边一道刻度，不填色。填色的那一版在游标扫过上下文导航时会把
-     「论文集合 / 深度研究」两个标签整块洗淡 —— 框架上的读数同样不该
-     削弱它旁边的功能文字。 */
-  border-bottom: var(--rule-mark) solid var(--er-blue);
-  pointer-events: none;
-  transform: translateX(var(--er-cursor-x, 0));
-  transition: transform var(--dur-tint) var(--ease-carriage);
-}
-
-.er-registration-strip > :not(.er-registration-strip__cursor) {
-  position: relative;
-  z-index: 1;
-}
-
-@media (max-width: 1000px) {
-  .er-registration-strip__column::after { content: ' ' var(--er-cursor-col, '--') ' / 8'; }
-}
-
-@media (pointer: coarse), (max-width: 700px) {
-  .er-registration-strip__cursor { display: none; }
-}
-
-.er-context-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  height: 100%;
-}
-
-.er-context-link {
-  position: relative;
-  display: grid;
-  place-items: center;
-  height: 100%;
-  padding: 0 13px;
-  color: var(--er-muted);
-  font-weight: 550;
-  text-decoration: none;
-}
-
-/* 下划线从左侧展开，而不是整条淡入 —— 和走纸同向，读起来是「推过来」
-   而不是「亮起来」。hover 是预告（弱、窄），active 是确认（实、满）。 */
-.er-context-link::after {
-  position: absolute;
-  right: 13px;
-  bottom: -1px;
-  left: 13px;
-  height: var(--rule-mark);
-  background: currentColor;
-  content: '';
-  opacity: 0;
-  transform: scaleX(0);
-  transform-origin: left;
-  transition:
-    transform var(--dur-tint) var(--ease-snap),
-    opacity var(--dur-press) var(--ease-snap),
-    background-color var(--dur-press) var(--ease-snap);
-}
-
-.er-context-link:is(:hover, [data-active='true']) {
-  color: var(--er-ink);
-}
-
-.er-context-link:hover::after {
-  opacity: .32;
-  transform: scaleX(1);
-}
-
-.er-context-link[data-active='true']::after {
-  background: var(--er-red);
-  opacity: 1;
-  transform: scaleX(1);
-}
-
-.er-context-divider {
-  width: 1px;
-  height: 14px;
-  margin: 0 4px;
-  background: var(--er-hairline);
-}
-
 .er-main {
   position: relative;
+  flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -491,210 +156,10 @@ body {
   min-width: 0;
   height: 100%;
   min-height: 100%;
-  animation: er-page-register var(--dur-page) var(--ease-register) both;
-}
-
-/* 路由标尺。占满左侧留白的整条高度，文字用 writing-mode 竖排而不是
-   rotate() —— 旋转后的盒子宽高互换，实际横向占位由文字长度决定，路由名一长
-   就会伸进内容区。工作区详情页上「02 / WORKSPACE-DETAIL」压住论文首字母
-   方块，就是这么来的。竖排的盒子宽度是可预测的一行高，稳稳待在留白里。 */
-.er-route-rail {
-  position: absolute;
-  z-index: 5;
-  top: var(--er-header-height);
-  bottom: var(--er-nav-height);
-  left: 0;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  width: var(--er-edge);
-  color: var(--er-muted);
-  pointer-events: none;
-}
-
-.er-route-rail::before,
-.er-route-rail::after {
-  width: 1px;
-  background: var(--er-hairline);
-  content: '';
-}
-
-.er-route-rail::before {
-  height: clamp(24px, 12vh, 90px);
-  margin-bottom: 14px;
-}
-
-.er-route-rail::after {
-  height: clamp(24px, 12vh, 90px);
-  margin-top: 14px;
-}
-
-.er-route-rail > span {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  white-space: nowrap;
-}
-
-.er-primary-nav {
-  position: relative;
-  z-index: 40;
-  display: grid;
-  grid-row: 3;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 0 var(--er-edge);
-  border-top: 1px solid var(--er-ink);
-  color: var(--er-ink);
-  background: var(--er-paper);
-}
-
-.er-nav-item {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: 1fr 1fr;
-  align-content: center;
-  column-gap: 10px;
-  min-width: 0;
-  padding: 12px 14px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.er-nav-item + .er-nav-item {
-  border-left: 1px solid var(--er-ink);
-}
-
-.er-nav-item::before {
-  position: absolute;
-  top: -1px;
-  left: 0;
-  width: 22px;
-  height: 5px;
-  background: transparent;
-  content: '';
-  transition:
-    width var(--dur-tint) var(--ease-snap),
-    background-color var(--dur-press) var(--ease-snap);
-}
-
-.er-nav-item span {
-  grid-row: 1 / 3;
-  align-self: center;
-  color: var(--er-muted);
-}
-
-.er-nav-item strong {
-  align-self: end;
-  overflow: hidden;
-  font-size: var(--fs-ui);
-  font-weight: 600;
-  letter-spacing: var(--tr-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.er-nav-item small {
-  align-self: start;
-  overflow: hidden;
-  color: var(--er-muted);
-  font-size: var(--fs-micro);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.er-nav-item:hover::before {
-  width: 34px;
-  background: color-mix(in srgb, var(--er-red) 52%, transparent);
-}
-
-.er-nav-item[data-active='true']::before {
-  width: 48px;
-  background: var(--er-red);
-}
-
-.er-nav-item[data-active='true'] {
-  color: var(--er-on-field);
-  background: #17181b;
-}
-
-.er-nav-item[data-active='true'] span,
-.er-nav-item[data-active='true'] small {
-  color: rgb(247 242 231 / 62%);
-}
-
-/* 深色模式下页面底色本身就是 #17181b —— 沿用同一块墨色当选中态，等于没有
-   选中态。这里和 .er-btn--primary 走同一条口径：整块翻成亮面。 */
-[data-mode='dark'] .er-nav-item[data-active='true'] {
-  color: #17181b;
-  background: var(--er-ink);
-}
-
-[data-mode='dark'] .er-nav-item[data-active='true'] span,
-[data-mode='dark'] .er-nav-item[data-active='true'] small {
-  color: rgb(23 24 27 / 62%);
-}
-
-[data-mode='dark'] .er-motion-control {
-  color: #17181b;
-  background: var(--er-ink);
-}
-
-[data-mode='dark'] .er-motion-control span {
-  color: rgb(23 24 27 / 62%);
-}
-
-/* ──────────────────────────────────────────────────────────────────────
- * 关于装饰层的位置
- *
- * v4 有两个全屏装饰层：跟着光标走的蓝色色块（.er-pointer-aperture），以及
- * 一组锚在栅格上的色块 / 竖轴 / 水平轴（.er-spatial）。两者都铺在内容平面
- * 之下，但页面本身没有不透明背景 —— 于是它们实际显示在列表行、标签、表单
- * 控件的下方并透出来：设置页的 API Key 输入框正中间有一条粉色竖线，论文库
- * 右半屏的状态标签压在一块灰色矩形上。
- *
- * 装饰不能落在内容平面上。这不是审美偏好，而是可读性的下限：一旦破例，
- * 界面就不再有「哪一层是可读的」这回事。
- *
- * 所以两层都删掉，它们承担的「版面是有结构的」这件事改由三处真实构件表达：
- *   1. 左侧留白里的路由标尺（.er-route-rail）—— 装饰待在页边空白里，
- *      这本来就是版面注记该待的地方；
- *   2. 顶部寄存条上的列位游标（.er-registration-strip__cursor）——
- *      把光标位置从「一个色块」变成「一格读数」；
- *   3. 各页面自己的实心色带与边框 —— 结构线由内容自己画。
- * ─────────────────────────────────────────────────────────────────── */
-
-.er-route-wipe {
-  position: fixed;
-  z-index: 120;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 10vw;
-  min-width: 46px;
-  pointer-events: none;
-  background: var(--er-red);
-  transform: translateX(-110%);
-  animation: er-route-wipe var(--dur-run) var(--ease-carriage) both;
-}
-
-.er-route-wipe span {
-  display: none;
-}
-
-@keyframes er-route-wipe {
-  0% { opacity: 0; transform: translateX(-110%); }
-  28% { opacity: .92; }
-  64% { opacity: .92; transform: translateX(1000%); }
-  100% { opacity: 0; transform: translateX(1000%); }
-}
-
-@keyframes er-page-register {
-  from { opacity: 0; transform: translateX(12px); }
-  to { opacity: 1; transform: translateX(0); }
 }
 
 /* --------------------------------------------------------------------------
- * Shared page language
+ * Shared page container
  * ----------------------------------------------------------------------- */
 
 .er-page {
@@ -703,7 +168,7 @@ body {
   min-height: 100%;
   max-width: none !important;
   margin: 0 !important;
-  padding: clamp(28px, 5vh, 56px) var(--er-edge) clamp(48px, 7vh, 80px) !important;
+  padding: clamp(20px, 3vh, 36px) var(--er-edge) clamp(32px, 5vh, 48px) !important;
 }
 
 .er-page--reader,
@@ -713,974 +178,66 @@ body {
   padding: 0 !important;
 }
 
-.er-page :where(h1, .text-display) {
-  font-family: var(--font-display);
-  font-stretch: var(--wdth-heading);
-  font-weight: 900 !important;
-  letter-spacing: -.045em !important;
-  line-height: .94 !important;
-}
-
-.er-page > :where(header, div:first-child) h1 {
-  font-size: clamp(34px, 5vw, 74px) !important;
-}
-
-.er-page :where(.text-label) {
-  color: var(--er-muted) !important;
-  font-size: var(--fs-label) !important;
-  font-weight: 800 !important;
-  letter-spacing: .16em !important;
-}
-
-.er-page :where(input:not(.xterm-helper-textarea), textarea, select) {
-  min-height: 40px;
-  border: 1px solid var(--er-ink) !important;
-  color: var(--er-ink) !important;
-  background: var(--er-paper-bright) !important;
-}
-
-.er-page :where(input, textarea)::placeholder {
-  color: var(--er-muted) !important;
-}
-
-.er-page :where(button) {
-  letter-spacing: .02em;
-}
-
-.er-page :where(button[style*='background'], .bg-blue-500, .bg-blue-600) {
-  border-color: currentColor;
-}
-
-.er-experience .panel-section,
-.er-experience .content-section {
-  border-color: var(--er-hairline) !important;
-  background: transparent !important;
-}
-
-.er-experience .list-row {
-  position: relative;
-  border-bottom: 1px solid var(--er-hairline) !important;
-  color: var(--er-ink);
-  background: transparent !important;
-  transition:
-    color var(--dur-tint) var(--ease-press),
-    background-color var(--dur-tint) var(--ease-press) !important;
-}
-
-.er-experience .list-row::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0;
-  background: var(--er-red);
-  content: '';
-  transition: width var(--dur-tint) var(--ease-snap);
-}
-
-.er-experience .list-row:hover {
-  border-color: var(--er-ink) !important;
-  background: color-mix(in srgb, var(--er-blue) 10%, transparent) !important;
-}
-
-.er-experience .list-row:hover::before {
-  width: 4px;
-}
-
-.er-experience .stat-strip {
-  border: 1px solid var(--er-ink);
-  border-right: 0;
-  border-bottom-color: var(--er-ink) !important;
-  color: var(--er-on-field);
-  background: #17181b;
-}
-
-.er-experience .stat-strip > * {
-  border-right: 1px solid rgb(247 242 231 / 38%);
-  background: transparent;
-}
-
-.er-experience .stat-strip :where(div, span) {
-  color: inherit !important;
-}
-
-.er-experience .stat-strip > *:nth-child(3) {
-  color: #17181b;
-  background: var(--er-blue);
-}
+/* --------------------------------------------------------------------------
+ * Skeleton & Loader
+ * ----------------------------------------------------------------------- */
 
 .er-experience :where(.skeleton, .skeleton-pulse) {
-  background: color-mix(in srgb, var(--er-blue) 14%, var(--er-paper)) !important;
-  animation: er-skeleton 1.4s steps(2, end) infinite;
+  background: var(--bg-elevated) !important;
+  border-radius: var(--seed-radius, 6px);
+  animation: er-skeleton 1.5s ease-in-out infinite;
 }
 
 @keyframes er-skeleton {
-  0%, 100% { opacity: .38; }
-  50% { opacity: .82; }
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
 }
 
-/* --------------------------------------------------------------------------
- * Origin / home
- * ----------------------------------------------------------------------- */
-
-.er-home-hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: repeat(6, minmax(54px, 1fr));
-  gap: var(--er-row-gap) var(--er-column-gap);
-  min-height: min(62vh, 620px);
-  margin: calc(-1 * clamp(28px, 5vh, 56px)) calc(-1 * var(--er-edge)) 32px;
-  padding: clamp(30px, 5vh, 56px) var(--er-edge);
-  overflow: hidden;
-  border-bottom: 1px solid var(--er-ink);
-}
-
-.er-home-hero::before {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 42%;
-  background: var(--er-blue);
-  content: '';
-}
-
-.er-home-hero::after {
-  position: absolute;
-  z-index: 1;
-  top: 31%;
-  right: var(--er-edge);
-  left: var(--er-edge);
-  height: 1px;
-  background: var(--er-ink);
-  opacity: .5;
-  content: '';
-}
-
-.er-home-hero__copy {
-  position: relative;
-  z-index: 2;
-  grid-column: 1 / 8;
-  grid-row: 1 / 6;
-  align-self: center;
-}
-
-.er-home-hero__index {
-  margin: 0 0 18px;
-  font-size: var(--fs-micro);
-  font-weight: 800;
-  letter-spacing: .17em;
-  text-transform: uppercase;
-}
-
-.er-home-hero h1 {
-  display: grid;
-  max-width: 8ch;
-  margin: 0;
-  font-size: clamp(62px, 10.2vw, 154px) !important;
-  line-height: .78 !important;
-  letter-spacing: -.08em !important;
-}
-
-.er-home-hero h1 span:last-child {
-  color: transparent;
-  -webkit-text-stroke: 1.5px var(--er-ink);
-}
-
-.er-home-hero__copy > p:last-child {
-  max-width: 42ch;
-  margin: 26px 0 0;
-  color: var(--er-muted);
-  font-size: 13px;
-  line-height: 1.75;
-}
-
-.er-home-hero__object {
-  position: relative;
-  z-index: 3;
-  grid-column: 8 / 13;
-  grid-row: 2 / 6;
-  display: grid;
-  place-items: center;
-  color: var(--er-on-field);
-}
-
-.er-document-object {
-  position: relative;
-  width: min(21vw, 250px);
-  aspect-ratio: .74;
-  border: 1px solid #17181b;
-  background: var(--er-paper-bright);
-}
-
-.er-document-object::before,
-.er-document-object::after {
-  position: absolute;
-  right: 14%;
-  left: 14%;
-  height: 1px;
-  background: #17181b;
-  content: '';
-  box-shadow: 0 18px 0 #17181b, 0 36px 0 #17181b, 0 72px 0 #17181b;
-}
-
-.er-document-object::before {
-  top: 18%;
-}
-
-.er-document-object::after {
-  top: 66%;
-  right: 46%;
-  box-shadow: none;
-}
-
-.er-document-object > span {
-  position: absolute;
-  right: -18px;
-  bottom: 18%;
-  width: 42%;
-  height: 26%;
-  border-left: 5px solid var(--er-red);
-  background: var(--er-ochre);
-}
-
-.er-home-hero__coordinate {
-  position: absolute;
-  right: var(--er-edge);
-  bottom: 18px;
-  z-index: 3;
-  color: #17181b;
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  letter-spacing: .16em;
-}
-
-.er-home-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr);
-  gap: clamp(28px, 4vw, 58px);
-  align-items: start;
-}
-
-.er-section-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  min-height: 34px;
-  margin-bottom: 0 !important;
-  padding-bottom: 10px;
-  border-bottom: 3px solid var(--er-ink);
-}
-
-/* Upload intake — the whole zone is the primary geometric object. */
-.er-intake {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-}
-
-.er-intake__surface {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(84px, .3fr) 1fr auto;
-  align-items: center;
-  min-height: 152px;
-  padding: 24px 30px;
-  overflow: hidden;
-  border: 1px solid var(--er-ink) !important;
-  border-left: 8px solid var(--er-red) !important;
-  color: var(--er-ink);
-  background: var(--er-paper-bright) !important;
-  cursor: pointer;
-}
-
-.er-intake__surface::after {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 14%;
-  height: 100%;
-  background: var(--er-blue);
-  content: '';
-  opacity: .16;
-}
-
-.er-intake__surface[data-dragging='true'] {
-  color: var(--er-on-field);
-  background: var(--er-blue) !important;
-}
-
-.er-intake__mark {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 76px;
-  border: 1px solid currentColor;
-  color: var(--er-red);
-  background: transparent;
-}
-
-.er-intake__copy {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 7px;
-  padding-right: 22px;
-}
-
-.er-intake__copy strong {
-  font-size: clamp(17px, 2.2vw, 28px);
-  font-weight: 900;
-  letter-spacing: -.035em;
-}
-
-.er-intake__copy span {
-  color: var(--er-muted);
-  font-size: var(--fs-label);
-  letter-spacing: .11em;
-  text-transform: uppercase;
-}
-
-.er-intake__status {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  justify-items: end;
-  gap: 10px;
-  min-width: 130px;
-  color: inherit;
-  font-size: var(--fs-label);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.er-intake__progress {
-  width: 130px;
-  height: 4px;
-  background: var(--er-hairline);
-}
-
-/* 进度条是少数真正该用 linear 的地方：匀速推进才如实反映上传速率，
-   加缓动会让进度「看起来」忽快忽慢。 */
-.er-intake__progress i {
-  display: block;
-  height: 100%;
-  background: var(--er-red);
-  transition: width var(--dur-plane) linear;
-}
-
-.er-intake__error {
-  margin-top: 8px;
-  padding: 10px 14px;
-  border-left: 5px solid var(--er-red);
-  color: var(--er-red);
-  background: color-mix(in srgb, var(--er-red) 8%, transparent);
-  font-size: 12px;
-}
-
-/* --------------------------------------------------------------------------
- * Archive / field / process pages and legacy utility surfaces
- * ----------------------------------------------------------------------- */
-
-.er-page--library > div:first-child,
-.er-page--workspace > div:first-child,
-.er-page--settings > div:first-child,
-.er-page--workspace-detail > div:first-child {
-  border-bottom-color: var(--er-ink) !important;
-}
-
-.er-experience[data-route='library'] .er-page > div:first-child,
-.er-experience[data-route='workspace'] .er-page > div:first-child,
-.er-experience[data-route='settings'] .er-page > div:first-child {
-  position: relative;
-}
-
-.er-experience[data-route='library'] .er-page > div:first-child::after,
-.er-experience[data-route='workspace'] .er-page > div:first-child::after,
-.er-experience[data-route='settings'] .er-page > div:first-child::after {
-  display: block;
-  width: min(180px, 22vw);
-  height: 7px;
-  margin-top: 18px;
-  background: var(--er-red);
-  content: '';
-}
-
-.er-experience :where(.divide-y > :not([hidden]) ~ :not([hidden])) {
-  border-color: var(--er-hairline) !important;
-}
-
-.er-experience :where(.border, .border-t, .border-b, .border-l, .border-r) {
-  border-color: var(--er-hairline) !important;
-}
-
-.er-experience :where(.bg-gray-950, .bg-gray-900, .bg-gray-800) {
-  background-color: var(--er-on-field) !important;
-}
-
-.er-experience :where(.bg-blue-500, .bg-blue-600, .bg-blue-400) {
-  color: #f7f2e7 !important;
-  background-color: var(--er-blue) !important;
-}
-
-.er-experience :where(.text-blue-400, .text-blue-300) {
-  color: var(--er-blue) !important;
-}
-
-.er-experience :where(.text-red-400, .text-red-300) {
-  color: var(--er-red) !important;
-}
-
-.er-experience :where(.bg-red-500, .bg-red-600) {
-  color: #f7f2e7 !important;
-  background: var(--er-red) !important;
-}
-
-.er-experience :where(.bg-green-500) {
-  color: #17181b !important;
-  background: var(--er-ochre) !important;
-}
-
-.er-experience .flip-card {
-  perspective: none;
-}
-
-.er-experience .flip-card-inner,
-.er-experience .flip-card.flipped .flip-card-inner,
-.er-experience .flip-card-back {
-  transform: none !important;
-}
-
-.er-experience .flip-card-back {
-  display: none;
-}
-
-.er-experience .flip-card.flipped .flip-card-front {
-  display: none;
-}
-
-.er-experience .flip-card.flipped .flip-card-back {
-  display: block;
-}
-
-/* Reader, code and graph work surfaces are functional instruments, not cards. */
-.er-experience[data-route='reader'] .er-page-stage,
-.er-experience[data-route='code'] .er-page-stage,
-.er-experience[data-route='research'] .er-page-stage {
-  background: var(--er-paper-bright);
-}
-
-.er-experience[data-route='reader'] .er-page > div,
-.er-experience[data-route='code'] .er-page > div,
-.er-experience[data-route='research'] .er-page > div {
-  border-color: var(--er-ink) !important;
-}
-
-.er-experience[data-route='code'] pre,
-.er-experience[data-route='code'] code,
-.er-experience [data-terminal-panel],
-.er-experience .xterm {
-  font-family: var(--font-mono) !important;
-}
-
-.er-experience [data-terminal-panel] {
-  position: relative;
-  z-index: 35;
-  border-color: #17181b !important;
-  color: #f7f2e7;
-  background: #17181b !important;
-}
-
-.er-experience [data-terminal-panel] [role='button'] {
-  background: #17181b !important;
-}
-
-.er-experience [data-terminal-panel] button {
-  color: #f7f2e7 !important;
-}
-
-/* Dialogs, drawers, toasts and popovers use registered planes. */
-.er-experience [role='dialog'] {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-.er-experience [role='dialog'] > div,
-.er-experience [role='alertdialog'] > div {
-  border: 1px solid var(--er-ink) !important;
-  border-top: 8px solid var(--er-red) !important;
-  background: var(--er-paper-bright) !important;
-}
-
-.er-experience [role='tooltip'] {
-  border: 1px solid #f7f2e7 !important;
-  color: #f7f2e7 !important;
-  background: #17181b !important;
-}
-
-.er-dialog-backdrop {
-  position: fixed;
-  z-index: 200;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 22px;
-  background: rgb(23 24 27 / 72%);
-  animation: er-page-register var(--dur-plane) var(--ease-register) both;
-}
-
-.er-dialog-plane {
-  position: relative;
-  width: min(430px, 100%);
-  padding: 30px;
-  border: 1px solid var(--er-ink);
-  border-top: 8px solid var(--er-red);
-  color: var(--er-ink);
-  background: var(--er-paper-bright);
-}
-
-.er-dialog-plane[data-variant='warning'] {
-  border-top-color: var(--er-ochre);
-}
-
-.er-dialog-code {
-  display: block;
-  margin-bottom: 24px;
-  color: var(--er-muted);
-  font-size: var(--fs-meta);
-  font-weight: 800;
-  letter-spacing: .16em;
-}
-
-.er-dialog-heading {
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 18px;
-  align-items: start;
-}
-
-.er-dialog-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid currentColor;
-}
-
-.er-dialog-title {
-  margin: 0 0 9px;
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: -.035em;
-}
-
-.er-dialog-message {
-  margin: 0;
-  color: var(--er-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.er-dialog-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 30px -30px -30px;
-  border-top: 1px solid var(--er-ink);
-}
-
-.er-dialog-action {
-  min-height: 48px;
-  border: 0;
-  color: var(--er-ink);
-  background: transparent;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .12em;
-}
-
-.er-dialog-action + .er-dialog-action {
-  border-left: 1px solid var(--er-ink);
-}
-
-.er-dialog-action:is(:hover, :focus-visible) {
-  color: var(--er-on-field);
-  background: var(--er-blue);
-}
-
-.er-dialog-action--confirm {
-  color: var(--er-on-field);
-  background: var(--er-red);
-}
-
-.er-dialog-action--confirm[data-variant='warning'] {
-  color: #17181b;
-  background: var(--er-ochre);
-}
-
-.er-route-loading {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 18px;
-  min-height: 240px;
-  color: var(--er-muted);
-  font-size: var(--fs-meta);
-  font-weight: 800;
-  letter-spacing: .16em;
-}
-
-/* Loading register replaces generic circular component styling. */
 .er-loader {
   position: relative;
   display: inline-grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
   gap: 2px;
-  width: var(--er-loader-size, 24px);
-  height: var(--er-loader-size, 24px);
-  animation: er-loader-register 880ms steps(4, end) infinite;
+  width: var(--er-loader-size, 20px);
+  height: var(--er-loader-size, 20px);
+  animation: er-loader-spin 0.8s linear infinite;
 }
 
 .er-loader i {
   display: block;
-  background: var(--er-hairline);
+  border-radius: 2px;
+  background: var(--border);
 }
 
 .er-loader i:first-child,
 .er-loader i:last-child {
-  background: var(--er-red);
+  background: var(--accent);
 }
 
-@keyframes er-loader-register {
+@keyframes er-loader-spin {
   to { transform: rotate(360deg); }
 }
 
 /* --------------------------------------------------------------------------
- * Responsive grid: 12 → 8 → 6
+ * Motion preferences
  * ----------------------------------------------------------------------- */
 
-@media (max-width: 1000px) {
-  :root {
-    --er-columns: 8;
-    --er-header-height: 66px;
-    --er-nav-height: 64px;
-  }
-
-  .er-masthead {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-
-  .er-brand { grid-column: 1 / 4; }
-  .er-route-meta { grid-column: 4 / 7; }
-  .er-motion-control { grid-column: 7 / 9; }
-
-  .er-route-rail { display: none; }
-
-  .er-home-hero {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    min-height: 520px;
-  }
-
-  .er-home-hero::before { width: 38%; }
-  .er-home-hero__copy { grid-column: 1 / 6; }
-  .er-home-hero__object { grid-column: 6 / 9; }
-  .er-document-object { width: min(27vw, 210px); }
-
-  .er-home-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .er-page {
-    padding-top: 32px !important;
-  }
-}
-
-@media (max-width: 700px) {
-  :root {
-    --er-columns: 6;
-    --er-edge: 18px;
-    --er-column-gap: 8px;
-    --er-header-height: 58px;
-    --er-nav-height: 58px;
-  }
-
-  .er-masthead {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  .er-brand {
-    grid-column: 1 / 4;
-    gap: 9px;
-  }
-
-  .er-brand__mark {
-    width: 32px;
-    height: 32px;
-  }
-
-  .er-brand small,
-  .er-route-meta,
-  .er-motion-control span {
-    display: none;
-  }
-
-  .er-motion-control {
-    grid-column: 5 / 7;
-    grid-template-columns: 7px auto;
-    min-height: 34px;
-  }
-
-  .er-route-rail,
-  .er-registration-strip__column {
-    display: none;
-  }
-
-  .er-registration-strip {
-    grid-template-columns: auto 1fr;
-    gap: 8px;
-  }
-
-  .er-context-nav {
-    justify-content: flex-end;
-    overflow-x: auto;
-  }
-
-  .er-context-link {
-    padding: 0 8px;
-    white-space: nowrap;
-  }
-
-  .er-primary-nav {
-    padding: 0;
-  }
-
-  .er-nav-item {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    gap: 2px;
-    padding: 9px 7px;
-    text-align: center;
-  }
-
-  .er-nav-item span,
-  .er-nav-item small {
-    display: none;
-  }
-
-  .er-nav-item strong {
-    align-self: center;
-    font-size: var(--fs-ui);
-  }
-
-  .er-nav-item:is(:hover, [data-active='true'])::before {
-    width: 100%;
-  }
-
-  .er-page {
-    padding: 24px var(--er-edge) 56px !important;
-  }
-
-  .er-page--reader,
-  .er-page--code,
-  .er-page--research {
-    padding: 0 !important;
-  }
-
-  .er-home-hero {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-template-rows: repeat(9, minmax(42px, auto));
-    min-height: 670px;
-    margin-top: -24px;
-    padding-top: 36px;
-  }
-
-  .er-home-hero::before {
-    top: 48%;
-    width: 100%;
-  }
-
-  .er-home-hero::after {
-    top: 48%;
-  }
-
-  .er-home-hero__copy {
-    grid-column: 1 / 7;
-    grid-row: 1 / 5;
-  }
-
-  .er-home-hero h1 {
-    font-size: clamp(56px, 19vw, 92px) !important;
-  }
-
-  .er-home-hero__copy > p:last-child {
-    margin-top: 18px;
-    font-size: 12px;
-  }
-
-  .er-home-hero__object {
-    grid-column: 2 / 6;
-    grid-row: 6 / 10;
-  }
-
-  .er-document-object {
-    width: min(46vw, 190px);
-  }
-
-  .er-intake__surface {
-    grid-template-columns: 60px 1fr;
-    min-height: 138px;
-    padding: 20px;
-  }
-
-  .er-intake__mark {
-    width: 40px;
-    height: 58px;
-  }
-
-  .er-intake__status {
-    grid-column: 1 / 3;
-    justify-items: stretch;
-    width: 100%;
-    margin-top: 18px;
-  }
-
-  .er-intake__progress {
-    width: 100%;
-  }
-
-  .er-experience .stat-strip > * {
-    flex-basis: 50%;
-    border-bottom: 1px solid rgb(247 242 231 / 38%);
-  }
-}
-
-/* A user pause and an OS preference share the exact same degradation path. */
 .er-experience[data-motion='reduced'] *,
 .er-experience[data-motion='reduced'] *::before,
 .er-experience[data-motion='reduced'] *::after {
   scroll-behavior: auto !important;
-  animation-duration: .001ms !important;
+  animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
-  transition-duration: .001ms !important;
-}
-
-.er-experience[data-motion='reduced'] :where(.er-route-wipe, .er-registration-strip__cursor) {
-  display: none;
+  transition-duration: 0.001ms !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-er-motion-override='full']) { scroll-behavior: auto; }
-
   .er-experience:not([data-motion='full']) *,
   .er-experience:not([data-motion='full']) *::before,
   .er-experience:not([data-motion='full']) *::after {
-    animation-duration: .001ms !important;
+    animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
+    transition-duration: 0.001ms !important;
   }
-
-  .er-experience:not([data-motion='full']) .er-route-wipe,
-  .er-experience:not([data-motion='full']) .er-registration-strip__cursor {
-    display: none;
-  }
-}
-
-[data-focus-mode='true'] .er-masthead,
-[data-focus-mode='true'] .er-primary-nav,
-[data-focus-mode='true'] .er-registration-strip,
-[data-focus-mode='true'] .er-route-rail,
-[data-focus-mode='true'] [data-terminal-panel] {
-  display: none !important;
-}
-
-[data-focus-mode='true'] .er-experience {
-  display: block;
-}
-
-[data-focus-mode='true'] .er-content,
-[data-focus-mode='true'] .er-main,
-[data-focus-mode='true'] .er-page-stage {
-  width: 100%;
-  height: 100dvh;
-}
-
-
-/* ═══════════════════════════════════════════════════════════════════
-   可读性与引导层  (P0)
-   1. 装饰性文字降权：保留节奏，交出注意力
-   2. 交互层级：可点的东西必须自证可点
-   3. 前景/背景成对：任何输入控件都不允许出现同色相撞
-   ═══════════════════════════════════════════════════════════════════ */
-
-.er-brand small,
-.er-nav-item small,
-.er-route-rail,
-.er-home-hero__index,
-.er-home-hero__coordinate {
-  font-weight: var(--deco-weight);
-  letter-spacing: var(--deco-tracking);
-  opacity: var(--deco-opacity);
-}
-
-.er-experience :where(button, a[href], [role='button']):not(:disabled):not([aria-disabled='true']) {
-  cursor: pointer;
-}
-
-.er-experience :where(button, a[href], [role='button']):focus-visible {
-  outline: 2px solid var(--er-red);
-  outline-offset: 2px;
-}
-
-/* 可点元素的统一过渡。transform 必须在属性表里 —— 之前不在，所有位移
-   都是瞬跳，这是「按下去很生硬」的直接原因。 */
-.er-experience :where(button, a[href], [role='button']) {
-  transition:
-    color var(--dur-tint) var(--ease-press),
-    background-color var(--dur-tint) var(--ease-press),
-    border-color var(--dur-tint) var(--ease-press),
-    opacity var(--dur-tint) var(--ease-press),
-    transform var(--dur-press) var(--ease-press);
-}
-
-/* 全站压印：按下时沿主轴走 1px。不用 scale —— 缩放属于圆角/柔性语言，
-   硬边平面按下去应该是「移位」，像铅字压进纸里。
-   .er-relief 有更强的压印（本体移到影位、影归零），不参与这一条。 */
-.er-experience
-  :where(button, a[href], [role='button']):not(.er-relief):not(:disabled):not([aria-disabled='true']):active {
-  transform: translate(1px, 1px);
-}
-
-/* 外壳导航的按下反馈走同一条口径，但幅度收到 1px 以内：
-   它们是常驻构件，位移太大会让整个框架看起来在晃。 */
-.er-experience :where(.er-nav-item, .er-context-link, .er-brand, .er-motion-control):active {
-  transform: translateY(1px);
-}
-
-/* 功能性按钮的最小可点面积与字号下限 —— 这是给尚未接入控件系统的按钮
-   的兜底。纯图标按钮（唯一子元素是 svg）不参与，避免撑坏紧凑工具条；
-   .er-btn 也不参与：它自带尺寸档位，而这条规则的特异度是 (0,3,1)，
-   不排除掉会把 sm/lg 两档的高度压成 34px。 */
-.er-page
-  :where(button):not(.er-btn):not([class*='origin-']):not(:has(> svg:only-child)) {
-  min-height: 34px;
-  font-size: max(var(--fs-ui), 1em);
-  font-weight: 700;
-}
-
-/* 输入控件：前景与背景永远成对声明 */
-.er-experience :where(input:not(.xterm-helper-textarea), textarea, select, [contenteditable='true']) {
-  color: var(--er-ink) !important;
-  background: var(--er-paper-bright) !important;
-  -webkit-text-fill-color: var(--er-ink);
-  font-size: max(var(--fs-ui), 1em);
-}
-
-.er-experience :where(input, textarea)::placeholder {
-  color: var(--er-muted) !important;
-  -webkit-text-fill-color: var(--er-muted);
 }

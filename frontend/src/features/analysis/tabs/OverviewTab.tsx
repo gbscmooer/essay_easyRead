@@ -152,6 +152,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
     color: 'var(--text-secondary)',
     backgroundColor: 'var(--bg-surface)',
     border: '1px solid var(--border)',
+    borderRadius: 'var(--seed-radius, 6px)',
     transitionTimingFunction: SPRING,
   } as const
   const onGhostEnter = (e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }
@@ -170,7 +171,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
         <div className="flex flex-wrap items-center gap-2.5">
           {result.venue && (
             <span
-              className="text-[11px] font-medium px-2.5 py-1"
+              className="text-[11px] font-medium px-2.5 py-1 rounded-md"
               style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
             >
               {result.venue}
@@ -227,7 +228,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
       {/* One-sentence contribution — surface-tinted highlight (no left-border accent card) */}
       {result.one_sentence && (
         <div
-          className="py-4"
+          className="p-4 rounded-xl border border-blue-500/15 shadow-xs"
           style={{ backgroundColor: 'var(--accent-subtle)' }}
         >
           <p className="text-label mb-2" style={{ color: 'var(--accent)' }}>核心一句</p>
@@ -253,7 +254,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
             {result.key_contributions.map((item, idx) => (
               <li key={idx} className="flex gap-3.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
                 <span
-                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[11px] font-medium tabular-nums mt-px"
+                  className="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-medium tabular-nums mt-px"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
                 >
                   {idx + 1}

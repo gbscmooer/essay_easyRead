@@ -102,16 +102,16 @@ function seedsToColors(seeds: SeedTokens): ThemeColors {
   return {
     bg_base: seeds.bg,
     bg_surface: seeds.surface,
-    bg_elevated: dark ? mixHex(seeds.surface, '#ffffff', 0.06) : mixHex(seeds.surface, '#000000', 0.03),
-    border: dark ? mixHex(seeds.bg, '#ffffff', 0.10) : mixHex(seeds.bg, '#000000', 0.10),
-    border_light: dark ? mixHex(seeds.bg, '#ffffff', 0.18) : mixHex(seeds.bg, '#000000', 0.18),
+    bg_elevated: dark ? mixHex(seeds.surface, '#ffffff', 0.08) : '#f1f5f9',
+    border: dark ? mixHex(seeds.surface, '#ffffff', 0.12) : '#e2e8f0',
+    border_light: dark ? mixHex(seeds.surface, '#ffffff', 0.20) : '#cbd5e1',
     text_primary: seeds.fg,
-    text_secondary: dark ? mixHex(seeds.fg, seeds.bg, 0.25) : mixHex(seeds.fg, '#ffffff', 0.20),
+    text_secondary: dark ? '#cbd5e1' : '#334155',
     text_muted: seeds.muted,
     accent: seeds.accent,
-    success: dark ? '#7f9f76' : '#557a55',
-    warning: '#d3a52f',
-    error: '#d94a38',
+    success: dark ? '#34d399' : '#16a34a',
+    warning: dark ? '#fbbf24' : '#d97706',
+    error: dark ? '#f87171' : '#dc2626',
   }
 }
 
@@ -123,7 +123,7 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
     surface: c.bg_surface,
     accent: c.accent,
     muted: c.text_muted,
-    radius: 0,
+    radius: 8,
   }
 }
 
@@ -131,29 +131,29 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
  * 内置预设
  * ============================================================ */
 
-// Experience Lab 构成主义纸面：暖纸、钴蓝、信号红与硬边几何。
+// 现代化学术精读界面：清晰、高对比度、无干扰护眼
 const LIGHT_SEEDS: SeedTokens = {
-  bg: '#eee9dd',
-  fg: '#17181b',
-  surface: '#f7f2e7',
-  accent: '#3969a8',
-  muted: '#707574',
-  radius: 0,
+  bg: '#f8fafc',
+  fg: '#0f172a',
+  surface: '#ffffff',
+  accent: '#2563eb',
+  muted: '#64748b',
+  radius: 8,
 }
 
 const DARK_SEEDS: SeedTokens = {
-  bg: '#17181b',
-  fg: '#f7f2e7',
-  surface: '#222329',
-  accent: '#5f83b5',
-  muted: '#9a9d99',
-  radius: 0,
+  bg: '#0b0f17',
+  fg: '#f8fafc',
+  surface: '#131c2e',
+  accent: '#3b82f6',
+  muted: '#94a3b8',
+  radius: 8,
 }
 
 export const BUILTIN_THEMES: Theme[] = [
   {
     id: 'light',
-    name: '构成纸面',
+    name: '明亮',
     builtin: true,
     seeds: LIGHT_SEEDS,
     colors: seedsToColors(LIGHT_SEEDS),

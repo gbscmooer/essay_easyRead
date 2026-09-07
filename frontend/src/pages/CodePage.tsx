@@ -124,12 +124,11 @@ export default function CodePage() {
 
   if (loading) {
     return (
-      <div className="er-page er-page--code er-code-state" data-state="loading" role="status" aria-label="正在加载代码与分析">
-        <span className="er-code-state__register" aria-hidden="true">05 / CODE—TRACE / REGISTERING</span>
+      <div className="er-page er-page--code er-code-state flex flex-col items-center justify-center h-full gap-4" data-state="loading" role="status" aria-label="正在加载代码与分析">
         <LoadingSpinner size="lg" />
-        <div>
-          <strong>正在登记代码工作面</strong>
-          <p>正在加载代码与分析…</p>
+        <div className="text-center">
+          <strong className="text-[15px] text-[var(--text-primary)] block mb-1 font-medium">正在加载代码</strong>
+          <p className="text-[13px] text-[var(--text-muted)]">正在读取代码仓库与依赖分析…</p>
         </div>
       </div>
     )
@@ -137,12 +136,11 @@ export default function CodePage() {
 
   if (error || !paper) {
     return (
-      <div className="er-page er-page--code er-code-state" data-state="error" role="alert">
-        <span className="er-code-state__register" aria-hidden="true">05 / CODE—TRACE / INTERRUPTED</span>
-        <span className="er-code-state__signal" aria-hidden="true">!</span>
-        <div>
-          <strong>代码工作面未建立</strong>
-          <p>{error || '论文不存在'}</p>
+      <div className="er-page er-page--code er-code-state flex flex-col items-center justify-center h-full gap-4" data-state="error" role="alert">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center text-xl font-bold">!</div>
+        <div className="text-center">
+          <strong className="text-[15px] text-[var(--text-primary)] block mb-1 font-medium">代码暂不可用</strong>
+          <p className="text-[13px] text-[var(--text-secondary)]">{error || '论文不存在'}</p>
         </div>
       </div>
     )

@@ -52,7 +52,7 @@ export function MethodTab({ result }: MethodTabProps) {
               {pipelineSteps.map((step, idx) => (
                 <div key={idx} className="relative flex items-start gap-3">
                   {/* 节点 */}
-                  <div className="absolute -left-[19px] top-1.5 w-2 h-2 z-10" style={{ backgroundColor: 'var(--bg-surface)', border: '1.5px solid var(--border-light)' }} />
+                  <div className="absolute -left-[19px] top-1.5 w-2.5 h-2.5 rounded-full z-10" style={{ backgroundColor: 'var(--bg-surface)', border: '1.5px solid var(--border-light)' }} />
                   <div>
                     <span className="text-[11px] font-medium block mb-1" style={{ color: 'var(--text-muted)' }}>步骤 {idx + 1}</span>
                     <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{step}</p>
@@ -68,7 +68,7 @@ export function MethodTab({ result }: MethodTabProps) {
       {method.key_modules && method.key_modules.length > 0 && (
         <section>
           <h2 className="text-heading text-[15px] mb-3.5" style={{ color: 'var(--text-primary)' }}>关键模块</h2>
-          <div className="overflow-hidden" style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="overflow-hidden rounded-lg border border-[var(--border)]">
             <table className="w-full text-[13px]">
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>

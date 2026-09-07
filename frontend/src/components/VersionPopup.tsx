@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '5.4.0'
+const APP_VERSION = '5.5.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-09-07',
   changes: [
-    '多源全文 PDF 下载引擎增强：集成 Unpaywall、Europe PMC、出版商规律直链与 Elsevier API 直连',
-    '出版商着陆页智能解析：自动提取 citation_pdf_url 真实 PDF 链接，支持多源级联回退与受控并发下载',
-    '新增领域探索评测体系（Eval Harness）：支持与基线大模型参数记忆直答进行两臂对照实验',
-    '评测指标覆盖查新判定准确率、证据 DOI 可核验率、时效性分析与检索未命中如实报告能力',
+    '全面重构前端视觉与排版体系：移除生硬的构造主义/野兽派装饰，建立以学者阅读效率为中心的清晰、高可读界面',
+    '导航与布局轻量化：重构为 56px 现代化统一顶栏，支持单键亮色/暗色主题无缝切换与全域快捷键',
+    '阅读与分析体验升级：优化精读 Tab 页面排版、信息卡片留白与圆角层次，提升核心贡献、方法步骤与问答的阅读舒适度',
+    '全面消除样式强制覆盖：解除输入框、列表行与图表容器的零圆角与纯平限制，恢复自然的悬停反馈与视觉层次',
   ],
 }
 

@@ -157,7 +157,7 @@ export default function ExplorePage() {
   return (
     <div className="er-page er-page--explore">
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">Question / Domain Survey—03</p>
+        <p className="er-page-head__eyebrow">领域探索 · 问句驱动的免读领域认知</p>
         <h1 className="er-page-head__title">领域探索</h1>
         <p className="ex-lead">
           提一个问题，系统自动拆解检索式、检索真实文献、统计被引与突增、聚类子方向，

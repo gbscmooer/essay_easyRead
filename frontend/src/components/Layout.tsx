@@ -10,10 +10,8 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
-  type RefObject,
 } from 'react'
 import { Link, useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import { TerminalPanel } from './TerminalPanel'
@@ -21,7 +19,7 @@ import { ThemeProvider } from './ThemeProvider'
 import { VersionPopup } from './VersionPopup'
 import { ShortcutHelp } from './ShortcutHelp'
 import { ConfirmDialog } from '@/ds-entry'
-import { useConfigDirty } from '@/hooks/useConfig'
+import { useConfigDirty, useUIConfig, setUIPreview } from '@/hooks/useConfig'
 import { setHelpCallback, useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useMotionPreference } from '@/hooks/useMotionPreference'
 
@@ -41,11 +39,11 @@ interface RouteVisual {
 }
 
 const primaryNav = [
-  { path: '/', index: '00', label: '入口', register: 'ORIGIN' },
-  { path: '/library', index: '01', label: '论文库', register: 'ARCHIVE' },
-  { path: '/workspace', index: '02', label: '工作区', register: 'FIELD' },
-  { path: '/explore', index: '03', label: '领域探索', register: 'SCOUT' },
-  { path: '/settings', index: '04', label: '设置', register: 'SYSTEM' },
+  { path: '/', label: '首页' },
+  { path: '/library', label: '论文库' },
+  { path: '/workspace', label: '工作区' },
+  { path: '/explore', label: '领域探索' },
+  { path: '/settings', label: '设置' },
 ] as const
 
 function routeVisual(pathname: string): RouteVisual {
@@ -96,58 +94,6 @@ function useCurrentWorkspaceId(): number | null {
   return match ? Number(match[1]) : null
 }
 
-/**
- * 指针位置 → 顶部寄存条上的游标刻度。
- *
- * 上一版把它做成一个跟着光标走的蓝色色块，浮在 z-index 2 的全屏层上 ——
- * 于是它会压在列表行、输入框和标签上面。装饰不能落在内容平面上：这条规则
- * 一旦破例，界面就再没有「哪一层是可读的」这回事。
- *
- * 现在同一个信号被移到顶部寄存条里，变成一格量到列位的游标。它落在框架上，
- * 永远不与内容重叠，而且刚好说明了这套栅格有几栏 —— 从纯装饰变成了读数。
- */
-function useGridPointer(rootRef: RefObject<HTMLDivElement>, enabled: boolean) {
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root || !enabled || !window.matchMedia('(pointer: fine)').matches) return
-
-    let frame = 0
-    let nextX = window.innerWidth * 0.5
-
-    const commit = () => {
-      frame = 0
-      const width = window.innerWidth
-      const columns = width <= 700 ? 6 : width <= 1000 ? 8 : 12
-      const edge = width <= 700 ? 18 : Math.min(64, Math.max(22, width * 0.04))
-      const usable = Math.max(1, width - edge * 2)
-      const step = usable / columns
-      const column = Math.min(columns - 1, Math.max(0, Math.floor((nextX - edge) / step)))
-
-      root.style.setProperty('--er-cursor-x', `${edge + column * step}px`)
-      root.style.setProperty('--er-cursor-w', `${step}px`)
-      root.style.setProperty('--er-cursor-col', `"${String(column + 1).padStart(2, '0')}"`)
-    }
-
-    const onPointerMove = (event: PointerEvent) => {
-      nextX = event.clientX
-      if (!frame) frame = requestAnimationFrame(commit)
-    }
-
-    const onResize = () => {
-      if (!frame) frame = requestAnimationFrame(commit)
-    }
-
-    commit()
-    window.addEventListener('pointermove', onPointerMove, { passive: true })
-    window.addEventListener('resize', onResize, { passive: true })
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [enabled, rootRef])
-}
-
 interface ContextLinkProps {
   to: string
   active: boolean
@@ -156,7 +102,16 @@ interface ContextLinkProps {
 
 function ContextLink({ to, active, children }: ContextLinkProps) {
   return (
-    <Link className="er-context-link" data-active={active || undefined} aria-current={active ? 'page' : undefined} to={to}>
+    <Link
+      className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+        active
+          ? 'bg-[var(--bg-surface)] text-[var(--accent)] font-semibold shadow-xs'
+          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+      }`}
+      data-active={active || undefined}
+      aria-current={active ? 'page' : undefined}
+      to={to}
+    >
       {children}
     </Link>
   )
@@ -165,11 +120,21 @@ function ContextLink({ to, active, children }: ContextLinkProps) {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const rootRef = useRef<HTMLDivElement>(null)
   const visual = useMemo(() => routeVisual(location.pathname), [location.pathname])
   const paperId = useCurrentPaperId()
   const workspaceId = useCurrentWorkspaceId()
   const configDirty = useConfigDirty()
+  const uiConfig = useUIConfig()
+  const isDark = uiConfig.theme === 'dark'
+
+  const toggleTheme = useCallback(() => {
+    const next = isDark ? 'light' : 'dark'
+    setUIPreview({ theme: next })
+    try {
+      localStorage.setItem('essay_theme', next)
+    } catch {}
+  }, [isDark])
+
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
     currentLocation.pathname.startsWith('/settings')
     && nextLocation.pathname !== currentLocation.pathname
@@ -180,7 +145,6 @@ export function Layout({ children }: LayoutProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
 
-  useGridPointer(rootRef, motion.enabled)
   useGlobalShortcuts(navigate)
 
   const toggleShortcuts = useCallback(() => setShowShortcuts(value => !value), [])
@@ -202,7 +166,6 @@ export function Layout({ children }: LayoutProps) {
     contextItems.push(
       <ContextLink key="reader" to={`/reader/${paperId}`} active={location.pathname.startsWith('/reader')}>论文分析</ContextLink>,
       <ContextLink key="code" to={`/code/${paperId}`} active={location.pathname.startsWith('/code')}>源码分析</ContextLink>,
-      <span className="er-context-divider" key="divider" aria-hidden="true" />,
       <ContextLink key="back" to={backTo} active={false}>{workspaceMatch ? '返回工作区' : '返回论文库'} ↑</ContextLink>,
     )
   } else if (workspaceId) {
@@ -215,73 +178,113 @@ export function Layout({ children }: LayoutProps) {
   return (
     <ThemeProvider>
       <div
-        ref={rootRef}
-        className="er-experience"
+        className="er-experience flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)]"
         data-scene={visual.scene}
         data-route={visual.route}
         data-motion={motion.enabled ? 'full' : 'reduced'}
       >
-        <a className="er-skip-link" href="#er-main-content">跳到主要内容</a>
+        <a className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-blue-600 focus:text-white focus:rounded-md" href="#er-main-content">跳到主要内容</a>
 
-        <div className="er-route-wipe" aria-hidden="true"><span /></div>
+        {/* 现代化顶部导航栏 */}
+        <header className="h-14 shrink-0 px-4 sm:px-6 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center justify-between z-30 select-none">
+          {/* 左侧：Logo 与主导航 */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Link to="/" className="flex items-center gap-2.5 group">
+                <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs group-hover:scale-105 transition-transform">
+                  论
+                </span>
+                <span className="font-bold text-[15px] tracking-tight text-[var(--text-primary)]">
+                  论文精读
+                </span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowVersion(true)}
+                className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-[var(--border)] cursor-pointer"
+                title="查看版本与更新日志"
+                aria-label="查看论文精读辅助分析软件版本信息"
+              >
+                v5.4
+              </button>
+            </div>
 
-        <header className="er-masthead">
-          <button className="er-brand" type="button" onClick={() => setShowVersion(true)} aria-label="查看论文精读辅助分析软件版本信息">
-            <span className="er-brand__mark" aria-hidden="true">论</span>
-            <span><strong>论文精读辅助分析软件</strong><small>学术文献精读与分析</small></span>
-          </button>
-          <div className="er-route-meta">
-            <span>{visual.eyebrow}</span>
-            <strong>{visual.title}</strong>
+            {/* 主要导航 */}
+            <nav className="flex items-center gap-1" aria-label="主要导航">
+              {primaryNav.map(item => {
+                const active = isNavActive(item.path, location.pathname)
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
+                      active
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 font-semibold shadow-2xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+                    }`}
+                    data-active={active || undefined}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
           </div>
-          <button
-            className="er-motion-control"
-            type="button"
-            aria-pressed={motion.enabled}
-            aria-label={motion.enabled ? '关闭界面动效' : '开启界面动效'}
-            onClick={motion.toggle}
-          >
-            <i aria-hidden="true" />
-            <span aria-hidden="true">MOTION</span>
-            <strong aria-hidden="true">{motion.enabled ? 'ACTIVE' : 'PAUSED'}</strong>
-          </button>
+
+          {/* 右侧：上下文导航与操作按钮 */}
+          <div className="flex items-center gap-3">
+            {contextItems.length > 0 && (
+              <nav className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]" aria-label="当前内容导航">
+                {contextItems}
+              </nav>
+            )}
+
+            <div className="flex items-center gap-1 border-l border-[var(--border)] pl-2 sm:pl-3">
+              {/* 主题切换 */}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer"
+                title={isDark ? '切换至明亮模式' : '切换至深色模式'}
+                aria-label="切换主题颜色"
+              >
+                {isDark ? (
+                  <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                )}
+              </button>
+
+              {/* 快捷键帮助 */}
+              <button
+                type="button"
+                onClick={toggleShortcuts}
+                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer"
+                title="键盘快捷键 (?)"
+                aria-label="快捷键帮助"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </header>
 
-        <aside className="er-route-rail" aria-hidden="true">
-          <span>{visual.index} / {visual.route.toUpperCase()}</span>
-        </aside>
-
-        <div className="er-content">
-          <div className="er-registration-strip">
-            <i className="er-registration-strip__cursor" aria-hidden="true" />
-            <span className="er-registration-strip__index">{visual.index}—{visual.register}</span>
-            {contextItems.length > 0 && <nav className="er-context-nav" aria-label="当前内容导航">{contextItems}</nav>}
-            <span className="er-registration-strip__column" aria-hidden="true">COL</span>
-          </div>
-          <main id="er-main-content" className="er-main" tabIndex={-1}>
-            <div className="er-page-stage" key={location.pathname}>{children}</div>
+        {/* 主内容区域 */}
+        <div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative">
+          <main id="er-main-content" className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative" tabIndex={-1}>
+            <div className="h-full w-full overflow-auto flex flex-col" key={location.pathname}>
+              {children}
+            </div>
           </main>
           <TerminalPanel />
         </div>
-
-        <nav className="er-primary-nav" aria-label="主要导航">
-          {primaryNav.map(item => {
-            const active = isNavActive(item.path, location.pathname)
-            return (
-              <Link
-                key={item.path}
-                className="er-nav-item"
-                data-active={active || undefined}
-                aria-current={active ? 'page' : undefined}
-                to={item.path}
-              >
-                <span>{item.index}</span>
-                <strong>{item.label}</strong>
-                <small>{item.register}</small>
-              </Link>
-            )
-          })}
-        </nav>
 
         {showVersion && <VersionPopup onClose={() => setShowVersion(false)} />}
         <ShortcutHelp open={showShortcuts} onClose={toggleShortcuts} />

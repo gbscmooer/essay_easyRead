@@ -1,10 +1,5 @@
 /*
- * 设置 / Protocol
- *
- * 一页里有二十多个表单控件，所以这里最要紧的不是「好看」，是同一类东西必须
- * 长得一模一样：所有输入框一档高度、所有分组同一种起头方式、所有滑块同一种
- * 刻度。v4 之前每个 section 各写各的 `px-3 py-2 rounded-lg` 加一段内联
- * borderColor，同一列里三个输入框的高度都对不齐。
+ * 设置 / Settings
  */
 
 .er-page--settings {
@@ -22,10 +17,11 @@
   grid-template-columns: 18px minmax(0, 1fr);
   gap: var(--s2) var(--s3);
   margin-top: var(--s4);
-  padding: var(--s3);
-  border-left: var(--rule-bar) solid var(--error);
-  color: var(--error);
-  background: var(--error-subtle);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--warning);
+  border-radius: var(--seed-radius, 8px);
+  color: var(--warning);
+  background: var(--warning-subtle);
 }
 
 .set-alert > svg {
@@ -38,14 +34,14 @@
   display: block;
   margin-bottom: 4px;
   font-size: var(--fs-ui);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .set-alert p {
   margin: 0;
   font-size: var(--fs-meta);
   line-height: var(--lh-normal);
-  opacity: 0.88;
+  opacity: 0.9;
 }
 
 /* ── 主体 ──────────────────────────────────────────────────────────── */
@@ -61,22 +57,20 @@
   gap: var(--s5);
 }
 
-/* ── 配置分组 ──────────────────────────────────────────────────────
-   分组用左侧色条标出范围，而不是再画一个盒子。一页里若有二十个盒子，
-   盒子本身就不再是「一组」的信号了。 */
+/* ── 配置分组 ────────────────────────────────────────────────────── */
 
 .set-group,
 .panel-section {
   display: grid;
   gap: var(--s3);
-  padding-left: var(--s3);
-  border-left: var(--rule-bar) solid var(--border-light);
-  border-top: 0;
-  padding-top: 0;
+  padding: var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-surface);
 }
 
 .set-group[data-incomplete] {
-  border-left-color: var(--error);
+  border-color: var(--error);
 }
 
 .set-group__head {
@@ -96,12 +90,9 @@
 .set-group__title {
   margin: 0;
   color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: var(--fs-h3);
-  font-stretch: var(--wdth-heading);
-  font-weight: 700;
-  letter-spacing: var(--tr-heading);
-  line-height: var(--lh-tight);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .set-group__hint {
@@ -129,12 +120,12 @@
 }
 
 .set-key__input[data-missing] {
-  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+  border-color: var(--error);
 }
 
 .set-key__reveal {
   position: absolute;
-  right: 3px;
+  right: 6px;
 }
 
 /* ── 高级参数折叠 ─────────────────────────────────────────────────── */
@@ -151,7 +142,7 @@
   font-family: inherit;
   font-size: var(--fs-meta);
   font-weight: 500;
-  transition: color var(--dur-tint) var(--ease-press);
+  transition: color 0.15s ease;
 }
 
 .set-advanced__handle:hover {
@@ -164,7 +155,7 @@
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   border-left: 6px solid currentColor;
-  transition: transform var(--dur-tint) var(--ease-snap);
+  transition: transform 0.15s ease;
 }
 
 .set-advanced__handle[aria-expanded='true'] .set-advanced__caret {
@@ -176,12 +167,10 @@
   gap: var(--s4);
   margin-top: var(--s3);
   padding-left: var(--s3);
-  border-left: var(--rule-hair) solid var(--border);
+  border-left: 1px solid var(--border);
 }
 
-/* ── 滑块 ──────────────────────────────────────────────────────────
-   原生 range 在硬边语言里必须重画：默认外观是圆角轨道 + 圆形滑块，
-   通配符只能把圆角压掉，留下一个被削平的塑料件。 */
+/* ── 滑块 ────────────────────────────────────────────────────────── */
 
 .set-slider {
   display: grid;
@@ -197,16 +186,16 @@
 }
 
 .set-slider__head output {
-  color: var(--text-primary);
+  color: var(--accent);
   font-family: var(--font-mono);
   font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .set-slider input[type='range'] {
   width: 100%;
-  height: 22px;
+  height: 20px;
   margin: 0;
   background: transparent;
   cursor: pointer;
@@ -214,34 +203,45 @@
 }
 
 .set-slider input[type='range']::-webkit-slider-runnable-track {
-  height: 3px;
-  background: var(--border-light);
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--border);
 }
 
 .set-slider input[type='range']::-webkit-slider-thumb {
-  width: 5px;
-  height: 19px;
-  margin-top: -8px;
-  border: 0;
-  background: var(--error);
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   appearance: none;
+  transition: transform 0.1s ease;
+}
+
+.set-slider input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
 }
 
 .set-slider input[type='range']::-moz-range-track {
-  height: 3px;
-  background: var(--border-light);
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--border);
 }
 
 .set-slider input[type='range']::-moz-range-thumb {
-  width: 5px;
-  height: 19px;
-  border: 0;
-  border-radius: 0;
-  background: var(--error);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: var(--accent);
+  cursor: pointer;
 }
 
 .set-slider input[type='range']:focus-visible::-webkit-slider-thumb {
-  outline: 2px solid var(--warning);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -249,15 +249,12 @@
   display: flex;
   justify-content: space-between;
   color: var(--text-muted);
-  font-family: var(--font-register);
-  font-size: var(--fs-micro);
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tr-label);
 }
 
-/* ── 保存栏 ────────────────────────────────────────────────────────
-   贴底粘性。上边框是它与内容的分界；主按钮带偏移块，所以栏内要留出
-   影的落点，否则影会被上边框切掉半截（v4 就是这样）。 */
+/* ── 保存栏 ──────────────────────────────────────────────────────── */
 
 .set-savebar {
   position: sticky;
@@ -267,12 +264,12 @@
   align-items: center;
   gap: var(--s3);
   padding: var(--s3) 0 var(--s4);
-  border-top: var(--rule-hair) solid var(--text-primary);
+  border-top: 1px solid var(--border);
   background: var(--bg-base);
 }
 
 .set-savebar__submit {
-  min-width: 180px;
+  min-width: 140px;
 }
 
 .set-savebar__state {
@@ -290,10 +287,6 @@
   height: 15px;
 }
 
-/* ── 服务商预设 ───────────────────────────────────────────────────── */
-
-/* .er-field 是 grid，子项默认 stretch —— 分段控件会被拉满整行宽，
-   两个只有几个字的选项之间出现一段空白。它是一组选项，不是一条输入框。 */
 .set-presets {
   justify-self: start;
 }
