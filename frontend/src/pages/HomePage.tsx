@@ -13,69 +13,22 @@ import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
 import { UploadZone } from '@/features/upload/UploadZone'
 import { toast } from '@/hooks/useToast'
 import type { Paper } from '@/types'
-import '@/styles/home.css'
-
-interface StatTileProps {
-  index: string
-  label: string
-  value: number
-  hint: string
+const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  done: { label: '已完成', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60', dot: 'bg-emerald-500' },
+  extracting: { label: '提取中', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60', dot: 'bg-blue-500 animate-pulse' },
+  analyzing: { label: '分析中', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60', dot: 'bg-blue-500 animate-pulse' },
+  indexed: { label: '待解析', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60', dot: 'bg-amber-500' },
+  failed: { label: '解析失败', color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60', dot: 'bg-rose-500' },
+  pending: { label: '待处理', color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700', dot: 'bg-gray-400' },
 }
 
-function StatTile({ index, label, value, hint }: StatTileProps) {
+function StatusBadge({ status }: { status: string }) {
+  const conf = STATUS_MAP[status] ?? STATUS_MAP.pending
   return (
-    <div className="origin-stat">
-      <span className="origin-stat__index" aria-hidden="true">{index}</span>
-      <strong className="origin-stat__value">{String(value).padStart(2, '0')}</strong>
-      <span className="origin-stat__label">{label}</span>
-      <small>{hint}</small>
-    </div>
-  )
-}
-
-interface QuickEntryProps {
-  index: string
-  title: string
-  description: string
-  onClick: () => void
-}
-
-function QuickEntry({ index, title, description, onClick }: QuickEntryProps) {
-  return (
-    <button className="origin-quick-entry" type="button" onClick={onClick}>
-      <span className="origin-quick-entry__index" aria-hidden="true">{index}</span>
-      <span className="origin-quick-entry__copy">
-        <strong>{title}</strong>
-        <small>{description}</small>
-      </span>
-      <span className="origin-quick-entry__arrow" aria-hidden="true">&#8599;</span>
-    </button>
-  )
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  done: '已完成',
-  indexed: '已索引 · 待解析',
-  failed: '失败',
-  pending: '尚未解析',
-}
-
-function statusLabel(status: string) {
-  return STATUS_LABELS[status] ?? '处理中'
-}
-
-function LoadingLedger() {
-  return (
-    <div className="origin-ledger-loading" role="status" aria-live="polite">
-      <span className="origin-visually-hidden">正在载入最近论文</span>
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div className="origin-ledger-loading__row" key={index} aria-hidden="true">
-          <i />
-          <span><i /><i /></span>
-          <i />
-        </div>
-      ))}
-    </div>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${conf.bg} ${conf.color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${conf.dot}`} />
+      {conf.label}
+    </span>
   )
 }
 
@@ -142,180 +95,254 @@ export default function HomePage() {
   }
 
   return (
-    <div className="origin-home">
-      <section className="origin-home__hero" aria-labelledby="origin-home-title">
-        <header className="origin-home__registration">
-          <span>论文精读 / 入口</span>
-          <span>RESEARCH INTAKE—00</span>
-          <span>31.2304° N / 121.4737° E</span>
-        </header>
-
-        <div className="origin-home__copy">
-          <p className="origin-home__scene-index">SCENE—00 / 论文输入协议</p>
-          <h1 id="origin-home-title">
-            <span>读懂</span>
-            <span>一篇论文</span>
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      {/* Hero 区域 */}
+      <section className="flex flex-col gap-6" aria-labelledby="home-title">
+        <div className="flex flex-col gap-2">
+          <div className="inline-flex items-center gap-2 self-start px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            面向研究者的学术文献精读系统
+          </div>
+          <h1 id="home-title" className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text-primary)]">
+            论文精读与深度分析
           </h1>
-          <p className="origin-home__descriptor">
-            上传 PDF，自动提取方法、实验与代码映射。所有证据从同一份文档出发，进入可追踪的研究阅读流程。
+          <p className="text-sm text-[var(--text-secondary)] max-w-2xl leading-relaxed">
+            上传 PDF 文档，AI 自动提炼核心贡献、方法细节、实验评估与开源代码映射，助您免除逐行硬读即可高效把握前沿要点。
           </p>
         </div>
 
-        {/* 圆盘与文档相互压边：文档从圆盘里探出来，而不是被摆在正中间。
-            正中间的构图没有张力，读起来是一个图标；压边才是一个构成。 */}
-        <div className="origin-home__mass" aria-hidden="true">
-          <i className="origin-home__disc" />
-          <div className="origin-home__paper-object">
-            <span>PDF / 01</span>
-            <i />
-            <i />
-            <i />
-            <b />
-            <small>METHOD · EVIDENCE · CODE</small>
-          </div>
-        </div>
-
-        {/* 投放区是这一页唯一的行动，所以它占满整条底边 —— 整个平面的进料口，
-            而不是右下角一个孤立的方块。 */}
-        <div className="origin-home__intake">
+        {/* 拖拽上传区 */}
+        <div className="w-full">
           <UploadZone
             onUpload={handleUpload}
             isUploading={isUploading}
             uploadProgress={uploadProgress}
           />
           {uploadError && (
-            <p className="origin-home__upload-error" role="alert">{uploadError}</p>
+            <p className="mt-2 text-xs text-rose-500 font-medium" role="alert">{uploadError}</p>
           )}
         </div>
       </section>
 
-      <section className="origin-home__stats" aria-label="研究资料统计">
-        <StatTile index="01" label="论文库" value={stats.papers} hint="已上传精读" />
-        <StatTile index="02" label="工作区" value={stats.workspaces} hint={`${stats.wsPapers} 篇藏书`} />
-        <StatTile index="03" label="扩展发现" value={stats.expanded} hint="深度研究联网" />
-        <StatTile
-          index="04"
-          label="近期条目"
-          value={recentPapers.length + recentWorkspaces.length}
-          hint="最近解析 + 工作区"
-        />
+      {/* 统计指标卡片 */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4" aria-label="数据概览">
+        <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] shadow-xs flex flex-col gap-1">
+          <span className="text-xs font-medium text-[var(--text-muted)]">论文精读库</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-[var(--text-primary)] tabular-nums">{stats.papers}</span>
+            <span className="text-xs text-[var(--text-muted)]">篇已收录</span>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] shadow-xs flex flex-col gap-1">
+          <span className="text-xs font-medium text-[var(--text-muted)]">课题工作区</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-[var(--text-primary)] tabular-nums">{stats.workspaces}</span>
+            <span className="text-xs text-[var(--text-muted)]">{stats.wsPapers} 篇关联</span>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] shadow-xs flex flex-col gap-1">
+          <span className="text-xs font-medium text-[var(--text-muted)]">联网扩展文献</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-[var(--text-primary)] tabular-nums">{stats.expanded}</span>
+            <span className="text-xs text-[var(--text-muted)]">篇图谱挖掘</span>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] shadow-xs flex flex-col gap-1">
+          <span className="text-xs font-medium text-[var(--text-muted)]">文献总沉淀</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+              {stats.papers + stats.expanded}
+            </span>
+            <span className="text-xs text-[var(--text-muted)]">篇文献</span>
+          </div>
+        </div>
       </section>
 
-      <div className="origin-home__content-grid">
-        <section className="origin-home__papers" aria-labelledby="recent-papers-title">
-          <header className="origin-section-heading">
-            <div>
-              <span>ARCHIVE / RECENT</span>
-              <h2 id="recent-papers-title">最近解析</h2>
-            </div>
-            <button type="button" onClick={() => navigate('/library')}>查看全部 &#8599;</button>
-          </header>
+      {/* 主体两栏结构 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {/* 左栏：最近解析论文 (占 2/3) */}
+        <section className="lg:col-span-2 flex flex-col gap-4" aria-labelledby="recent-papers-title">
+          <div className="flex items-center justify-between">
+            <h2 id="recent-papers-title" className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              最近解析论文
+            </h2>
+            <button
+              type="button"
+              onClick={() => navigate('/library')}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              进入论文库
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
 
           {loading ? (
-            <LoadingLedger />
-          ) : recentPapers.length > 0 ? (
-            <ol className="origin-paper-ledger">
-              {recentPapers.map((paper, index) => (
-                <li key={paper.id}>
-                  <button
-                    className="origin-paper-row"
-                    type="button"
-                    data-status={paper.status}
-                    onClick={() => navigate(`/reader/${paper.id}`)}
-                  >
-                    <span className="origin-paper-row__index" aria-hidden="true">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <span className="origin-paper-row__body">
-                      <strong>{paper.title || paper.filename}</strong>
-                      <small>
-                        {paper.venue || '本地论文'}
-                        {paper.year ? ` / ${paper.year}` : ''}
-                      </small>
-                    </span>
-                    <span className="origin-paper-row__status">
-                      <i aria-hidden="true" />
-                      {statusLabel(paper.status)}
-                    </span>
-                  </button>
-                </li>
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-16 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] animate-pulse" />
               ))}
-            </ol>
+            </div>
+          ) : recentPapers.length > 0 ? (
+            <div className="flex flex-col gap-2.5">
+              {recentPapers.map(paper => (
+                <button
+                  key={paper.id}
+                  type="button"
+                  onClick={() => navigate(`/reader/${paper.id}`)}
+                  className="w-full text-left p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] hover:border-blue-500/50 hover:shadow-sm transition-all group flex items-center justify-between gap-4 cursor-pointer"
+                >
+                  <div className="flex flex-col gap-1 min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                      {paper.title || paper.filename}
+                    </h3>
+                    <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                      <span>{paper.venue || '本地文档'}</span>
+                      {paper.year && <span>· {paper.year}</span>}
+                      <span>· {new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <StatusBadge status={paper.status} />
+                    <svg className="w-4 h-4 text-[var(--text-muted)] group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
-            <div className="origin-empty-state">
-              <span aria-hidden="true">00</span>
-              <div>
-                <strong>还没有解析记录</strong>
-                <p>把第一篇 PDF 放入上方输入区，建立你的论文档案。</p>
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-8 text-center flex flex-col items-center justify-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
               </div>
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">暂无精读记录</h3>
+              <p className="text-xs text-[var(--text-muted)] max-w-sm">在上方区域上传首篇 PDF 论文，系统将自动开始解析并生成精读报告。</p>
             </div>
           )}
         </section>
 
-        <aside className="origin-home__side" aria-label="快捷入口与最近工作区">
-          <section className="origin-quick-panel" aria-labelledby="quick-entry-title">
-            <header>
-              <span>DIRECT / ROUTES</span>
-              <h2 id="quick-entry-title">快捷入口</h2>
-            </header>
-            <QuickEntry
-              index="01"
-              title="论文库"
-              description="浏览与智能检索全部论文"
-              onClick={() => navigate('/library')}
-            />
-            <QuickEntry
-              index="02"
-              title="工作区"
-              description="按主题组织论文集合"
-              onClick={() => navigate('/workspace')}
-            />
-            <QuickEntry
-              index="03"
-              title="深度研究"
-              description="构建引文图谱与 RAG 问答"
-              onClick={() => navigate('/workspace')}
-            />
-          </section>
-
-          {recentWorkspaces.length > 0 && (
-            <section className="origin-workspaces" aria-labelledby="recent-workspaces-title">
-              <header className="origin-section-heading">
-                <div>
-                  <span>FIELD / RECENT</span>
-                  <h2 id="recent-workspaces-title">最近工作区</h2>
+        {/* 右栏：快捷入口与最近工作区 (占 1/3) */}
+        <aside className="flex flex-col gap-6" aria-label="快捷入口与课题集合">
+          {/* 快捷通道 */}
+          <div className="flex flex-col gap-3">
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">快速通道</h2>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/library')}
+                className="w-full text-left p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] hover:border-blue-500/50 hover:bg-[var(--bg-elevated)] transition-all flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  <div>
+                    <strong className="text-xs font-semibold text-[var(--text-primary)] block group-hover:text-blue-600 transition-colors">论文库检索</strong>
+                    <span className="text-[11px] text-[var(--text-muted)]">全文多维智能搜索</span>
+                  </div>
                 </div>
-                <button type="button" onClick={() => navigate('/workspace')}>全部 &#8599;</button>
-              </header>
-              <ol>
-                {recentWorkspaces.slice(0, 4).map((workspace, index) => (
-                  <li key={workspace.id}>
-                    <button
-                      className="origin-workspace-row"
-                      type="button"
-                      onClick={() => navigate(`/workspace/${workspace.id}`)}
-                    >
-                      <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-                      <span>
-                        <strong>{workspace.name}</strong>
-                        <small>
-                          {workspace.paper_count} 篇 / {new Date(workspace.updated_at).toLocaleDateString('zh-CN')}
-                        </small>
+                <svg className="w-4 h-4 text-[var(--text-muted)] group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                className="w-full text-left p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] hover:border-blue-500/50 hover:bg-[var(--bg-elevated)] transition-all flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <strong className="text-xs font-semibold text-[var(--text-primary)] block group-hover:text-blue-600 transition-colors">研究工作区</strong>
+                    <span className="text-[11px] text-[var(--text-muted)]">组织主题与引文图谱</span>
+                  </div>
+                </div>
+                <svg className="w-4 h-4 text-[var(--text-muted)] group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/explore')}
+                className="w-full text-left p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] hover:border-blue-500/50 hover:bg-[var(--bg-elevated)] transition-all flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <strong className="text-xs font-semibold text-[var(--text-primary)] block group-hover:text-blue-600 transition-colors">领域全景探索</strong>
+                    <span className="text-[11px] text-[var(--text-muted)]">问句驱动与综述调研</span>
+                  </div>
+                </div>
+                <svg className="w-4 h-4 text-[var(--text-muted)] group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* 最近工作区 */}
+          {recentWorkspaces.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold text-[var(--text-primary)]">最近工作区</h2>
+                <button
+                  type="button"
+                  onClick={() => navigate('/workspace')}
+                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                >
+                  全部
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {recentWorkspaces.map(workspace => (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    onClick={() => navigate(`/workspace/${workspace.id}`)}
+                    className="w-full text-left p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] hover:border-blue-500/50 hover:bg-[var(--bg-elevated)] transition-all flex items-center justify-between group cursor-pointer"
+                  >
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className="text-xs font-semibold text-[var(--text-primary)] group-hover:text-blue-600 transition-colors truncate">
+                        {workspace.name}
                       </span>
-                      <i aria-hidden="true">&#8594;</i>
-                    </button>
-                  </li>
+                      <span className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                        {workspace.paper_count} 篇文献 · {new Date(workspace.updated_at).toLocaleDateString('zh-CN')}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)] shrink-0">
+                      {workspace.paper_count} 篇
+                    </span>
+                  </button>
                 ))}
-              </ol>
-            </section>
+              </div>
+            </div>
           )}
         </aside>
       </div>
-
-      <footer className="origin-home__footer" aria-hidden="true">
-        <span>ER—00 / CURRENT INDEX</span>
-        <span>INPUT → ANALYSIS → RELATION</span>
-      </footer>
     </div>
   )
 }

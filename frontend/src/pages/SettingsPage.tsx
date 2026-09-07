@@ -354,7 +354,7 @@ export function SettingsPage() {
   return (
     <div className="er-page er-page--settings">
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">Protocol / Control—03</p>
+        <p className="er-page-head__eyebrow">系统设置 · 模型与参数配置</p>
         <h1 className="er-page-head__title">设置</h1>
         <div className="er-page-head__actions">
           <TabBar active={activeTab} onChange={handleTabChange} />

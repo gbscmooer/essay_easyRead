@@ -227,7 +227,7 @@ export default function WorkspaceDetailPage() {
       </Link>
 
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">Collection / Set—02</p>
+        <p className="er-page-head__eyebrow">工作区详情 · 论文集合与深度研究</p>
         {editing ? (
           <div className="ws-rename">
             <input

@@ -69,23 +69,21 @@ export function InterviewTab({ result }: InterviewTabProps) {
           return (
             <div
               key={idx}
-              className="content-section overflow-hidden transition-all duration-200"
+              className="border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--bg-surface)] transition-all duration-200 shadow-xs mb-3"
               style={{ transitionTimingFunction: SPRING }}
             >
               {/* 问题 */}
               <button
                 onClick={() => toggle(idx)}
-                className="w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors"
-                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-elevated)' }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}
+                className="w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors hover:bg-[var(--bg-elevated)]"
               >
                 <span
-                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[11px] font-medium mt-0.5 tabular-nums"
+                  className="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-semibold mt-0.5 tabular-nums"
                   style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
                 >
                   Q{idx + 1}
                 </span>
-                <span className="text-[13px] leading-relaxed flex-1" style={{ color: 'var(--text-primary)' }}>
+                <span className="text-[13px] font-medium leading-relaxed flex-1" style={{ color: 'var(--text-primary)' }}>
                   {qa.q}
                 </span>
                 <svg
@@ -99,13 +97,13 @@ export function InterviewTab({ result }: InterviewTabProps) {
 
               {/* 答案区域 */}
               {isExpanded && (
-                <div className="px-4 pb-4 space-y-3">
+                <div className="px-4 pb-4 space-y-3 border-t border-[var(--border)] pt-3">
                   {/* 答案 */}
                   <div className="pl-9">
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>回答</span>
                       {qa.source && (
-                        <span className="text-[11px] px-2 py-0.5" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
+                        <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}>
                           {qa.source}
                         </span>
                       )}
@@ -123,10 +121,8 @@ export function InterviewTab({ result }: InterviewTabProps) {
                         handleExplain(idx, qa.q, qa.a)
                       }}
                       disabled={isLoadingExplain}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] disabled:opacity-50 transition-all duration-200"
-                      style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-surface)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-elevated)' }}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12px] disabled:opacity-50 transition-all duration-200 hover:bg-[var(--bg-elevated)]"
+                      style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)', transitionTimingFunction: SPRING }}
                     >
                       {isLoadingExplain ? (
                         <>
@@ -141,7 +137,7 @@ export function InterviewTab({ result }: InterviewTabProps) {
 
                   {/* 解释 — surface-tint 高亮 */}
                   {explanation && (
-                    <div className="ml-9 py-3" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+                    <div className="ml-9 p-3.5 rounded-lg border border-[var(--border)]" style={{ backgroundColor: 'var(--accent-subtle)' }}>
                       <p className="text-label mb-1.5" style={{ color: 'var(--accent)' }}>深入解释</p>
                       <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
                         {explanation}

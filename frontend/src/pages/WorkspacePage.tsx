@@ -86,7 +86,7 @@ export default function WorkspacePage() {
   return (
     <div className="er-page er-page--workspace">
       <header className="er-page-head">
-        <p className="er-page-head__eyebrow">Relation / Field—02</p>
+        <p className="er-page-head__eyebrow">研究工作区 · 论文主题集合</p>
         <h1 className="er-page-head__title">工作区</h1>
       </header>
 

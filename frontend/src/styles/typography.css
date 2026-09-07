@@ -54,70 +54,57 @@
 :root {
   --font-cjk: 'CJK Adjusted', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 
-  --font-display: 'Archivo Variable', 'Helvetica Neue', Helvetica, Arial, var(--font-cjk);
-  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial,
+  --font-display: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     var(--font-cjk);
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
-  /* 寄存器标记与技术注记的专用别名。语义上它不是「代码」，只是恰好也要等宽。 */
   --font-register: var(--font-mono);
 
-  /* ── 宽度轴 ────────────────────────────────────────────────────────
-     Archivo 的 wdth 轴。展示字号越大越收窄 —— 大字收窄是海报体的常规做法，
-     字面变密才压得住版面；小字收窄只会难读。 */
-  --wdth-hero: 84%;
-  --wdth-display: 90%;
-  --wdth-heading: 96%;
+  --wdth-hero: 100%;
+  --wdth-display: 100%;
+  --wdth-heading: 100%;
 
-  /* ── 字号阶梯 ──────────────────────────────────────────────────────
-     功能性文字与装饰性文字必须分处两个区间。低于 --fs-label 的字号只允许
-     用于 aria-hidden 的装饰，不得承载任何操作信息。 */
-  --fs-micro: 10px;   /* 仅装饰：寄存器编号、坐标、场景码 */
-  --fs-label: 11px;   /* 功能性小标签、状态 */
-  --fs-meta: 12px;    /* 元信息、次要说明 */
-  --fs-ui: 13px;      /* 按钮、导航、输入框 */
-  --fs-body: 14px;    /* 正文 */
-  --fs-lead: 15px;    /* 导语、列表标题 */
-  --fs-title: 17px;   /* 卡片 / 行标题 */
-  --fs-h3: clamp(18px, 1.45vw, 22px);
-  --fs-h2: clamp(23px, 2.1vw, 31px);
-  --fs-h1: clamp(36px, 4.4vw, 60px);
-  --fs-hero: clamp(54px, 7.6vw, 112px);
+  /* ── 字号阶梯 ────────────────────────────────────────────────────── */
+  --fs-micro: 11px;
+  --fs-label: 12px;
+  --fs-meta: 13px;
+  --fs-ui: 14px;
+  --fs-body: 14px;
+  --fs-lead: 15px;
+  --fs-title: 17px;
+  --fs-h3: clamp(16px, 1.3vw, 18px);
+  --fs-h2: clamp(19px, 1.8vw, 22px);
+  --fs-h1: clamp(24px, 2.4vw, 30px);
+  --fs-hero: clamp(28px, 3.2vw, 40px);
 
-  /* ── 行高 ──────────────────────────────────────────────────────────
-     中文方块字撑满 em 盒，行高低于 1 必然咬字。展示层的下限因此是 0.95，
-     而不是拉丁字体能接受的 0.84 —— 首页标题两行相撞正是这么来的。 */
+  /* ── 行高 ────────────────────────────────────────────────────────── */
   --lh-flat: 1;
-  --lh-display: 0.95;
-  --lh-tight: 1.15;
-  --lh-snug: 1.3;
+  --lh-display: 1.25;
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
   --lh-normal: 1.5;
   --lh-relaxed: 1.68;
 
-  /* ── 字距 ──────────────────────────────────────────────────────────
-     字号越大字距越负，这是光学补偿而非风格选择。 */
-  --tr-hero: -0.035em;
-  --tr-display: -0.025em;
-  --tr-heading: -0.015em;
-  --tr-title: -0.008em;
+  /* ── 字距 ────────────────────────────────────────────────────────── */
+  --tr-hero: -0.015em;
+  --tr-display: -0.01em;
+  --tr-heading: -0.005em;
+  --tr-title: 0;
   --tr-body: 0;
-  --tr-ui: 0.005em;
-  --tr-label: 0.12em;
-  --tr-register: 0.16em;
+  --tr-ui: 0;
+  --tr-label: 0.04em;
+  --tr-register: 0.04em;
 
   --deco-weight: 500;
-  --deco-opacity: 0.5;
+  --deco-opacity: 0.6;
   --deco-tracking: var(--tr-register);
 }
 
 [data-mode='dark'] {
-  /* 深色底上同一字重看起来更粗（光渗），装饰层因此再降一档，
-     否则暗色模式下那批注记会比亮色模式抢眼。 */
-  --deco-opacity: 0.44;
+  --deco-opacity: 0.5;
 }
 
-/* ── 角色类 ────────────────────────────────────────────────────────────
-   字号、字重、字距、行高、宽度轴永远成套出现。单独调其中一项，光学关系
-   就散了 —— 这也是为什么这里不提供 `.text-lg` 这种只管一项的工具类。 */
+/* ── 角色类 ──────────────────────────────────────────────────────────── */
 
 .t-hero,
 .t-display,
@@ -130,8 +117,7 @@
 
 .t-hero {
   font-size: var(--fs-hero);
-  font-stretch: var(--wdth-hero);
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: var(--tr-hero);
   line-height: var(--lh-display);
 }

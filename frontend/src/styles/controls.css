@@ -15,33 +15,29 @@
 /* ── 基座 ──────────────────────────────────────────────────────── */
 
 .er-btn {
-  --btn-height: 34px;
-  --btn-pad: var(--s3);
+  --btn-height: 36px;
+  --btn-pad: 14px;
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--s2);
+  gap: 6px;
   min-height: var(--btn-height);
   padding: 0 var(--btn-pad);
-  border: var(--rule-hair) solid transparent;
-  color: var(--er-ink);
+  border-radius: var(--seed-radius, 8px);
+  border: 1px solid transparent;
+  color: var(--text-primary);
   background: transparent;
   cursor: pointer;
   font-family: inherit;
-  font-size: var(--fs-ui);
-  font-weight: 700;
-  letter-spacing: .08em;
+  font-size: var(--fs-ui, 13px);
+  font-weight: 500;
+  letter-spacing: 0;
   line-height: 1;
   text-align: center;
   text-decoration: none;
   white-space: nowrap;
-  transition:
-    color var(--dur-tint) var(--ease-press),
-    background-color var(--dur-tint) var(--ease-press),
-    border-color var(--dur-tint) var(--ease-press),
-    box-shadow var(--dur-press) var(--ease-press),
-    transform var(--dur-press) var(--ease-press);
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .er-btn > svg {
@@ -53,37 +49,33 @@
 .er-btn:disabled,
 .er-btn[aria-disabled='true'] {
   cursor: not-allowed;
-  opacity: .45;
+  opacity: 0.45;
 }
 
-/* 压印。带偏移块的层级在下面各自覆盖成更完整的版本。 */
 .er-btn:not(:disabled):not([aria-disabled='true']):active {
-  transform: translate(1px, 1px);
+  transform: scale(0.98);
 }
 
 /* ── 尺寸档位 ──────────────────────────────────────────────────── */
 
 .er-btn--sm {
-  --btn-height: 28px;
-  --btn-pad: var(--s2);
-  font-size: var(--fs-meta);
-  letter-spacing: .06em;
+  --btn-height: 30px;
+  --btn-pad: 10px;
+  font-size: var(--fs-meta, 12px);
 }
 
 .er-btn--lg {
-  --btn-height: 44px;
-  --btn-pad: var(--s4);
-  font-size: var(--fs-body);
-  letter-spacing: .1em;
+  --btn-height: 42px;
+  --btn-pad: 18px;
+  font-size: var(--fs-body, 14px);
 }
 
-/* 纯图标：正方形，不参与最小宽度与字距 */
+/* 纯图标：正方形 */
 .er-btn--icon {
   --btn-pad: 0;
   gap: 0;
   width: var(--btn-height);
   min-width: var(--btn-height);
-  letter-spacing: 0;
 }
 
 .er-btn--block {
@@ -91,150 +83,81 @@
   width: 100%;
 }
 
-/* ── 层级 1：primary —— 全页唯一的实心质量 ──────────────────────
-   墨块 + 钴蓝偏移块。hover 把影推远（质量抬起），按下时本体移到影位、
-   影归零 —— 一次完整的压印，而不是换个颜色。 */
+/* ── 层级 1：primary ────────────────────── */
 
 .er-btn--primary {
-  --relief-offset: var(--relief-md);
-  --relief-color: var(--er-blue);
-  border-color: var(--er-ink);
-  color: var(--er-on-field);
-  background: #17181b;
-  box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
-}
-
-[data-mode='dark'] .er-btn--primary {
-  color: #17181b;
-  background: var(--er-ink);
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .er-btn--primary:not(:disabled):not([aria-disabled='true']):hover {
-  --relief-offset: var(--relief-lg);
+  opacity: 0.92;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
 }
 
-.er-btn--primary:not(:disabled):not([aria-disabled='true']):active {
-  --relief-offset: 0px;
-  transform: translate(var(--relief-md), var(--relief-md));
-}
-
-/* 没有质量的东西不投影 */
-.er-btn--primary:disabled,
-.er-btn--primary[aria-disabled='true'] {
-  --relief-offset: 0px;
-}
-
-/* ── 层级 2：secondary —— 描边 ──────────────────────────────────
-   hover 时填充从左侧推入，和走纸同向；不是整块淡入。 */
+/* ── 层级 2：secondary ────────────────────────────────── */
 
 .er-btn--secondary {
-  /* 自成层叠上下文，好让填充层用 z-index:-1 落到「背景之上、文字之下」。
-     不能改用「填充 z-index:0 + 子元素 z-index:1」那一套 —— 按钮里的裸文本
-     节点不是元素，选择器够不着，会被填充整个盖住。 */
-  isolation: isolate;
-  overflow: hidden;
-  border-color: var(--btn-accent, var(--er-ink));
-  color: var(--btn-accent, var(--er-ink));
-  background: transparent;
-}
-
-.er-btn--secondary::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: var(--btn-accent, var(--er-ink));
-  content: '';
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--dur-tint) var(--ease-snap);
+  border-color: var(--border);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
-  color: var(--btn-on-accent, var(--er-on-field));
-}
-
-[data-mode='dark'] .er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover {
-  color: var(--btn-on-accent, #17181b);
-}
-
-.er-btn--secondary:not(:disabled):not([aria-disabled='true']):hover::before {
-  transform: scaleX(1);
-}
-
-/* 开关型 secondary（图层筛选这类多选开关，不在 .er-btn-group 里）：
-   选中即保持填充。--btn-accent 让每个开关带自己的强调色 —— 图层筛选的
-   颜色必须和图谱里的边色对应，不能统一成墨色。 */
-.er-btn--secondary[aria-pressed='true']::before {
-  transform: scaleX(1);
+  background: var(--bg-elevated);
+  border-color: var(--border-light);
+  color: var(--accent);
 }
 
 .er-btn--secondary[aria-pressed='true'] {
-  color: var(--btn-on-accent, var(--er-on-field));
-}
-
-/* 同 hover：深色模式下填充是亮色，前景必须翻过来，否则默认填充（墨色=米白）
-   会出现米白底米白字。 */
-[data-mode='dark'] .er-btn--secondary[aria-pressed='true'] {
-  color: var(--btn-on-accent, #17181b);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-subtle);
 }
 
 .er-btn--secondary[aria-pressed='false'] {
-  opacity: .62;
+  opacity: 0.7;
 }
 
 .er-btn--secondary[aria-pressed='false']:hover {
   opacity: 1;
 }
 
-/* ── 层级 3：ghost —— 工具条与密集区 ────────────────────────────
-   静息态无边框，只靠字重与字距自证可点；hover 才出现底。 */
+/* ── 层级 3：ghost ──────────────────────────── */
 
 .er-btn--ghost {
   border-color: transparent;
-  color: var(--er-muted);
+  color: var(--text-secondary);
   background: transparent;
 }
 
-/* 同样认 --btn-accent：行内的破坏性操作（列表里的「删除」）静息时低调，
-   hover 才亮出信号红，不必为此单开一个层级。 */
 .er-btn--ghost:not(:disabled):not([aria-disabled='true']):hover {
-  border-color: var(--btn-accent, var(--er-hairline));
-  color: var(--btn-accent, var(--er-ink));
-  background: color-mix(in srgb, var(--btn-accent, var(--er-blue)) 12%, transparent);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
-/* 破坏性倾向的行内操作（列表里的「删除」）：静息时和其它 ghost 一样低调，
-   hover 才亮出信号红。它不是一个新层级，只是给 ghost 换一个强调色 ——
-   所以是修饰符而不是 --btn-accent 内联变量。 */
 .er-btn--destructive {
-  --btn-accent: var(--er-red);
+  --btn-accent: var(--error);
 }
 
-/* ── 层级 4：danger —— 破坏性操作 ───────────────────────────────
-   信号红实心 + 深蓝偏移块。红色本身已经足够响，影用深蓝而不是更多的
-   红，避免整块糊成一团。 */
+.er-btn--destructive:not(:disabled):not([aria-disabled='true']):hover {
+  background: var(--error-subtle);
+  color: var(--error);
+}
+
+/* ── 层级 4：danger ─────────────────────────────── */
 
 .er-btn--danger {
-  --relief-offset: var(--relief-sm);
-  --relief-color: var(--er-blue-deep);
-  border-color: var(--er-red);
-  color: #f7f2e7;
-  background: var(--er-red);
-  box-shadow: var(--relief-offset) var(--relief-offset) 0 var(--relief-color);
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--error);
 }
 
 .er-btn--danger:not(:disabled):not([aria-disabled='true']):hover {
-  --relief-offset: var(--relief-md);
-}
-
-.er-btn--danger:not(:disabled):not([aria-disabled='true']):active {
-  --relief-offset: 0px;
-  transform: translate(var(--relief-sm), var(--relief-sm));
-}
-
-.er-btn--danger:disabled,
-.er-btn--danger[aria-disabled='true'] {
-  --relief-offset: 0px;
+  opacity: 0.92;
 }
 
 /* ── 按钮组 —— 连排分段控件 ─────────────────────────────────────
@@ -315,22 +238,34 @@
 .er-tag {
   display: inline-flex;
   align-items: center;
-  gap: var(--s1);
-  min-height: 20px;
-  padding: 0 var(--s2);
-  border-left: var(--rule-mark) solid var(--tag-accent, var(--er-blue));
-  color: var(--er-ink);
-  background: color-mix(in srgb, var(--tag-accent, var(--er-blue)) 14%, transparent);
-  font-size: var(--fs-label);
-  font-weight: 700;
-  letter-spacing: .06em;
+  gap: 4px;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  font-size: var(--fs-label, 11px);
+  font-weight: 500;
   line-height: 1;
   white-space: nowrap;
 }
 
-.er-tag--signal { --tag-accent: var(--er-red); }
-.er-tag--warn { --tag-accent: var(--er-ochre); }
-.er-tag--mute { --tag-accent: var(--er-gray); }
+.er-tag--signal {
+  border-color: rgba(220, 38, 38, 0.2);
+  color: var(--error);
+  background: var(--error-subtle);
+}
+.er-tag--warn {
+  border-color: rgba(217, 119, 6, 0.2);
+  color: var(--warning);
+  background: var(--warning-subtle);
+}
+.er-tag--mute {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+}
 
 /* ── 降级 ──────────────────────────────────────────────────────
    减弱动效时保留全部状态差异（颜色、边框、偏移块的静息位），只去掉

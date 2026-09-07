@@ -33,28 +33,27 @@
   column-gap: var(--s4);
   row-gap: var(--s2);
   padding-bottom: var(--s3);
-  border-bottom: var(--rule-slab) solid var(--text-primary);
+  margin-bottom: var(--s4);
+  border-bottom: 1px solid var(--border);
 }
 
 .er-page-head__eyebrow {
   grid-column: 1 / -1;
-  color: var(--text-muted);
-  font-family: var(--font-register);
-  font-size: var(--fs-micro);
-  font-weight: var(--deco-weight);
-  letter-spacing: var(--tr-register);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .er-page-head__title {
   margin: 0;
   color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-stretch: var(--wdth-display);
-  font-weight: 800;
-  letter-spacing: var(--tr-display);
-  line-height: var(--lh-display);
+  font-family: var(--font-ui);
+  font-size: var(--fs-h1, 24px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 
 .er-page-head__actions {
@@ -64,51 +63,46 @@
   padding-bottom: 2px;
 }
 
-/* 读数条挂在结构线下方，与标题同一栏起排。它是页头的一部分，不是正文的
-   第一行 —— 所以负责这段间距的是页头，不是下面的内容。 */
+/* 读数条 */
 .er-page-head__readouts {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s1) var(--s3);
-  margin-top: var(--s2);
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin-top: calc(-1 * var(--s2));
+  margin-bottom: var(--s4);
   color: var(--text-muted);
   font-size: var(--fs-meta);
 }
 
 .er-readout {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .er-readout > b {
   color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: var(--fs-lead);
-  font-stretch: var(--wdth-heading);
-  font-weight: 800;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tr-heading);
 }
 
 .er-readout--accent > b { color: var(--accent); }
 .er-readout--signal > b { color: var(--error); }
 
-/* ── 账本 ──────────────────────────────────────────────────────────────
-   论文库、工作区、搜索结果共用的行式列表。
-
-   关键是它是 grid 而不是一排 flex 行：栏宽定义在容器上，每行的编号、标题、
-   标签、操作因此在整列上对齐。之前每一行各自 `flex items-center justify-between`，
-   于是标题右缘、标签起点、删除按钮位置逐行都不同，列表读起来是「一堆条目」
-   而不是「一张表」。 */
+/* ── 账本 ────────────────────────────────────────────────────────────── */
 
 .er-ledger {
-  --ledger-index: 34px;
+  --ledger-index: 36px;
   --ledger-aside: minmax(0, auto);
   display: grid;
-  border-top: var(--rule-hair) solid var(--border-light);
+  border-top: 1px solid var(--border);
 }
 
 .er-ledger__row {
@@ -118,49 +112,32 @@
   align-items: center;
   column-gap: var(--s3);
   width: 100%;
-  min-height: 58px;
-  padding: var(--s2) 0;
+  min-height: 52px;
+  padding: 10px 12px;
+  border-radius: var(--seed-radius, 8px);
   border: 0;
-  border-bottom: var(--rule-hair) solid var(--border);
+  border-bottom: 1px solid var(--border);
   color: inherit;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--dur-tint) var(--ease-press),
-    padding-left var(--dur-tint) var(--ease-press);
+  transition: all 120ms ease;
 }
 
-/* 悬停标记从底边长上来，和列表的推进方向一致；不是整行淡入一个底色。 */
 .er-ledger__row::before {
-  position: absolute;
-  top: 0;
-  bottom: -1px;
-  left: 0;
-  width: var(--rule-mark);
-  background: var(--error);
-  content: '';
-  transform: scaleY(0);
-  transform-origin: bottom;
-  transition: transform var(--dur-press) var(--ease-snap);
+  display: none;
 }
 
 .er-ledger__row:is(:hover, :focus-visible) {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  padding-left: var(--s2);
-}
-
-.er-ledger__row:is(:hover, :focus-visible)::before {
-  transform: scaleY(1);
+  background: var(--bg-elevated);
 }
 
 .er-ledger__row[data-active='true'] {
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  background: var(--accent-subtle);
 }
 
-.er-ledger__row[data-active='true']::before {
-  background: var(--accent);
-  transform: scaleY(1);
+.er-ledger__row[data-active='true'] {
+  color: var(--accent);
 }
 
 /* 多选：只有可批量操作的账本才多出这一栏，搜索结果与扩展列表保持三栏 */
