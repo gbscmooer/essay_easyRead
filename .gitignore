@@ -52,17 +52,6 @@ data/
 .DS_Store
 Thumbs.db
 
-# design-sync (claude.ai/design) — staged scripts, build output, machine state.
-# Durable inputs (.design-sync/config.json, NOTES.md, conventions.md, previews/,
-# tokens-root.css, build-css.sh, overrides/) are committed; everything below is generated.
-.ds-sync/
-ds-bundle/
-.design-sync/.cache/
-.design-sync/learnings/
-.design-sync/node_modules
-frontend/ds-styles.css
-frontend/.ds-preview/
-
 # 软著申请材料的生成产物（用 docs/copyright/tools/ 下的脚本重新生成）
 docs/copyright/build/
 
