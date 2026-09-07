@@ -1,0 +1,136 @@
+# ==============================================================================
+# 论文精读助手 (Essay Read) 配置文件
+# ==============================================================================
+# 说明：
+# 1. 复制本文件为 config.yaml (在项目根目录下)，启动或保存时系统会自动读取。
+# 2. 您可直接在此文件中编辑 API Key、模型名称、Base URL 等配置，无需在网页中逐项手动输入。
+# 3. 本项目支持 YAML、TOML、JSON 等格式，优先级：根目录 config.yaml > config.toml > data/ai_config.json。
+# ==============================================================================
+
+# ── 翻译模型配置 ─────────────────────────────────────────────────────────────
+translate:
+  api_key: ""
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  system_prompt: "你是一个专业的学术翻译助手。将用户提供的英文论文片段翻译为中文。只输出翻译结果，不要添加任何解释。保持学术术语的准确性。"
+  temperature: 0.3
+  max_tokens: 2048
+
+# ── 论文解读大模型配置 ───────────────────────────────────────────────────────
+analysis:
+  api_key: ""
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  system_prompt: ""
+  temperature: 0.1
+  max_tokens: 16384
+
+# ── 解读系统提示词模板 ───────────────────────────────────────────────────────
+analysis_prompt:
+  active: "builtin"   # "builtin" | "custom:<id>"
+  custom: []          # 自定义提示词副本列表 [{id, name, content}]
+
+# ── 界面 UI 配置 ─────────────────────────────────────────────────────────────
+ui:
+  theme: "light"      # 默认浅色/深色主题
+  font: "serif"       # 字体：sans | serif | mono
+  custom_font: ""
+  highlight_duration: 3000
+  zoom_step: 0.2
+  zoom_min: 0.4
+  zoom_max: 3.0
+  pinch_zoom_step: 0.02
+  custom_themes: []
+
+# ── 文本向量化 (Embedding) 模型配置 ──────────────────────────────────────────
+embedding:
+  provider: "siliconflow"        # "local" | "siliconflow" | "openai"
+  model: "BAAI/bge-large-en-v1.5"
+  api_key: ""
+  base_url: "https://api.siliconflow.cn/v1"
+  batch_size: 32
+  device: "auto"
+  max_input_tokens: 7000
+  max_input_chars: 0
+
+# ── 深度研究与文献源配置 ─────────────────────────────────────────────────────
+research:
+  provider: "auto"               # "auto" | "scopus" | "openalex" | "semantic_scholar" | "local"
+  elsevier_api_key: ""           # Elsevier / ScienceDirect API Key（校外访问 Scopus 需配置）
+  email: ""                      # OpenAlex / Unpaywall polite pool 邮箱（可选，响应更快）
+  api_key: ""                    # Semantic Scholar API Key（可选）
+  download_concurrency: 4        # PDF 批量下载并发数
+  map_density: 8.0               # 研究地图密度（每篇论文目标连接数）
+  backbone_alpha: 0.25           # 多尺度骨架显著性过滤阈值
+  link_distance: 50              # 图谱节点连线基准距离
+  auto_digest: true              # 是否在深度研究时自动速读未解析论文
+  discovery_v2: false            # 多路召回扩展实验特性
+  synthesize:
+    enabled: true                # 是否启用跨文献领域综合研判
+  recall:
+    enabled_sources:
+      - "backward"
+      - "forward"
+      - "recommend"
+      - "pdf_ref"
+      - "graph_ppr"
+    rrf_k: 60
+    weights:
+      pdf_ref: 1.0
+      backward: 1.0
+      forward: 0.9
+      recommend: 0.85
+      graph_ppr: 0.8
+    candidate_limit: 50
+  hybrid_retrieval:
+    rrf_k: 60
+    weights:
+      dense: 1.0
+      bm25: 0.95
+      graph_ppr: 0.8
+    graph:
+      ppr_alpha: 0.85
+      top_k: 50
+      bridge_weight_factor: 0.0
+
+# ── 重排序模型 (Reranker) ───────────────────────────────────────────────────
+reranker:
+  enabled: true
+  provider: "siliconflow"
+  model: "BAAI/bge-reranker-v2-m3"
+  api_key: ""                    # 为空时自动回退到 embedding.api_key
+  base_url: ""                   # 为空时自动回退到 embedding.base_url
+  candidate_k: 30
+  top_n: 5
+
+# ── 论文关联度算法权重 (加权融合通道) ─────────────────────────────────────────
+relations:
+  calibrate: true                # 是否启用引用结构自监督权重校准
+  weights:
+    topic: 0.18                  # 主题向量余弦相似度
+    purpose: 0.24                # 研究目的语义相似度
+    method: 0.16                 # 研究方法语义相似度
+    term: 0.14                   # IDF 术语重叠度
+    dataset: 0.06                # 共享数据集
+    baseline: 0.04               # 共享基线模型
+    bibcoupling: 0.12            # 文献耦合（共同引用）
+    cocitation: 0.06             # 共被引（同被引用）
+
+# ── arXiv 参考文献自动扩展 ───────────────────────────────────────────────────
+arxiv_expand:
+  enabled: true
+  parser: "grobid"               # "grobid" | "regex"
+  grobid_url: "http://localhost:8070"
+  top_k: 5
+  use_llm_title: true
+  max_llm_refs: 15
+
+# ── findpapers 多源学术搜索 ──────────────────────────────────────────────────
+findpapers:
+  enabled: false
+  databases:
+    - "arxiv"
+    - "openalex"
+    - "pubmed"
+    - "semantic_scholar"
+  max_results: 10

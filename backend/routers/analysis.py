@@ -9,7 +9,7 @@ import logging
 import httpx
 from datetime import datetime, timezone
 from typing import Optional, Literal
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -267,6 +267,103 @@ async def update_config(req: AppConfig) -> dict:
     config = merge_preserving_keys(config, prior)
     save_config(config)
     return {"message": "配置已保存"}
+
+
+@router.get("/config/file-info")
+async def get_config_file_info_endpoint() -> dict:
+    """获取当前生效的配置文件信息（路径、格式、存在性）。"""
+    from ..services.ai_config import get_config_file_info
+    return get_config_file_info()
+
+
+@router.get("/config/export")
+async def export_config_endpoint(
+    request: Request,
+    format: str = Query(default="yaml", pattern="^(yaml|yml|toml|json)$"),
+    include_secrets: bool = Query(default=True),
+) -> Response:
+    """导出系统配置（支持 yaml、toml、json），供迁移与备份。
+    安全策略：本地环境可导出含密钥的配置文件；非本地请求自动强制脱敏。
+    """
+    from ..services.ai_config import export_config
+    from ..services.terminal_access import trusted_local_peer
+
+    client_host = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-for")
+    is_local = (client_host in ("127.0.0.1", "localhost", "testclient")) or trusted_local_peer(client_host, forwarded)
+
+    mask = not (include_secrets and is_local)
+    content, filename, media_type = export_config(fmt=format, mask_keys=mask)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Config-Masked": "true" if mask else "false",
+        },
+    )
+
+
+@router.post("/config/import")
+async def import_config_endpoint(request: Request) -> dict:
+    """导入系统配置（支持上传 YAML / TOML / JSON 文件，或提交对应文本内容）。"""
+    from ..services.ai_config import import_config, get_config_file_info
+    from ..services.terminal_access import trusted_local_peer
+
+    # 安全检查：仅允许本地调用导入接口，避免外部网络非法篡改系统配置
+    client_host = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-for")
+    is_local = (client_host in ("127.0.0.1", "localhost", "testclient")) or trusted_local_peer(client_host, forwarded)
+    if not is_local:
+        raise HTTPException(status_code=403, detail="出于安全原因，配置导入仅支持从本地环境发起")
+
+    content_type = request.headers.get("content-type", "")
+    text = ""
+    fmt = None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        upload = form.get("file")
+        if upload and hasattr(upload, "read"):
+            text_bytes = await upload.read()
+            text = text_bytes.decode("utf-8", errors="replace")
+            fname = getattr(upload, "filename", "") or ""
+            if fname.endswith((".yaml", ".yml")):
+                fmt = "yaml"
+            elif fname.endswith(".toml"):
+                fmt = "toml"
+            elif fname.endswith(".json"):
+                fmt = "json"
+        elif "content" in form:
+            text = str(form.get("content", ""))
+            fmt = str(form.get("format", "")) or None
+    elif "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                text = body.get("content", "")
+                fmt = body.get("format")
+            else:
+                raise ValueError("JSON body must be an object")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"无法解析 JSON 请求体: {e}")
+    else:
+        raw_body = await request.body()
+        text = raw_body.decode("utf-8", errors="replace")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="导入内容为空，请提供有效的配置文件内容")
+
+    try:
+        import_config(text, fmt=fmt)
+    except Exception as e:
+        logger.warning(f"Failed to import config: {e}")
+        raise HTTPException(status_code=400, detail=f"导入失败: {e}")
+
+    return {
+        "message": "配置导入成功并已即时生效",
+        "file_info": get_config_file_info(),
+    }
 
 
 # ============================================================

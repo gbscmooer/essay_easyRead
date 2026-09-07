@@ -10,8 +10,14 @@ __pycache__/
 node_modules/
 dist/
 
-# Environment
+# Environment & Local Config
 .env
+config.yaml
+config.yml
+config.toml
+data/config.yaml
+data/config.yml
+data/config.toml
 
 # Database
 *.db

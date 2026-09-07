@@ -11,9 +11,33 @@ import logging
 import tempfile
 from typing import Optional
 
+import yaml
+
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "ai_config.json")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_JSON_PATH = os.path.join(PROJECT_ROOT, "data", "ai_config.json")
+DEFAULT_YAML_PATH = os.path.join(PROJECT_ROOT, "config.yaml")
+
+# 候选配置文件发现列表（按优先级降序）：优先使用根目录下的 YAML / TOML
+CANDIDATE_CONFIG_PATHS = [
+    os.path.join(PROJECT_ROOT, "config.yaml"),
+    os.path.join(PROJECT_ROOT, "config.yml"),
+    os.path.join(PROJECT_ROOT, "config.toml"),
+    os.path.join(PROJECT_ROOT, "data", "config.yaml"),
+    os.path.join(PROJECT_ROOT, "data", "config.yml"),
+    os.path.join(PROJECT_ROOT, "data", "config.toml"),
+    os.path.join(PROJECT_ROOT, "data", "ai_config.yaml"),
+    DEFAULT_JSON_PATH,
+]
+
+# 保持模块级 CONFIG_PATH 变量，兼顾既有单测 monkeypatch 与历史代码
+CONFIG_PATH = DEFAULT_YAML_PATH if os.path.isfile(DEFAULT_YAML_PATH) else DEFAULT_JSON_PATH
 
 DEFAULT_CONFIG = {
     "translate": {
@@ -224,13 +248,166 @@ def _deep_merge_dict(base: dict, override: dict) -> dict:
     return out
 
 
-def load_config() -> dict:
-    """加载配置"""
-    if not os.path.exists(CONFIG_PATH):
+def get_active_config_path() -> str:
+    """获取当前生效的配置文件绝对路径。
+    如果 CONFIG_PATH 被外部测试 monkeypatch 修改且指定了特定路径，遵从外部指定；
+    否则依次检查根目录 config.yaml / config.yml / config.toml / data/ 目录。
+    若都不存在，默认优先返回项目根目录下的 config.yaml。
+    """
+    global CONFIG_PATH
+    if CONFIG_PATH not in (DEFAULT_JSON_PATH, DEFAULT_YAML_PATH):
+        return CONFIG_PATH
+    for p in CANDIDATE_CONFIG_PATHS:
+        if os.path.isfile(p):
+            return p
+    return DEFAULT_YAML_PATH
+
+
+def get_config_file_info() -> dict:
+    """获取当前配置文件元信息（供设置页展示和导入导出使用）。"""
+    active_path = get_active_config_path()
+    rel_path = os.path.relpath(active_path, PROJECT_ROOT)
+    fmt = "yaml" if active_path.endswith((".yaml", ".yml")) else ("toml" if active_path.endswith(".toml") else "json")
+    return {
+        "active_path": rel_path,
+        "full_path": active_path,
+        "exists": os.path.isfile(active_path),
+        "format": fmt,
+        "supported_formats": ["yaml", "toml", "json"],
+    }
+
+
+def parse_config_content(content: str, fmt: Optional[str] = None, path: Optional[str] = None) -> dict:
+    """解析配置文本内容，支持 YAML、TOML 与 JSON。"""
+    target_fmt = (fmt or "").lower().strip()
+    if not target_fmt and path:
+        if path.endswith((".yaml", ".yml")):
+            target_fmt = "yaml"
+        elif path.endswith(".toml"):
+            target_fmt = "toml"
+        elif path.endswith(".json"):
+            target_fmt = "json"
+
+    data = None
+    if target_fmt in ("yaml", "yml"):
+        try:
+            data = yaml.safe_load(content)
+        except Exception as e:
+            logger.warning(f"Failed to parse as YAML: {e}")
+    elif target_fmt == "toml" and tomllib:
+        try:
+            data = tomllib.loads(content)
+        except Exception as e:
+            logger.warning(f"Failed to parse as TOML: {e}")
+    elif target_fmt == "json":
+        try:
+            data = json.loads(content)
+        except Exception as e:
+            logger.warning(f"Failed to parse as JSON: {e}")
+
+    # 若未指定格式或首选格式解析失败，智能回退尝试
+    if not isinstance(data, dict):
+        try:
+            d = yaml.safe_load(content)
+            if isinstance(d, dict):
+                data = d
+        except Exception:
+            pass
+    if not isinstance(data, dict) and tomllib:
+        try:
+            d = tomllib.loads(content)
+            if isinstance(d, dict):
+                data = d
+        except Exception:
+            pass
+    if not isinstance(data, dict):
+        try:
+            d = json.loads(content)
+            if isinstance(d, dict):
+                data = d
+        except Exception:
+            pass
+
+    return data if isinstance(data, dict) else {}
+
+
+def read_file_config(path: str) -> dict:
+    """从指定文件读取配置"""
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return parse_config_content(content, path=path)
+    except Exception as e:
+        logger.warning(f"Failed to read config from {path}: {e}")
+        return {}
+
+
+def _to_toml_val(val) -> str:
+    if isinstance(val, bool):
+        return "true" if val else "false"
+    elif isinstance(val, (int, float)):
+        return str(val)
+    elif isinstance(val, str):
+        escaped = val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return f'"{escaped}"'
+    elif isinstance(val, list):
+        items = [_to_toml_val(x) for x in val]
+        return f"[{', '.join(items)}]"
+    return f'"{val}"'
+
+
+def dump_toml(data: dict, prefix: str = "") -> str:
+    """简易纯 Python TOML 序列化"""
+    lines = []
+    subtables = []
+    for k, v in data.items():
+        if isinstance(v, dict):
+            subtables.append((k, v))
+        else:
+            lines.append(f"{k} = {_to_toml_val(v)}")
+    for sub_k, sub_v in subtables:
+        header = f"{prefix}.{sub_k}" if prefix else sub_k
+        lines.append("")
+        lines.append(f"[{header}]")
+        sub_res = dump_toml(sub_v, header)
+        if sub_res:
+            lines.append(sub_res)
+    return "\n".join(lines).strip()
+
+
+def dump_file_config(config: dict, path: str) -> None:
+    """将配置原子写入文件（支持 .yaml, .yml, .toml, .json）"""
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name or None, suffix=".tmp", prefix="ai_config_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            if path.endswith((".yaml", ".yml")):
+                yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
+            elif path.endswith(".toml"):
+                f.write(dump_toml(config))
+                f.write("\n")
+            else:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def load_config(path: Optional[str] = None) -> dict:
+    """加载配置。默认读取当前生效的配置文件（项目下的 config.yaml 或 data/ai_config.json）。"""
+    target_path = path or get_active_config_path()
+    if not os.path.exists(target_path):
         return _deep_copy_default()
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            saved = json.load(f)
+        saved = read_file_config(target_path)
         # 合并默认值（防止缺少字段；嵌套段如 recall / relations.weights 递归合并）
         config = {}
         for key in DEFAULT_CONFIG:
@@ -242,32 +419,72 @@ def load_config() -> dict:
                 config[key] = saved_section if key in saved else copy.deepcopy(default_section)
         return config
     except Exception as e:
-        logger.warning(f"Failed to load config: {e}")
+        logger.warning(f"Failed to load config from {target_path}: {e}")
         return _deep_copy_default()
 
 
 def _deep_copy_default() -> dict:
     """深拷贝默认配置"""
-    import copy
     return copy.deepcopy(DEFAULT_CONFIG)
 
 
-def save_config(config: dict) -> None:
-    """保存 AI 配置（原子写入：先写临时文件，再 os.replace 原子替换）"""
-    _ensure_dir()
-    dir_name = os.path.dirname(CONFIG_PATH)
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp", prefix="ai_config_")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, CONFIG_PATH)
-        logger.info("AI config saved")
-    except Exception:
+def save_config(config: dict, path: Optional[str] = None) -> None:
+    """保存 AI 配置（原子写入）。默认保存至当前生效配置文件，若当前为根目录 YAML 则同时同步一份 JSON 到 data/ai_config.json。"""
+    target_path = path or get_active_config_path()
+    dump_file_config(config, target_path)
+    logger.info(f"AI config saved to {target_path}")
+
+    # 保持向后兼容：如果主配置文件不是 data/ai_config.json，同步写一份 json 以确保下游工具平滑过渡
+    if os.path.abspath(target_path) != os.path.abspath(DEFAULT_JSON_PATH):
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+            dump_file_config(config, DEFAULT_JSON_PATH)
+        except Exception as e:
+            logger.debug(f"Sync to fallback json failed: {e}")
+
+
+def export_config(fmt: str = "yaml", mask_keys: bool = False) -> tuple[str, str, str]:
+    """导出系统配置。返回 (content, filename, media_type)"""
+    raw_cfg = load_config()
+    cfg = mask_config(raw_cfg) if mask_keys else copy.deepcopy(raw_cfg)
+    fmt = (fmt or "yaml").lower().strip()
+    if fmt == "json":
+        content = json.dumps(cfg, ensure_ascii=False, indent=2)
+        filename = "config.json"
+        media_type = "application/json; charset=utf-8"
+    elif fmt == "toml":
+        header = (
+            "# ============================================================\n"
+            "# 论文精读助手配置文件 (TOML)\n"
+            "# 可直接置于项目根目录作为 config.toml 生效，支持多机迁移与备份\n"
+            "# ============================================================\n\n"
+        )
+        content = header + dump_toml(cfg) + "\n"
+        filename = "config.toml"
+        media_type = "application/toml; charset=utf-8"
+    else:
+        header = (
+            "# ============================================================\n"
+            "# 论文精读助手配置文件 (YAML)\n"
+            "# 可直接置于项目根目录作为 config.yaml 生效，支持多机迁移与备份\n"
+            "# ============================================================\n\n"
+        )
+        content = header + yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False)
+        filename = "config.yaml"
+        media_type = "text/yaml; charset=utf-8"
+    return content, filename, media_type
+
+
+def import_config(content: str, fmt: Optional[str] = None) -> dict:
+    """导入并解析配置文本（支持 YAML / TOML / JSON），合并后原子持久化。"""
+    parsed = parse_config_content(content, fmt=fmt)
+    if not parsed:
+        raise ValueError("无法解析配置文件内容，请确保为合法的 YAML、TOML 或 JSON 格式")
+
+    current = load_config()
+    clean_parsed = merge_preserving_keys(parsed, current)
+    merged = _deep_merge_dict(current, clean_parsed)
+    save_config(merged)
+    return merged
 
 
 def get_translate_config() -> dict:
@@ -286,10 +503,10 @@ def get_analysis_config() -> dict:
         # base_url/model 无法区分“用户已保存”与“只是内置默认值”。读取原始段来
         # 保留 UI 中显式保存的模型，同时让全新安装真正使用 LLM_* 环境变量。
         saved_analysis: dict = {}
-        if os.path.exists(CONFIG_PATH):
+        active_path = get_active_config_path()
+        if os.path.exists(active_path):
             try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    raw = json.load(f)
+                raw = read_file_config(active_path)
                 raw_analysis = raw.get("analysis", {}) if isinstance(raw, dict) else {}
                 if isinstance(raw_analysis, dict):
                     saved_analysis = raw_analysis
