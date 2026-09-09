@@ -499,8 +499,9 @@ export interface ExplorationDecompose {
   intent: 'novelty' | 'maturity' | 'landscape'
   en_queries: string[]
   focus_terms: string[]
-  /** 无 LLM Key 时回退原句直检索 */
+  /** 无 LLM Key 或调用失败时回退原句直检索 */
   fallback?: boolean
+  fallback_reason?: string
 }
 
 export interface ExplorationMetrics {
@@ -551,7 +552,12 @@ export interface ExplorationSynthesis {
 export interface ExplorationResult {
   survey_report?: import('./survey').SurveyReport
   report_error?: string
-  sources?: ResearchSourceOptions & { seed_count?: number; warnings?: string[] }
+  sources?: ResearchSourceOptions & {
+    seed_count?: number
+    warnings?: string[]
+    /** stage 0 数据源预检快照（search_online=false 时为空数组） */
+    preflight?: SourceHealth[]
+  }
   decompose: ExplorationDecompose
   provider: string
   papers: ExplorationPaper[]
@@ -592,13 +598,18 @@ export interface ExplorationRun {
   id: number
   question: string
   depth: ExplorationDepth
-  status: 'pending' | 'running' | 'done' | 'failed'
+  status: 'pending' | 'running' | 'done' | 'failed' | SurveyRunStatusV2
   current_stage?: string | null
   error_message?: string | null
   provider: string
   options?: ResearchSourceOptions
   decompose?: ExplorationDecompose | null
   result?: ExplorationResult | null
+  /** academic_survey_v2（S0 冻结）；legacy_v1 运行为默认值 */
+  workflow_version?: WorkflowVersion
+  state_version?: number
+  protocol?: { protocol_id: string | null; version: number; hash: string | null; question: string; subquestion_count: number } | null
+  current_revision?: SurveyReportRevision | null
   created_at: string
   updated_at: string
 }
@@ -610,6 +621,8 @@ export interface ExplorationRunSummary {
   status: string
   provider: string
   options?: ResearchSourceOptions
+  workflow_version?: WorkflowVersion
+  state_version?: number
   created_at: string
 }
 
@@ -618,6 +631,254 @@ export interface ResearchSourceOptions {
   workspace_name?: string
   seed_paper_ids?: number[] | null
   search_online?: boolean
+  /** 盲测口径：从语料中整链路排除的已知论文（DOI / arXiv ID，随输入快照落盘） */
+  exclude_dois?: string[] | null
+  exclude_arxiv_ids?: string[] | null
+  exclude_titles?: string[] | null
+}
+
+// ── academic_survey_v2 契约（S0 冻结；与后端 models/schemas.py / models/research_core.py 对应）──
+// 执行器接入（S3/S5）前，创建 v2 运行会返回 400 WORKFLOW_NOT_IMPLEMENTED；
+// 以下类型供 S7 界面开发与后端联调使用，默认入口仍是 legacy_v1。
+
+export type WorkflowVersion = 'legacy_v1' | 'academic_survey_v2'
+
+/** v2 任务状态（任务账本；与运行状态分离） */
+export type SurveyTaskState = 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled'
+
+/** v2 运行状态（在 v1 pending/running/done/failed 之外增加） */
+export type SurveyRunStatusV2 = 'pending' | 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled'
+
+/** 质量状态独立于运行状态；内部检查不能自动提升为 human_reviewed */
+export type SurveyQualityStatus = 'unchecked' | 'internally_checked' | 'needs_review' | 'human_reviewed'
+
+/** 证据/关系核验状态：摘要级陈述可摘要支撑；实验细节/比较/归因需正文或表格证据 */
+export type SurveyVerificationState =
+  | 'abstract_supported'
+  | 'fulltext_supported'
+  | 'unverified'
+  | 'contradicted'
+  | 'insufficient'
+
+/** 身份门禁判定（S1）：allow/deny/unresolved */
+export type SurveyIdentityDecision = 'allow' | 'deny' | 'unresolved'
+
+/** v2 创建运行的可选输入（随 options.workflow 快照落盘） */
+export interface ExplorationV2CreateOptions {
+  workflow_version?: WorkflowVersion
+  /** 子问题/纳排/来源策略覆盖（S5 冻结语义） */
+  protocol_options?: Record<string, unknown>
+  /** resource → limit；不得由 agent 自行放宽 */
+  budget?: Record<string, number>
+  /** 内容时间门禁（ISO 日期时间；历史轨道） */
+  content_cutoff?: string
+  /** 排除策略引用（S1） */
+  policy_id?: string
+}
+
+export interface SurveyProtocolSubquestion {
+  subquestion_id: string
+  question: string
+  facet: string
+  required: boolean
+  status: string
+}
+
+/** 完整协议结构（GET /runs/{id}/protocol 的 protocol 字段；v1 为 null） */
+export interface SurveyProtocol {
+  protocol_id: string | null
+  version: number
+  question: string
+  subquestions: SurveyProtocolSubquestion[]
+  eligibility: Record<string, unknown>
+  content_cutoff: string | null
+  search_time: string | null
+  source_policy: Record<string, unknown>
+  budget: Record<string, number>
+  stop_rules: Record<string, unknown>[]
+  hash: string | null
+}
+
+export interface SurveyProtocolChange {
+  version: number
+  protocol_id: string | null
+  change_reason: string | null
+  created_at: string
+}
+
+export interface SurveyProtocolResponse {
+  run_id: number
+  workflow_version: WorkflowVersion
+  legacy: boolean
+  protocol: SurveyProtocol | null
+  legacy_options: ResearchSourceOptions | null
+  changes: SurveyProtocolChange[]
+}
+
+export interface SurveyTaskItem {
+  task_id: string
+  run_id: number
+  kind: string
+  subquestion_id: string | null
+  state: SurveyTaskState
+  dependencies: string[]
+  idempotency_key: string | null
+  error_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SurveyTaskListResponse {
+  run_id: number
+  workflow_version: WorkflowVersion
+  legacy: boolean
+  items: SurveyTaskItem[]
+  next_cursor: string | null
+  total: number
+}
+
+export interface SurveyCoverageSubquestion {
+  subquestion_id: string
+  question: string
+  status: string
+  screened: number
+  included_families: number
+  fulltexts: number
+  evidence_kinds: string[]
+  open_gaps: number
+}
+
+export interface SurveyCoverageGap {
+  gap_id: string
+  subquestion_id: string | null
+  severity: string
+  missing_evidence_kind: string
+  next_action: string
+  status: string
+}
+
+export interface SurveyCoverageResponse {
+  run_id: number
+  workflow_version: WorkflowVersion
+  legacy: boolean
+  updated_at: string | null
+  subquestions: SurveyCoverageSubquestion[]
+  gaps: SurveyCoverageGap[]
+  recent_actions: { task_id: string | null; type: string; payload: Record<string, unknown>; at: string }[]
+  /** v1：result.survey_report.coverage 原样投影 */
+  legacy_summary: Record<string, unknown> | null
+}
+
+export interface SurveyBudgetResource {
+  resource: string
+  limit: number | null
+  used: number
+  reserved: number
+  unit: string
+  /** false = 存在响应丢失窗口，费用按上界记账不可精确核验 */
+  usage_known: boolean
+}
+
+export interface SurveyBudgetResponse {
+  run_id: number
+  workflow_version: WorkflowVersion
+  legacy: boolean
+  resources: SurveyBudgetResource[]
+  stop_reason: string | null
+}
+
+/** pause/resume/cancel 条件状态（CAS；陈旧版本 409） */
+export interface SurveyRunControlRequest {
+  expected_state?: SurveyRunStatusV2
+  expected_state_version?: number
+}
+
+export interface SurveyRunControlResponse {
+  run_id: number
+  status: SurveyRunStatusV2
+  state_version: number
+  idempotent_replay: boolean
+  detail: string
+}
+
+export interface SurveyRunRetryRequest {
+  failed_only?: boolean
+  task_ids?: string[]
+  idempotency_key?: string
+}
+
+export interface SurveyRunRetryResponse {
+  run_id: number
+  status: SurveyRunStatusV2
+  state_version: number
+  retried_tasks: number
+  idempotent_replay: boolean
+}
+
+export interface SurveyReportRevision {
+  revision_id: string
+  parent_revision: string | null
+  protocol_hash: string | null
+  quality_status: SurveyQualityStatus
+  stop_reason: string | null
+  is_selected: boolean
+  /** v1 有报告时投影 revision_id="legacy" 的伪版本 */
+  legacy: boolean
+  created_at: string
+}
+
+export interface SurveyReportRevisionList {
+  run_id: number
+  workflow_version: WorkflowVersion
+  legacy: boolean
+  items: SurveyReportRevision[]
+  next_cursor: string | null
+}
+
+export interface SurveyEvidenceSpan {
+  page: number | null
+  section: string | null
+  table: string | null
+  bbox: number[] | null
+  char_start: number | null
+  char_end: number | null
+  quote: string
+}
+
+export interface SurveyEvidenceDetail {
+  evidence_id: string
+  run_id: number
+  asset_id: string
+  spans: SurveyEvidenceSpan[]
+  relation: string | null
+  document: {
+    asset_id?: string
+    content_hash?: string | null
+    format?: string
+    parse_status?: string
+    family_key?: string | null
+    version_key?: string | null
+    retrieved_at?: string | null
+    public_available_at?: string | null
+  }
+  created_at: string
+}
+
+export type SourceHealthStatus = 'ok' | 'auth_error' | 'rate_limited' | 'network_error' | 'error' | 'unconfigured'
+
+/** 单个数据源的预检结果：带权限的真实最小请求探测，不是 ping 可达 */
+export interface SourceHealth {
+  name: string
+  role: 'primary' | 'fallback'
+  status: SourceHealthStatus
+  detail?: string | null
+  latency_ms?: number | null
+  http_status?: number | null
+}
+
+export interface PreflightResponse {
+  checked_at: string
+  sources: SourceHealth[]
 }
 
 export interface RagCitationDebug {

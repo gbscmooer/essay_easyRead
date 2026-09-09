@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '6.1.0'
+const APP_VERSION = '6.2.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-09-07',
+  date: '2026-09-09',
   changes: [
-    '新增「思考强度」设置（关闭/低/中/高，默认中）：解读模型与翻译模型的高级参数均可配置',
-    '思考强度按模型自动适配：Claude 3.7+/4+ 调思考预算、OpenAI o 系 / gpt-5 调 reasoning_effort、DeepSeek v4 控制思考开关，不支持的模型不受影响',
-    '论文精读、深度研究、调查报告、RAG 问答、翻译总结等调用统一接入思考强度；引用标题提取不再硬编码',
+    '全系统大模型配置统一化：合并解读与翻译模型为单一全局通用 LLM 配置，一处配置全系统生效，简化模型接入与密钥管理',
+    '文献全景调研架构演进（academic_survey_v2 契约）：新增任务账本、不可变资产、证据链追溯、版本演进与预算审计数据底座',
+    '学术数据源预检与弹性流控：支持 Scopus / OpenAlex / arXiv 真实权限预检与 429 智能冷却，细化探索拆解与检索错误提示',
   ],
 }
 

@@ -2,7 +2,10 @@
 Semantic Scholar Provider — 包装现有 services.semantic_scholar
 """
 
+import time
 from typing import Optional
+
+import httpx
 
 from ....models.recall import RecallCandidate, RecallSource, build_recall_candidate
 from ...semantic_scholar import (
@@ -77,6 +80,30 @@ class SemanticScholarProvider:
             source=RecallSource.SEARCH,
             seed_relation="search_match",
         )
+
+    async def health_check(self, *, timeout: float = 10.0) -> dict:
+        """权限体检：最小真实 paper/search 查询（公共接口限速严，需区分 429 与断网）。"""
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.get(
+                    "https://api.semanticscholar.org/graph/v1/paper/search",
+                    params={"query": "retrieval", "limit": 1, "fields": "paperId"},
+                )
+        except httpx.HTTPError as e:
+            return {"name": self.name, "status": "network_error",
+                    "detail": f"连接失败（{type(e).__name__}）",
+                    "latency_ms": None, "http_status": None}
+        latency = int((time.monotonic() - start) * 1000)
+        base = {"name": self.name, "latency_ms": latency, "http_status": r.status_code}
+        if r.status_code == 200:
+            return {**base, "status": "ok", "detail": "检索服务正常"}
+        if r.status_code in (401, 403):
+            return {**base, "status": "auth_error", "detail": f"HTTP {r.status_code}：无访问权限"}
+        if r.status_code == 429:
+            return {**base, "status": "rate_limited",
+                    "detail": "HTTP 429：公共接口限速（权限仍在）"}
+        return {**base, "status": "error", "detail": f"HTTP {r.status_code}"}
 
     def _map_raw_list(
         self,

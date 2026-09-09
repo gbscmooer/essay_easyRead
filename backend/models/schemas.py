@@ -467,12 +467,44 @@ class ResearchGraphResponse(BaseModel):
 
 
 class ExplorationRunCreate(BaseModel):
-    """创建领域探索任务的请求体（问句驱动，见 GOAL.md）"""
+    """创建领域探索任务的请求体（问句驱动，见 GOAL.md）
+
+    academic_survey_v2 字段（S0 冻结）：全部可选，默认走 legacy_v1 行为；
+    只有显式 workflow_version=academic_survey_v2 使用新链路。
+    """
     question: str = Field(..., min_length=2, max_length=4000)
     depth: str = Field("standard", pattern=r"^(quick|standard|deep)$")
     workspace_id: Optional[int] = Field(None, ge=1)
     seed_paper_ids: Optional[list[int]] = Field(None, max_length=240)
     search_online: bool = True
+    # 盲测口径：把已知论文（如充当标准答案的综述）从语料中整链路排除——
+    # 召回、引文扩展、计量、综合与报告全文下载都不允许接触这些标识符
+    exclude_dois: Optional[list[str]] = Field(None, max_length=50)
+    exclude_arxiv_ids: Optional[list[str]] = Field(None, max_length=50)
+    exclude_titles: Optional[list[str]] = Field(None, max_length=50)
+    # ── academic_survey_v2 输入（随 options["workflow"] 快照落盘）──
+    workflow_version: Optional[str] = Field(None, pattern=r"^(legacy_v1|academic_survey_v2)$")
+    protocol_options: Optional[dict] = None   # 子问题/纳排/来源策略覆盖（S5 冻结语义）
+    budget: Optional[dict] = None             # resource -> limit 覆盖；不得由 agent 自行放宽
+    content_cutoff: Optional[datetime] = None  # 内容时间门禁（含当日；历史轨道）
+    policy_id: Optional[str] = None           # 排除策略引用（S1）
+
+
+class SourceHealth(BaseModel):
+    """单个数据源的预检结果（带权限的真实最小请求探测，不是 ping 可达）"""
+    name: str
+    role: str = Field("primary", pattern=r"^(primary|fallback)$")
+    # ok | auth_error | rate_limited | network_error | error | unconfigured
+    status: str = Field(..., pattern=r"^(ok|auth_error|rate_limited|network_error|error|unconfigured)$")
+    detail: str = ""
+    latency_ms: Optional[int] = None
+    http_status: Optional[int] = None
+
+
+class PreflightResponse(BaseModel):
+    """数据源预检集合：调查启动前展示各源权限状态"""
+    checked_at: datetime
+    sources: list[SourceHealth]
 
 
 class ExplorationRunResponse(BaseModel):
@@ -487,6 +519,11 @@ class ExplorationRunResponse(BaseModel):
     options: dict = Field(default_factory=dict)
     decompose: Optional[dict] = None
     result: Optional[dict] = None
+    # ── academic_survey_v2（S0 冻结；legacy_v1 运行为默认值/None）──
+    workflow_version: str = "legacy_v1"
+    state_version: int = 0
+    protocol: Optional["ProtocolSummaryResponse"] = None
+    current_revision: Optional["ReportRevisionEntry"] = None
     created_at: datetime
     updated_at: datetime
 
@@ -499,7 +536,206 @@ class ExplorationRunSummary(BaseModel):
     status: str
     provider: str = ""
     options: dict = Field(default_factory=dict)
+    workflow_version: str = "legacy_v1"
+    state_version: int = 0
     created_at: datetime
+
+
+# ============================================================
+# academic_survey_v2 契约 Schema（S0 冻结；执行器由 S3/S5 接入）
+# ============================================================
+
+
+class ProtocolSubquestionSchema(BaseModel):
+    """协议子问题（必答子问题是停止条件的一部分）"""
+    subquestion_id: str
+    question: str
+    facet: str = ""
+    required: bool = False
+    status: str = "open"
+
+
+class ProtocolSummaryResponse(BaseModel):
+    """POST /runs 响应中的协议摘要（完整协议见 GET /runs/{id}/protocol）"""
+    protocol_id: Optional[str] = None
+    version: int = 1
+    hash: Optional[str] = None
+    question: str
+    subquestion_count: int = 0
+
+
+class ProtocolChangeEntry(BaseModel):
+    """协议变更记录（每次修改产生新冻结版本，不丢历史）"""
+    version: int
+    protocol_id: Optional[str] = None
+    change_reason: Optional[str] = None
+    created_at: datetime
+
+
+class RunProtocolResponse(BaseModel):
+    """GET /runs/{id}/protocol：冻结协议及变更记录；不返回隐藏金标。
+
+    v1 运行返回 legacy 投影（从 options 快照推导，legacy=true，不含子问题）。
+    """
+    run_id: int
+    workflow_version: str
+    legacy: bool = True
+    protocol: Optional[dict] = None          # ResearchProtocol 结构；v1 为 None
+    legacy_options: Optional[dict] = None    # v1 输入快照（options）
+    changes: list[ProtocolChangeEntry] = []
+
+
+class ResearchTaskItem(BaseModel):
+    """GET /runs/{id}/tasks 的任务条目（账本行投影）"""
+    task_id: str
+    run_id: int
+    kind: str
+    subquestion_id: Optional[str] = None
+    state: str
+    dependencies: list[str] = []
+    idempotency_key: Optional[str] = None
+    error_code: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResearchTaskListResponse(BaseModel):
+    """分页任务列表；v1 运行固定为空列表（legacy=true）"""
+    run_id: int
+    workflow_version: str
+    legacy: bool = True
+    items: list[ResearchTaskItem] = []
+    next_cursor: Optional[str] = None
+    total: int = 0
+
+
+class CoverageSubquestionEntry(BaseModel):
+    """覆盖矩阵的子问题条目（S5 覆盖快照投影）"""
+    subquestion_id: str
+    question: str = ""
+    status: str = "open"
+    screened: int = 0
+    included_families: int = 0
+    fulltexts: int = 0
+    evidence_kinds: list[str] = []
+    open_gaps: int = 0
+
+
+class CoverageGapEntry(BaseModel):
+    """缺口条目（不包含评分器缺失名单）"""
+    gap_id: str
+    subquestion_id: Optional[str] = None
+    severity: str = "medium"
+    missing_evidence_kind: str = ""
+    next_action: str = ""
+    status: str = "open"
+
+
+class RunCoverageResponse(BaseModel):
+    """GET /runs/{id}/coverage：按子问题覆盖、缺口、最近补充动作"""
+    run_id: int
+    workflow_version: str
+    legacy: bool = True
+    updated_at: Optional[datetime] = None
+    subquestions: list[CoverageSubquestionEntry] = []
+    gaps: list[CoverageGapEntry] = []
+    recent_actions: list[dict] = []          # 最近补搜/补读任务摘要
+    legacy_summary: Optional[dict] = None    # v1：result.survey_report.coverage 原样投影
+
+
+class BudgetResourceEntry(BaseModel):
+    """单资源账本聚合（S0 冻结聚合口径见 research_core.ResearchBudgetEvent）"""
+    resource: str
+    limit: Optional[int] = None              # 协议冻结的上限；未定义为 None
+    used: int = 0
+    reserved: int = 0
+    unit: str = "count"
+    usage_known: bool = True                 # 存在 usage_unknown 窗口时为 False
+
+
+class RunBudgetResponse(BaseModel):
+    """GET /runs/{id}/budget：各资源 limit/used/reserved 与停止原因；不返回凭证"""
+    run_id: int
+    workflow_version: str
+    legacy: bool = True
+    resources: list[BudgetResourceEntry] = []
+    stop_reason: Optional[str] = None
+
+
+class RunControlRequest(BaseModel):
+    """pause/resume/cancel 的条件状态（事务内 compare-and-swap；陈旧版本 409）"""
+    expected_state: Optional[str] = None
+    expected_state_version: Optional[int] = Field(None, ge=0)
+
+
+class RunControlResponse(BaseModel):
+    """控制端点结果；重复相同幂等请求返回原结果（idempotent_replay=true）"""
+    run_id: int
+    status: str
+    state_version: int
+    idempotent_replay: bool = False
+    detail: str = ""
+
+
+class RunRetryRequest(BaseModel):
+    """POST /runs/{id}/retry：只重做失败/失效任务；不隐式提高预算"""
+    failed_only: bool = True
+    task_ids: Optional[list[str]] = Field(None, max_length=200)
+    idempotency_key: Optional[str] = Field(None, max_length=200)
+
+
+class RunRetryResponse(BaseModel):
+    run_id: int
+    status: str
+    state_version: int
+    retried_tasks: int = 0
+    idempotent_replay: bool = False
+
+
+class ReportRevisionEntry(BaseModel):
+    """报告不可变版本条目；v1 运行有报告时投影一个 revision_id="legacy" 的伪版本"""
+    revision_id: str
+    parent_revision: Optional[str] = None
+    protocol_hash: Optional[str] = None
+    quality_status: str = "unchecked"
+    stop_reason: Optional[str] = None
+    is_selected: bool = False
+    legacy: bool = False
+    created_at: datetime
+
+
+class ReportRevisionListResponse(BaseModel):
+    run_id: int
+    workflow_version: str
+    legacy: bool = True
+    items: list[ReportRevisionEntry] = []
+    next_cursor: Optional[str] = None
+
+
+class EvidenceSpanEntry(BaseModel):
+    """证据定位（页/节/表/坐标或字符位置 + 原文片段）"""
+    page: Optional[int] = None
+    section: Optional[str] = None
+    table: Optional[str] = None
+    bbox: Optional[list[float]] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    quote: str = ""
+
+
+class EvidenceDetailResponse(BaseModel):
+    """GET /runs/{id}/evidence/{eid}：许可范围内的摘录、文档版本与定位"""
+    evidence_id: str
+    run_id: int
+    asset_id: str
+    spans: list[EvidenceSpanEntry] = []
+    relation: Optional[str] = None
+    document: dict = Field(default_factory=dict)   # content_hash/format/public_available_at/parse_status
+    created_at: datetime
+
+
+ExplorationRunResponse.model_rebuild()
+
 
 
 class RagQueryRequest(BaseModel):

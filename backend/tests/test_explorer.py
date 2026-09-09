@@ -126,9 +126,47 @@ def test_recall_runs_queries_in_parallel(monkeypatch):
         ["tumor detection", "language model", "cancer ai"], per_query=10, cap=50, now_year=2026,
     ))
     assert name == "slowstub"
-    assert len(papers) == 6
+    # 请求预算：3 条 relevance + 1 条经典补充；每路2条，避免经典层把付费请求翻倍
+    assert len(papers) == 6  # Quoted classic query returns the same normalized titles.
     # 串行实现 max_active 恒为 1；并行后同时 in-flight ≥ 2
     assert stub.max_active >= 2
+
+
+def test_recall_dual_channel_requests_relevance_and_cited(monkeypatch):
+    """双通道召回：每条检索式同时发 relevance 主路与被引经典路（领域全景的双层承诺）。"""
+
+    class _RecordingStub:
+        name = "recstub"
+
+        def __init__(self):
+            self.calls: list[tuple[str, str, int]] = []
+
+        async def search_works(self, query, limit=20, **kwargs):
+            self.calls.append((query, str(kwargs.get("order", "relevance")), limit))
+            tag = "c" if kwargs.get("order") == "cited" else "r"
+            return [_cand(f"{query} {tag}", year=2020, cites=1, key=f"k:{query}-{tag}")]
+
+        async def aclose(self):
+            pass
+
+    stub = _RecordingStub()
+    monkeypatch.setattr(
+        "backend.services.deep_research.providers.get_provider", lambda cfg: stub,
+    )
+    papers, _ = asyncio.run(recall_papers(
+        ["rag evaluation framework benchmark", "rag llm strategies methods"], per_query=24, cap=50, now_year=2026,
+    ))
+    # relevance 路 limit=per_query；cited 路查询为前 3 词加引号的精确短语，跨式去重
+    assert ("rag evaluation framework benchmark", "relevance", 24) in stub.calls
+    assert ('"rag evaluation framework"', "cited", 12) in stub.calls
+    assert len([c for c in stub.calls if c[1] == "cited"]) == 1
+    assert len(stub.calls) == 3
+    # 两路候选键不同故都保留（真实源同篇论文共享 canonical_key，由 _dedupe_candidates 合并）
+    assert sorted(p["key"] for p in papers) == [
+        'k:"rag evaluation framework"-c',
+        "k:rag evaluation framework benchmark-r",
+        "k:rag llm strategies methods-r",
+    ]
 
 
 def test_dedupe_merges_by_key_and_takes_max_citations():
@@ -150,6 +188,44 @@ def test_cap_preserves_upstream_relevance_order():
     assert len(capped) == 12
     assert capped == (old + fresh)[:12]
     assert _cap_papers(fresh + old, cap=3, now_year=2026) == fresh
+
+
+# ── 2b) 盲测排除 ─────────────────────────────────────────────────────────────
+
+def test_apply_exclusions_filters_doi_and_arxiv_with_normalization():
+    papers = [
+        {"key": "k:survey", "title": "RAG Survey", "doi": "10.48550/ARXIV.2312.10997"},
+        {"key": "k:survey-v", "title": "RAG Survey v5", "arxiv_id": "2312.10997v5"},
+        {"key": "k:keep-doi", "title": "Kept by DOI", "doi": "10.1/keep"},
+        {"key": "k:keep-plain", "title": "Kept plain"},
+    ]
+    options = {"exclusions": {"dois": ["https://doi.org/10.48550/arxiv.2312.10997"],
+                              "arxiv_ids": ["arxiv:2312.10997"]}}
+    kept, stats = explorer.apply_exclusions(papers, options)
+    assert [p["key"] for p in kept] == ["k:keep-doi", "k:keep-plain"]
+    assert stats["count"] == 2
+    assert stats["removed_titles"] == ["RAG Survey", "RAG Survey v5"]
+    # 归一化后两侧一致：大写 DOI、doi.org 前缀、版本号、arxiv: 前缀都命中同一排除项
+
+
+def test_apply_exclusions_noop_without_options():
+    papers = [{"key": "k:a", "title": "A", "doi": "10.1/a"}]
+    kept, stats = explorer.apply_exclusions(papers, {})
+    assert kept is papers
+    assert stats == {"count": 0}
+
+
+def test_seed_options_snapshots_normalized_exclusions():
+    from backend.services.research_sources import seed_options
+    options = seed_options(None, None, None, True,
+                           exclude_dois=["https://doi.org/10.48550/arXiv.2312.10997", " 10.1/x ", "10.1/x"],
+                           exclude_arxiv_ids=["2312.10997v5"])
+    assert options["exclusions"] == {
+        "dois": ["10.1/x", "10.48550/arxiv.2312.10997"],
+        "arxiv_ids": ["2312.10997"],
+    }
+    # 无排除项时不写入键，保持 options 快照最小
+    assert "exclusions" not in seed_options(None, None, None, True)
 
 
 # ── 3) metrics ───────────────────────────────────────────────────────────────
@@ -491,6 +567,15 @@ def exploration_env(tmp_path, monkeypatch):
         "backend.services.ai_config.get_analysis_config", lambda: {"api_key": "", "base_url": "", "model": ""},
     )
 
+    # stage 0 数据源预检：测试环境不触网，恒返回健康的 stub 源
+    async def _healthy_sources(*args, **kwargs):
+        return [{"name": "openalex", "role": "primary", "status": "ok",
+                 "detail": "测试环境", "latency_ms": 1, "http_status": 200}]
+
+    monkeypatch.setattr(
+        "backend.services.deep_research.preflight.preflight_research_sources", _healthy_sources,
+    )
+
     events: list[tuple[str, dict]] = []
 
     class _Bus:
@@ -618,5 +703,6 @@ def test_recall_recovers_after_primary_breaker(monkeypatch):
     )
     papers, name = asyncio.run(recall_papers(["q1", "q2"], per_query=5, cap=20, now_year=2026))
     assert name == "backup"          # 已切换到备用源（透明度字段如实反映）
-    assert len(papers) == 2
-    assert backup.calls == 2
+    # 两条 relevance + 一条经典补充
+    assert len(papers) == 2  # Same-title hits from the classic channel are merged.
+    assert backup.calls == 3

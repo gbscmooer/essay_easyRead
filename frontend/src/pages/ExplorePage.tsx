@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import '@/styles/exploration-detail.css'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Download, FileText, MessageSquare } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ChevronDown, Download, FileText, History, MessageSquare } from 'lucide-react'
 import { PaperTitle, paperLink, EvidenceMarkdown } from '@/features/research/paperLinks'
 import { ChartView } from '@/features/research/ChartView'
 import { ExplorationConversation } from '@/features/research/ExplorationConversation'
@@ -21,11 +22,11 @@ import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail 
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
-import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, regenerateReport } from '@/api/exploration'
+import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport } from '@/api/exploration'
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
-  ExplorationRun, ExplorationMessage, CitationMethod,
+  ExplorationRun, ExplorationMessage, CitationMethod, PreflightResponse,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
 
@@ -42,6 +43,7 @@ const DEPTHS: { value: ExplorationDepth; label: string; hint: string }[] = [
 ]
 
 const STAGE_META: { key: string; label: string; hint: string }[] = [
+  { key: 'preflight', label: '⓪ 数据源预检', hint: '带 Key 的最小真实检索探测权限：401/403/断网提前暴露，主源失效自动回退' },
   { key: 'decompose', label: '① 拆解检索式', hint: 'LLM 把口语问题译成学术检索式' },
   { key: 'recall', label: '② 多源检索', hint: 'Scopus 首选 / OpenAlex 回退' },
   { key: 'enrich', label: '③ 指标富化', hint: '逐年引用 · 摘要 · 关键词 · 期刊 SJR/SNIP（OpenAlex 补查 + Scopus Serial Title）' },
@@ -63,6 +65,25 @@ const INTENT_LABEL: Record<string, string> = {
   novelty: '查新（有没有人做）',
   maturity: '成熟度（做到什么程度）',
   landscape: '全景（领域现状）',
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  scopus: 'Scopus',
+  openalex: 'OpenAlex',
+  semantic_scholar: 'Semantic Scholar',
+  local: '本地',
+}
+
+const HEALTH_STATUS_LABELS: Record<string, string> = {
+  auth_error: '无权限',
+  rate_limited: '限速中',
+  network_error: '网络不通',
+  error: '异常',
+  unconfigured: '未配置',
+}
+
+function sourceLabel(name: string): string {
+  return SOURCE_LABELS[name] ?? name
 }
 
 function fmtCitations(n: number | null | undefined): string {
@@ -104,11 +125,29 @@ export default function ExplorePage() {
   const [history, setHistory] = useState<ExplorationRunSummary[]>([])
   const [selected, setSelected] = useState<ExplorationPaper | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [preflight, setPreflight] = useState<PreflightResponse | null>(null)
+  const [preflightLoading, setPreflightLoading] = useState(false)
 
   const stream = useExplorationStream(runId, revision)
   const result = stream.result ?? savedRun?.result ?? null
   const synthesis = stream.synthesis ?? result?.synthesis ?? null
   const running = stream.status === 'running' || submitting
+
+  // 数据源预检：进入列表页即探测（带权限的真实最小请求），开始研究前就能看到 401/403
+  const runPreflight = useCallback(async (signal?: AbortSignal) => {
+    setPreflightLoading(true)
+    try { setPreflight(await preflightExploration(signal)) } catch { /* 预检失败不阻塞提问 */ }
+    finally { setPreflightLoading(false) }
+  }, [])
+  useEffect(() => {
+    if (detail) return
+    const controller = new AbortController()
+    void runPreflight(controller.signal)
+    return () => controller.abort()
+  }, [detail, runPreflight])
+  const deadPrimary = preflight?.sources.find(s => s.role === 'primary' && s.status !== 'ok' && s.status !== 'unconfigured') ?? null
+  const okFallback = preflight?.sources.find(s => s.role === 'fallback' && s.status === 'ok') ?? null
 
   useEffect(() => {
     setSavedRun(null); setLoadError(''); setMessages([]); setQuestion(''); setTab('report')
@@ -150,6 +189,19 @@ export default function ExplorePage() {
   useEffect(() => { void refreshHistory() }, [refreshHistory])
   useEffect(() => { if (stream.status === 'done') void refreshHistory() }, [stream.status, refreshHistory])
   useEffect(() => { setSelected(null) }, [runId])
+  // 路由离开列表视图时收起抽屉
+  useEffect(() => { setHistoryOpen(false) }, [detail, runId])
+  // 抽屉打开期间：ESC 关闭 + 锁定页面滚动
+  useEffect(() => {
+    if (!historyOpen || detail || history.length === 0) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setHistoryOpen(false) }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [historyOpen, detail, history.length])
 
   const submit = useCallback(async () => {
     const q = question.trim()
@@ -298,6 +350,39 @@ export default function ExplorePage() {
         </div>
         {sourceLoading && <p role="status">正在加载母论文…</p>}
         {sourceError && <p role="alert" className="survey-error">{sourceError}</p>}
+        <div className="ex-preflight" aria-label="数据源预检">
+          <span className="ex-preflight__label">数据源体检</span>
+          {preflightLoading && !preflight ? (
+            <span className="ex-preflight__hint">探测各源访问权限中…</span>
+          ) : (
+            <>
+              {(preflight?.sources ?? []).map(s => (
+                <span
+                  key={s.name}
+                  className={`ex-preflight__chip is-${s.status}`}
+                  title={`${sourceLabel(s.name)} · ${s.role === 'primary' ? '首选源' : '回退源'} · ${s.detail ?? ''}`}
+                >
+                  <i className="ex-preflight__dot" aria-hidden="true" />
+                  {sourceLabel(s.name)}
+                  {s.status === 'ok' && s.latency_ms != null && <em>{s.latency_ms}ms</em>}
+                  {s.status !== 'ok' && <em>{HEALTH_STATUS_LABELS[s.status] ?? s.status}</em>}
+                </span>
+              ))}
+              {!preflight && <span className="ex-preflight__hint">暂未探测</span>}
+              <button
+                type="button"
+                className="ex-preflight__refresh"
+                onClick={() => void runPreflight()}
+                disabled={preflightLoading || running}
+                aria-label="重新探测数据源"
+                title="重新用真实最小检索探测各数据源权限"
+              >↻</button>
+            </>
+          )}
+          {deadPrimary && okFallback && (
+            <span className="ex-preflight__note">首选源不可用，开始研究将自动回退 {sourceLabel(okFallback.name)}</span>
+          )}
+        </div>
         {workspace && <details className="research-seeds"><summary>母论文 · 已选 {seedIds.length} / {workspace.papers.length} 篇</summary>
           <div className="research-seed-actions"><button type="button" onClick={() => setSeedIds(workspace.papers.map(p => p.id))}>全选</button><button type="button" onClick={() => setSeedIds([])}>清空选择</button></div>
           <div className="research-seed-list">{workspace.papers.map(p => <label key={p.id}><input type="checkbox" checked={seedIds.includes(p.id)} onChange={e => setSeedIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))} />{p.title || p.filename}</label>)}</div>
@@ -387,27 +472,52 @@ export default function ExplorePage() {
         </section>
       )}
 
-      {/* 历史记录 */}
+      {/* 历史记录：抽屉式二级菜单入口 */}
       {!detail && history.length > 0 && (
         <section className="ex-history" aria-label="历史探索">
-          <span className="ex-history__label">最近研究</span>
-          <div className="ex-history__list">
-            {history.map(h => (
-              <span key={h.id} className={`ex-history__item${runId === h.id ? ' is-active' : ''}`}>
-                <Link to={`/explorer/${h.id}`} title={h.question}>
-                  {h.status === 'failed' ? '⚠ ' : ''}{h.question}
-                </Link>
-                <button
-                  type="button"
-                  className="ex-history__del"
-                  aria-label="删除该记录"
-                  onClick={() => void removeRun(h.id)}
-                  disabled={h.status === 'running' || h.status === 'pending'}
-                >×</button>
-              </span>
-            ))}
-          </div>
+          <button
+            type="button"
+            className="ex-history__toggle"
+            aria-haspopup="dialog"
+            aria-expanded={historyOpen}
+            onClick={() => setHistoryOpen(v => !v)}
+          >
+            <History size={15} aria-hidden="true" />
+            最近研究
+            <span className="ex-history__count">{history.length}</span>
+            <ChevronDown size={14} aria-hidden="true" className={historyOpen ? 'is-open' : undefined} />
+          </button>
         </section>
+      )}
+
+      {!detail && createPortal(
+        <div className="ex-drawer" hidden={!historyOpen || history.length === 0}>
+          <div className="ex-drawer__backdrop" onClick={() => setHistoryOpen(false)} />
+          <aside className="ex-drawer__panel" role="dialog" aria-modal="true" aria-label="最近研究">
+            <header className="ex-drawer__head">
+              <span>最近研究</span>
+              <button type="button" className="ex-drawer__close" aria-label="关闭最近研究" onClick={() => setHistoryOpen(false)}>×</button>
+            </header>
+            <ul className="ex-drawer__list">
+              {history.map(h => (
+                <li key={h.id}>
+                  <Link to={`/explorer/${h.id}`} onClick={() => setHistoryOpen(false)}>
+                    <span className="ex-drawer__q">{h.question}</span>
+                    <span className="ex-drawer__meta">{h.status === 'failed' ? '⚠ 失败 · ' : ''}{new Date(h.created_at).toLocaleString()}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    className="ex-history__del"
+                    aria-label="删除该记录"
+                    onClick={() => void removeRun(h.id)}
+                    disabled={h.status === 'running' || h.status === 'pending'}
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        </div>,
+        document.body,
       )}
 
       {stream.status === 'failed' && stream.error && (
@@ -498,7 +608,17 @@ export default function ExplorePage() {
             </p>}
             {result.decompose.fallback && (
               <p className="ex-transparency__warn">
-                未配置 LLM Key：跳过了检索式拆解与综合报告，使用原句直检索（统计视图照常可用）。
+                {result.decompose.fallback_reason && result.decompose.fallback_reason !== 'UNCONFIGURED_KEY'
+                  ? `LLM 检索拆解未成功（${result.decompose.fallback_reason}）：已回退使用原句直检索（统计视图照常可用）。`
+                  : '未配置 LLM Key：跳过了检索式拆解与综合报告，使用原句直检索（统计视图照常可用）。'}
+              </p>
+            )}
+            {(result.sources?.preflight ?? []).some(s => s.status !== 'ok' && s.status !== 'unconfigured') && (
+              <p className="ex-transparency__warn">
+                数据源预检：{(result.sources?.preflight ?? [])
+                  .filter(s => s.status !== 'ok' && s.status !== 'unconfigured')
+                  .map(s => `${sourceLabel(s.name)}（${s.detail || HEALTH_STATUS_LABELS[s.status] || s.status}）`)
+                  .join('；')}——本次研究已自动回退可用数据源。
               </p>
             )}
             {total === 0 && (

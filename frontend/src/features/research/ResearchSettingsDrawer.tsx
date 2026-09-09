@@ -36,6 +36,7 @@ export function ResearchSettingsDrawer({ open, onClose }: ResearchSettingsDrawer
           ...DEFAULT_CONFIG,
           ...cfg,
           embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
+          llm: { ...DEFAULT_CONFIG.llm, ...(cfg.llm ?? cfg.analysis ?? {}) },
           translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
           analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
           analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },

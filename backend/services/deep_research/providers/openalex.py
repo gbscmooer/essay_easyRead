@@ -25,7 +25,7 @@ WORK_FIELDS = (
     "counts_by_year,keywords,type,topics,primary_topic"
 )
 # 逐篇补查（get_citation_history）的精简字段：逐年引用 + 摘要 + 关键词 + 期刊身份
-HISTORY_FIELDS = "id,doi,cited_by_count,counts_by_year,abstract_inverted_index,keywords,primary_location"
+HISTORY_FIELDS = "id,doi,cited_by_count,counts_by_year,abstract_inverted_index,keywords,primary_location,locations,open_access"
 
 
 class OpenAlexProvider:
@@ -236,14 +236,16 @@ class OpenAlexProvider:
             logger.warning(f"OpenAlex get_recommendations failed: {e}")
             return []
 
-    async def search_works(self, query: str, limit: int = 20, *, academic_only: bool = False) -> list[RecallCandidate]:
+    async def search_works(self, query: str, limit: int = 20, *, academic_only: bool = False,
+                           order: str = "relevance") -> list[RecallCandidate]:
         try:
             if not query or not query.strip():
                 return []
             params = {
                 "search": query.strip(),
                 "per-page": min(limit, 50),
-                "sort": "relevance_score:desc",
+                # order="cited"：被引降序的经典层补充（relevance 偏新，奠基论文需显式召回）
+                "sort": "cited_by_count:desc" if order == "cited" else "relevance_score:desc",
                 "select": WORK_FIELDS,
             }
             if academic_only:
@@ -321,7 +323,34 @@ class OpenAlexProvider:
             "keywords": _extract_keywords(work),
             "venue_name": venue_name,
             "venue_issn": venue_issn,
+            "pdf_url": _extract_pdf(work),
+            "arxiv_id": _extract_arxiv(work),
         }
+
+    async def health_check(self, *, timeout: float = 10.0) -> dict:
+        """权限体检：发一次最小真实 /works 查询（per-page=1）。匿名可用，
+        403/断网才值得报告——这决定熔断回退后还有没有源可用。"""
+        params = {"per-page": 1, "select": "id"}
+        if self.email:
+            params["mailto"] = self.email
+        start = time.monotonic()
+        try:
+            r = await self._http().get(f"{OA_BASE}/works", params=params, timeout=timeout)
+        except httpx.HTTPError as e:
+            return {"name": self.name, "status": "network_error",
+                    "detail": f"连接失败（{type(e).__name__}）",
+                    "latency_ms": None, "http_status": None}
+        latency = int((time.monotonic() - start) * 1000)
+        base = {"name": self.name, "latency_ms": latency, "http_status": r.status_code}
+        if r.status_code == 200:
+            return {**base, "status": "ok", "detail": "检索服务正常"}
+        if r.status_code == 403:
+            return {**base, "status": "auth_error",
+                    "detail": "HTTP 403：出口 IP 被限制"}
+        if r.status_code == 429:
+            return {**base, "status": "rate_limited",
+                    "detail": "HTTP 429：限速（稍后自动恢复）"}
+        return {**base, "status": "error", "detail": f"HTTP {r.status_code}"}
 
     async def aclose(self):
         if self._client is not None:

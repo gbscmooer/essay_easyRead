@@ -190,6 +190,19 @@ from ..models.analysis import AnalysisResult
 from ..models.code_analysis import CodeAnalysis
 from ..models.research import ResearchRun, ResearchGraph, PaperReference
 from ..models.exploration import ExplorationRun, ExplorationMessage
+from ..models.research_core import (
+    ResearchAsset,
+    ResearchBudgetEvent,
+    ResearchClaim,
+    ResearchEvent,
+    ResearchEvidence,
+    ResearchIdentityDecision,
+    ResearchRelation,
+    ResearchReportRevision,
+    ResearchTask,
+    ResearchTaskAttempt,
+    WORKFLOW_ACADEMIC_SURVEY_V2,
+)
 from ..models.tag import Tag, PaperTag
 from ..models.note import Note
 from ..models.annotation import Annotation
@@ -253,6 +266,58 @@ def _migrate_schema(engine) -> None:
         if exploration_cols and "options" not in exploration_cols:
             conn.exec_driver_sql("ALTER TABLE exploration_runs ADD COLUMN options JSON DEFAULT '{}'")
             conn.commit()
+
+        # exploration_runs 表迁移：academic_survey_v2 工作流列（S0，只增不删）
+        # 旧数据自动落默认值 legacy_v1 / 0 / NULL；回滚 v1 代码不读这些列，数据仍可读
+        exploration_v2_migrations = [
+            ("workflow_version", "TEXT NOT NULL DEFAULT 'legacy_v1'"),
+            ("state_version", "INTEGER NOT NULL DEFAULT 0"),
+            ("protocol_asset_id", "TEXT"),
+        ]
+        for col_name, col_def in exploration_v2_migrations:
+            _validate_column_name(col_name)
+            if col_name not in exploration_cols:
+                try:
+                    conn.exec_driver_sql(f"ALTER TABLE exploration_runs ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to exploration_runs")
+                except Exception as e:
+                    logger.warning(f"Migration failed for exploration_runs.{col_name}: {e}")
+
+        # academic_survey_v2 新表（S0 冻结 schema；正常路径由 create_all 建表，
+        # 此处兜底保证旧库升级/部分导入路径也能拿到完整表集，checkfirst 幂等）
+        from sqlmodel import SQLModel as _SQLModel
+        _SQLModel.metadata.create_all(engine, tables=[
+            ResearchTask.__table__,
+            ResearchTaskAttempt.__table__,
+            ResearchAsset.__table__,
+            ResearchEvidence.__table__,
+            ResearchRelation.__table__,
+            ResearchClaim.__table__,
+            ResearchReportRevision.__table__,
+            ResearchBudgetEvent.__table__,
+            ResearchEvent.__table__,
+            ResearchIdentityDecision.__table__,
+        ])
+
+        # research_tasks 幂等键唯一索引（S0 复审修正 F2）：旧全局唯一索引会阻断
+        # 同协议的另一个 run 建立自己的账本；改为 (run_id, idempotency_key) 唯一。
+        if conn.exec_driver_sql(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_tasks'"
+        ).first():
+            try:
+                conn.exec_driver_sql("DROP INDEX IF EXISTS uq_research_tasks_idempotency")
+                conn.exec_driver_sql(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_research_tasks_run_idempotency
+                    ON research_tasks(run_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL
+                    """
+                )
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Migration failed for research_tasks idempotency index: {e}")
+
 
         # papers 表迁移：代码仓库相关字段
         try:
@@ -534,8 +599,13 @@ def reconcile_interrupted_runs(engine=None) -> int:
             )
             session.commit()
         count = len(ids)
+        # academic_survey_v2 豁免（计划 §7.1）：v2 运行由 worker 租约与任务账本决定恢复，
+        # 不能被 API 进程启动误置 failed；v1 行为保持不变。
         for model in (ExplorationRun, ExplorationMessage):
-            rows = session.exec(select(model).where(model.status.in_(orphan_statuses))).all()
+            statement = select(model).where(model.status.in_(orphan_statuses))
+            if model is ExplorationRun:
+                statement = statement.where(ExplorationRun.workflow_version != WORKFLOW_ACADEMIC_SURVEY_V2)
+            rows = session.exec(statement).all()
             for row in rows:
                 row.status = "failed"
                 row.error_message = "后端重启导致任务中断，请重试"

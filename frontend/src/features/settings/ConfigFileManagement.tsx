@@ -187,7 +187,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
       {showGuide && (
         <div className="set-file-card__guide mt-3 pt-3 border-t border-[var(--border)] text-xs text-[var(--text-secondary)] space-y-1.5">
           <p>• <strong>优先加载顺序：</strong><code>config.yaml</code> &gt; <code>config.yml</code> &gt; <code>config.toml</code> &gt; <code>data/ai_config.json</code>。</p>
-          <p>• <strong>免手动填 key：</strong>在根目录下建立 <code>config.yaml</code> 填入 <code>analysis.api_key</code> 与 <code>translate.api_key</code>，即可一处配置全系统通用。</p>
+          <p>• <strong>免手动填 key：</strong>在根目录下建立 <code>config.yaml</code> 填入 <code>llm.api_key</code>，即可一处配置全系统通用。</p>
           <p>• <strong>参考模板：</strong>项目根目录已提供带完整字段中文说明的 <code>config.example.yaml</code>，可直接复制参考。</p>
           <p>• <strong>安全防泄露：</strong><code>config.yaml</code> 已在 <code>.gitignore</code> 中忽略，不会误提交至代码仓库。</p>
         </div>

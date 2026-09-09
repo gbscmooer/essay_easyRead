@@ -32,7 +32,7 @@ class DomainRateLimiter:
         # 域名默认规则: (min_interval_seconds, max_concurrent)
         self._rules: dict[str, tuple[float, int]] = {
             "api.openalex.org": (0.12, 5),          # OpenAlex polite pool ~10 req/s
-            "arxiv.org": (0.5, 2),                  # arXiv PDF 下载限并发防封 IP
+            "arxiv.org": (3.0, 1),                  # API and PDF share the same IP budget
             "export.arxiv.org": (3.0, 1),           # arXiv API 查询严格遵循 3s 间隔
             "api.unpaywall.org": (0.1, 5),          # Unpaywall OA 解析 10 req/s
             "api.crossref.org": (0.15, 5),          # CrossRef polite pool
@@ -45,16 +45,18 @@ class DomainRateLimiter:
         self._locks: dict[str, asyncio.Lock] = {}
         self._semaphores: dict[str, asyncio.Semaphore] = {}
         self._last_req_time: dict[str, float] = {}
+        self._cooldown: dict[str, float] = {}
 
     def _get_domain(self, url: str) -> str:
         try:
             parsed = urllib.parse.urlparse(url)
-            return (parsed.netloc or "").lower().split(":")[0]
+            domain = (parsed.hostname or "").lower()
+            return "arxiv.org" if domain == "export.arxiv.org" else domain
         except Exception:
             return ""
 
     def _get_rule(self, domain: str) -> tuple[float, int]:
-        for pattern, rule in self._rules.items():
+        for pattern, rule in sorted(self._rules.items(), key=lambda item: -len(item[0])):
             if domain == pattern or domain.endswith("." + pattern):
                 return rule
         return self._default_rule
@@ -80,12 +82,16 @@ class DomainRateLimiter:
             last_time = self._last_req_time.get(domain, 0.0)
             now = time.monotonic()
             elapsed = now - last_time
-            if elapsed < min_interval:
-                sleep_sec = min_interval - elapsed
+            sleep_sec = max(min_interval - elapsed, self._cooldown.get(domain, 0) - now)
+            if sleep_sec > 0:
                 await asyncio.sleep(sleep_sec)
             self._last_req_time[domain] = time.monotonic()
 
         return domain
+
+    def cool_down(self, url: str, seconds: float) -> None:
+        domain = self._get_domain(url)
+        self._cooldown[domain] = max(self._cooldown.get(domain, 0), time.monotonic() + seconds)
 
 
 # 全局单例限速器
@@ -132,17 +138,19 @@ class AdaptiveThrottle:
 
     def on_rate_limited(self, retry_after: float = 0.0) -> None:
         self.interval = min(self.cap, max(float(retry_after or 0.0), self.interval * self.grow))
+        self._next_slot = max(self._next_slot, time.monotonic() + float(retry_after or 0))
 
     async def acquire(self) -> None:
         """占一个并发位 + 分配一个不早于当前 interval 间隔的发射槽。"""
         await self._sem.acquire()
-        async with self._lock:
-            now = time.monotonic()
-            slot = max(now, self._next_slot)
-            self._next_slot = slot + self.interval
-        delay = slot - now
-        if delay > 0:
-            await asyncio.sleep(delay)
+        try:
+            async with self._lock:
+                while self._next_slot > time.monotonic():
+                    await asyncio.sleep(self._next_slot - time.monotonic())
+                self._next_slot = time.monotonic() + self.interval
+        except BaseException:
+            self._sem.release()
+            raise
 
     def release(self) -> None:
         self._sem.release()
@@ -197,9 +205,13 @@ async def resilient_get(
     max_retries: int = 3,
     base_backoff: float = 1.5,
     client: httpx.AsyncClient | None = None,
+    redirect_limit: int = 5,
 ) -> httpx.Response:
     """具备域名限速与 429/503 弹性重试的 HTTP GET 请求。"""
     cli = client or get_shared_client(timeout=timeout)
+    from .research_exclusions import active_exclusions, check_download_url
+    check_download_url(url)
+    guarded = bool(active_exclusions.get().get("exclusions"))
     domain = global_rate_limiter._get_domain(url)
     sem = global_rate_limiter.get_semaphore(domain)
 
@@ -208,12 +220,24 @@ async def resilient_get(
         merged_headers.update(headers)
 
     last_exc: Optional[Exception] = None
+    target = None
 
     for attempt in range(max_retries):
         async with sem:
             await global_rate_limiter.throttle(url)
             try:
-                resp = await cli.get(url, params=params, headers=merged_headers, timeout=timeout)
+                resp = await cli.get(url, params=params, headers=merged_headers, timeout=timeout,
+                                     **({"follow_redirects": False} if guarded else {}))
+                if guarded and resp.is_redirect and resp.headers.get("location"):
+                    target = urllib.parse.urljoin(str(resp.url), resp.headers["location"])
+                    check_download_url(target)
+                    if redirect_limit <= 0:
+                        raise ValueError("Too many research download redirects")
+                    if urllib.parse.urlparse(target).netloc != urllib.parse.urlparse(url).netloc:
+                        merged_headers = {k: v for k, v in merged_headers.items()
+                                          if k.lower() not in {"authorization", "x-els-apikey", "cookie"}}
+                    # Release this host's semaphore before following a same-host redirect.
+                    break
                 if resp.status_code == 429:
                     wait_sec = parse_retry_after(
                         resp.headers,
@@ -222,6 +246,7 @@ async def resilient_get(
                     logger.warning(
                         f"HTTP 429 from {domain or url} (attempt {attempt + 1}/{max_retries}), waiting {wait_sec:.1f}s"
                     )
+                    global_rate_limiter.cool_down(url, wait_sec)
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait_sec)
                         continue
@@ -257,6 +282,9 @@ async def resilient_get(
                     continue
                 raise
 
+    if target:
+        return await resilient_get(target, headers=merged_headers, timeout=timeout, max_retries=max_retries,
+                                   base_backoff=base_backoff, client=cli, redirect_limit=redirect_limit - 1)
     if last_exc:
         raise last_exc
     raise RuntimeError(f"resilient_get exhausted {max_retries} retries for {url}")

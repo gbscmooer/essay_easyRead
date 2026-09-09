@@ -8,6 +8,8 @@
 文档: https://arxiv.org/help/api/user-manual
 """
 import asyncio
+from collections import OrderedDict
+import time
 import logging
 import re
 import urllib.parse
@@ -26,6 +28,7 @@ _RATE_LIMIT = 3.0  # arXiv ToS: ≥ 3 秒
 _last_req_time: float = 0.0
 _req_lock: Optional[asyncio.Lock] = None
 _client: Optional[httpx.AsyncClient] = None
+_query_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
 
 
 def _get_lock() -> asyncio.Lock:
@@ -48,16 +51,29 @@ def _get_client() -> httpx.AsyncClient:
 
 async def _arxiv_request(qs: str) -> str:
     """限速 GET，返回响应文本。串行调用，不可并发。"""
-    global _last_req_time
     async with _get_lock():
-        elapsed = asyncio.get_event_loop().time() - _last_req_time
-        if elapsed < _RATE_LIMIT:
-            await asyncio.sleep(_RATE_LIMIT - elapsed)
-        _last_req_time = asyncio.get_event_loop().time()
-    url = f"{ARXIV_API}?{qs}"
-    resp = await _get_client().get(url)
-    resp.raise_for_status()
-    return resp.text
+        hit = _query_cache.get(qs)
+        if hit and time.monotonic() - hit[0] < 600:
+            return hit[1]
+        from ..rate_limiter import resilient_get
+        resp = await resilient_get(ARXIV_API, params=dict(urllib.parse.parse_qsl(qs)),
+                                   client=_get_client(), max_retries=2, timeout=20)
+        _query_cache[qs] = (time.monotonic(), resp.text)
+        _query_cache.move_to_end(qs)
+        while len(_query_cache) > 128:
+            _query_cache.popitem(last=False)
+        return resp.text
+
+
+async def search_topic(query: str, limit: int = 20) -> list[dict]:
+    """Single bounded query returning both abstracts and official full-text links."""
+    terms = re.findall(r"[\w-]+", query, re.UNICODE)
+    if not terms:
+        return []
+    qs = urllib.parse.urlencode({"search_query": " AND ".join(f"all:{t}" for t in terms),
+                                 "sortBy": "relevance", "sortOrder": "descending",
+                                 "max_results": min(max(limit, 1), 40)})
+    return _parse_entries(await _arxiv_request(qs), max_entries=min(max(limit, 1), 40))
 
 
 # arXiv 扩展命名空间，<arxiv:primary_category term="cs.LG"/> 给出主学科分类
@@ -199,6 +215,8 @@ def _parse_entries(xml_text: str, max_entries: int = 5) -> list[dict]:
             "authors": authors or None,
             "year": year,
             "category": _extract_category(entry),
+            "abstract": " ".join(entry.findtext("atom:summary", default="", namespaces=ns).split()),
+            "doi": entry.findtext("arxiv:doi", default=None, namespaces=_ARXIV_NS),
         })
     return results
 

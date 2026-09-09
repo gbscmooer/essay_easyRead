@@ -13,6 +13,7 @@ import type { ExplorationResult, ExplorationSynthesis } from '@/types'
  *   done / error
  */
 const STAGE_DEFAULT_MESSAGES: Record<string, string> = {
+  preflight: '正在用带 Key 的最小真实检索探测各数据源权限（Scopus / OpenAlex）…',
   decompose: '正在使用 AI 将自然语言问题拆解为学术检索式与意图…',
   recall: '正在多源检索学术文献（Scopus / OpenAlex）…',
   enrich: '正在获取文献被引轨迹、摘要、关键词与期刊指标…',
@@ -73,7 +74,8 @@ export function useExplorationStream(runId: number | null, revision = 0) {
           if (STAGE_DEFAULT_MESSAGES[st]) {
             setMessage(STAGE_DEFAULT_MESSAGES[st])
           }
-          if (st === 'decompose') setProgress(15)
+          if (st === 'preflight') setProgress(10)
+          else if (st === 'decompose') setProgress(15)
           else if (st === 'recall') setProgress(30)
           else if (st === 'enrich') setProgress(52)
           else if (st === 'metrics') setProgress(74)
@@ -89,7 +91,17 @@ export function useExplorationStream(runId: number | null, revision = 0) {
         const data = JSON.parse(e.data)
         const st = String(data.stage || '')
         setStage(`${st} 完成`)
-        if (st === 'decompose') {
+        if (st === 'preflight') {
+          const srcs: { name: string; status: string }[] = Array.isArray(data.summary?.sources) ? data.summary.sources : []
+          const dead: string[] = Array.isArray(data.summary?.dead) ? data.summary.dead : []
+          const line = srcs.map(s => `${s.name} ${s.status === 'ok' ? '✓' : '✗'}`).join(' · ')
+          setMessage(srcs.length
+            ? (dead.length
+                ? `数据源预检：${line}（不可用：${dead.join('、')}，将自动回退可用源）`
+                : `数据源预检通过：${line}`)
+            : '数据源预检完成')
+          setProgress(18)
+        } else if (st === 'decompose') {
           const count = data.summary?.queries?.length ?? 0
           setMessage(`检索式拆解完成，生成 ${count} 组学术检索式`)
           setProgress(25)

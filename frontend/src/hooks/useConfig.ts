@@ -18,6 +18,7 @@ export interface UIConfig {
 }
 
 interface AppConfig {
+  llm?: { temperature: number; max_tokens: number; [key: string]: unknown }
   translate: { temperature: number; max_tokens: number; [key: string]: unknown }
   analysis: { temperature: number; max_tokens: number; [key: string]: unknown }
   ui: UIConfig

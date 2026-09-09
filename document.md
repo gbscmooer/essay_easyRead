@@ -102,7 +102,7 @@
 | 图骨架 | mutual-kNN 主分析图；原始 Disparity Filter 作为独立标记 | kNN k=10（边界同分保留），alpha=0.05 仅控制标记；原目标度数/减基线停用；`stats.backbone.policy=mutual_knn_with_disparity_annotation_v1`、`edge.selection_method` 标明来源；补桥仅展示，不参与聚类/中心性 |
 | 社区/重要性 | `igraph` + `leidenalg` 的 Leiden（RBConfiguration），加权 PageRank | resolution=1、seed=42；不强行合并小簇或按桥接边分配归属；importance 使用关系 PageRank，引文 PageRank 单独保留 |
 | 探索聚类 | 配置的预训练 embedding 表示标题+摘要，mutual-kNN + Leiden | k=10，边界同分保留；向量失败时用 sklearn 标准 TF-IDF，并在 `metrics.clustering` 明示降级 |
-| 检索/选材 | 多检索式等权 RRF；BM25+ 与 dense 排名 RRF，再调用配置的 reranker | 文献被引量不作为问题相关性；有限缓存按 provider/base_url/model/文本隔离；BGE v1.5 使用真实 tokenizer 的 512 token 窗口 |
+| 检索/选材 | 多检索式等权 RRF；**双通道召回**：每条检索式 relevance 主路 + 前 3 词引号短语经典路（`order="cited"` 被引降序，跨式去重）；BM25+ 与 dense 排名 RRF，再调用配置的 reranker | relevance 排序天然偏新文献（时代流行词会把奠基论文挡在 AND 匹配外，实测见 `DEEP_RESEARCH_EVAL.md` 盲测节）；经典路是显式高被引补充层，不是逐论文流行度偏好；文献被引量不作为问题相关性；有限缓存按 provider/base_url/model/文本隔离；BGE v1.5 使用真实 tokenizer 的 512 token 窗口 |
 | 引用率 | `citation_metrics.py`：两个相邻完整两年窗口的条件 Poisson 精确检验（SciPy binomtest），集合内 Benjamini-Hochberg 校正 | 排除当前/未来及发表当年；BH p<=0.05 且增长才标 rising；逐篇 `citation_metrics` 保存假设、窗口、p/q、比值与无法检验原因 |
 | 被引百分位 | SciPy average rank 中点百分位，按本次样本发表年份分组 | 非全领域/ESI 百分位；徽章只表示样本前 5%，至少 20 篇且引用量正；不是显著性声明 |
 | 证据核验 | `evidence_audit.py`：借鉴 ALCE 的论断/引用支持核验，使用现有 LLM 作裁判、程序核对原文摘录与编号 | 40 秒、最多 24 论断；状态 completed/partial/no_claims/skipped/error；不完整时 support_rate=null；不把 LLM 判定当人工真值 |
@@ -134,7 +134,13 @@ mutual-kNN 是标准相似图构造（von Luxburg, 2007, §2.2），k=10 是默�
 - `/workspace/:id/research` 兼容跳转到 `/explore?workspace_id=:id`；原图谱与全文索引功能保留在 `/workspace/:id/graph`，原 API 不变。工作区集合仍用于资料管理。
 - `ExplorationRun.options` JSON 保存 `workspace_id/workspace_name/seed_paper_ids/search_online`，创建时检查工作区成员并快照具体 ID；默认不选母论文。空选择、非成员、仅本地且无母论文拒绝；已删除母论文不会被其他论文自动替代。
 - `services/research_sources.py` 是种子适配层，复用原 deep research 的 `collect_online_recall/fuse_candidates` 获取后向/前向/推荐候选，再与问题检索统一排序。关闭联网补充时不检索或富化外部文献，模型调用仍使用现有配置。
-- 统一主流程：问题拆解 → 可选问句/母论文召回 → 富化 → 计量/聚类 → 综合 → 调查表提取/聚合 → 持久化。每个主要产物及时落库，报告异常不丢已有资料。旧结果可直接补生成报告，不重复检索。
+- 统一主流程：**数据源预检** → 问题拆解 → 可选问句/母论文召回 → 富化 → 计量/聚类 → 综合 → 调查表提取/聚合 → 持久化。每个主要产物及时落库，报告异常不丢已有资料。旧结果可直接补生成报告，不重复检索。
+- 数据源预检（2026-09-08）：调查开始前用**带权限的真实最小请求**探测每个源（Scopus Search count=1 / OpenAlex per-page=1，`deep_research/preflight.py`），不做 ping 可达性判断。状态分 `ok/auth_error(401·403)/rate_limited/network_error/unconfigured`；`GET /api/exploration/preflight` 随时查询（20s 短缓存），`/explore` 表单区实时显示体检徽章。运行内为 SSE `preflight` 阶段（stage 0）：主源判死（`rate_limited` 不判死——权限仍在）则 FailoverProvider 主源预熔断，省去逐通道 401 试错；全部在线源判死则快速失败并给出修复指引，不再空跑拆解与检索；体检快照随 `result.sources.preflight` 落盘，检索透明度区对失效源展示回退说明。
+- 盲测排除（2026-09-08）：创建运行可传 `exclude_dois`/`exclude_arxiv_ids`（各 ≤50，规范化后随 `options.exclusions` 快照落盘）；`explorer.apply_exclusions` 在召回与引文扩展合并后按归一化 DOI/arXiv ID（版本号不参与）过滤，语料、计量、综合、报告全文下载均不接触被排除文献；实际排除计数与标题记入 `result.sources.excluded` 保持检索透明度。报告证据提取对瞬时连接/超时错误错峰退避重试一次；`full_text()` 对无 `pdf_url`/`arxiv_id` 的选定论文走 `resolve_candidate_pdf_urls` OA 级联（Unpaywall/EuropePMC/OpenAlex/机构直链，前 3 候选、18s 预算、%PDF 魔数校验兜住着陆页）。
+- 同日盲测修订：新增 `exclude_titles`（最多50条），排除规则由 `services/research_exclusions.py` 统一处理 DOI、arXiv 版本、abs/pdf/html URL 与精确规范标题，不采用标题前缀相似匹配。冲突母论文拒绝进入流程；召回裁剪前、合并后、富化后、追问新旧材料、报告重建与提取前再次过滤。运行上下文使下载器和 `resilient_get` 在每次 HTTP/HTML 重定向前检查已知排除身份。未知镜像链接不能仅凭 URL 识别身份；排除不是对模型预训练记忆的屏蔽。
+- `core_query` 为拆解器返回的2至4词核心检索概念。在线研究的召回预算为最多5条相关性检索、1条经典检索、3条 arXiv 补充（核心概念、evaluation、benchmark），Scopus 单页25条，深挖相关式最多2页、经典1页；重试与回退另计。`result.sources.recall` 保存各通道查询、排序、上限、命中数、排除数及警告；这是查询通道预算，不是整次研究 HTTP 请求总量。
+- arXiv 搜索每式最多40条，一起返回摘要、DOI与PDF链接；成功响应缓存10分钟、最多128条，相同查询并发合并。API与PDF下载在同进程共享单并发、至少3秒间隔，429遵守Retry-After共享冷却，API最多2次尝试。Scopus各实例在同事件循环共享2并发、至少0.5秒间隔，429更新排队请求的冷却截止时间；等待取消归还信号量。多进程或其他工具不共享此预算。预检并发合并，20秒缓存从探测完成计时。
+- OpenAlex富化的同一次请求保留arXiv/PDF地址，无需为已有地址重复解析。报告采用相关性前半与框架/指标/任务数据集/方法四类选材补充；全文预算仍4/8/12篇，优先现成PDF链接，最多3个候选、下载阶段每篇总45秒，单候选最多25秒，解析结果为空不计成功。`survey_report.method.downloads` 记录逐篇尝试数与 available/unavailable/no_url；只接受PDF魔数。深挖提取上限120秒、4000输出token，瞬时错误最多重试1次；独立模型逐行复核保留。最终摘要再基于已核验表格与摘录综合，引用范围程序校验；`method.narrative_source=verified_table_evidence` 标明成功路径。这不是人工关系正确率。
 - `deep_research/survey_report.py` 在快览/标准/深挖中最多选 12/24/40 篇进行证据提取；优先已选母论文，其余 BM25/向量/RRF/重排。单篇并发3、提取LLM超时80秒。全文通过BM25针对问题、框架、指标、任务数据集、分类各选择片段，补足5个窗口，每窗最多2400字符，重叠合并；摘要最多10000字符。联网时对前4/8/12篇尝试已有PDF/arXiv链接下载（单篇最多25秒），失败回退摘要，复用PDF解析器，提取后清理临时PDF，文本快照保留供追问。
 - `result.survey_report` 包含 `version/status/title/summary/findings/tables/matrices/coverage/extractions/bibliometrics/references/warnings/method/markdown`。`tables` 有 `frameworks/metrics/tasks/taxonomy`，每行含稳定表内ID与 `evidence[{paper_key,quote,source_kind}]`。程序校验引用摘录在当前材料内（NFKC、PDF跨行断词及空白归一后匹配），框架/指标/数据集专名也必须出现在摘录。第二轮LLM逐行复核所选材料是否支持全部关系，可结合原材料中对应的表头和脚注，quote作为原文定位（50秒超时）；无依据的行丢弃并计数，复核失败的论文不纳入统计。模型复核不是独立或人工验证，`method.human_validated=false`，不能据此声称准确率。
 - 结构化模型调用识别完整Markdown JSON围栏。官方DeepSeek v4端点关闭thinking，避免推理占满输出预算产生空JSON；其他模型调用参数不变。综合主任务与流派任务分别限制150/90秒。
@@ -145,11 +151,62 @@ mutual-kNN 是标准相似图构造（von Luxburg, 2007, §2.2），k=10 是默�
 
 | 方法 | 路径 | 参数 | 返回 | 状态码 |
 |---|---|---|---|---|
-| POST | `/api/exploration/runs` | `question` 2–4000字符，`depth` quick/standard/deep，`workspace_id?`，`seed_paper_ids?` 最多240，`search_online=true` | run含options，后台执行统一研究 | 200/400/404/409/422 |
+| GET | `/api/exploration/preflight` | 无 | `{checked_at, sources[{name, role primary/fallback, status, detail, latency_ms, http_status}]}`（带权限的真实最小请求探测，20s 短缓存） | 200 |
+| POST | `/api/exploration/runs` | `question` 2–4000字符，`depth` quick/standard/deep，`workspace_id?`，`seed_paper_ids?` 最多240，`search_online=true`，`exclude_dois?/exclude_arxiv_ids?/exclude_titles?` 各最多50 | run含options，后台执行统一研究 | 200/400/404/409/422 |
 | POST | `/api/exploration/runs/{id}/report` | 无 | 从现有资料生成报告，run变为pending/report；有活动研究/追问时拒绝 | 200/400/404/409 |
 | GET | `/api/exploration/runs/{id}/report` | `format` html/markdown/json，默认html | HTML独立报告（含年份图、热力图、原文及打印样式）、Markdown或JSON；HTML/Markdown为下载附件 | 200/404/422 |
 
 验证与复现：`python -m backend.eval.survey_report_smoke --paper-ids 1 6 43 44 45 --question '研究问题' --output data/eval/survey-report` 使用现有配置生成独立HTML/JSON，不写业务记录；也可用 `--pdf /absolute/path.pdf` 替代论文ID。真实API研究#19完成了母论文输入、综合、报告、持久化、报告重生成及SSE；无母论文与联网召回复用原提供者，关闭文献联网的测试禁止外部检索。报告不是系统综述的完整覆盖证明。浏览器在1280/768/390宽度验证来源链接、放大、导出与重载；后端全量757项及末轮相关25项、前端122项与生产构建通过。
+
+### 2.12 academic_survey_v2 契约层（2026-09-09，S0）
+
+实施 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md` 的 S0 工作包：数据契约、兼容投影、迁移与接口边界已冻结并落地；**v2 执行器（worker/协议规划/报告 revision 写入）尚未接入**，显式 `workflow_version=academic_survey_v2` 创建运行返回 `400 WORKFLOW_NOT_IMPLEMENTED`。现有 v1 行为全部不变。
+
+**数据契约（`models/research_core.py`）**：常量（`TASK_STATES`=pending/ready/running/succeeded/failed/skipped/cancelled、`RUN_STATES_V2` 增加 paused/completed/partial/cancelled、`QUALITY_STATUSES`=unchecked/internally_checked/needs_review/human_reviewed、`VERIFICATION_STATES`、`IDENTITY_DECISIONS`=allow/deny/unresolved、资产 kind/status、事件类型注册表）+ Core 交换契约（`ResearchProtocol`/`ProtocolSubquestion`/`SearchRecord`/`IdentityDecision`/`ResolvedLocation`/`EvidenceSpan`/`CoverageGap`）+ 10 张 SQLModel 表：`research_tasks`（任务账本，idempotency_key 唯一、lease_owner/lease_expires_at）、`research_task_attempts`（不含密钥）、`research_assets`（不可变：document/protocol/search_record/coverage_snapshot/report/manifest，大文件 storage_path+content_hash、小型 JSON inline_payload）、`research_evidence`（EvidenceBundle，spans 含页/节/表/bbox/字符位置与归一化 quote）、`research_relations`、`research_claims`（text_hash 绑定核验）、`research_report_revisions`（is_selected 标记当前版本，指向 report 资产）、`research_budget_events`（聚合口径：used=Σdelta_used，reserved=Σ(delta_reserved−delta_used−delta_refunded) 下限0；usage_known=false 表示按上界记账）、`research_events`（持久化事件流，SSE 断点续订按 event_id）、`research_identity_decisions`（S1 门禁审计）。全部表 int 自增主键 + 对外 uuid 字符串 ID；`revision_id="legacy"` 保留给 v1 伪版本投影。相对计划 §7.1 建议表清单新增 `research_relations` 与 `research_identity_decisions`（关系是一等查询对象、身份判定需索引检索），search_record/coverage_snapshot 以资产行存储不单列成表。
+
+**ExplorationRun 扩展列**：`workflow_version`（默认 legacy_v1，迁移回填旧数据）、`state_version`（默认 0，v2 创建置 1，CAS 每次 +1）、`protocol_asset_id`。状态操作走 `services/research_event_log.py` 的 `cas_run_state`：**数据库条件更新为并发权威**（UPDATE 以旧状态+旧版本为 WHERE 守卫并校验受影响行数；Python 前置检查只做快速失败；冲突回滚不追加成功事件），research_events 与状态变更同事务落库。幂等重放判定：当前已是目标状态且请求无前置条件，或 `expected_state_version+1==当前版本`（同一迁移已发生）→ 返回原结果不递增版本；其余按 409 STATE_CONFLICT/STALE_STATE_VERSION/INVALID_STATE 拒绝。retry 的运行状态推进复用同一守卫（`guarded_transition`）。任务幂等键唯一性以 `(run_id, idempotency_key)` 生效（同 run 防重复调度，跨 run 同冻结输入各建独立账本；旧全局唯一索引由迁移替换）。`reconcile_interrupted_runs` 豁免 v2 运行（worker 租约与账本负责恢复，不被 API 重启误置 failed）。
+
+**HTTP 边界（沿用 `/api/exploration` 前缀与 `{detail, code}`；仅 GET/POST）**：
+
+| 方法 | 路径 | 请求 | 返回 | 状态码 |
+|---|---|---|---|---|
+| POST | `/runs`（扩展） | v1 原字段；可选 `workflow_version/protocol_options/budget/content_cutoff/policy_id` | v1 响应 + `workflow_version/state_version/protocol/current_revision`；v2 目前 400 门禁 | 200/400/404/409/422 |
+| GET | `/runs/{id}/protocol` | — | 冻结协议+变更记录；v1 为 legacy 投影（options 快照、无子问题） | 200/404 |
+| GET | `/runs/{id}/tasks` | `cursor/state/kind/limit` | 分页任务账本；v1 空列表 legacy=true | 200/404/422 |
+| GET | `/runs/{id}/coverage` | — | 子问题覆盖+缺口+最近动作；v1 投影 `result.survey_report.coverage` | 200/404 |
+| GET | `/runs/{id}/budget` | — | 各资源 limit/used/reserved/usage_known+停止原因；无凭证 | 200/404 |
+| POST | `/runs/{id}/pause` | `expected_state/expected_state_version` 可选 | CAS 至 paused（safe-point 语义） | 200/400/404/409 |
+| POST | `/runs/{id}/resume` | 同上 | paused→running，不隐式提预算 | 200/400/404/409 |
+| POST | `/runs/{id}/cancel` | 同上 | 取消并保留既有产物 | 200/400/404/409 |
+| POST | `/runs/{id}/retry` | `failed_only/task_ids/idempotency_key` | 失败/失效任务重入队 pending；同 key 重放返回原结果 | 200/400/404/409/422 |
+| GET | `/runs/{id}/revisions` | `cursor/limit` | 不可变版本列表；v1 有报告投影单个 legacy 伪版本 | 200/404/422 |
+| GET | `/runs/{id}/revisions/{rid}/report` | `format=html/markdown/json` | 指定版本报告（v1 rid=legacy 等价旧 GET report） | 200/404/422 |
+| GET | `/runs/{id}/evidence/{eid}` | — | 摘录+文档版本+页/表定位；隔离资产 403 | 200/403/404 |
+| GET | `/runs/{id}/stream`（扩展） | `Last-Event-ID` 头或 `after` 查询参数 | v2：回放持久化事件（带 `id:` 帧）→ run_status → live-bus（S3 注册前活动 run 返回 error 事件）；v1 行为不变 | 200/404/422 |
+
+v1 守卫：`POST /runs/{id}/report` 与 `DELETE /runs/{id}` 对 v2 运行返回 `WORKFLOW_NOT_IMPLEMENTED`（报告 revision 重建待 S6、级联删除待 S3），防止旧路径覆盖 v2 产物。控制类端点对 v1 返回 400 `UNSUPPORTED_WORKFLOW`。旧 `GET /runs/{id}/report` 对 v2 运行解析**当前选定 revision**（`is_selected=true` 最新行；无选定版本 404，不用 result 历史快照顶替；JSON 附 `revision_id`），所有格式响应带 `X-Report-Revision` 头（v1 为 `legacy`）；报告资产统一走可暴露性检查：quarantined→403 `REPORT_NOT_EXPOSED`、orphaned/缺失/跨 run/非 report kind→404、superseded 历史版本可读（默认与指定版本端点共用 `_load_exposable_report`）。
+
+**迁移与回滚**：`_migrate_schema` 为 exploration_runs 增列（NOT NULL 带默认，旧行自动回填 legacy_v1/0/NULL）并以 `create_all(checkfirst)` 建新表（含 research_tasks 幂等索引从全局唯一迁至 `(run_id, idempotency_key)` 唯一，DROP 旧索引建新索引），幂等；不删不改既有列。**回滚形态 = 保留本 S0 契约层代码**：v2 数据经只读端点（revisions/report/protocol/evidence）继续可读、创建门禁关闭新 v2 执行、旧写入路径（report 重建/DELETE）被守卫阻断、v1 入口照常——已由端到端测试验证。注意：直接回退到不识别 v2 的历史版本只能保证 v1 数据可读（附加列不破坏旧 SELECT，测试验证），v2 报告（资产+revision）**不能**经旧代码读取。手动清理（仅在放弃 v2 数据时执行，先停服备份；SQLite 不支持逗号多表 DROP，须逐条）：
+
+```sql
+DROP TABLE research_identity_decisions;
+DROP TABLE research_events;
+DROP TABLE research_budget_events;
+DROP TABLE research_report_revisions;
+DROP TABLE research_claims;
+DROP TABLE research_relations;
+DROP TABLE research_evidence;
+DROP TABLE research_assets;
+DROP TABLE research_task_attempts;
+DROP TABLE research_tasks;
+ALTER TABLE exploration_runs DROP COLUMN workflow_version;   -- SQLite >= 3.35
+ALTER TABLE exploration_runs DROP COLUMN state_version;
+ALTER TABLE exploration_runs DROP COLUMN protocol_asset_id;
+```
+
+**集成缝（其他 sub 接入点）**：S3 替换 `routers/exploration.py` 中 `WORKFLOW_NOT_IMPLEMENTED` 门禁为 worker 提交，并通过 `research_event_log.register_live_bus(run_id, bus)` 接入实时事件（bus 需暴露 `subscribe()` 异步迭代器）；S5 写 protocol/search_record/coverage_snapshot 资产并回填 `run.protocol_asset_id`；S6 写 report 资产 + revision 行（同事务）；S1 写 identity_decisions；S2 写 document 资产。`frontend/src/types/index.ts` 已同步全部契约类型（S7 联调用）。
+
+验证：后端全量 838 项通过（含 `tests/test_survey_v2_contract.py` 30 项：迁移幂等/旧索引升级/回滚边界、reconcile 豁免、v2 门禁、v1 兼容投影、CAS 原子竞争（相反/同目标仅一个成功、重放区别于陈旧请求）、预算聚合、SSE 断点续订、默认报告选定 revision 与隔离拒绝、回滚形态端到端、CORS 预检/拒绝、{detail,code} 错误格式）；Ruff、前端 typecheck/124 项测试/生产构建通过。测试全部使用合成数据与临时库。2026-09-09 复审（F1–F5）后修订：状态 CAS 改为数据库条件更新、任务幂等键 run 作用域、默认报告读选定 revision、隔离资产拒绝导出、回滚口径改为 S0 契约层形态并修正多表 DROP 语法。
 
 ## 3. 统一约定
 

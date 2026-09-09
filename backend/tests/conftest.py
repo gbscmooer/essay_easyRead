@@ -45,6 +45,11 @@ def engine(test_db_url):
     from backend.models.code_analysis import CodeAnalysis
     from backend.models.research import ResearchRun, ResearchGraph, PaperReference
     from backend.models.exploration import ExplorationRun
+    from backend.models.research_core import (  # noqa: F401 — 注册 academic_survey_v2 表
+        ResearchAsset, ResearchBudgetEvent, ResearchClaim, ResearchEvent, ResearchEvidence,
+        ResearchIdentityDecision, ResearchRelation, ResearchReportRevision, ResearchTask,
+        ResearchTaskAttempt,
+    )
     from backend.models.workspace import Workspace, WorkspacePaper
     from backend.models.tag import Tag, PaperTag
     from backend.models.note import Note

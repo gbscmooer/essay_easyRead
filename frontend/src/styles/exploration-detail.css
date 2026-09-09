@@ -74,11 +74,9 @@
 .ex-chat-compose-actions .ex-ask__run { display: flex; gap: 8px; align-items: center; }
 .ex-chat-selection { display: flex; gap: 12px; padding-bottom: 12px; font-size: 13px; overflow-wrap: anywhere; }
 .ex-chat-selection button { margin-left: auto; white-space: nowrap; }
-.ex-history__item { max-width: 100%; }
 .ex-evidence-audit { padding: 12px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .ex-evidence-audit summary { cursor: pointer; font-size: 13px; line-height: 1.6; }
 .ex-evidence-audit p, .ex-evidence-audit blockquote { line-height: 1.65; }
-.ex-history__item > a:first-child { max-width: 330px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-overview__section { border: 0; border-radius: 0; box-shadow: none; padding: 16px 0; background: transparent; border-top: 1px solid var(--border); }
 @media (max-width: 700px) {
   .ex-detail-title { font-size: 20px; }

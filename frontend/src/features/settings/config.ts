@@ -144,6 +144,7 @@ export interface FindpapersConfig {
 }
 
 export interface AppConfig {
+  llm: AIModelConfig
   translate: AIModelConfig
   analysis: AIModelConfig
   analysis_prompt: AnalysisPromptConfig
@@ -158,6 +159,15 @@ export interface AppConfig {
 
 
 export const DEFAULT_CONFIG: AppConfig = {
+  llm: {
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    system_prompt: '',
+    temperature: 0.2,
+    max_tokens: 16384,
+    thinking_effort: 'off',
+  },
   translate: {
     api_key: '',
     base_url: 'https://api.openai.com/v1',

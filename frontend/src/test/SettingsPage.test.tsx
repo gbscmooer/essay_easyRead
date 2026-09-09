@@ -70,7 +70,7 @@ function serverConfig(): AppConfig {
 
 async function renderSettings() {
   render(<SettingsPage />)
-  await screen.findByRole('button', { name: '修改翻译模型' })
+  await screen.findByRole('button', { name: '修改全局 LLM 模型' })
   expect(hasUnsavedConfig()).toBe(false)
 }
 
@@ -89,7 +89,7 @@ afterEach(() => {
 
 describe('SettingsPage unsaved changes', () => {
   it.each([
-    { tab: null, action: '修改翻译模型' },
+    { tab: null, action: '修改全局 LLM 模型' },
     { tab: null, action: '修改提示词' },
     { tab: '界面与主题', action: '修改界面' },
     { tab: '深度研究', action: '修改研究参数' },
@@ -110,9 +110,9 @@ describe('SettingsPage unsaved changes', () => {
     api.post.mockRejectedValueOnce(new Error('服务器拒绝保存'))
     const user = userEvent.setup()
     render(<><SettingsPage /><ToastContainer /></>)
-    await screen.findByRole('button', { name: '修改翻译模型' })
+    await screen.findByRole('button', { name: '修改全局 LLM 模型' })
 
-    await user.click(screen.getByRole('button', { name: '修改翻译模型' }))
+    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
     await user.click(screen.getByRole('button', { name: '保存配置' }))
 
     expect(await screen.findByText('服务器拒绝保存')).toBeInTheDocument()
@@ -130,7 +130,7 @@ describe('SettingsPage unsaved changes', () => {
     const user = userEvent.setup()
     await renderSettings()
 
-    await user.click(screen.getByRole('button', { name: '修改翻译模型' }))
+    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
     await user.click(screen.getByRole('button', { name: '保存配置' }))
 
     await waitFor(() => expect(hasUnsavedConfig()).toBe(false))

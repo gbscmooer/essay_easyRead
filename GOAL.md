@@ -74,6 +74,7 @@ LLM 综合纪律（无 Key 跳过、partial 容错、批量上限防成本失控
 | `docs/DEEP_RESEARCH_DESIGN.md` | 深度研究模块技术蓝图（流水线/关联度/RAG） |
 | `docs/DEEP_RESEARCH_EVAL.md` | 发现与 RAG 的离线评测门禁 |
 | `docs/RESEARCH_AGENT_EVAL_PROTOCOL.md` | 毕设对照实验协议（harness vs 通用 agent） |
+| `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md` | 学术综述自主研究重设计计划：隔离开发标杆、基线差距、sub分工与验收（待实施） |
 | `docs/INNOVATION_DEV_PLAN.md` | 后备创新点清单（阅读路径、对比矩阵等） |
 | `docs/commit_regular.md` | 提交流程规范（必须遵守） |
 

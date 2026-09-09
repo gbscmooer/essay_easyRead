@@ -1,0 +1,101 @@
+# 本次任务草稿：用 2312.10997v5 做盲测并优化领域探索流程
+
+## 目标
+
+1. 阅读 `/Users/katisarrow/Downloads/2312.10997v5.pdf`，提取研究方向、问题拆解、关键分类/评估维度/任务数据集和可核验证据。
+2. 将目标论文的 DOI/arXiv 身份纳入排除规则，使用系统对相同方向发起调研；调研过程禁止目标论文及其版本直接下载、引用或进入证据材料。
+3. 查看并保存本次系统研究报告，与目标论文逐项比较：方向覆盖、分类框架、评估框架、指标、任务/数据集、代表文献、时效性、证据可追溯性和盲测泄漏。
+4. 根据差距优化研究工作流，重点检查 Scopus/arXiv 请求量、429、去重、排除传播、证据提取、报告结构和失败恢复。
+5. 运行后端测试、前端检查/构建和 CORS 验证，更新 `document.md`/必要文档记录实际契约与结果。
+
+## 执行计划
+
+- [x] 阅读项目规则、架构、接口和当前工作树，创建缺失规则与草稿。
+- [x] 读取 PDF：RAG 综述 v5，2024-03-27；表 II 数据集、III 指标、IV 六种评估框架。
+- [x] 审查基线 run 20/23：run 23 184篇、24/40提取、0全文；旧比较脚本清单及标题前缀匹配不可靠。
+- [ ] 用真实可用的 Scopus/arXiv 配置或安全的现有数据链路运行一次盲测；若外部源不可用，保留明确失败证据，不用目标论文补洞。
+- [ ] 读取系统报告并生成差距评估文档/产物。
+- [ ] 实施必要的流程优化和回归测试。
+- [ ] 运行验证，更新契约文档与本草稿结果。
+
+## 结果记录
+
+### 当前实施顺序
+
+1. 排除策略统一到独立 core：版本/DOI/URL/精确标题匹配，种子、追问、重建、下载重定向共享防线。
+2. arXiv 串行3秒、429共享冷却、查询去重缓存；Scopus跨实例共享节流；经典通道上限1条、arXiv补充上限3条。
+3. 选材覆盖框架/指标/数据集/方法，全文优先可用链接、顺序尝试候选并留下载审计。
+4. PDF逐表核实离线评价清单，保留run 23基线，运行同题新研究并归档JSON/HTML及对比。
+
+- 目标论文：待提取。
+- 盲测 run/report：待执行。
+- 新运行24已通过API启动，问题与深度同基线23；Scopus/OpenAlex预检200，arXiv3条查询各40条，召回240篇，94条arXiv身份、166条PDF地址，正在综合。
+- 已验证：后端808项、前端124项、typecheck/build、Ruff、CORS GET/POST均通过。现有CORS保留DELETE兼容历史接口，本轮未新增此类接口。
+- 关键差距：待评估。
+- 代码改动：待完成。
+- 验证：待完成。
+
+## 2026-09-08 本轮：先交付详细计划，业务实现交给后续 sub-agent
+
+用户最新范围：以 2312.10997v5 为隔离标杆，审计现状并形成可分派实施的详细 Markdown 计划；本轮不修改业务代码。上文为历史工作记录，不等同本轮已完成或已验证。
+
+- [ ] 阅读现有规则、接口文档、目标与评测设计，保存当前未提交改动边界。
+- [ ] 委派独立 sub-agent：标杆论文与评价清单；检索/下载/排除链路；编排/报告/现有基线报告审计。各自只读业务代码，交付审查笔记。
+- [ ] 主 agent 核验现有运行与浏览器报告、查验官方数据源/综述评价资料；仅在排除策略有可靠证据时考虑发起新基线，不让目标论文进入系统。
+- [ ] 将差距、目标架构、数据契约、质量门禁、预算/恢复、迁移步骤、分工与验收写入实施计划。
+- [ ] 复核计划中的代码事实、基线数字、引用、待验证项与范围；更新文档地图、交付 Markdown。不提交、不推送、不声称未运行测试通过。
+
+## 2026-09-09 本轮计划交付结果
+
+- [x] 规则/接口/目标已读；保留原工作树业务修改。
+- [x] 三路sub审查笔记已形成；标杆与编排sub已复核最终计划，相关意见已合并。
+- [x] 浏览器查看研究24；只读离线归档23/24到data/eval/rag-plan-audit-20260908。
+- [x] 核验23/24均仅摘要成功提取；24下载12篇全文但全文提取均失败。名称/候选匹配不是学术总分。
+- [x] 未发新研究：未知镜像身份及模型前过滤仍有缺口，历史结果仅作诊断。
+- [x] 完成docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md：运行agent链、隔离与时间协议、数据/API、预算恢复、S0–S8分工、五波实施、验收/迁移。
+- [x] GOAL只添加文档地图条目，不改核心命题；业务代码与现行document.md本轮未改。
+- [x] 最后校验通过：17个本地链接/行号有效，23/24快照hash匹配，Markdown代码块闭合，13节与S0–S8完整；GOAL diff检查通过。
+
+本轮未运行后端/前端测试，无业务测试通过声明；未提交/推送。下一步实施由开发sub完成，入口任务为S0/S1/S8。本轮停在详细计划交付范围。
+
+## 2026-09-09 S0 波次：契约与集成（本 sub 执行中）
+
+范围：仅 S0——冻结 academic_survey_v2 数据契约、兼容投影、数据库迁移、接口边界与集成方案。不实现 S1–S8 业务逻辑；不读取/上传/导入 2312.10997v5.pdf；不覆盖历史研究；不提交不推送。
+
+- [x] 记录工作树基线（24 个已修改文件 + 10 个未跟踪，全部为此前轮次改动并保留）。
+- [x] 新增 `backend/models/research_core.py`：契约常量、Core Pydantic 契约、10 张表（含相对计划建议清单新增的 research_relations / research_identity_decisions，search_record 与 coverage_snapshot 以资产行存储）。
+- [x] `models/exploration.py`：ExplorationRun 增加 workflow_version（默认 legacy_v1）/state_version（默认 0）/protocol_asset_id。
+- [x] `models/schemas.py`：ExplorationRunCreate 扩展 5 个可选 v2 字段；新增 14 个请求/响应模型；RunResponse/Summary 增加 workflow 字段。
+- [x] `services/database.py`：迁移新增列（NOT NULL 带默认，幂等）+ create_all 兜底建新表；`reconcile_interrupted_runs` 豁免 v2 运行。
+- [x] 新增 `services/research_event_log.py`：append/replay、live-bus 注册缝、cas_run_state（幂等重放/409/同事务事件）、budget_snapshot、find_retry_event。
+- [x] `routers/exploration.py`：v2 门禁（WORKFLOW_NOT_IMPLEMENTED，S3 替换）、`_v2_options_snapshot`；12 个新端点（protocol/tasks/coverage/budget/pause/resume/cancel/retry/revisions/revisions report/evidence/stream 扩展 Last-Event-ID 回放）；v1 legacy 投影；旧 report 重建与 DELETE 对 v2 加守卫。
+- [x] `frontend/src/types/index.ts`：同步全部契约类型（WorkflowVersion/TaskState/RunStatusV2/协议/任务/覆盖/预算/控制/重试/revision/证据），ExplorationRun 扩展可选字段。
+- [x] 测试 `backend/tests/test_survey_v2_contract.py` 20 项：迁移（空库/旧库升级/幂等/回滚可读）、reconcile 豁免、v2 门禁与输入校验、v1 兼容投影全套、v2 端点契约（分页/过滤/预算聚合/证据/revision 导出）、CAS（幂等/409/版本轨迹）、retry（幂等/未知任务/pending 409）、SSE 回放与断点续订（Last-Event-ID=after 参数等价）、CORS 预检放行与非允许 Origin 拒绝、{detail,code} 错误格式；conftest 导入新模型。
+- [x] 更新 document.md（新增 2.12 节：契约/HTTP 表/迁移回滚/集成缝/验证）与 AGENTS.md（目录 + 数据流第 8 条）。
+- [x] 交付报告写入 docs/S0_CONTRACT_DELIVERY_2026-09-09.md（文件清单/迁移回滚/API 样例/v1 兼容/测试结果/各 sub 接口需求）。
+
+验证结果（本机，.venv Python 3.13）：
+- 后端全量 `LLM_API_KEY=test-key-for-ci ../.venv/bin/python -m pytest tests/`：828 passed（此前 808 + 新增 20）。
+- Ruff：All checks passed（CI 口径）。
+- 前端：typecheck 通过；test:run 124 passed（24 文件）；生产构建 ✓ built in 1.26s。
+- 未运行真实 v2 研究（执行器未接入，按计划属 S3–S6）；未触碰 data/eval 历史快照与 2312.10997v5.pdf。
+
+基线快照：24 modified + 10 untracked（git diff --stat 1097 insertions/162 deletions），本轮新增改动叠加其上，未回滚任何既有修改。
+
+## 2026-09-09 S0 交付审核（当前任务）
+
+- [x] 对照总计划、S0交付、实际模型/路由/迁移/前端类型核实完成范围。
+- [x] S0 契约测试复跑 20 passed；内存库复现状态覆盖、跨运行任务键冲突、默认报告 404、隔离报告仍导出。重试/事件路径做静态审查，真实 worker 恢复未执行。
+- [x] 审核结论及 5 项修复/验收要求见 docs/S0_CONTRACT_REVIEW_2026-09-09.md；本轮仅新增审核文档、更新草稿，未修改业务代码。
+
+## 2026-09-09 S0 复审修复轮（F1–F5，S0 agent 执行）
+
+按 docs/S0_CONTRACT_REVIEW_2026-09-09.md 的修复边界执行：先修 F1/F2（状态与任务身份契约），再修 F3/F4（报告读取与隔离），再修 F5（回滚方案与文档）。保持 v2 创建门禁，不启动真实研究，不实现 S3/S6；保护工作树，不提交不推送。
+
+- [x] F1：`guarded_transition` 数据库条件更新（WHERE 旧状态+旧版本，校验 rowcount）为并发权威；cas 前置检查只做快速失败；幂等重放=无前置条件或 expected_state_version+1==当前版本；retry 状态推进复用守卫。测试覆盖相反/同目标竞争（仅一个成功、版本只增一次、冲突无成功事件）与重放/陈旧区分。调试发现：身份映射弱引用使丢弃引用的测试无法构造陈旧视图——测试持强引用；retry 曾因 ORM-enabled UPDATE 同步内存值导致双重推进，已用本地捕获版本修正。
+- [x] F2：模型与迁移改为 (run_id, idempotency_key) 唯一（DROP 旧全局索引）；跨 run 同键独立账本、同 run 冲突、旧索引升级三项测试。
+- [x] F3：`GET /runs/{id}/report` v2 解析当前选定 revision；X-Report-Revision 头 + JSON revision_id；无选定 404（不顶替 result 快照）；切换选定/指定旧版本/无选定测试。
+- [x] F4：`_load_exposable_report` 统一可暴露性：quarantined 403、orphaned/跨 run/错误 kind 404、superseded 可读；隔离前后 × 默认/指定 × 三格式测试。
+- [x] F5：交付文档与 document.md 回滚口径改为「保留 S0 契约层形态」（只读端点+写入守卫+执行门禁，端到端测试验证）；列级兼容测试注明边界；多表 DROP 修正为逐条。
+- [x] 门禁复跑：后端全量 838 passed（契约文件 30 项）、Ruff、前端 typecheck/124 项/构建 ✓ built in 1.32s。
+- [x] 交付文档追加 §九复审修订记录（F1–F5 对照表 + 残余限制声明：跨进程 worker 恢复仍属 S3 专项验收）。未提交未推送；v2 创建门禁保持；未启动真实研究。

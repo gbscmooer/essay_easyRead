@@ -60,7 +60,15 @@ class ExplorationSynthesis(SQLModel):
 
 
 class ExplorationRun(SQLModel, table=True):
-    """一次领域探索任务的执行记录（问句维度，不挂工作区）"""
+    """一次领域探索任务的执行记录（问句维度，不挂工作区）
+
+    academic_survey_v2 扩展（S0 冻结，见 docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §7.1）：
+    - workflow_version: legacy_v1（默认，含迁移前旧数据）| academic_survey_v2
+    - state_version: 单调递增；v2 状态操作在事务内 compare-and-swap（陈旧版本 409）
+    - protocol_asset_id: 指向 research_assets 中冻结的协议版本（v1 为 NULL）
+    v2 运行状态在 v1 的 pending/running/done/failed 之外增加
+    paused/completed/partial/cancelled（见 research_core.RUN_STATES_V2），与阶段分离。
+    """
 
     __tablename__ = "exploration_runs"
 
@@ -68,7 +76,7 @@ class ExplorationRun(SQLModel, table=True):
 
     question: str                    # 学者的自然语言问句
     depth: str = "standard"          # quick | standard | deep
-    status: str = "pending"          # pending | running | done | failed
+    status: str = "pending"          # pending | running | done | failed（v2 另见 RUN_STATES_V2）
     current_stage: Optional[str] = None  # decompose | recall | enrich | metrics | synthesize | persist
     error_message: Optional[str] = None
 
@@ -78,6 +86,10 @@ class ExplorationRun(SQLModel, table=True):
 
     decompose: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     result: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+    workflow_version: str = "legacy_v1"
+    state_version: int = 0           # v2 创建时置 1，此后每次 CAS 状态变更 +1
+    protocol_asset_id: Optional[str] = None
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

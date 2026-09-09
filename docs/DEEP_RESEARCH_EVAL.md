@@ -199,3 +199,44 @@ python -m backend.tests.evaluation.deep_research.relation_quality_eval --ws 1 \
 ## 与论文精读评测的关系
 
 `backend/tests/evaluation/evaluate.py` 评估论文精读分析质量；本目录评估深度研究发现与 RAG 检索质量。两者独立。
+
+## 盲测校准：以 RAG Survey (2312.10997v5) 为标准答案（2026-09-08）
+
+> 校正说明（同日复核）：本节下方旧数值保留为历史记录，不作为当前评测结论。旧临时脚本把相似医疗综述误判为泄漏，数据集/指标/框架名单未严格对应原表。实际 Table I 有71个方法条目，Table II按表内名称计48个数据集条目（Amazon三个领域合计一个），Table III有11类指标，Table IV有6个框架。当前脚本为 `backend/eval/survey_holdout.py`，不再使用 `/tmp/compare_rag_survey.py`。
+
+方法：让系统对与该综述相同的研究方向独立跑完整研究（问题、深度=deep），把综述本身从语料
+整链路排除（`exclude_dois`/`exclude_arxiv_ids` 输入快照，`explorer.apply_exclusions` 在召回
+合并后过滤，计量/综合/报告全文下载均不接触），再对比系统调查报告与综述的 Table I–IV。
+
+### 实验发现（驱动的工作流修复）
+
+| # | 发现 | 修复 | 效果 |
+|---|------|------|------|
+| 1 | 单一 relevance 排序召回**天然偏新**：LLM 拆解式含「LLM」等 2023 后流行词，奠基论文（Lewis 2020、FLARE 等）标题摘要不含这些词，AND 全词直接不匹配——218 篇语料 2023 前仅 1 篇，Table I 核心 107 篇覆盖 0% | 双通道召回：每条检索式 relevance 主路 + 前 3 词**引号短语**经典路（`order="cited"` 被引降序；Scopus/OpenAlex 均支持） | 经典层 0 → 5 篇（Lewis 2020 居首），核心覆盖 0% → 8%；引号短语消除截短式跨域噪声（rags/增强现实/全息检索实测案例） |
+| 2 | 报告证据提取 25/40 失败（DeepSeek APIConnectionError/Timeout 无重试） | 瞬时故障错峰退避重试一次（`survey_report.py` 提取循环） | 提取成功 15 → 24/40，指标覆盖 8% → 46% |
+| 3 | 报告全文获取 0/12：Scopus 记录基本不带 `pdf_url`/`arxiv_id` | `full_text()` 接入 `resolve_candidate_pdf_urls` OA 级联（Unpaywall/EuropePMC/OpenAlex/机构直链） | 0 → 2/12（隔离验证）；语料偏 IEEE/ACM/MDPI 正式发表版本时受付费墙限制 |
+
+### 残留差距与后续方向（记录，未实施）
+
+- **数据源结构性偏差**：Scopus 主源的语料偏正式发表（付费）版本，综述核心方法论文多在
+  arXiv；评估框架（RAGAS/TruLens/ARES/RGB）为工具型 arXiv 论文，Scopus 覆盖弱。后续可做
+  「经典路走 OpenAlex、relevance 路走 Scopus」的多源分工。
+- **数据集覆盖仍为 0%**：数据集名多出现在实验节正文，摘要级证据天然缺失；全文获取率
+  （发现 3）是提升上限的钥匙。
+- 提取超时（80s）对长输出仍偏紧，失败 13/16 为 TimeoutError；可按 depth 放宽或换更快端点。
+- 本实验为单题校准（n=1），数值不外推为普遍性能；复现脚本思路见本文档与
+  `/tmp/compare_rag_survey.py`（标题归一化含 NFKC + 跨行断词去除后匹配）。
+
+### 可复现对比（2026-09-08修订）
+
+问题固定为「检索增强生成（RAG）在大语言模型中的主要技术路线、评估框架、常用指标与数据集有哪些？」；deep深度、无母论文、联网检索。目标PDF仅由离线评分程序读取，不作为系统输入。run 23为已有基线；run 24为本轮改进后同题运行。
+
+```bash
+.venv/bin/python -m backend.eval.survey_holdout --pdf /Users/katisarrow/Downloads/2312.10997v5.pdf --runs 23 24 --output data/eval/rag-holdout-20260908
+```
+
+产物：`reference.json`（含PDF SHA256和页码）、`run-N.json`、`report-N.html/md`、`comparison.json`。评分只读现有运行，不发送LLM或论文下载请求。
+
+基线run 23：184篇召回，24/40篇证据提取成功、0篇全文；Table I对应文献命中6/71，数据集名0/48，指标名6/11，评估框架名0/6，精确身份与标题检查未发现目标论文。150篇发表于2024年之后，说明材料明显偏新；新论文不能替代对旧基础方法的覆盖。
+
+解释范围：文献匹配使用精确规范标题或arXiv身份，未做前缀模糊匹配；实体命中只查看带证据表格的对应名称字段。原表的拼写错误/明确缩写有少量显式别名。命中衡量覆盖，不证明指标适用关系、任务映射或论断正确；不是完整系统综述评测，也不外推到其他题目。2024年后的资料允许进入研究并单独计数，未宣称严格时间冻结实验。
