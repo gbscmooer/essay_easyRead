@@ -62,6 +62,8 @@ async def apply_auto_tags_to_paper(paper_id: int, result: dict, cfg: dict) -> li
             api_key=api_key,
             base_url=base_url,
             model=model,
+            provider=cfg.get("provider", "custom"),
+            api_format=cfg.get("api_format"),
         )
     except Exception as e:
         logger.warning(f"auto tag generation failed for paper {paper_id}: {e}")

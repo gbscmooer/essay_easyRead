@@ -345,63 +345,16 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         except Exception as ge:
             logger.warning(f"Graph context enhancement failed: {ge}")
 
-    # 调用 LLM 用 hits 生成回答
-    from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format, _extract_text
+    # 调用统一 LLM Core 用 hits 生成回答
     from ..services.ai_config import get_analysis_config
+    from ..services.research_answer import generate_research_answer
     cfg = get_analysis_config()
-    context = "\n\n".join(
-        f"[{i+1}] {h['paper_title']} / {h['section_name']}:\n{h['snippet']}"
-        for i, h in enumerate(hits)
-    )
-    prompt = (
-        f"你是一名学术研究助手。基于下列检索到的论文片段与学术文献关系回答用户问题。"
-        f"必须使用中文，并用 [编号] 标注引用。\n\n问题：{req.question}\n\n"
-        f"资料：\n{context}\n{graph_context_str}"
-    )
-    system_msg = "你是学术研究助手，必须基于提供的资料与文献网络关系回答，引用编号写在文末。"
-    api_key = cfg.get("api_key", "")
-    base_url = cfg.get("base_url", "")
-    model = cfg.get("model", "")
 
-    if not api_key:
+    if not cfg.get("api_key"):
         raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
 
     try:
-        from ..services.ai_analyzer import resolve_thinking
-        thinking_kwargs, temp_override = resolve_thinking(
-            _is_openai_format(base_url), base_url, model,
-            cfg.get("thinking_effort", "medium"), 2048)
-        temperature = temp_override if temp_override is not None else 0.2
-        if _is_openai_format(base_url):
-            client = _create_openai_client(api_key, base_url)
-            try:
-                resp = await client.chat.completions.create(
-                    model=model,
-                    max_tokens=2048,
-                    temperature=temperature,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": prompt},
-                    ],
-                    **thinking_kwargs,
-                )
-                answer = (resp.choices[0].message.content or "").strip()
-            finally:
-                await client.close()
-        else:
-            client = _create_client(api_key, base_url)
-            try:
-                msg = await client.messages.create(
-                    model=model,
-                    max_tokens=2048,
-                    system=system_msg,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    **thinking_kwargs,
-                )
-                answer = _extract_text(msg).strip()
-            finally:
-                await client.close()
+        answer = await generate_research_answer(req.question, hits, graph_context_str, cfg)
     except Exception as e:
         logger.error(f"RAG query failed: {e}")
         raise HTTPException(status_code=500, detail={"detail": f"AI 回答生成失败: {str(e)}", "code": "LLM_ERROR"})

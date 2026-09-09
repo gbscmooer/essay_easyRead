@@ -20,15 +20,12 @@ Domain Synthesizer — 领域认知综合（stage_synthesize）
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 
-from ..ai_analyzer import (
-    _build_retry_delays, _complete_once, _create_client, _create_openai_client,
-    _extract_json_value, _is_openai_format, _is_transient_error, _repair_json, MAX_RETRIES,
-)
+from ..llm import complete_json
+from ..llm.client import MAX_RETRIES
 from ...models.research import (
     EDGE_RELATIONS, NODE_ROLES,
     BriefingMilestone, EdgeSemantic, ExecutiveBriefing, GraphSynthesis, NodeSemantic, ParadigmInfo,
@@ -70,49 +67,16 @@ def _clip(text: str | None, limit: int) -> str:
 
 async def _llm_json(cfg: dict, system: str, user: str, *, max_tokens: int,
                     temperature: float = 0.15) -> dict:
-    """一次非流式 LLM 调用 → JSON dict。复用 ai_analyzer 的客户端/重试/修复逻辑。"""
-    api_key, base_url, model = cfg["api_key"], cfg.get("base_url", ""), cfg["model"]
-    use_openai = _is_openai_format(base_url)
-    delays = _build_retry_delays()
-    last_err: Exception | None = None
-    for attempt in range(MAX_RETRIES + 1):
-        client = _create_openai_client(api_key, base_url) if use_openai else _create_client(api_key, base_url)
-        try:
-            # 思考强度跟随解读模型配置（settings → 高级参数 → 思考强度）：
-            # DeepSeek v4+ 的开/关映射也统一收口到 resolve_thinking。
-            raw = await _complete_once(client, use_openai, model, system, user,
-                                       max_tokens=max_tokens, temperature=temperature,
-                                       thinking_effort=cfg.get("thinking_effort"),
-                                       base_url=base_url)
-            framed = raw.strip()
-            if framed.startswith("```") and framed.endswith("```"):
-                first_line, separator, body = framed.partition("\n")
-                if separator and first_line.lower() in ("```", "```json"):
-                    framed = body.rsplit("```", 1)[0].strip()
-            payload = _extract_json_value(framed) or framed
-            try:
-                data = json.loads(payload)
-            except json.JSONDecodeError:
-                repaired = _repair_json(payload)
-                if repaired is None:
-                    raise
-                data = json.loads(repaired)
-            if not isinstance(data, dict):
-                raise ValueError("synthesize 输出不是 JSON 对象")
-            return data
-        except Exception as e:
-            last_err = e
-            # JSON 解析失败（空 content / 模型输出夹带散文）也视为瞬时错误参与重试：
-            # 推理型模型偶发空回复，一次重试通常就能拿到正常 JSON
-            retryable = _is_transient_error(e) or isinstance(e, json.JSONDecodeError) or isinstance(e, ValueError)
-            if retryable and attempt < MAX_RETRIES:
-                logger.warning(f"synthesize transient error (attempt {attempt + 1}): {e}, retrying...")
-                await asyncio.sleep(delays[attempt])
-                continue
-            raise
-        finally:
-            await client.close()
-    raise last_err  # pragma: no cover
+    """Generate one JSON object through the provider-neutral LLM Core."""
+    return await complete_json(
+        cfg,
+        system=system,
+        user=user,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        thinking_effort=cfg.get("thinking_effort"),
+        max_retries=MAX_RETRIES,
+    )
 
 
 # ── 输入装配 ────────────────────────────────────────────────────────────────

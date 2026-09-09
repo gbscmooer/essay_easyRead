@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import '@/styles/exploration-detail.css'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Download, FileText, History, MessageSquare } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Download, FileText, History, MessageSquare } from 'lucide-react'
 import { PaperTitle, paperLink, EvidenceMarkdown } from '@/features/research/paperLinks'
 import { ChartView } from '@/features/research/ChartView'
 import { ExplorationConversation } from '@/features/research/ExplorationConversation'
@@ -314,16 +314,79 @@ export default function ExplorePage() {
 
   return (
     <div className="er-page er-page--explore">
+      {detail && (
+        <Link to="/explore" className="ex-back-link">
+          <ArrowLeft size={14} aria-hidden="true" />
+          返回文献研究
+        </Link>
+      )}
       <header className="er-page-head">
-        {detail && <Link to="/explore">返回文献研究</Link>}
-        <h1 className={`er-page-head__title${detail ? ' ex-detail-title' : ''}`}>{detail ? savedRun?.question ?? '研究详情' : '文献研究'}</h1>
-        {detail && savedRun && <div className="ex-detail-meta"><span>{new Date(savedRun.created_at).toLocaleString()}</span>
-          <span>研究 #{runId}</span><span>{allPapers.length} 篇资料</span>
-          <span>{savedRun.options?.workspace_name || '无母论文'}{savedRun.options?.seed_paper_ids?.length ? ` · ${savedRun.options.seed_paper_ids.length} 篇母论文` : ''}</span>
-          {savedRun.options?.workspace_id && <Link to={`/workspace/${savedRun.options.workspace_id}/graph`}>工作区图谱</Link>}
-          <button type="button" className="ex-icon" title="导出全部上下文" aria-label="导出全部上下文" onClick={exportContext}><Download size={18} /></button>
-        </div>}
+        <p className="er-page-head__eyebrow">
+          {detail ? `文献研究 · 探索 #${runId}` : '领域探索 · 问句驱动的免读领域认知'}
+        </p>
+        <h1 className={`er-page-head__title${detail ? ' ex-detail-title' : ''}`}>
+          {detail ? savedRun?.question ?? '研究详情' : '文献研究'}
+        </h1>
+        {detail && savedRun && (
+          <div className="er-page-head__actions">
+            <button
+              type="button"
+              className="er-btn er-btn--ghost er-btn--sm"
+              title="导出全部上下文 (JSON)"
+              aria-label="导出全部上下文"
+              onClick={exportContext}
+            >
+              <Download size={14} aria-hidden="true" />
+              导出数据
+            </button>
+          </div>
+        )}
       </header>
+      {detail && savedRun && (
+        <div className="er-page-head__readouts ex-detail-readouts">
+          <span className="er-readout">{new Date(savedRun.created_at).toLocaleString()}</span>
+          <span className="er-readout">研究 <b>#{runId}</b></span>
+          <span className="er-readout"><b>{allPapers.length}</b> 篇资料</span>
+          <span className="er-readout">
+            {savedRun.options?.workspace_name || '无母论文'}
+            {savedRun.options?.seed_paper_ids?.length ? ` · ${savedRun.options.seed_paper_ids.length} 篇母论文` : ''}
+          </span>
+          {savedRun.options?.workspace_id && (
+            <Link to={`/workspace/${savedRun.options.workspace_id}/graph`} className="er-link">
+              工作区图谱 ↗
+            </Link>
+          )}
+        </div>
+      )}
+      {detail && savedRun && allPapers.length === 0 && (
+        <div className="ex-empty-warning" role="alert">
+          <div className="ex-empty-warning__header">
+            <span className="ex-empty-warning__badge">未检索到资料</span>
+            <strong>本次文献检索未在学术数据库中命中相关文献（0 篇资料）</strong>
+          </div>
+          <p className="ex-empty-warning__desc">
+            {result?.decompose?.fallback && result.decompose.fallback_reason && result.decompose.fallback_reason !== 'UNCONFIGURED_KEY'
+              ? `原因提示：LLM 检索拆解未完成（${result.decompose.fallback_reason}），原句回退检索未命中结果。`
+              : result?.decompose?.fallback
+              ? '原因提示：未配置有效的 LLM Key，使用原句直接检索未在学术数据库中命中结果。'
+              : '原因提示：所提问句关键词在当前数据源中未检索到匹配论文。'}
+            {' '}系统仍已生成检索审计报告，列出实际搜索过的检索式、来源和建议补搜方向；
+            零命中不等于该领域不存在相关工作。也可精简提问、使用标准学术英文术语，或在设置页检查数据源与模型配置。
+          </p>
+          <div className="ex-empty-warning__actions">
+            <Link to="/explore" className="er-btn er-btn--primary er-btn--sm">
+              重新发起研究
+            </Link>
+            <button
+              type="button"
+              className="er-btn er-btn--secondary er-btn--sm"
+              onClick={() => setTab('analysis')}
+            >
+              查看检索透明度与数据源体检
+            </button>
+          </div>
+        </div>
+      )}
       {loadError && <div role="alert" className="ex-empty ex-empty--error">{loadError}</div>}
 
       {/* 提问表单 */}

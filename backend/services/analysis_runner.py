@@ -272,6 +272,9 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                 max_tokens=ai_cfg.get("max_tokens", 16384),
                 system_prompt=get_active_analysis_prompt(),
                 thinking_effort=ai_cfg.get("thinking_effort", "medium"),
+                provider=ai_cfg.get("provider", "custom"),
+                api_format=ai_cfg.get("api_format"),
+                timeout_seconds=ai_cfg.get("timeout_seconds", 150),
             ):
                 # analyze_paper_stream 自己会发 error 事件，但我们用异常路径统一处理，
                 # 这里仅转发 status / field，done 留给最终阶段统一发。
@@ -379,6 +382,9 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                             ai_cfg["api_key"],
                             ai_cfg["base_url"],
                             ai_cfg["model"],
+                            provider=ai_cfg.get("provider", ""),
+                            api_format=ai_cfg.get("api_format", ""),
+                            thinking_effort=ai_cfg.get("thinking_effort", "off"),
                         )
                     return found or []
 

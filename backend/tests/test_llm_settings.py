@@ -8,6 +8,8 @@ def _clear_llm_env(monkeypatch):
         "LLM_API_KEY",
         "LLM_BASE_URL",
         "LLM_MODEL",
+        "LLM_PROVIDER",
+        "LLM_API_FORMAT",
         "MIMO_API_KEY",
         "MIMO_BASE_URL",
         "MIMO_MODEL",
@@ -42,6 +44,7 @@ def test_legacy_mimo_env_maps_to_llm(monkeypatch):
     assert settings.llm_api_key == "legacy-key"
     assert settings.llm_base_url == "https://example.com/anthropic"
     assert settings.llm_model == "legacy-model"
+    assert settings.llm_api_format == "anthropic_messages"
 
 
 def test_legacy_mimo_dotenv_maps_to_llm(monkeypatch, tmp_path):
@@ -121,6 +124,8 @@ def test_analysis_config_falls_back_to_llm_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "llm_api_key", "env-key")
     monkeypatch.setattr(settings, "llm_base_url", "https://api.openai.com/v1")
     monkeypatch.setattr(settings, "llm_model", "gpt-test")
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "llm_api_format", "openai_chat")
     monkeypatch.setattr(ai_config, "CONFIG_PATH", str(tmp_path / "ai_config.json"))
     monkeypatch.setattr(
         ai_config,
@@ -141,6 +146,8 @@ def test_analysis_config_uses_llm_endpoint_without_saved_config(monkeypatch, tmp
     monkeypatch.setattr(settings, "llm_api_key", "env-key")
     monkeypatch.setattr(settings, "llm_base_url", "https://custom.example/v1")
     monkeypatch.setattr(settings, "llm_model", "custom-model")
+    monkeypatch.setattr(settings, "llm_provider", "custom")
+    monkeypatch.setattr(settings, "llm_api_format", "openai_chat")
     monkeypatch.setattr(ai_config, "CONFIG_PATH", str(tmp_path / "missing-ai-config.json"))
 
     cfg = ai_config.get_analysis_config()
@@ -167,6 +174,22 @@ def test_analysis_config_preserves_saved_endpoint_when_key_comes_from_env(monkey
     assert cfg["api_key"] == "env-key"
     assert cfg["base_url"] == "https://saved.example/v1"
     assert cfg["model"] == "saved-model"
+
+
+def test_legacy_anthropic_section_migrates_to_explicit_protocol(monkeypatch, tmp_path):
+    from backend.services import ai_config
+
+    config_path = tmp_path / "legacy.yaml"
+    config_path.write_text(
+        "analysis:\n  api_key: test\n  base_url: https://api.anthropic.com/v1/messages\n"
+        "  model: claude-sonnet-4-6\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ai_config, "CONFIG_PATH", str(config_path))
+    cfg = ai_config.load_config(str(config_path))["llm"]
+    assert cfg["provider"] == "custom"
+    assert cfg["api_format"] == "anthropic_messages"
+    assert cfg["base_url"] == "https://api.anthropic.com"
 
 
 def test_mock_eval_cli_imports_without_api_key(monkeypatch):

@@ -29,16 +29,18 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 # ============================================================
 
 class AIModelConfig(BaseModel):
+    provider: str = "openai"
+    api_format: Literal["openai_chat", "anthropic_messages"] = "openai_chat"
     api_key: str = ""
-    base_url: str = ""
-    model: str = ""
-    system_prompt: str = ""
-    temperature: float = 0.1
-    max_tokens: int = 4096
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.2
+    max_tokens: int = 16384
     # 思考强度 off | low | medium | high，翻译成各协议的思考参数
     # （Claude thinking.budget_tokens / OpenAI reasoning_effort / DeepSeek thinking.type）。
     # 仅对支持的推理模型生效；Anthropic 协议开启思考时强制 temperature=1。
-    thinking_effort: str = "medium"
+    thinking_effort: str = "off"
+    timeout_seconds: float = Field(default=150.0, ge=1.0, le=600.0)
 
 class UIConfig(BaseModel):
     highlight_duration: int = 3000
@@ -179,8 +181,6 @@ class FindpapersConfig(BaseModel):
 
 class AppConfig(BaseModel):
     llm: AIModelConfig = AIModelConfig()
-    translate: AIModelConfig = AIModelConfig()
-    analysis: AIModelConfig = AIModelConfig()
     analysis_prompt: AnalysisPromptConfig = AnalysisPromptConfig()
     ui: UIConfig = UIConfig()
     embedding: EmbeddingConfig = EmbeddingConfig()
@@ -205,8 +205,6 @@ async def get_config() -> AppConfig:
     llm_payload = config.get("llm") or config.get("analysis") or {}
     return AppConfig(
         llm=AIModelConfig(**llm_payload),
-        translate=AIModelConfig(**config.get("translate", {})),
-        analysis=AIModelConfig(**config.get("analysis", {})),
         analysis_prompt=AnalysisPromptConfig(**config.get("analysis_prompt", {})),
         ui=UIConfig(**config.get("ui", {})),
         embedding=EmbeddingConfig(**config.get("embedding", {})),
@@ -220,6 +218,14 @@ async def get_config() -> AppConfig:
         arxiv_expand=ArxivExpandConfig(**{k: v for k, v in config.get("arxiv_expand", {}).items() if k in _AE_FIELDS}),
         findpapers=FindpapersConfig(**{k: v for k, v in config.get("findpapers", {}).items() if k in _FP_FIELDS}),
     )
+
+
+@router.get("/llm/providers")
+async def list_llm_providers() -> dict:
+    """Return provider presets owned by the LLM Core for settings-page rendering."""
+    from ..services.llm import PROVIDER_PRESETS
+
+    return {"providers": list(PROVIDER_PRESETS)}
 
 
 @router.get("/relations/channels")
@@ -264,8 +270,6 @@ async def update_config(req: AppConfig) -> dict:
         research_merged[name] = merged
     config = {
         "llm": req.llm.model_dump(),
-        "translate": req.translate.model_dump(),
-        "analysis": req.analysis.model_dump(),
         "analysis_prompt": req.analysis_prompt.model_dump(),
         "ui": req.ui.model_dump(),
         "embedding": req.embedding.model_dump(),
@@ -532,13 +536,17 @@ class TestConnectionRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
-    provider: Optional[str] = None  # embedding 专用
+    provider: Optional[str] = None
+    api_format: Optional[Literal["openai_chat", "anthropic_messages"]] = None
+    timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=600.0)
 
 
 class TestConnectionResponse(BaseModel):
     ok: bool
     message: str
     latency_ms: Optional[int] = None
+    request_id: Optional[str] = None
+    api_format: Optional[str] = None
 
 
 @router.post("/test-connection", response_model=TestConnectionResponse)
@@ -553,18 +561,17 @@ async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
         req.api_key = None
 
     if req.type in ("llm", "translate", "analysis"):
-        return await _test_anthropic_connection(req)
+        return await _test_llm_connection(req)
     elif req.type == "embedding":
         return await _test_embedding_connection(req)
     else:
         raise HTTPException(status_code=400, detail={"detail": "type 必须是 llm / translate / analysis / embedding", "code": "INVALID_FORMAT"})
 
 
-async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnectionResponse:
-    """测试 LLM API 连通性（自动适配 Anthropic 格式和 OpenAI 兼容格式）"""
-    import time
-    from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format
+async def _test_llm_connection(req: TestConnectionRequest) -> TestConnectionResponse:
+    """Test the explicit provider protocol through the shared LLM Core."""
     from ..services.ai_config import get_llm_config, get_translate_config, get_analysis_config
+    from ..services.llm import test_connection as test_llm_connection
 
     if req.type == "translate":
         cfg = get_translate_config()
@@ -576,52 +583,17 @@ async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnecti
     api_key = req.api_key if req.api_key is not None else cfg.get("api_key", "")
     base_url = req.base_url if req.base_url is not None else cfg.get("base_url", "")
     model = req.model if req.model is not None else cfg.get("model", "")
-
-    if not api_key:
-        return TestConnectionResponse(ok=False, message="API Key 未填写")
-    if not base_url:
-        return TestConnectionResponse(ok=False, message="Base URL 未填写")
-    if not model:
-        return TestConnectionResponse(ok=False, message="模型名称未填写")
-
-    t0 = time.monotonic()
-    try:
-        if _is_openai_format(base_url):
-            # OpenAI 兼容格式（DeepSeek / OpenAI 等）
-            client = _create_openai_client(api_key, base_url)
-            try:
-                resp = await client.chat.completions.create(
-                    model=model,
-                    max_tokens=5,
-                    messages=[
-                        {"role": "system", "content": "Reply with OK."},
-                        {"role": "user", "content": "Hi"},
-                    ],
-                )
-                latency = int((time.monotonic() - t0) * 1000)
-                return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
-            finally:
-                await client.close()
-        else:
-            # Anthropic 格式
-            client = _create_client(api_key, base_url)
-            try:
-                await client.messages.create(
-                    model=model,
-                    max_tokens=5,
-                    system="Reply with OK.",
-                    messages=[{"role": "user", "content": "Hi"}],
-                )
-                latency = int((time.monotonic() - t0) * 1000)
-                return TestConnectionResponse(ok=True, message=f"连接成功 ({model})", latency_ms=latency)
-            finally:
-                await client.close()
-    except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        err_msg = str(e)
-        if len(err_msg) > 200:
-            err_msg = err_msg[:200] + "..."
-        return TestConnectionResponse(ok=False, message=f"连接失败: {err_msg}", latency_ms=latency)
+    result = await test_llm_connection({
+        **cfg,
+        "api_key": api_key,
+        "base_url": base_url,
+        "model": model,
+        "provider": req.provider if req.provider is not None else cfg.get("provider", "custom"),
+        "api_format": req.api_format if req.api_format is not None else cfg.get("api_format"),
+        "timeout_seconds": req.timeout_seconds if req.timeout_seconds is not None else cfg.get("timeout_seconds", 150),
+    })
+    message = result["message"] if result["ok"] else f"连接失败: {result['message']}"
+    return TestConnectionResponse(**{**result, "message": message})
 
 
 async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnectionResponse:
@@ -691,7 +663,7 @@ class TextActionResponse(BaseModel):
 @router.post("/text-action", response_model=TextActionResponse)
 async def text_action(req: TextActionRequest) -> TextActionResponse:
     """对选中文本进行翻译或 AI 总结"""
-    from ..services.ai_config import get_translate_config, get_analysis_config
+    from ..services.text_actions import run_text_action
 
     if not req.text.strip():
         raise HTTPException(status_code=400, detail={"detail": "文本不能为空", "code": "INVALID_FORMAT"})
@@ -699,64 +671,10 @@ async def text_action(req: TextActionRequest) -> TextActionResponse:
     if req.action not in ("translate", "summarize"):
         raise HTTPException(status_code=400, detail={"detail": "action 必须是 translate 或 summarize", "code": "INVALID_FORMAT"})
 
-    # 根据 action 使用不同配置
-    if req.action == "translate":
-        cfg = get_translate_config()
-        system = cfg.get("system_prompt") or "你是一个专业的学术翻译助手。将用户提供的英文论文片段翻译为中文。只输出翻译结果，不要添加任何解释。保持学术术语的准确性。"
-    else:
-        cfg = get_analysis_config()
-        system = "你是一个专业的学术论文分析助手。用中文简洁地总结用户提供的论文片段的核心要点。用 2-3 个要点概括，每个要点一行，以 • 开头。"
-
-    api_key = cfg.get("api_key", "")
-    base_url = cfg.get("base_url", "")
-    model = cfg.get("model", "")
-    temperature = cfg.get("temperature", 0.1)
-    max_tokens = cfg.get("max_tokens", 2048)
-
-    if not api_key:
-        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
-
     try:
-        from ..services.ai_analyzer import (
-            _create_client, _create_openai_client, _is_openai_format, _extract_text, resolve_thinking,
-        )
-        thinking_kwargs, temp_override = resolve_thinking(
-            _is_openai_format(base_url), base_url, model,
-            cfg.get("thinking_effort", "off"), max_tokens)
-        if temp_override is not None:
-            temperature = temp_override
-        if _is_openai_format(base_url):
-            client = _create_openai_client(api_key, base_url)
-            try:
-                resp = await client.chat.completions.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": req.text},
-                    ],
-                    **thinking_kwargs,
-                )
-                result = (resp.choices[0].message.content or "").strip()
-                return TextActionResponse(result=result)
-            finally:
-                await client.close()
-        else:
-            client = _create_client(api_key, base_url)
-            try:
-                message = await client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=[{"role": "user", "content": req.text}],
-                    temperature=temperature,
-                    **thinking_kwargs,
-                )
-                result = _extract_text(message).strip()
-                return TextActionResponse(result=result)
-            finally:
-                await client.close()
+        return TextActionResponse(result=await run_text_action(req.text, req.action))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"detail": str(e), "code": "INVALID_FORMAT"})
     except Exception as e:
         logger.error(f"Text action failed: {e}")
         raise HTTPException(status_code=500, detail={"detail": f"处理失败: {str(e)}", "code": "INTERNAL_ERROR"})
@@ -775,6 +693,9 @@ async def _run_digest(text: str, title: str, cfg: dict) -> dict:
     from ..services.ai_analyzer import generate_graph_digest
     return await generate_graph_digest(
         text, cfg["api_key"], cfg.get("base_url", ""), cfg["model"], title=title,
+        thinking_effort=cfg.get("thinking_effort"),
+        provider=cfg.get("provider", "custom"),
+        api_format=cfg.get("api_format"),
     )
 
 

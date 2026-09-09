@@ -1,7 +1,8 @@
-"""
-AI 配置服务
+"""Application configuration repository.
 
-管理翻译和解读两套 AI 模型配置，存储在 JSON 文件中。
+``llm`` is the single source of truth for every text-generation call.  The
+legacy ``analysis`` and ``translate`` sections are read as migration inputs and
+mirrored in memory for older callers, but they no longer select providers.
 """
 
 import os
@@ -39,6 +40,16 @@ CANDIDATE_CONFIG_PATHS = [
 # 保持模块级 CONFIG_PATH 变量，兼顾既有单测 monkeypatch 与历史代码
 CONFIG_PATH = DEFAULT_YAML_PATH if os.path.isfile(DEFAULT_YAML_PATH) else DEFAULT_JSON_PATH
 
+# 根目录全局 LLM 密钥配置文件路径
+DEFAULT_CONFIG_KEY_PATH = os.path.join(PROJECT_ROOT, "config_key")
+CANDIDATE_CONFIG_KEY_PATHS = [
+    os.path.join(PROJECT_ROOT, "config_key"),
+    os.path.join(PROJECT_ROOT, "config_key.yaml"),
+    os.path.join(PROJECT_ROOT, "config_key.yml"),
+    os.path.join(PROJECT_ROOT, "config_key.json"),
+]
+CONFIG_KEY_PATH = DEFAULT_CONFIG_KEY_PATH
+
 RELATIONS_METHOD = "weighted_rrf_v1"
 _LEGACY_RELATION_WEIGHTS = {
     "topic": 0.18, "purpose": 0.24, "method": 0.16, "term": 0.14,
@@ -51,6 +62,8 @@ _LEGACY_RETRIEVAL_WEIGHTS = {
 
 DEFAULT_CONFIG = {
     "llm": {
+        "provider": "openai",
+        "api_format": "openai_chat",
         "api_key": "",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
@@ -58,6 +71,7 @@ DEFAULT_CONFIG = {
         "max_tokens": 16384,
         # 全局通用 LLM 默认思考强度：off | low | medium | high
         "thinking_effort": "off",
+        "timeout_seconds": 150,
     },
     "translate": {
         "api_key": "",
@@ -243,11 +257,18 @@ def merge_preserving_keys(new_config: dict, prior_config: dict) -> dict:
     用户确实想清空 key 时会传空串（不是掩码），照常清空。
     """
     out = copy.deepcopy(new_config)
+    disk_llm_key = load_config_key().get("api_key") or ""
     for name, section in out.items():
         if isinstance(section, dict):
             for key_name in _SECRET_KEY_NAMES:
                 if key_name in section and is_masked_key(section.get(key_name, "")):
-                    section[key_name] = (prior_config.get(name) or {}).get(key_name, "")
+                    prior_val = (prior_config.get(name) or {}).get(key_name, "")
+                    if prior_val and not is_masked_key(prior_val):
+                        section[key_name] = prior_val
+                    elif name in ("llm", "analysis", "translate") and key_name == "api_key" and disk_llm_key and not is_masked_key(disk_llm_key):
+                        section[key_name] = disk_llm_key
+                    else:
+                        section[key_name] = prior_val
     return out
 
 
@@ -263,96 +284,42 @@ def _deep_merge_dict(base: dict, override: dict) -> dict:
 
 
 def _sync_unified_llm(config: dict, saved: Optional[dict] = None) -> None:
-    """保证全局统一的 llm 与 analysis / translate 保持一致，实现全项目一处配置全局通用。"""
+    """Resolve one canonical LLM section and mirror legacy aliases in memory.
+
+    Explicit ``llm`` wins.  For pre-migration files the old ``analysis`` section
+    wins over ``translate`` so existing paper-analysis deployments keep their
+    endpoint.  Protocol is persisted explicitly; URL inference is only a legacy
+    migration fallback.
+    """
     if not isinstance(config, dict):
         return
+    source = saved if isinstance(saved, dict) else config
+    explicit_llm = source.get("llm") if isinstance(source.get("llm"), dict) else None
+    legacy_analysis = source.get("analysis") if isinstance(source.get("analysis"), dict) else None
+    legacy_translate = source.get("translate") if isinstance(source.get("translate"), dict) else None
+    canonical_source = explicit_llm or legacy_analysis or legacy_translate or {}
 
-    source = saved if saved is not None else config
-    if not isinstance(source, dict):
-        source = config
+    from .llm.models import LLMConfig
 
-    llm_src = source.get("llm") if isinstance(source.get("llm"), dict) else {}
-    analysis_src = source.get("analysis") if isinstance(source.get("analysis"), dict) else {}
-    translate_src = source.get("translate") if isinstance(source.get("translate"), dict) else {}
+    merged = _deep_merge_dict(DEFAULT_CONFIG["llm"], canonical_source)
+    if "api_format" not in canonical_source:
+        merged["api_format"] = ""
+    if "provider" not in canonical_source:
+        merged["provider"] = "custom"
+    # Preserve an already resolved secret from the merged config when the raw
+    # canonical section contains an empty placeholder.
+    existing = config.get("llm") if isinstance(config.get("llm"), dict) else {}
+    if not merged.get("api_key") and existing.get("api_key"):
+        merged["api_key"] = existing["api_key"]
+    resolved = LLMConfig.from_mapping(merged).to_dict()
+    config["llm"] = resolved
 
-    llm = config.setdefault("llm", copy.deepcopy(DEFAULT_CONFIG["llm"]))
+    llm_fields = tuple(resolved.keys())
     analysis = config.setdefault("analysis", copy.deepcopy(DEFAULT_CONFIG["analysis"]))
     translate = config.setdefault("translate", copy.deepcopy(DEFAULT_CONFIG["translate"]))
-
-    # 1. API Key: 优先选取非空且非掩码的 key，防止默认空串覆盖已配置 key
-    chosen_key = None
-    for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
-        k = sec.get("api_key")
-        if k and not is_masked_key(k):
-            chosen_key = k
-            break
-    if chosen_key is None:
-        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
-            k = sec.get("api_key")
-            if is_masked_key(k):
-                chosen_key = k
-                break
-    if chosen_key is None:
-        chosen_key = ""
-
-    # 2. Base URL: 优先选取与默认不同的配置，否则按优先级
-    default_base_url = DEFAULT_CONFIG["llm"]["base_url"]
-    chosen_base_url = None
-    for sec in (llm_src, analysis_src, translate_src):
-        b = sec.get("base_url")
-        if b and b != default_base_url:
-            chosen_base_url = b
-            break
-    if not chosen_base_url:
-        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
-            b = sec.get("base_url")
-            if b:
-                chosen_base_url = b
-                break
-    if not chosen_base_url:
-        chosen_base_url = default_base_url
-
-    # 3. Model: 优先选取与默认不同的配置，否则按优先级
-    default_model = DEFAULT_CONFIG["llm"]["model"]
-    chosen_model = None
-    for sec in (llm_src, analysis_src, translate_src):
-        m = sec.get("model")
-        if m and m != default_model:
-            chosen_model = m
-            break
-    if not chosen_model:
-        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
-            m = sec.get("model")
-            if m:
-                chosen_model = m
-                break
-    if not chosen_model:
-        chosen_model = default_model
-
-    # 4. Thinking Effort
-    chosen_thinking = None
-    for sec in (llm_src, analysis_src, translate_src, llm, analysis):
-        t = sec.get("thinking_effort")
-        if t:
-            chosen_thinking = t
-            break
-    if not chosen_thinking:
-        chosen_thinking = DEFAULT_CONFIG["llm"]["thinking_effort"]
-
-    llm["api_key"] = chosen_key
-    analysis["api_key"] = chosen_key
-    translate["api_key"] = chosen_key
-
-    llm["base_url"] = chosen_base_url
-    analysis["base_url"] = chosen_base_url
-    translate["base_url"] = chosen_base_url
-
-    llm["model"] = chosen_model
-    analysis["model"] = chosen_model
-    translate["model"] = chosen_model
-
-    llm["thinking_effort"] = chosen_thinking
-    analysis["thinking_effort"] = chosen_thinking
+    for field_name in llm_fields:
+        analysis[field_name] = copy.deepcopy(resolved[field_name])
+        translate[field_name] = copy.deepcopy(resolved[field_name])
 
 
 def get_active_config_path() -> str:
@@ -370,10 +337,108 @@ def get_active_config_path() -> str:
     return DEFAULT_YAML_PATH
 
 
+def get_active_config_key_path() -> str:
+    """获取当前生效的 config_key 文件绝对路径。
+    如果 CONFIG_KEY_PATH 被外部测试 monkeypatch 修改且指定了特定路径，遵从外部指定；
+    否则依次检查根目录 config_key / config_key.yaml / config_key.yml / config_key.json。
+    若都不存在，默认优先返回项目根目录下的 config_key。
+    """
+    global CONFIG_KEY_PATH
+    if CONFIG_KEY_PATH != DEFAULT_CONFIG_KEY_PATH:
+        return CONFIG_KEY_PATH
+    for p in CANDIDATE_CONFIG_KEY_PATHS:
+        if os.path.isfile(p):
+            return p
+    return DEFAULT_CONFIG_KEY_PATH
+
+
+def load_config_key(path: Optional[str] = None) -> dict:
+    """从根目录 config_key 中加载全局 LLM 模型配置。
+    支持 YAML、JSON 格式，支持嵌套 llm 段或顶层扁平键值对。
+    """
+    target_path = path or get_active_config_key_path()
+    # 保护机制：若在 pytest 环境下且未指定自定义 key 文件，不读取根目录真实 key，避免干扰单测断言
+    if "PYTEST_CURRENT_TEST" in os.environ and os.path.abspath(target_path) == os.path.abspath(DEFAULT_CONFIG_KEY_PATH):
+        return {}
+    if not os.path.isfile(target_path):
+        return {}
+    try:
+        data = read_file_config(target_path)
+        if not isinstance(data, dict):
+            return {}
+        llm_cfg: dict = {}
+        if isinstance(data.get("llm"), dict):
+            llm_cfg.update(data["llm"])
+        valid_keys = (
+            "provider", "api_format", "api_key", "base_url", "model",
+            "temperature", "max_tokens", "thinking_effort", "timeout_seconds",
+        )
+        for k in valid_keys:
+            if k in data and data[k] is not None and data[k] != "":
+                llm_cfg[k] = data[k]
+            elif k in data and k not in llm_cfg:
+                llm_cfg[k] = data[k]
+        return llm_cfg
+    except Exception as e:
+        logger.warning(f"Failed to load config_key from {target_path}: {e}")
+        return {}
+
+
+def save_config_key(llm_data: dict, path: Optional[str] = None) -> str:
+    """Atomically persist only the global LLM secret in ``config_key``.
+
+    ``load_config_key`` still accepts legacy files containing endpoint/model
+    fields, but new writes avoid duplicating non-secret provider state.
+    """
+    target_path = path or get_active_config_key_path()
+    # 保护机制：pytest 测试期间若未显式为测试设置单独的 CONFIG_KEY_PATH，禁止污染或覆盖真实的根目录 config_key
+    if "PYTEST_CURRENT_TEST" in os.environ and os.path.abspath(target_path) == os.path.abspath(DEFAULT_CONFIG_KEY_PATH):
+        logger.debug("Skipping write to root config_key during pytest run")
+        return target_path
+    dir_name = os.path.dirname(target_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+
+    clean_llm = {"api_key": llm_data.get("api_key", "")}
+
+    header = (
+        "# ==============================================================================\n"
+        "# 全局通用 LLM 模型与 API Key 配置文件 (config_key)\n"
+        "# ------------------------------------------------------------------------------\n"
+        "# 说明：\n"
+        "# 1. 本文件位于项目根目录，由设置页面与系统统一读写，只保存全局大模型密钥。\n"
+        "# 2. 本项目绝不将 API Key 存入数据库；密钥独立保存在本文件中，隔离于公开配置。\n"
+        "# 3. 全局通用：论文精读、划词翻译、领域探索、问句拆解与图谱速读均默认复用该配置。\n"
+        "# 4. 本文件已加入 .gitignore，切勿提交至任何公开 Git 代码仓库！\n"
+        "# ==============================================================================\n\n"
+    )
+
+    content_data = {"llm": clean_llm}
+
+    yaml_body = yaml.safe_dump(content_data, allow_unicode=True, sort_keys=False)
+    final_content = header + yaml_body
+
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name or None, suffix=".tmp", prefix="config_key_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(final_content)
+        os.replace(tmp_path, target_path)
+        logger.info(f"Global LLM config_key saved to {target_path}")
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return target_path
+
+
 def get_config_file_info() -> dict:
     """获取当前配置文件元信息（供设置页展示和导入导出使用）。"""
     active_path = get_active_config_path()
+    active_key_path = get_active_config_key_path()
     rel_path = os.path.relpath(active_path, PROJECT_ROOT)
+    rel_key_path = os.path.relpath(active_key_path, PROJECT_ROOT)
     fmt = "yaml" if active_path.endswith((".yaml", ".yml")) else ("toml" if active_path.endswith(".toml") else "json")
     return {
         "active_path": rel_path,
@@ -381,6 +446,8 @@ def get_config_file_info() -> dict:
         "exists": os.path.isfile(active_path),
         "format": fmt,
         "supported_formats": ["yaml", "toml", "json"],
+        "key_path": rel_key_path,
+        "key_file_exists": os.path.isfile(active_key_path),
     }
 
 
@@ -509,27 +576,77 @@ def dump_file_config(config: dict, path: str) -> None:
 
 
 def load_config(path: Optional[str] = None) -> dict:
-    """加载配置。默认读取当前生效的配置文件（项目下的 config.yaml 或 data/ai_config.json）。"""
+    """加载配置。默认读取当前生效的配置文件（项目下的 config.yaml 或 data/ai_config.json），
+    并从项目根目录的 config_key 注入全局 LLM API Key。旧版 config_key 中的
+    模型与端点字段仅在主配置没有 llm 段时作为迁移来源。
+    """
     target_path = path or get_active_config_path()
+    raw_saved: dict = {}
     if not os.path.exists(target_path):
-        return _deep_copy_default()
-    try:
-        saved = read_file_config(target_path)
-        saved = _migrate_relations_config(saved)
-        # 合并默认值（防止缺少字段；嵌套段如 recall / relations.weights 递归合并）
-        config = {}
-        for key in DEFAULT_CONFIG:
-            default_section = DEFAULT_CONFIG[key]
-            saved_section = saved.get(key, {})
-            if isinstance(default_section, dict) and isinstance(saved_section, dict):
-                config[key] = _deep_merge_dict(default_section, saved_section)
-            else:
-                config[key] = saved_section if key in saved else copy.deepcopy(default_section)
-        _sync_unified_llm(config, saved=saved)
-        return config
-    except Exception as e:
-        logger.warning(f"Failed to load config from {target_path}: {e}")
-        return _deep_copy_default()
+        config = _deep_copy_default()
+    else:
+        try:
+            raw_saved = read_file_config(target_path)
+            saved = _migrate_relations_config(raw_saved)
+            # 合并默认值（防止缺少字段；嵌套段如 recall / relations.weights 递归合并）
+            config = {}
+            for key in DEFAULT_CONFIG:
+                default_section = DEFAULT_CONFIG[key]
+                saved_section = saved.get(key, {})
+                if isinstance(default_section, dict) and isinstance(saved_section, dict):
+                    config[key] = _deep_merge_dict(default_section, saved_section)
+                else:
+                    config[key] = saved_section if key in saved else copy.deepcopy(default_section)
+        except Exception as e:
+            logger.warning(f"Failed to load config from {target_path}: {e}")
+            config = _deep_copy_default()
+
+    # 优先从根目录 config_key 读取全局 LLM 模型配置并覆盖注入
+    abs_target = os.path.abspath(target_path)
+    is_standard_path = abs_target in (os.path.abspath(DEFAULT_YAML_PATH), os.path.abspath(DEFAULT_JSON_PATH))
+    should_load_key = True
+    if not is_standard_path:
+        has_local_key = os.path.isfile(os.path.join(os.path.dirname(abs_target), "config_key"))
+        key_explicitly_set = CONFIG_KEY_PATH != DEFAULT_CONFIG_KEY_PATH
+        if not has_local_key and not key_explicitly_set:
+            should_load_key = False
+
+    key_config: dict = {}
+    if should_load_key:
+        key_config = load_config_key()
+        if key_config:
+            if "llm" not in config or not isinstance(config["llm"], dict):
+                config["llm"] = copy.deepcopy(DEFAULT_CONFIG["llm"])
+            for k, v in key_config.items():
+                if v is not None and v != "":
+                    config["llm"][k] = v
+                elif k not in config["llm"]:
+                    config["llm"][k] = v
+
+    llm_migration_source = copy.deepcopy(raw_saved)
+    if key_config:
+        raw_llm = raw_saved.get("llm") if isinstance(raw_saved.get("llm"), dict) else None
+        key_has_provider_state = any(
+            key in key_config and key_config.get(key) not in (None, "")
+            for key in (
+                "provider", "api_format", "base_url", "model", "temperature",
+                "max_tokens", "thinking_effort", "timeout_seconds",
+            )
+        )
+        if raw_llm is not None:
+            # The main config is the canonical source for provider state.  A
+            # secret-only config_key must not replace it with LLM defaults on
+            # every reload; only inject the separately stored API key.
+            merged_raw_llm = copy.deepcopy(raw_llm)
+            if "api_key" in key_config:
+                merged_raw_llm["api_key"] = key_config.get("api_key", "")
+            llm_migration_source["llm"] = merged_raw_llm
+        elif key_has_provider_state:
+            # Backward compatibility for legacy installations where
+            # config_key still owned the complete provider configuration.
+            llm_migration_source["llm"] = copy.deepcopy(key_config)
+    _sync_unified_llm(config, saved=llm_migration_source or config)
+    return config
 
 
 def _deep_copy_default() -> dict:
@@ -564,18 +681,45 @@ def _migrate_relations_config(saved: dict) -> dict:
 
 
 def save_config(config: dict, path: Optional[str] = None) -> None:
-    """保存 AI 配置（原子写入）。默认保存至当前生效配置文件，若当前为根目录 YAML 则同时同步一份 JSON 到 data/ai_config.json。"""
+    """保存 AI 配置（原子写入）。
+    若包含 llm 段，自动将 API Key 写入项目根目录下的 config_key 文件中；
+    主配置文件（config.yaml 或 data/ai_config.json）中敏感 key 清空，彻底与数据库和公开配置解耦。
+    """
     config = copy.deepcopy(config)
     if isinstance(config, dict):
         _sync_unified_llm(config)
+
     target_path = path or get_active_config_path()
-    dump_file_config(config, target_path)
+    abs_target = os.path.abspath(target_path)
+    is_standard_path = abs_target in (os.path.abspath(DEFAULT_YAML_PATH), os.path.abspath(DEFAULT_JSON_PATH))
+
+    # 1. 保存到根目录 config_key
+    llm_sec = config.get("llm") if isinstance(config, dict) else None
+    if isinstance(llm_sec, dict):
+        has_local_key = os.path.isfile(os.path.join(os.path.dirname(abs_target), "config_key"))
+        key_explicitly_set = CONFIG_KEY_PATH != DEFAULT_CONFIG_KEY_PATH
+        if is_standard_path or has_local_key or key_explicitly_set:
+            try:
+                save_config_key(llm_sec)
+            except Exception as e:
+                logger.warning(f"Failed to save to config_key: {e}")
+
+    # 2. 主配置只持久化一个 ``llm`` 段。analysis/translate 仅作为旧配置的
+    # 读取迁移入口，不能继续形成三份会漂移的 provider 配置。
+    main_config = copy.deepcopy(config)
+    main_config.pop("analysis", None)
+    main_config.pop("translate", None)
+    if is_standard_path and isinstance(main_config, dict):
+        if "llm" in main_config and isinstance(main_config["llm"], dict):
+            main_config["llm"]["api_key"] = ""
+
+    dump_file_config(main_config, target_path)
     logger.info(f"AI config saved to {target_path}")
 
     # 保持向后兼容：如果主配置文件不是 data/ai_config.json，同步写一份 json 以确保下游工具平滑过渡
-    if os.path.abspath(target_path) != os.path.abspath(DEFAULT_JSON_PATH):
+    if abs_target != os.path.abspath(DEFAULT_JSON_PATH) and is_standard_path:
         try:
-            dump_file_config(config, DEFAULT_JSON_PATH)
+            dump_file_config(main_config, DEFAULT_JSON_PATH)
         except Exception as e:
             logger.debug(f"Sync to fallback json failed: {e}")
 
@@ -584,6 +728,8 @@ def export_config(fmt: str = "yaml", mask_keys: bool = False) -> tuple[str, str,
     """导出系统配置。返回 (content, filename, media_type)"""
     raw_cfg = load_config()
     cfg = mask_config(raw_cfg) if mask_keys else copy.deepcopy(raw_cfg)
+    cfg.pop("analysis", None)
+    cfg.pop("translate", None)
     fmt = (fmt or "yaml").lower().strip()
     if fmt == "json":
         content = json.dumps(cfg, ensure_ascii=False, indent=2)
@@ -620,7 +766,9 @@ def import_config(content: str, fmt: Optional[str] = None) -> dict:
 
     current = load_config()
     clean_parsed = merge_preserving_keys(parsed, current)
-    _sync_unified_llm(clean_parsed, saved=parsed)
+    # Resolve from the key-preserved payload; resolving from ``parsed`` here
+    # would reintroduce a masked *** placeholder after it was safely replaced.
+    _sync_unified_llm(clean_parsed, saved=clean_parsed)
     merged = _deep_merge_dict(current, clean_parsed)
     save_config(merged)
     return merged
@@ -649,11 +797,21 @@ def get_llm_config() -> dict:
                 pass
 
         cfg["api_key"] = settings.llm_api_key
-        if not saved_llm.get("base_url"):
+        default_base_url = DEFAULT_CONFIG["llm"]["base_url"]
+        default_model = DEFAULT_CONFIG["llm"]["model"]
+        if (not saved_llm.get("base_url") or saved_llm.get("base_url") == default_base_url) and settings.llm_base_url:
             cfg["base_url"] = settings.llm_base_url
-        if not saved_llm.get("model"):
+        if (not saved_llm.get("model") or saved_llm.get("model") == default_model) and settings.llm_model:
             cfg["model"] = settings.llm_model
-    return cfg
+        # Only a genuinely absent file inherits protocol metadata from env.
+        # A legacy saved section has already been inferred by _sync_unified_llm
+        # and must not be overwritten by unrelated environment defaults.
+        if not saved_llm and settings.llm_provider:
+            cfg["provider"] = settings.llm_provider
+        if not saved_llm and settings.llm_api_format:
+            cfg["api_format"] = settings.llm_api_format
+    from .llm.models import LLMConfig
+    return LLMConfig.from_mapping(cfg).to_dict()
 
 
 def get_translate_config() -> dict:

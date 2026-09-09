@@ -268,6 +268,9 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],
                     ai_cfg["model"],
+                    provider=ai_cfg.get("provider", ""),
+                    api_format=ai_cfg.get("api_format", ""),
+                    thinking_effort=ai_cfg.get("thinking_effort", "off"),
                 )
             except Exception as e:
                 logger.warning(f"Data flow analysis failed: {e}")
@@ -296,6 +299,9 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],
                     ai_cfg["model"],
+                    provider=ai_cfg.get("provider", ""),
+                    api_format=ai_cfg.get("api_format", ""),
+                    thinking_effort=ai_cfg.get("thinking_effort", "off"),
                 )
             except Exception as e:
                 logger.warning(f"Paper-code mapping failed: {e}")
@@ -344,6 +350,9 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
                     ai_cfg["api_key"],
                     ai_cfg["base_url"],
                     ai_cfg["model"],
+                    provider=ai_cfg.get("provider", ""),
+                    api_format=ai_cfg.get("api_format", ""),
+                    thinking_effort=ai_cfg.get("thinking_effort", "off"),
                 )
                 with Session(engine) as session:
                     from ..models.paper import Paper as PaperModel

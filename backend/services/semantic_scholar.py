@@ -8,7 +8,6 @@ API 文档: https://api.semanticscholar.org/api-docs/
 """
 
 import asyncio
-import json
 import logging
 import time
 from typing import Optional
@@ -174,6 +173,10 @@ async def generate_relevance_descriptions(
     api_key: str,
     base_url: str,
     model: str,
+    *,
+    provider: str = "",
+    api_format: str = "",
+    thinking_effort: str = "off",
 ) -> list[dict]:
     """
     用 AI 为每篇相关论文生成一句关联性说明。
@@ -205,30 +208,23 @@ async def generate_relevance_descriptions(
     )
 
     try:
-        from .ai_analyzer import _create_client
+        from .llm import complete_json
 
-        client = _create_client(api_key, base_url)
-        try:
-            message = await client.messages.create(
-                model=model,
-                max_tokens=1024,
-                system="你是一个学术论文分析助手。只输出 JSON 数组，不要其他文字。",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-            )
-        finally:
-            await client.close()
-
-        from .ai_analyzer import _extract_text
-        content = _extract_text(message).strip()
-        # 提取可能包裹在 ```json ``` 中的内容
-        if "```" in content:
-            start = content.find("[")
-            end = content.rfind("]") + 1
-            if start >= 0 and end > start:
-                content = content[start:end]
-
-        descriptions = json.loads(content)
+        descriptions = await complete_json(
+            {
+                "provider": provider,
+                "api_format": api_format,
+                "api_key": api_key,
+                "base_url": base_url,
+                "model": model,
+                "temperature": 0.3,
+                "max_tokens": 1024,
+                "thinking_effort": thinking_effort,
+            },
+            system="你是一个学术论文分析助手。只输出 JSON 数组，不要其他文字。",
+            user=prompt,
+            expected=list,
+        )
         if isinstance(descriptions, list):
             for i, desc in enumerate(descriptions):
                 if i < len(related_papers) and isinstance(desc, str):

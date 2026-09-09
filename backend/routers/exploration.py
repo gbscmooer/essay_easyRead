@@ -177,8 +177,6 @@ async def regenerate_report(run_id: int):
         )).first()
         if active or chat:
             raise HTTPException(409, detail={"detail": "请等待当前研究或追问完成", "code": "RESEARCH_RUNNING"})
-        if not (run.result or {}).get("papers"):
-            raise HTTPException(400, detail={"detail": "暂无可用于生成报告的材料", "code": "NO_MATERIALS"})
         run.status, run.current_stage, run.error_message = "pending", "report", None
         session.add(run)
         session.commit()

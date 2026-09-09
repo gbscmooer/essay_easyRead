@@ -8,7 +8,6 @@ key by falling back to a deterministic plan.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 from typing import Any, Optional
 
@@ -53,43 +52,34 @@ async def _request_completion(
     max_tokens: int,
     timeout_seconds: float,
     thinking_effort: str | None = None,
+    provider: str = "custom",
+    api_format: str | None = None,
 ) -> str:
-    """Issue one bounded completion and always close the SDK client."""
+    """Issue one bounded completion through the unified LLM Core."""
 
-    from .ai_analyzer import (
-        _complete_once,
-        _create_client,
-        _create_openai_client,
-        _is_openai_format,
-    )
+    from .llm import complete_text
 
-    use_openai = _is_openai_format(base_url)
-    client = (
-        _create_openai_client(api_key, base_url)
-        if use_openai
-        else _create_client(api_key, base_url)
+    return await asyncio.wait_for(
+        complete_text(
+            {
+                "api_key": api_key,
+                "provider": provider,
+                "api_format": api_format,
+                "base_url": base_url,
+                "model": model,
+                "thinking_effort": thinking_effort or "off",
+                "timeout_seconds": timeout_seconds,
+            },
+            system=system,
+            user=user,
+            max_tokens=max_tokens,
+            temperature=0.0,
+            thinking_effort=thinking_effort,
+            timeout_seconds=timeout_seconds,
+            max_retries=0,
+        ),
+        timeout=timeout_seconds,
     )
-    try:
-        return await asyncio.wait_for(
-            _complete_once(
-                client,
-                use_openai,
-                model,
-                system,
-                user,
-                max_tokens=max_tokens,
-                temperature=0.0,
-                thinking_effort=thinking_effort,
-                base_url=base_url,
-            ),
-            timeout=timeout_seconds,
-        )
-    finally:
-        close = getattr(client, "close", None)
-        if close is not None:
-            result = close()
-            if inspect.isawaitable(result):
-                await result
 
 
 def _parse_plan(raw: str) -> ResearchGoalPlan:
@@ -169,6 +159,8 @@ async def plan_research_goal(
         max_tokens=token_limit,
         timeout_seconds=timeout,
         thinking_effort=cfg.get("thinking_effort"),
+        provider=cfg.get("provider", "custom"),
+        api_format=cfg.get("api_format"),
     )
     plan = _parse_plan(raw).model_dump(mode="json")
     plan["planner"] = "llm"

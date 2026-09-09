@@ -16,6 +16,7 @@ import { PromptEditor } from '@/features/settings/PromptEditor'
 import { TestButton } from '@/features/settings/TestButton'
 import { ConfigFileManagement } from '@/features/settings/ConfigFileManagement'
 import AIModelSection from '@/features/settings/AIModelSection'
+import { PROVIDER_PRESETS, type ProviderPreset } from '@/features/settings/ProviderPresets'
 import UIConfigSection from '@/features/settings/UIConfigSection'
 import {
   EmbeddingSection,
@@ -132,9 +133,7 @@ function mergeConfig(cfg: AppConfig): AppConfig {
     ...DEFAULT_CONFIG,
     ...cfg,
     embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
-    llm: { ...DEFAULT_CONFIG.llm, ...(cfg.llm ?? cfg.analysis ?? {}) },
-    translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
-    analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
+    llm: { ...DEFAULT_CONFIG.llm, ...(cfg.llm ?? {}) },
     analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
     ui: { ...DEFAULT_CONFIG.ui, ...(cfg.ui ?? {}) },
     research: {
@@ -239,34 +238,27 @@ function ModelsPanel({
   config: AppConfig
   setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
 }) {
-  const currentLlm = config.llm || config.analysis
+  const currentLlm = config.llm
+  const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>(PROVIDER_PRESETS)
+
+  useEffect(() => {
+    get<{ providers: ProviderPreset[] }>('/analysis/llm/providers')
+      .then(result => {
+        if (Array.isArray(result.providers) && result.providers.length > 0) {
+          setProviderPresets(result.providers)
+        }
+      })
+      .catch(() => undefined)
+  }, [])
+
   return (
     <div className="space-y-4 stagger">
       <AIModelSection
         title="全局 LLM 模型"
-        description="全项目统一大模型配置：论文精读、划词翻译、领域探索、问句拆解、图谱速读与全景报告等全部 AI 功能均全局通用该配置。"
+        description="全项目统一大模型配置（API Key 等密钥不存入数据库，安全保存在根目录 config_key 中）：论文精读、划词翻译、领域探索、问句拆解与图谱速读均全局通用该配置。"
         config={currentLlm}
-        onChange={cfg => setConfig(prev => ({
-          ...prev,
-          llm: cfg,
-          translate: {
-            ...prev.translate,
-            api_key: cfg.api_key,
-            base_url: cfg.base_url,
-            model: cfg.model,
-            temperature: cfg.temperature,
-            thinking_effort: cfg.thinking_effort,
-          },
-          analysis: {
-            ...prev.analysis,
-            api_key: cfg.api_key,
-            base_url: cfg.base_url,
-            model: cfg.model,
-            temperature: cfg.temperature,
-            max_tokens: cfg.max_tokens,
-            thinking_effort: cfg.thinking_effort,
-          },
-        }))}
+        providerPresets={providerPresets}
+        onChange={cfg => setConfig(prev => ({ ...prev, llm: cfg }))}
         defaultMaxTokens={16384}
         testSlot={
           <TestButton
@@ -274,6 +266,9 @@ function ModelsPanel({
             api_key={currentLlm.api_key}
             base_url={currentLlm.base_url}
             model={currentLlm.model}
+            provider={currentLlm.provider}
+            api_format={currentLlm.api_format}
+            timeout_seconds={currentLlm.timeout_seconds}
           />
         }
       />
@@ -360,7 +355,7 @@ export function SettingsPage() {
     )
   }
 
-  const llmOk = !!((config.llm?.api_key || config.analysis?.api_key || config.translate?.api_key || '').trim())
+  const llmOk = !!config.llm.api_key.trim()
   const allConfigured = llmOk
 
   return (

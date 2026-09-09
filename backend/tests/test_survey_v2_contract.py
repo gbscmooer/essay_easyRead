@@ -345,7 +345,7 @@ def test_v1_run_legacy_projections(client, v1_env):
     assert client.get(f"{base}/evidence/whatever").status_code == 404
 
 
-def test_v1_run_control_and_retry_unsupported(client, engine, v1_env):
+def test_v1_run_control_and_retry_unsupported(client, engine, v1_env, monkeypatch):
     base = f"/api/exploration/runs/{v1_env}"
     for action in ("pause", "resume", "cancel"):
         response = client.post(f"{base}/{action}", json={})
@@ -354,15 +354,18 @@ def test_v1_run_control_and_retry_unsupported(client, engine, v1_env):
     response = client.post(f"{base}/retry", json={})
     assert response.status_code == 400
     assert response.json()["code"] == "UNSUPPORTED_WORKFLOW"
-    # v1 重建路径不受 v2 守卫影响：无材料的 v1 运行仍按旧逻辑拒绝（不触发后台重建）
+    # v1 重建路径不受 v2 守卫影响：无材料也进入零命中报告重建。
     with Session(engine) as session:
         bare = ExplorationRun(question="v1 无材料", status="done", result={})
         session.add(bare)
         session.commit()
         bare_id = bare.id
+    started = []
+    monkeypatch.setattr("backend.routers.exploration._start", lambda coro: (started.append(coro), coro.close()))
     response = client.post(f"/api/exploration/runs/{bare_id}/report")
-    assert response.status_code == 400
-    assert response.json()["code"] == "NO_MATERIALS"
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert len(started) == 1
 
 
 def test_v2_run_report_rebuild_and_delete_guarded(client, engine, v2_env):

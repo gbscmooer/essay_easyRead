@@ -2,8 +2,8 @@
 应用配置
 
 使用 pydantic-settings 从环境变量和 .env 文件加载配置。
-LLM 统一为 api_key + base_url + model；协议仅两种：
-OpenAI 兼容 或 Anthropic 兼容（由 base_url 是否含 anthropic 判定）。
+LLM 统一为 provider + api_format + api_key + base_url + model；协议显式配置为
+OpenAI Chat Completions 或 Anthropic Messages。旧配置仍可从 base_url 推断一次。
 """
 
 import os
@@ -99,6 +99,16 @@ def _apply_legacy_llm_env(
                 os.environ[canonical] = value
                 break
 
+    # Old environments had no protocol field. Infer it once at this boundary,
+    # then expose an explicit value to the rest of the application.
+    if not _lookup("LLM_API_FORMAT"):
+        base_url = _lookup("LLM_BASE_URL") or ""
+        api_format = "anthropic_messages" if "anthropic" in base_url.lower() else "openai_chat"
+        os.environ["LLM_API_FORMAT"] = api_format
+    if not _lookup("LLM_PROVIDER"):
+        provider = "anthropic" if os.environ.get("LLM_API_FORMAT") == "anthropic_messages" else "openai"
+        os.environ["LLM_PROVIDER"] = provider
+
 
 _apply_legacy_llm_env()
 
@@ -131,7 +141,9 @@ class Settings(BaseSettings):
             _apply_legacy_llm_env()
         super().__init__(**kwargs)
 
-    # 统一 LLM 配置（OpenAI 兼容或 Anthropic 兼容，由 base_url 判定协议）
+    # 统一 LLM 配置。api_format 是协议真源，不再在业务代码按 URL 猜测。
+    llm_provider: str = "openai"
+    llm_api_format: str = "openai_chat"
     llm_api_key: str = Field(
         "",
         validation_alias=AliasChoices(

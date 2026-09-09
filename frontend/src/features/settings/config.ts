@@ -9,15 +9,18 @@ import type { Theme } from '@/theme/themes'
 
 /** 思考强度：off=关闭；仅对支持的推理模型生效（Claude 3.7+/4+、OpenAI o 系/gpt-5、DeepSeek v4+） */
 export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high'
+export type LLMApiFormat = 'openai_chat' | 'anthropic_messages'
 
 export interface AIModelConfig {
+  provider: string
+  api_format: LLMApiFormat
   api_key: string
   base_url: string
   model: string
-  system_prompt: string
   temperature: number
   max_tokens: number
   thinking_effort: ThinkingEffort
+  timeout_seconds: number
 }
 
 export interface UIConfig {
@@ -145,8 +148,6 @@ export interface FindpapersConfig {
 
 export interface AppConfig {
   llm: AIModelConfig
-  translate: AIModelConfig
-  analysis: AIModelConfig
   analysis_prompt: AnalysisPromptConfig
   ui: UIConfig
   embedding: EmbeddingConfig
@@ -160,31 +161,15 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   llm: {
+    provider: 'openai',
+    api_format: 'openai_chat',
     api_key: '',
     base_url: 'https://api.openai.com/v1',
     model: 'gpt-4o-mini',
-    system_prompt: '',
     temperature: 0.2,
     max_tokens: 16384,
     thinking_effort: 'off',
-  },
-  translate: {
-    api_key: '',
-    base_url: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-    system_prompt: '',
-    temperature: 0.3,
-    max_tokens: 2048,
-    thinking_effort: 'off',
-  },
-  analysis: {
-    api_key: '',
-    base_url: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-    system_prompt: '',
-    temperature: 0.1,
-    max_tokens: 16384,
-    thinking_effort: 'medium',
+    timeout_seconds: 150,
   },
   analysis_prompt: {
     active: 'builtin',

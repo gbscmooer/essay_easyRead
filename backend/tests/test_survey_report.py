@@ -70,6 +70,41 @@ def test_no_model_no_fabricated_tables():
     assert "Downstream Tasks and Datasets" in report["markdown"]
 
 
+def test_no_results_still_produces_search_audit_report():
+    report = asyncio.run(sr.build_survey_report(
+        "有没有某个 idea",
+        [],
+        {"by_year": {}, "year_span": []},
+        None,
+        {"api_key": "test", "model": "fixture"},
+        search_context={
+            "decompose": {"en_queries": ["novel idea retrieval"]},
+            "provider": "openalex",
+            "preflight": [{"name": "openalex", "role": "primary", "status": "ok", "detail": "正常"}],
+            "recall": {"channels": [
+                {"query": "novel idea retrieval", "order": "relevance", "limit": 40, "hits": 0},
+                {"query": '"novel idea retrieval"', "order": "cited", "limit": 20, "hits": 0},
+            ]},
+            "agent_loops": {"decompose": {
+                "stop_reason": "validator_passed",
+                "preview_rounds": [{"round": 1, "queries": ["novel idea retrieval"],
+                                    "provider": "openalex", "hits": 0, "audit": {"channels": []}}],
+                "trace": [],
+            }},
+        },
+    ))
+    assert report["status"] == "no_results"
+    assert report["coverage"]["corpus"] == 0
+    assert report["references"] == []
+    assert len(report["search_summary"]["attempts"]) == 3
+    assert "不能证明全领域不存在" in report["search_summary"]["interpretation"]
+    assert "已执行的搜索" in report["markdown"]
+    assert "novel idea retrieval" in report["markdown"]
+    assert "建议补搜方向" in report["markdown"]
+    assert "已实现" not in " ".join(report["findings"])
+    assert "已执行的搜索" in sr.render_html(report)
+
+
 def test_structured_report_and_safe_html_export(monkeypatch):
     async def llm(*args, **kwargs):
         return extracted()
@@ -77,6 +112,8 @@ def test_structured_report_and_safe_html_export(monkeypatch):
     report = asyncio.run(sr.build_survey_report("<script>alert(1)</script>", [PAPER],
                          {"by_year": {2024: 1}}, {"landscape_summary": "Summary", "hotspots": ["Finding"]}, {"api_key": "test", "model": "fixture"}))
     assert report["coverage"]["examined"] == 1
+    assert report["extractions"][0]["agent_loop"]["status"] == "completed"
+    assert report["extractions"][0]["agent_loop"]["iterations"] == 3
     assert report["coverage"]["abstract_only"] == 1
     assert report["matrices"]["task_dataset"]["cells"][0]["count"] == 1
     html = sr.render_html(report)
