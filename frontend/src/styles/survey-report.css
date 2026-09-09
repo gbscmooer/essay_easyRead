@@ -26,6 +26,8 @@
 .survey-table th, .survey-table td { border-bottom: 1px solid var(--border); padding: 11px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; min-width: 80px; max-width: 320px; }
 .survey-table thead { background: var(--bg-elevated); }
 .survey-table th { font-weight: 600; }
+.survey-search-table td:nth-child(4) { min-width: 240px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.survey-search-table td:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
 .survey-evidence { min-width: 90px; }
 .survey-evidence summary { cursor: pointer; color: var(--accent); white-space: nowrap; }
 .survey-evidence[open] { min-width: 220px; }

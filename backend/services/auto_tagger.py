@@ -1,4 +1,3 @@
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,8 +29,10 @@ async def auto_tag_paper(
     api_key: str,
     base_url: str,
     model: str,
+    provider: str = "custom",
+    api_format: str | None = None,
 ) -> list[str]:
-    from .ai_analyzer import _create_client, _extract_text
+    from .llm import complete_json
 
     if not api_key or not base_url or not model:
         return []
@@ -43,27 +44,24 @@ async def auto_tag_paper(
         venue=venue or "Unknown",
     )
 
-    client = None
     try:
-        client = _create_client(api_key, base_url)
-        message = await client.messages.create(
-            model=model,
+        tags = await complete_json(
+            {
+                "provider": provider,
+                "api_format": api_format,
+                "api_key": api_key,
+                "base_url": base_url,
+                "model": model,
+            },
             max_tokens=256,
             system="你是一个学术论文分类助手。只输出 JSON 数组，不要添加任何额外文字。",
-            messages=[{"role": "user", "content": prompt}],
+            user=prompt,
             temperature=0.1,
+            expected=list,
+            max_retries=1,
         )
-        text = _extract_text(message).strip()
-        tags = json.loads(text)
-        if isinstance(tags, list):
-            return [str(t).strip() for t in tags if isinstance(t, str) and t.strip()][:5]
+        return [str(t).strip() for t in tags if isinstance(t, str) and t.strip()][:5]
     except Exception as e:
         logger.warning(f"Auto-tagging failed: {e}")
-    finally:
-        if client:
-            try:
-                await client.close()
-            except Exception as e:
-                logger.debug(f"Failed to close auto_tagger client: {e}")
 
     return []

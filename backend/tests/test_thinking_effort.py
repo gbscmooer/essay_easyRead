@@ -1,29 +1,26 @@
 """思考强度（thinking_effort）配置默认值与协议参数映射。"""
 
-import pytest
-
-from backend.services.ai_analyzer import (
-    _complete_once,
+from backend.services.llm import (
     anthropic_thinking_budget_tokens,
     normalize_thinking_effort,
     resolve_thinking,
 )
+from backend.services.llm.adapters import AnthropicMessagesAdapter, OpenAIChatAdapter
+from backend.services.llm.models import LLMConfig
 from backend.services.ai_config import DEFAULT_CONFIG
 
 
 # ── 配置默认值 ────────────────────────────────────────────────
 
 def test_default_config_thinking_effort():
-    # 解读模型默认「中」，翻译不需要推理默认关闭
-    assert DEFAULT_CONFIG["analysis"]["thinking_effort"] == "medium"
-    assert DEFAULT_CONFIG["translate"]["thinking_effort"] == "off"
+    assert DEFAULT_CONFIG["llm"]["thinking_effort"] == "off"
 
 
 def test_normalize_thinking_effort():
-    assert normalize_thinking_effort(None) == "medium"
-    assert normalize_thinking_effort("") == "medium"
+    assert normalize_thinking_effort(None) == "off"
+    assert normalize_thinking_effort("") == "off"
     assert normalize_thinking_effort("HIGH") == "high"
-    assert normalize_thinking_effort("bogus") == "medium"
+    assert normalize_thinking_effort("bogus") == "off"
     assert normalize_thinking_effort("off") == "off"
 
 
@@ -92,89 +89,40 @@ def test_deepseek_thinking_toggle():
     assert kwargs == {"extra_body": {"thinking": {"type": "enabled"}}}
 
 
-# ── _complete_once 参数合流 ───────────────────────────────────
+# ── Adapter 参数合流 ──────────────────────────────────────────
 
-class _FakeAnthropicResponse:
-    def __init__(self):
-        self.content = [type("TextBlock", (), {"text": "ok"})()]
-
-
-class _FakeAnthropicMessages:
-    def __init__(self):
-        self.calls = []
-
-    async def create(self, **kwargs):
-        self.calls.append(kwargs)
-        return _FakeAnthropicResponse()
+def _config(api_format: str, base_url: str, model: str) -> LLMConfig:
+    return LLMConfig.from_mapping({
+        "provider": "custom", "api_format": api_format, "api_key": "test",
+        "base_url": base_url, "model": model,
+    })
 
 
-class _FakeAnthropicClient:
-    def __init__(self):
-        self.messages = _FakeAnthropicMessages()
-
-
-class _FakeChoiceMessage:
-    def __init__(self):
-        self.content = "ok"
-
-
-class _FakeChoice:
-    def __init__(self):
-        self.message = _FakeChoiceMessage()
-
-
-class _FakeOpenAIResponse:
-    def __init__(self):
-        self.choices = [_FakeChoice()]
-
-
-class _FakeChatCompletions:
-    def __init__(self):
-        self.calls = []
-
-    async def create(self, **kwargs):
-        self.calls.append(kwargs)
-        return _FakeOpenAIResponse()
-
-
-class _FakeOpenAIClient:
-    def __init__(self):
-        self.chat = type("Chat", (), {})()
-        self.chat.completions = _FakeChatCompletions()
-
-
-@pytest.mark.asyncio
-async def test_complete_once_applies_anthropic_thinking_and_temp_override():
-    client = _FakeAnthropicClient()
-    out = await _complete_once(
-        client, False, "claude-sonnet-4-5", "sys", "user",
-        max_tokens=16384, temperature=0.1,
-        thinking_effort="medium", base_url="https://api.anthropic.com")
-    assert out == "ok"
-    call = client.messages.calls[0]
+def test_anthropic_adapter_applies_thinking_and_temp_override():
+    call = AnthropicMessagesAdapter._kwargs(
+        _config("anthropic_messages", "https://api.anthropic.com", "claude-sonnet-4-5"),
+        system="sys", user="user", max_tokens=16384, temperature=0.1,
+        thinking_effort="medium",
+    )
     assert call["temperature"] == 1.0
     assert call["thinking"] == {"type": "enabled", "budget_tokens": 4096}
 
 
-@pytest.mark.asyncio
-async def test_complete_once_without_effort_keeps_legacy_kwargs():
-    client = _FakeAnthropicClient()
-    await _complete_once(
-        client, False, "claude-sonnet-4-5", "sys", "user",
-        max_tokens=8192, temperature=0.15)
-    call = client.messages.calls[0]
+def test_anthropic_adapter_without_effort_has_no_thinking():
+    call = AnthropicMessagesAdapter._kwargs(
+        _config("anthropic_messages", "https://api.anthropic.com", "claude-sonnet-4-5"),
+        system="sys", user="user", max_tokens=8192, temperature=0.15,
+        thinking_effort="off",
+    )
     assert call["temperature"] == 0.15
     assert "thinking" not in call
 
 
-@pytest.mark.asyncio
-async def test_complete_once_merges_extra_body_with_deepseek_thinking():
-    client = _FakeOpenAIClient()
-    await _complete_once(
-        client, True, "deepseek-v4", "sys", "user",
-        max_tokens=4096, temperature=0.2,
-        extra_body={"existing": 1},
-        thinking_effort="medium", base_url="https://api.deepseek.com/v1")
-    call = client.chat.completions.calls[0]
+def test_openai_adapter_merges_extra_body_with_deepseek_thinking():
+    call = OpenAIChatAdapter._kwargs(
+        _config("openai_chat", "https://api.deepseek.com/v1", "deepseek-v4"),
+        system="sys", user="user", max_tokens=4096, temperature=0.2,
+        extra_body={"existing": 1}, thinking_effort="medium",
+    )
     assert call["extra_body"] == {"existing": 1, "thinking": {"type": "enabled"}}
     assert call["temperature"] == 0.2

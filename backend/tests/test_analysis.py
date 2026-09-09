@@ -2,8 +2,9 @@ def test_get_config(client):
     r = client.get("/api/analysis/config")
     assert r.status_code == 200
     data = r.json()
-    assert "translate" in data
-    assert "analysis" in data
+    assert "llm" in data
+    assert "translate" not in data
+    assert "analysis" not in data
     assert "ui" in data
     assert "embedding" in data
     assert "research" in data

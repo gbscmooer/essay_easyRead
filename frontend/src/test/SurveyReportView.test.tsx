@@ -45,4 +45,28 @@ describe('SurveyReportView', () => {
     expect(screen.getByRole('button', { name: '生成中' })).toBeDisabled()
     expect(screen.getByText(/报告生成中/)).toBeInTheDocument()
   })
+
+  it('renders and exports a zero-result search audit instead of refusing a report', () => {
+    const generate = vi.fn()
+    const noResults: SurveyReport = {
+      ...report, status: 'no_results', references: [], findings: [], gaps: [],
+      coverage: { corpus: 0, with_material: 0, selected: 0, examined: 0, failed: 0, full_text: 0, abstract_only: 0, rejected_rows: 0 },
+      tables: { frameworks: [], taxonomy: [], metrics: [], tasks: [] },
+      matrices: { aspect_metric: { rows: [], columns: [], cells: [] }, task_dataset: { rows: [], columns: [], cells: [] } },
+      search_summary: {
+        queries: ['novel tumor idea'], sources: [{ name: 'openalex', status: 'ok' }],
+        attempts: [{ phase: 'formal', round: 1, provider: 'openalex', query: 'novel tumor idea', order: 'relevance', limit: 40, hits: 0 }],
+        attempt_count: 1, total_channel_hits: 0, directions: ['novel tumor idea review'],
+        stop_reason: 'formal_recall_finished', interpretation: '零命中不能证明全领域不存在相关工作。',
+      },
+      warnings: ['系统不会用模型记忆填补结论。'],
+    }
+    render(<SurveyReportView report={noResults} runId={9} busy={false} onGenerate={generate} />)
+    expect(screen.getByText('检索未命中 · 报告已生成')).toBeInTheDocument()
+    expect(screen.getByText('novel tumor idea')).toBeInTheDocument()
+    expect(screen.getByText('novel tumor idea review')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '下载 HTML 报告' })).toHaveAttribute('href', '/api/exploration/runs/9/report?format=html')
+    fireEvent.click(screen.getByRole('button', { name: '重新生成' }))
+    expect(generate).toHaveBeenCalledOnce()
+  })
 })

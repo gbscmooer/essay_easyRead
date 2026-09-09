@@ -99,3 +99,95 @@
 - [x] F5：交付文档与 document.md 回滚口径改为「保留 S0 契约层形态」（只读端点+写入守卫+执行门禁，端到端测试验证）；列级兼容测试注明边界；多表 DROP 修正为逐条。
 - [x] 门禁复跑：后端全量 838 passed（契约文件 30 项）、Ruff、前端 typecheck/124 项/构建 ✓ built in 1.32s。
 - [x] 交付文档追加 §九复审修订记录（F1–F5 对照表 + 残余限制声明：跨进程 worker 恢复仍属 S3 专项验收）。未提交未推送；v2 创建门禁保持；未启动真实研究。
+
+## 2026-09-09 /explore 快览-标准-深挖实现差异审计
+
+目标：回答 `/explore` 页面三个深度选项在前端参数、后端编排、检索/证据预算、报告输出和持久化上的真实差异；只读分析，不修改业务代码。
+
+计划：
+
+- [x] 定位 `/explore` 页面、深度选项配置、创建请求和类型定义。
+- [x] 追踪 `depth` 在路由、探索编排、检索/富化、计量、综合、调查报告中的所有分支与预算。
+- [x] 核对详情页如何展示三种模式的运行结果，并检查实际 localhost 页面是否与代码一致。
+- [x] 用代码行号整理“共同流程 / 模式差异 / 实际没有差异的部分”，说明可验证限制；如发现文档与实现不一致，只报告不擅自改动。
+
+结果摘要：三档共用同一条 preflight→decompose→recall→enrich→metrics→synthesize→report→persist 流程；差异集中在检索式/召回量、母论文扩展数、LLM 综合材料量、报告证据抽取数、全文下载数，以及 deep 的单篇证据提取超时。页面只展示 3/4/5 式和 80/160/240 篇提示，详情页 tabs 与算法不分档。代码事实已记录在本轮回复中；未修改业务代码。
+
+### 运行 30 诊断（2026-09-09 13:58 CST）
+
+- [x] 用户的“用 AI 识别肿瘤有没有人做？做得怎样？”标准档已完成，不是事件总线阻塞。
+- [x] Scopus/OpenAlex 预检均为 HTTP 200；不是权限或网络问题。
+- [x] `domain_synthesizer._llm_json` 未得到可解析 JSON，`decompose` 记录 `fallback=true`、`fallback_reason=JSONDecodeError`；降级检索式仍为中文原句。
+- [x] relevance/经典/arXiv 五条通道均为 0 命中，最终语料 0，报告 unavailable；未修改模型配置或业务代码。
+- [x] 运行中后端的脱敏配置接口确认：实际 LLM 目标为 `https://api.999555999.com`、`gpt-5.6-terra`、thinking off；生效文件为 `data/ai_config.json`。当前 JSONDecode 日志不能证明上游模型收到请求：`_complete_once` 会把缺少 choices 或空 content 变成空字符串，`_llm_json` 随后只报 JSONDecode，未保留网关状态/请求 ID/响应长度。
+
+## 2026-09-09 LLM 空响应与中文降级修复
+
+目标：让领域探索明确区分“LLM 网关未返回有效内容”与“模型返回了无效 JSON”；当中文问题无法得到可用英文检索式时，停止运行而非静默得到 0 篇材料的完成报告。
+
+计划：
+
+- [x] 审查当前 JSON 调用、响应解析、拆解降级和既有测试边界，记录工作树。
+- [x] 为空内容/不含 choices 的 OpenAI 兼容响应建立脱敏错误类型，日志只含 endpoint host、model、request-id（如有）和内容长度。
+- [x] 在结构化 JSON 调用层保留可重试语义，但对最终空响应给出明确错误；在纯中文且无英文回退检索式时终止拆解。
+- [x] 添加单元/流程测试：空内容、无 choices、有效 markdown JSON、中文拆解失败、含英文术语的回退仍可检索；相关定向测试 49 passed，Ruff 通过。
+- [x] 运行相关后端测试、Ruff、前端类型检查/构建与 CORS 检查；最终后端全量 844 passed、前端 124 passed、typecheck/build/CORS 通过。不发送真实模型请求、不修改密钥配置、不提交推送。
+
+## 2026-09-09 Explorer 节点循环与零命中报告
+
+目标：把当前 Explorer 中需要语义判断的单次 LLM 调用改为有工具、验收门和硬预算的多轮 ReAct；确定性节点继续由程序循环和校验负责。AI 只能申请完成，必须通过程序验收才进入下一阶段。即使最终没有召回相关 idea，也必须交付可下载的受限报告，披露实际搜索内容与后续搜索方向，不用模型记忆补写领域事实。
+
+文件修改计划：
+
+- [x] 新增 `backend/services/deep_research/stage_agent.py`：通用受控 ReAct 运行器；只接受白名单工具；结构化 action/finish；每轮记录简短 rationale、tool/observation、validator 结果；支持最大轮数、连续无进展、超时、模型错误和 partial 退出，不保存完整思维链。
+- [x] 修改 `backend/services/deep_research/explorer.py`：检索式拆解/召回增加查询检查、修订、真实预览与搜索日志工具闭环；综合增加材料检索、计量读取、提交草稿与证据验收闭环；SSE 增加兼容性的 `stage_iteration` 事件，循环轨迹写入 `result.sources.agent_loops`。预检、富化、计量、持久化由确定性执行+验收循环管理。
+- [x] 修改 `backend/services/deep_research/survey_report.py`：增加零命中报告构建器；报告记录检索式、来源、通道、轮次、命中数、停止原因、限制和“建议补搜方向（非领域事实）”；逐篇证据提取和最终叙述均增加工具循环与程序验收。
+- [x] 修改 `backend/routers/exploration.py`：允许零材料运行重新生成/导出受限报告，保持现有 GET/POST 与 `{detail,code}` 契约。
+- [x] 修改 `frontend/src/types/survey.ts`、`frontend/src/hooks/useExplorationStream.ts`、`frontend/src/features/research/SurveyReportView.tsx`、`frontend/src/pages/ExplorePage.tsx`：识别 `no_results` 报告、展示搜索审计和循环轮次，允许 HTML/Markdown 下载，不再以“0 篇=拒绝生成报告”处理。
+- [x] 新增/扩展后端测试：ReAct 工具白名单、AI finish 被 validator 驳回、模型错误/无进展/预算退出、零命中多轮搜索、零命中报告与重建；保留空 LLM 响应失败和英文查询防线。
+- [x] 扩展前端测试：零命中报告可见/可下载、循环进度事件兼容；运行后端全量、Ruff、前端 typecheck/test/build、CORS。全程未发送真实模型请求、未修改密钥、未提交推送。
+
+实施顺序：通用循环 → 检索闭环 → 综合/报告闭环 → 零命中 UI/导出 → 回归与文档。若循环达到预算但已有材料，结果标记 partial 并继续报告；若零材料，则生成 no_results 报告，不声称“idea 不存在”。
+
+验证结果：后端全量 851 passed（含 v2 契约中的 CORS 预检）；Ruff 全量通过；前端 typecheck 通过、25 个测试文件 126 passed；生产构建完成。`ErrorBoundary` 测试按设计打印模拟异常，测试状态为通过。未发真实 LLM/检索请求。
+
+## 2026-09-09 全局 LLM 调用与设置重构
+
+目标：参考 `farion1231/cc-switch` 的供应商配置与请求适配思路，把项目内分散的 OpenAI/Anthropic 兼容请求收敛为统一、可测试的 LLM Core；业务模块只依赖稳定接口，设置页只保留一套全局 LLM 配置与连通性测试，并兼容现有配置。
+
+执行计划：
+
+- [x] 审计所有后端模型配置读取、SDK/httpx 请求、流式/结构化输出与前端设置入口，标出重复实现和兼容约束。
+- [x] 查阅 cc-switch 的公开实现，提炼可复用的 provider preset、端点规范化、认证头、协议适配和测试连接模式；不直接复制与本项目无关的桌面代理逻辑。
+- [x] 设计并实现 `LLM Core + provider adapter + config repository`：统一请求/响应、异常、重试、流式、JSON 解析和脱敏诊断，路由仅暴露 GET/POST 配置与测试接口。
+- [x] 迁移论文解析、文本操作、代码分析、探索/调查报告、RAG/工作区、planner/评测等现有调用；删除业务层重复的 provider 判定和请求拼装。
+- [x] 将设置页聚合为一张全局 LLM 配置表单，提供供应商预设、自定义 Base URL、API Key、模型名和高级参数；保存/测试共用统一接口并保持旧配置迁移。
+- [x] 增加后端契约/适配器/调用方/CORS 测试和前端设置交互测试，运行 Ruff、后端全量、前端 typecheck/test/build；更新 `document.md`、`AGENTS.md` 和必要示例配置。
+
+实施顺序：先冻结调用与配置契约，再建统一 Core；随后逐模块迁移并删重复实现；最后聚合 UI、回归和文档。过程中不发送真实模型请求、不改写用户现有密钥值、不提交或推送。
+
+结果：SDK 创建与协议响应处理只保留在 `services/llm/adapters.py`；业务调用统一为 complete_text/complete_json/stream_text。设置接口只返回 `llm` 模型段，provider catalog 由后端提供；旧 analysis/translate 与旧环境变量仍可迁移，但新保存/导出不再产生重复模型段，config_key 新写入仅保存密钥。浏览器实际检查设置页确认 6 个供应商预设、显式协议、Base URL/Key/模型和高级参数均正常呈现。
+
+验证：后端全量 859 passed；Ruff 与 git diff check 通过；前端 typecheck、25 文件 126 passed、生产构建通过；CORS 预检纳入后端测试。未调用真实 LLM、未改写用户密钥、未提交或推送。前端 ErrorBoundary 测试按设计打印模拟异常但测试通过；Vite 仅报告既有大 chunk 提示。
+
+## 2026-09-09 设置页保存后回退默认值修复
+
+目标：修复全局 LLM 配置（如 DeepSeek 的 URL、Key、模型）保存后，离开 `/settings` 再返回时被默认预设覆盖的问题；确保后端持久化值是页面重新挂载时的唯一初始来源。
+
+计划：
+
+- [x] 在实际页面复现并记录保存请求、保存后的 GET 响应与重新挂载后的表单值。
+- [x] 审查 `SettingsPage`、配置 Hook/API、预设组件与后端配置读写，定位覆盖发生在前端初始化还是后端持久化。
+- [x] 修复覆盖逻辑，同时保证 masked API Key、旧配置迁移和 provider 自定义值不回归。
+- [x] 添加前端“保存→卸载→重新挂载”回归测试与后端持久化/旧配置迁移测试；CORS 继续由全量契约测试覆盖。
+- [x] 运行相关测试、前端类型检查/构建、后端全量测试与 Ruff；更新本草稿结果。
+
+结果：根因是 `load_config()` 在读取 secret-only `config_key` 后，把它替换成整个 LLM 迁移源；缺失的 provider/URL/model 因而被默认 OpenAI 值补齐。现改为主配置中的 `llm` 始终拥有非密钥字段，`config_key` 只注入 API Key；旧主配置完全没有 `llm` 段时仍支持从旧版完整 `config_key` 迁移。实际浏览器刷新并执行“设置→论文库→设置”，DeepSeek URL 与模型保持不变，Key 仅脱敏回载。
+
+验证：后端全量 860 passed（含配置 POST CORS）；前端 25 文件 127 passed，typecheck 与生产构建通过；Ruff、git diff check 通过。未发送真实 LLM 请求、未打印或改写真实 Key、未提交推送。
+
+## 2026-09-09 v7.0.0 本地提交
+
+- [x] 按 `docs/commit_regular.md` 将架构级变更版本更新为 7.0.0，并同步版本弹窗、package 与 lockfile。
+- [x] 检查待提交文件与密钥泄漏风险，复用本轮已通过的全量测试结果并补最终版本检查。
+- [x] 使用规范中文提交信息提交全部本轮交付，创建本地 `v7.0.0` tag，不推送远端。

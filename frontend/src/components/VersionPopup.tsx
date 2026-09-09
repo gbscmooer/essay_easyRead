@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '6.2.0'
+const APP_VERSION = '7.0.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-09-09',
   changes: [
-    '全系统大模型配置统一化：合并解读与翻译模型为单一全局通用 LLM 配置，一处配置全系统生效，简化模型接入与密钥管理',
-    '文献全景调研架构演进（academic_survey_v2 契约）：新增任务账本、不可变资产、证据链追溯、版本演进与预算审计数据底座',
-    '学术数据源预检与弹性流控：支持 Scopus / OpenAlex / arXiv 真实权限预检与 429 智能冷却，细化探索拆解与检索错误提示',
+    '重构全局大模型调用：统一 OpenAI 与 Anthropic 兼容接口、流式输出、结构化结果、重试和脱敏诊断',
+    '修复模型设置保存后回退默认值的问题，DeepSeek、自定义 URL、模型和参数在页面切换后保持生效',
+    '升级文献研究节点循环与零命中报告，补充搜索审计、停止原因和可下载的受限研究结果',
   ],
 }
 

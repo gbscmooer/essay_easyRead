@@ -38,6 +38,8 @@ export interface ConfigFileInfo {
   exists: boolean
   format: 'yaml' | 'toml' | 'json'
   supported_formats: string[]
+  key_path?: string
+  key_file_exists?: boolean
 }
 
 /** 获取配置文件元信息（当前文件路径、格式等） */

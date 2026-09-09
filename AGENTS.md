@@ -39,7 +39,7 @@ npm run build      # TypeScript 编译 + Vite 构建
 ```
 
 ### 环境变量
-复制 `.env.example` 为 `.env`，填入 `LLM_API_KEY`（及可选的 `LLM_BASE_URL` / `LLM_MODEL`）。协议仅 OpenAI 兼容或 Anthropic 兼容（由 base_url 判定）。AI 模型也可在运行时通过 `/settings` 页面配置。
+复制 `.env.example` 为 `.env`，填入 `LLM_API_KEY`（及可选的 `LLM_PROVIDER` / `LLM_API_FORMAT` / `LLM_BASE_URL` / `LLM_MODEL`）。`LLM_API_FORMAT` 明确选择 `openai_chat` 或 `anthropic_messages`；仅旧配置迁移时按 URL 推断一次。AI 模型也可在运行时通过 `/settings` 页面统一配置。
 
 ## 架构概览
 
@@ -66,8 +66,9 @@ backend/
 │   ├── research.py       # /api/research/*（深度研究 run、SSE 进度、图谱、RAG 问答）
 │   └── exploration.py    # /api/exploration/*（领域探索 run、SSE 进度、产物查询）
 ├── services/        # 业务逻辑
-│   ├── ai_analyzer.py    # Anthropic API 调用（论文分析、流式输出）
-│   ├── ai_config.py      # AI 配置读写（data/ai_config.json，含 GROBID/findpapers 配置）
+│   ├── ai_analyzer.py    # 论文分析与增量 JSON 解析（仅依赖统一 LLM Core）
+│   ├── ai_config.py      # 配置仓库（llm 单一真源、旧配置迁移、密钥隔离）
+│   ├── llm/              # 统一 LLM Core：配置契约、协议 adapter、流式/JSON/重试/脱敏错误
 │   ├── analysis_runner.py # 分析后台任务管理器（断点续传，SSE 解耦）
 │   ├── code_analyzer.py  # 代码仓库 clone、文件树构建、静态分析、AI 分析
 │   ├── database.py       # SQLite CRUD + schema 自动迁移
@@ -82,6 +83,7 @@ backend/
 │       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
 │       ├── explorer.py        # 统一研究（问题+可选母论文→召回→计量→综合→报告）
 │       ├── survey_report.py   # 证据抽取、框架/指标/任务表、覆盖矩阵、HTML/Markdown导出
+│       ├── stage_agent.py     # 阶段级有界 ReAct（白名单工具、程序验收、预算/无进展终止）
 │       ├── domain_synthesizer.py # 领域认知综合（节点角色/引用因果/流派/全景简报，LLM 批量注入）
 │       ├── embedder.py        # 文本向量化
 │       ├── vector_store.py    # 向量存储 + RAG 查询
@@ -145,7 +147,7 @@ frontend/src/
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
 6. **论文关联度**（`graphkit/relatedness.py`）: 八通道逐端排名的对称 RRF（k=60、默认等权）→ mutual-kNN（k=10）→ Leiden 与关系 PageRank。原始 Disparity Filter（alpha=.05）独立标记，不控制选边；展示桥不参与统计；自定义权重仅表示偏好，不做引文弱监督拟合。实际方法与解释随图谱保存。
-7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、热力图）。`ExplorationRun.options`保存输入快照；历史材料可单独补生成报告。契约见 `document.md` 2.9–2.11。
+7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、热力图）。外层阶段单向推进，拆解/综合/逐篇证据/报告节点由 `stage_agent.py` 执行有界 ReAct，程序验收后才能完成；零召回仍产出带搜索审计与补搜方向的 `no_results` 报告，不宣称领域空白。`ExplorationRun.options`保存输入快照；历史材料或搜索记录可单独补生成报告。契约见 `document.md` 2.9–2.11。
 8. **academic_survey_v2（契约层，实验性）**：`models/research_core.py` 冻结任务账本/资产/证据/关系/claim/报告 revision/预算/事件/身份判定十张表与状态常量；`research_event_log.py` 提供持久化事件回放、运行状态 CAS（数据库条件更新为并发权威，守卫 UPDATE 校验受影响行数）与 live-bus 注册缝；`/api/exploration` 新增 protocol/tasks/coverage/budget/pause/resume/cancel/retry/revisions/evidence/stream 扩展（v1 运行走 legacy 投影，行为不变）；任务幂等键以 (run_id, idempotency_key) 唯一；默认报告入口对 v2 解析当前选定 revision（隔离资产 403 拒绝导出）。执行器（S3–S6）接入前，显式 `workflow_version=academic_survey_v2` 创建返回 `WORKFLOW_NOT_IMPLEMENTED`。契约见 `document.md` 2.12 与 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md`。
 
 ### 路由
@@ -182,7 +184,7 @@ frontend/src/
 启动脚本会自动运行 update script（创建 `.venv`、`pip install -r backend/requirements.txt`、`npm install --prefix frontend`、缺失时从 `.env.example` 生成 `.env`）。后续 agent 无需重装依赖，只需启动服务。以下为非显而易见的注意事项：
 
 - **Python 环境**: 后端依赖装在项目根目录的 `.venv`（`python3 -m venv .venv`，需系统包 `python3.12-venv`，已在镜像中预装）。运行后端用 `.venv/bin/python -m backend`。`torch`/`sentence-transformers` 体积大，首次安装耗时较长。
-- **LLM 配置**: 统一使用 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（见 `.env.example`）。`llm_api_key` **允许为空**，缺少 key 时后端仍可启动（PDF 上传、论文库、前端 UI 正常）；真正的 AI 解析/翻译/深度研究需要真实 key。旧变量名 `MIMO_*` / `OPENAI_*` / `ANTHROPIC_*`（含仅写在 `.env` 文件中的情况）会映射到 `LLM_*`；残留旧键不会导致启动失败。
+- **LLM 配置**: 统一使用 `LLM_PROVIDER` / `LLM_API_FORMAT` / `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（见 `.env.example`）；所有文本生成业务只调用 `services/llm`，不得自行创建 SDK 客户端或按 URL 判断协议。`llm_api_key` **允许为空**，缺少 key 时后端仍可启动（PDF 上传、论文库、前端 UI 正常）；真正的 AI 解析/翻译/深度研究需要真实 key。旧变量名 `MIMO_*` / `OPENAI_*` / `ANTHROPIC_*` 会映射到 `LLM_*`，旧 `analysis/translate` 配置只作为一次性读取迁移输入。
 - **启动服务**: 一键用 `./start.sh`（前端 5173 + 后端 8000 + GROBID）。云环境**无 Docker**，请用 `./start.sh --no-grobid`，或分别启动：根目录 `DEV=true HOST=0.0.0.0 .venv/bin/python -m backend`（`DEV=true` 开启热重载）与 `npm run dev --prefix frontend`。前端 Vite 已把 `/api` 代理到 `http://localhost:8000`。
 - **GROBID 可选**: 深度研究的引用解析依赖 GROBID（Docker，8070 端口）。云环境无 Docker 时会自动回退到正则解析（`ref_parser.py`），不阻塞其余功能。
 - **Lint / Test / Build**（命令来源见 `.github/workflows/ci.yml`）:

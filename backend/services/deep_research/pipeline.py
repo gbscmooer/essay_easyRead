@@ -87,6 +87,9 @@ async def _auto_digest(papers, *, max_papers: int = 100) -> int:
             try:
                 d = await generate_graph_digest(
                     item["text"], cfg["api_key"], cfg.get("base_url", ""), cfg["model"], title=item["title"],
+                    thinking_effort=cfg.get("thinking_effort"),
+                    provider=cfg.get("provider", "custom"),
+                    api_format=cfg.get("api_format"),
                 )
             except Exception as e:
                 logger.warning(f"auto_digest: paper {item['id']} failed: {e}")

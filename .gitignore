@@ -18,6 +18,9 @@ config.toml
 data/config.yaml
 data/config.yml
 data/config.toml
+config_key
+config_key.*
+!config_key.example
 
 # Database
 *.db

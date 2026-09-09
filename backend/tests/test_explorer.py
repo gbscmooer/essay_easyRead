@@ -18,8 +18,8 @@ import pytest
 from backend.services.deep_research import explorer
 from backend.services.deep_research.explorer import (
     _cap_papers, _dedupe_candidates, _normalize_synthesis,
-    build_graph_payload, cluster_papers, compute_metrics, decompose_question,
-    recall_papers, run_exploration, synthesize_exploration,
+    DecompositionUnavailableError, build_graph_payload, cluster_papers, compute_metrics, decompose_question,
+    recall_papers, refine_decomposition_with_tools, run_exploration, synthesize_exploration,
 )
 
 
@@ -59,12 +59,31 @@ def test_decompose_fallback_without_key():
     assert out["intent"] == "landscape"
 
 
-def test_decompose_fallback_on_llm_failure(monkeypatch):
+def test_decompose_stops_on_llm_failure_without_usable_english_query(monkeypatch):
     async def boom(*a, **kw):
         raise RuntimeError("llm down")
     monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", boom)
-    out = asyncio.run(decompose_question("问题 X", {"api_key": "k", "model": "m"}, max_queries=4))
+    with pytest.raises(DecompositionUnavailableError, match="未使用中文原句检索"):
+        asyncio.run(decompose_question("用 AI 识别肿瘤有没有人做", {"api_key": "k", "model": "m"}, max_queries=4))
+
+
+def test_decompose_keeps_usable_english_fallback_on_llm_failure(monkeypatch):
+    async def boom(*a, **kw):
+        raise RuntimeError("llm down")
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", boom)
+    out = asyncio.run(decompose_question("Mamba for tumor detection", {"api_key": "k", "model": "m"}, max_queries=4))
     assert out["fallback"] is True
+    assert any("Mamba" in query for query in out["en_queries"])
+
+
+def test_decompose_stops_when_valid_json_still_contains_only_chinese_queries(monkeypatch):
+    """不是所有 JSON 都是合格拆解：学术库检索式必须是真正的英文关键词串。"""
+    async def fake_llm(*args, **kwargs):
+        return {"intent": "landscape", "en_queries": ["肿瘤识别", "AI 肿瘤诊断"], "focus_terms": []}
+
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", fake_llm)
+    with pytest.raises(DecompositionUnavailableError, match="没有可用的英文学术检索式"):
+        asyncio.run(decompose_question("用 AI 识别肿瘤有没有人做", {"api_key": "k", "model": "m"}, max_queries=4))
 
 
 def test_decompose_normalizes_and_sanitizes(monkeypatch):
@@ -91,6 +110,42 @@ def test_decompose_strips_boolean_syntax(monkeypatch):
     assert "TITLE-ABS-KEY" not in q
     assert " OR " not in q and " AND " not in q
     assert "artificial intelligence" in q and "tumor detection" in q
+
+
+def test_query_react_loop_requires_multiple_real_previews_for_zero_hits(monkeypatch):
+    decisions = iter([
+        {"action": "finish", "finish": True, "rationale_summary": "初步完成"},
+        {"action": "preview_search", "arguments": {}},
+        {"action": "revise_queries", "arguments": {
+            "en_queries": ["artificial intelligence cancer diagnosis", "deep learning tumor detection"],
+            "core_query": "cancer diagnosis",
+        }},
+        {"action": "preview_search", "arguments": {}},
+        {"action": "finish", "finish": True, "rationale_summary": "两轮仍无命中"},
+    ])
+
+    async def fake_llm(*args, **kwargs):
+        return next(decisions)
+
+    calls = []
+
+    async def empty_recall(queries, **kwargs):
+        calls.append(list(queries))
+        return [], "stub"
+
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", fake_llm)
+    monkeypatch.setattr(explorer, "recall_papers", empty_recall)
+    decompose, audit = asyncio.run(refine_decomposition_with_tools(
+        "用 AI 识别肿瘤有没有人做",
+        {"intent": "novelty", "en_queries": ["AI tumor detection"], "focus_terms": [],
+         "fallback": False, "core_query": "tumor detection"},
+        {"api_key": "k", "model": "m"}, depth="standard", now_year=2026,
+    ))
+    assert audit["status"] == "completed"
+    assert audit["preview_hit_count"] == 0
+    assert len(audit["preview_rounds"]) == len(calls) == 2
+    assert decompose["en_queries"][0] == "artificial intelligence cancer diagnosis"
+    assert audit["trace"][0]["validation"]["passed"] is False
 
 
 # ── 2) recall：去重与裁剪 ────────────────────────────────────────────────────
@@ -492,6 +547,49 @@ def test_synthesize_skipped_when_evidence_thin():
     assert out is None
 
 
+def test_synthesize_react_loop_inspects_tools_before_finish(monkeypatch):
+    papers = [_paper(f"paper {i} tumor", 2020 + i, 10 + i, "tumor detection evidence")
+              for i in range(4)]
+    decisions = iter([
+        {"action": "inspect_evidence", "arguments": {"query": "tumor detection", "limit": 3}},
+        {"action": "inspect_metrics", "arguments": {}},
+        {"action": "submit_synthesis", "arguments": {
+            "verdict": {"status": "done_partial", "confidence": 0.7,
+                        "explanation": "材料中存在相关工作。", "evidence": ["E1"]},
+            "maturity": "已有部分工作。", "landscape_summary": "材料显示已有相关方向。",
+            "hotspots": [], "gaps": [], "follow_ups": [], "markdown": "报告 [E1]",
+        }},
+        {"action": "finish", "finish": True},
+    ])
+
+    async def fake_llm(*args, **kwargs):
+        return next(decisions)
+
+    async def fake_retrieve(items, *args, **kwargs):
+        return items, {"method": "fixture"}
+
+    async def no_paradigms(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", fake_llm)
+    monkeypatch.setattr(explorer, "retrieve_materials", fake_retrieve)
+    monkeypatch.setattr(explorer, "_task_paradigms", no_paradigms)
+    events = []
+
+    async def on_iteration(payload):
+        events.append(payload)
+
+    out = asyncio.run(synthesize_exploration(
+        "tumor idea", {"en_queries": ["tumor detection"], "fallback": False}, papers,
+        {"total": 4, "clusters": 1}, {"api_key": "k", "model": "m"},
+        max_papers=4, depth="standard", on_iteration=on_iteration,
+    ))
+    assert out is not None and out.verdict.status == "done_partial"
+    assert out.stats["agent_loop"]["status"] == "completed"
+    assert out.stats["agent_loop"]["iterations"] == 4
+    assert any(event.get("phase") == "tool" for event in events)
+
+
 def test_normalize_synthesis_clamps_enum_confidence_evidence():
     subset = [{**_paper(f"p{i}", 2020, 10), "_evidence_no": f"E{i}"} for i in range(1, 4)]
     data = {
@@ -627,12 +725,54 @@ def test_run_exploration_end_to_end(exploration_env):
     assert result["metrics"]["total"] == len(result["papers"]) == 0
     assert result["graph"]["stats"]["node_count"] == 0
     assert "synthesis" not in result
+    assert result["survey_report"]["status"] == "no_results"
+    assert "不能证明全领域不存在" in result["survey_report"]["search_summary"]["interpretation"]
+    assert result["sources"]["agent_loops"]["report"]["status"] == "completed"
 
     names = [e for e, _ in events]
     assert names[0] == "stage_start" and names[-1] == "done"
     assert "metrics_ready" in names
     assert "synthesis_ready" not in names
     assert "error" not in names
+
+
+def test_run_exploration_stops_before_recall_when_configured_llm_cannot_translate_query(
+        exploration_env, monkeypatch):
+    """有模型配置但只得到中文原句时，不能落成 0 篇的成功运行。"""
+    from backend.models.exploration import ExplorationRun
+    from sqlmodel import Session
+
+    async def empty_llm(*args, **kwargs):
+        from backend.services.ai_analyzer import LLMResponseError
+        raise LLMResponseError(
+            "LLM_EMPTY_CONTENT", base_url="https://gateway.example/v1", model="test-model",
+        )
+
+    monkeypatch.setattr(
+        "backend.services.ai_config.get_analysis_config",
+        lambda: {"api_key": "test", "base_url": "https://gateway.example/v1", "model": "test-model"},
+    )
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", empty_llm)
+
+    engine, events = exploration_env
+    with Session(engine) as s:
+        run = ExplorationRun(question="用 AI 识别肿瘤有没有人做", depth="standard")
+        s.add(run)
+        s.commit()
+        s.refresh(run)
+        run_id = run.id
+
+    asyncio.run(run_exploration(run_id))
+
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        assert run.status == "failed"
+        assert run.current_stage == "decompose"
+        assert "未使用中文原句检索" in (run.error_message or "")
+        assert run.result is None
+    names = [event for event, _ in events]
+    assert "error" in names
+    assert "recall_progress" not in names
 
 
 def test_run_exploration_with_matching_query(exploration_env, monkeypatch):

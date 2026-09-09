@@ -18,7 +18,6 @@ Stage 2b — expand_arxiv（v2：引用提取管线）
 无需 Semantic Scholar API key。
 """
 import asyncio
-import json
 import logging
 import re
 from typing import Optional
@@ -79,52 +78,15 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
     )
 
     try:
-        from ...ai_analyzer import (
-            _create_client,
-            _extract_text,
-            anthropic_thinking_budget_tokens,
-            normalize_thinking_effort,
-            resolve_thinking,
+        from ...llm import complete_json
+
+        titles = await complete_json(
+            cfg,
+            system="只输出 JSON 数组，不含任何其他文字。",
+            user=prompt,
+            expected=list,
+            max_retries=2,
         )
-        client = _create_client(api_key, cfg.get("base_url", ""))
-        model = cfg.get("model", "claude-haiku-4-5-20251001")
-        # 思考强度跟随解读模型配置；max_tokens 在预算之外始终给正文留 ≥3072，
-        # 之前固定 2048/4096 时思考一长输出就被截断成空。
-        effort = normalize_thinking_effort(cfg.get("thinking_effort"))
-        max_tokens = max(4096, anthropic_thinking_budget_tokens(effort) + 3072)
-        thinking_kwargs, temp_override = resolve_thinking(
-            False, cfg.get("base_url", ""), model, effort, max_tokens)
-        try:
-            msg = await client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                # Anthropic 协议开启思考时强制 temperature=1（原硬编码 1 的来源）
-                temperature=temp_override if temp_override is not None else 0.1,
-                system="只输出 JSON 数组，不含任何其他文字。",
-                messages=[{"role": "user", "content": prompt}],
-                **thinking_kwargs,
-            )
-        finally:
-            await client.close()
-
-        content = _extract_text(msg).strip()
-
-        # 诊断：文本为空时打印 stop_reason 和返回的 block 类型，定位是被截断还是只有思考块
-        if not content:
-            logger.warning(
-                f"LLM title extraction: empty text "
-                f"(stop_reason={getattr(msg, 'stop_reason', '?')}, "
-                f"blocks={[type(b).__name__ for b in getattr(msg, 'content', [])]})"
-            )
-            return [None] * len(refs)
-
-        if "[" in content:
-            start = content.find("[")
-            end = content.rfind("]") + 1
-            if end > start:
-                content = content[start:end]
-
-        titles = json.loads(content)
         if not isinstance(titles, list):
             raise ValueError("non-list response")
 
@@ -142,13 +104,6 @@ async def _llm_batch_extract_titles(refs: list[dict], cfg: dict) -> list[Optiona
         logger.info(f"LLM batch title extraction: {found}/{len(refs)} titles identified")
         return result
 
-    except json.JSONDecodeError as e:
-        # 拿到了文本但不是合法 JSON：打印前 200 字符以便排查模型输出格式
-        logger.warning(
-            f"LLM title extraction: JSON parse failed ({e}); "
-            f"raw content[:200]={content[:200]!r}"
-        )
-        return [None] * len(refs)
     except Exception as e:
         logger.warning(f"LLM batch title extraction failed: {e}")
         return [None] * len(refs)

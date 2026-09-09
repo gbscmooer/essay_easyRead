@@ -134,26 +134,28 @@ mutual-kNN 是标准相似图构造（von Luxburg, 2007, §2.2），k=10 是默�
 - `/workspace/:id/research` 兼容跳转到 `/explore?workspace_id=:id`；原图谱与全文索引功能保留在 `/workspace/:id/graph`，原 API 不变。工作区集合仍用于资料管理。
 - `ExplorationRun.options` JSON 保存 `workspace_id/workspace_name/seed_paper_ids/search_online`，创建时检查工作区成员并快照具体 ID；默认不选母论文。空选择、非成员、仅本地且无母论文拒绝；已删除母论文不会被其他论文自动替代。
 - `services/research_sources.py` 是种子适配层，复用原 deep research 的 `collect_online_recall/fuse_candidates` 获取后向/前向/推荐候选，再与问题检索统一排序。关闭联网补充时不检索或富化外部文献，模型调用仍使用现有配置。
-- 统一主流程：**数据源预检** → 问题拆解 → 可选问句/母论文召回 → 富化 → 计量/聚类 → 综合 → 调查表提取/聚合 → 持久化。每个主要产物及时落库，报告异常不丢已有资料。旧结果可直接补生成报告，不重复检索。
+- 统一主流程：**数据源预检** → 问题拆解 → 可选问句/母论文召回 → 富化 → 计量/聚类 → 综合 → 调查表提取/聚合 → 持久化。外层仍是单向状态机；需要语义判断的拆解、综合、逐篇证据提取和最终报告在节点内部运行有界 ReAct 循环。模型只能输出结构化 action/finish 并调用节点白名单工具，程序 validator 通过后才允许进入下一阶段；每档有最大轮数、连续无进展与单轮超时，预算耗尽时标记 partial。确定性节点采用程序执行+验收的一轮循环，不交给模型自由推进。每个主要产物及时落库，报告异常不丢已有资料。旧结果可直接补生成报告，不重复检索。
 - 数据源预检（2026-09-08）：调查开始前用**带权限的真实最小请求**探测每个源（Scopus Search count=1 / OpenAlex per-page=1，`deep_research/preflight.py`），不做 ping 可达性判断。状态分 `ok/auth_error(401·403)/rate_limited/network_error/unconfigured`；`GET /api/exploration/preflight` 随时查询（20s 短缓存），`/explore` 表单区实时显示体检徽章。运行内为 SSE `preflight` 阶段（stage 0）：主源判死（`rate_limited` 不判死——权限仍在）则 FailoverProvider 主源预熔断，省去逐通道 401 试错；全部在线源判死则快速失败并给出修复指引，不再空跑拆解与检索；体检快照随 `result.sources.preflight` 落盘，检索透明度区对失效源展示回退说明。
 - 盲测排除（2026-09-08）：创建运行可传 `exclude_dois`/`exclude_arxiv_ids`（各 ≤50，规范化后随 `options.exclusions` 快照落盘）；`explorer.apply_exclusions` 在召回与引文扩展合并后按归一化 DOI/arXiv ID（版本号不参与）过滤，语料、计量、综合、报告全文下载均不接触被排除文献；实际排除计数与标题记入 `result.sources.excluded` 保持检索透明度。报告证据提取对瞬时连接/超时错误错峰退避重试一次；`full_text()` 对无 `pdf_url`/`arxiv_id` 的选定论文走 `resolve_candidate_pdf_urls` OA 级联（Unpaywall/EuropePMC/OpenAlex/机构直链，前 3 候选、18s 预算、%PDF 魔数校验兜住着陆页）。
 - 同日盲测修订：新增 `exclude_titles`（最多50条），排除规则由 `services/research_exclusions.py` 统一处理 DOI、arXiv 版本、abs/pdf/html URL 与精确规范标题，不采用标题前缀相似匹配。冲突母论文拒绝进入流程；召回裁剪前、合并后、富化后、追问新旧材料、报告重建与提取前再次过滤。运行上下文使下载器和 `resilient_get` 在每次 HTTP/HTML 重定向前检查已知排除身份。未知镜像链接不能仅凭 URL 识别身份；排除不是对模型预训练记忆的屏蔽。
 - `core_query` 为拆解器返回的2至4词核心检索概念。在线研究的召回预算为最多5条相关性检索、1条经典检索、3条 arXiv 补充（核心概念、evaluation、benchmark），Scopus 单页25条，深挖相关式最多2页、经典1页；重试与回退另计。`result.sources.recall` 保存各通道查询、排序、上限、命中数、排除数及警告；这是查询通道预算，不是整次研究 HTTP 请求总量。
 - arXiv 搜索每式最多40条，一起返回摘要、DOI与PDF链接；成功响应缓存10分钟、最多128条，相同查询并发合并。API与PDF下载在同进程共享单并发、至少3秒间隔，429遵守Retry-After共享冷却，API最多2次尝试。Scopus各实例在同事件循环共享2并发、至少0.5秒间隔，429更新排队请求的冷却截止时间；等待取消归还信号量。多进程或其他工具不共享此预算。预检并发合并，20秒缓存从探测完成计时。
 - OpenAlex富化的同一次请求保留arXiv/PDF地址，无需为已有地址重复解析。报告采用相关性前半与框架/指标/任务数据集/方法四类选材补充；全文预算仍4/8/12篇，优先现成PDF链接，最多3个候选、下载阶段每篇总45秒，单候选最多25秒，解析结果为空不计成功。`survey_report.method.downloads` 记录逐篇尝试数与 available/unavailable/no_url；只接受PDF魔数。深挖提取上限120秒、4000输出token，瞬时错误最多重试1次；独立模型逐行复核保留。最终摘要再基于已核验表格与摘录综合，引用范围程序校验；`method.narrative_source=verified_table_evidence` 标明成功路径。这不是人工关系正确率。
-- `deep_research/survey_report.py` 在快览/标准/深挖中最多选 12/24/40 篇进行证据提取；优先已选母论文，其余 BM25/向量/RRF/重排。单篇并发3、提取LLM超时80秒。全文通过BM25针对问题、框架、指标、任务数据集、分类各选择片段，补足5个窗口，每窗最多2400字符，重叠合并；摘要最多10000字符。联网时对前4/8/12篇尝试已有PDF/arXiv链接下载（单篇最多25秒），失败回退摘要，复用PDF解析器，提取后清理临时PDF，文本快照保留供追问。
-- `result.survey_report` 包含 `version/status/title/summary/findings/tables/matrices/coverage/extractions/bibliometrics/references/warnings/method/markdown`。`tables` 有 `frameworks/metrics/tasks/taxonomy`，每行含稳定表内ID与 `evidence[{paper_key,quote,source_kind}]`。程序校验引用摘录在当前材料内（NFKC、PDF跨行断词及空白归一后匹配），框架/指标/数据集专名也必须出现在摘录。第二轮LLM逐行复核所选材料是否支持全部关系，可结合原材料中对应的表头和脚注，quote作为原文定位（50秒超时）；无依据的行丢弃并计数，复核失败的论文不纳入统计。模型复核不是独立或人工验证，`method.human_validated=false`，不能据此声称准确率。
-- 结构化模型调用识别完整Markdown JSON围栏。官方DeepSeek v4端点关闭thinking，避免推理占满输出预算产生空JSON；其他模型调用参数不变。综合主任务与流派任务分别限制150/90秒。
+- `deep_research/stage_agent.py` 提供通用节点循环：白名单工具、结构化 action/finish、程序验收、4/6/8 轮综合预算、无进展终止、脱敏短轨迹与 `stage_iteration` 事件；不保存自由思维链。拆解的快览/标准/深挖最多 4/7/10 轮；零命中时分别要求至少 1/2/3 轮不同检索式的真实预览后才允许正式召回。
+- `deep_research/survey_report.py` 在快览/标准/深挖中最多选 12/24/40 篇进行证据提取；优先已选母论文，其余 BM25/向量/RRF/重排。单篇并发3；每篇提取最多 4/5/7 轮，工具包括材料检查、提交提取与关系复核，程序验收通过后完成，深挖单轮上限120秒、其余80秒。全文通过BM25针对问题、框架、指标、任务数据集、分类各选择片段，补足5个窗口，每窗最多2400字符，重叠合并；摘要最多10000字符。联网时对前4/8/12篇尝试已有PDF/arXiv链接下载（单篇最多25秒），失败回退摘要，复用PDF解析器，提取后清理临时PDF，文本快照保留供追问。
+- `result.survey_report` 包含 `version/status/title/summary/findings/tables/matrices/coverage/extractions/bibliometrics/references/warnings/search_summary/method/markdown`。`status=no_results` 表示正式召回为0：仍生成并允许导出报告，列出预览/正式检索式、来源、排序、上限、命中数、停止原因与建议补搜方向；只陈述本次搜索事实，不使用模型记忆补领域结论，也不把零命中表述为“idea 不存在”。`tables` 有 `frameworks/metrics/tasks/taxonomy`，每行含稳定表内ID与 `evidence[{paper_key,quote,source_kind}]`。程序校验引用摘录在当前材料内（NFKC、PDF跨行断词及空白归一后匹配），框架/指标/数据集专名也必须出现在摘录。关系复核所选材料是否支持全部字段，可结合原材料中对应的表头和脚注，quote作为原文定位（50秒超时）；无依据的行丢弃并计数，复核失败的论文不纳入统计。模型复核不是独立或人工验证，`method.human_validated=false`，不能据此声称准确率。
+- 结构化模型调用识别完整Markdown JSON围栏。官方DeepSeek v4端点关闭thinking，避免推理占满输出预算产生空JSON；其他模型调用参数不变。综合循环每轮限制150秒，流派任务限制90秒。
+- OpenAI 兼容响应若缺少 `choices` 或最终正文为空，统一返回脱敏的 `LLM_INVALID_RESPONSE_ENVELOPE` / `LLM_EMPTY_CONTENT`（仅含 endpoint host、模型、请求 ID 与正文长度）并按原重试策略处理，不再伪装成普通 JSON 解析错误。配置了解读模型但拆解后仍没有可用英文检索式时，运行于 `decompose` 阶段失败，明确不把纯中文原句发送给学术数据库；未配置 Key 的历史原句回退行为保持兼容。
 - 框架行中的可选指标名、任务行中的可选方法名只有出现在该行摘录时才保留，其余留空；必需的框架/指标/数据集实体缺失则整行拒绝。第二轮关系复核同时检查评估工具类别，避免将训练框架/超参数优化库当成评估框架。
 - `matrices.aspect_metric` 与 `task_dataset` 的 `rows/columns/cells[{row,column,count,paper_keys}]` 由已通过校验的表格关系汇总。同一单元格按论文去重，不把未提及变成不适用、不把图色当性能分数。名称只做大小写归一，不猜测同义缩写。
 - `coverage` 明确材料总数/有材料数/入选数/完成数/失败数/全文片段数/摘要数/被拒绝行数；selected范围完成不等于全领域覆盖。新综合引用编号随参考文献重新映射；没有映射的历史E编号标明未映射。
-- 追问继续使用同一个run与消息表，提供原报告上下文及问题相关全文片段，历史回答不作为事实证据。SSE新增 `report_progress{done,total}`、`report_ready{...report}`；完成前再次发送最新产物以恢复下载文本与表格。历史快照不自动批量修改。
+- 追问继续使用同一个run与消息表，提供原报告上下文及问题相关全文片段，历史回答不作为事实证据。SSE包含 `stage_iteration{stage,iteration,phase,tool/action}`、`report_progress{done,total}`、`report_ready{...report}`；前端只展示轮次/工具/验收状态，不展示模型自由推理文本。完成前再次发送最新产物以恢复下载文本与表格。历史快照不自动批量修改。
 
 | 方法 | 路径 | 参数 | 返回 | 状态码 |
 |---|---|---|---|---|
 | GET | `/api/exploration/preflight` | 无 | `{checked_at, sources[{name, role primary/fallback, status, detail, latency_ms, http_status}]}`（带权限的真实最小请求探测，20s 短缓存） | 200 |
 | POST | `/api/exploration/runs` | `question` 2–4000字符，`depth` quick/standard/deep，`workspace_id?`，`seed_paper_ids?` 最多240，`search_online=true`，`exclude_dois?/exclude_arxiv_ids?/exclude_titles?` 各最多50 | run含options，后台执行统一研究 | 200/400/404/409/422 |
-| POST | `/api/exploration/runs/{id}/report` | 无 | 从现有资料生成报告，run变为pending/report；有活动研究/追问时拒绝 | 200/400/404/409 |
+| POST | `/api/exploration/runs/{id}/report` | 无 | 从现有资料或已保存搜索记录生成报告，run变为pending/report；零材料生成 `no_results` 检索审计报告；有活动研究/追问时拒绝 | 200/400/404/409 |
 | GET | `/api/exploration/runs/{id}/report` | `format` html/markdown/json，默认html | HTML独立报告（含年份图、热力图、原文及打印样式）、Markdown或JSON；HTML/Markdown为下载附件 | 200/404/422 |
 
 验证与复现：`python -m backend.eval.survey_report_smoke --paper-ids 1 6 43 44 45 --question '研究问题' --output data/eval/survey-report` 使用现有配置生成独立HTML/JSON，不写业务记录；也可用 `--pdf /absolute/path.pdf` 替代论文ID。真实API研究#19完成了母论文输入、综合、报告、持久化、报告重生成及SSE；无母论文与联网召回复用原提供者，关闭文献联网的测试禁止外部检索。报告不是系统综述的完整覆盖证明。浏览器在1280/768/390宽度验证来源链接、放大、导出与重载；后端全量757项及末轮相关25项、前端122项与生产构建通过。
@@ -207,6 +209,14 @@ ALTER TABLE exploration_runs DROP COLUMN protocol_asset_id;
 **集成缝（其他 sub 接入点）**：S3 替换 `routers/exploration.py` 中 `WORKFLOW_NOT_IMPLEMENTED` 门禁为 worker 提交，并通过 `research_event_log.register_live_bus(run_id, bus)` 接入实时事件（bus 需暴露 `subscribe()` 异步迭代器）；S5 写 protocol/search_record/coverage_snapshot 资产并回填 `run.protocol_asset_id`；S6 写 report 资产 + revision 行（同事务）；S1 写 identity_decisions；S2 写 document 资产。`frontend/src/types/index.ts` 已同步全部契约类型（S7 联调用）。
 
 验证：后端全量 838 项通过（含 `tests/test_survey_v2_contract.py` 30 项：迁移幂等/旧索引升级/回滚边界、reconcile 豁免、v2 门禁、v1 兼容投影、CAS 原子竞争（相反/同目标仅一个成功、重放区别于陈旧请求）、预算聚合、SSE 断点续订、默认报告选定 revision 与隔离拒绝、回滚形态端到端、CORS 预检/拒绝、{detail,code} 错误格式）；Ruff、前端 typecheck/124 项测试/生产构建通过。测试全部使用合成数据与临时库。2026-09-09 复审（F1–F5）后修订：状态 CAS 改为数据库条件更新、任务幂等键 run 作用域、默认报告读选定 revision、隔离资产拒绝导出、回滚口径改为 S0 契约层形态并修正多表 DROP 语法。
+
+### 2.13 统一 LLM Core 与全局设置（2026-09-09）
+
+`services/llm` 是所有文本生成调用的唯一协议边界。业务服务只调用 `complete_text`、`complete_json` 或 `stream_text`；OpenAI Chat Completions 与 Anthropic Messages 的 SDK 创建、参数转换、响应提取、请求 ID、错误脱敏和连接测试分别由 adapter 实现。结构化输出共享围栏清理、平衡 JSON 提取和重试，空正文/异常响应统一返回 `LLM_EMPTY_CONTENT` / `LLM_INVALID_RESPONSE_ENVELOPE`。
+
+配置真源只有 `llm`：`provider/api_format/api_key/base_url/model/temperature/max_tokens/thinking_effort/timeout_seconds`。`api_format` 必须是 `openai_chat` 或 `anthropic_messages`，业务代码不得按 URL 猜协议；旧的 `analysis` / `translate` 段和旧环境变量只在配置边界迁移一次。主配置与导出不再写出重复模型段，密钥仍单独写入根目录 `config_key`；重新加载时 `config_key` 只注入密钥，不得覆盖主配置已保存的 provider、协议、Base URL、模型或参数。仅当旧主配置没有 `llm` 段时，才允许把旧版完整 `config_key` 的非密钥字段作为一次性兼容迁移来源。翻译提示词与解读提示词是任务参数，不再拥有独立 provider/model/key。
+
+设置页只展示一张“全局 LLM 模型”表单。供应商预设由 `GET /api/analysis/llm/providers` 返回，选择预设会同时填充 provider、协议、Base URL 和默认模型；自定义配置必须显式选择协议。论文解析、划词操作、代码分析、相关论文说明、图谱速读、研究拆解/综合、引用标题提取和 RAG 回答均读取这份全局配置。
 
 ## 3. 统一约定
 
@@ -317,11 +327,12 @@ ALTER TABLE exploration_runs DROP COLUMN protocol_asset_id;
 |---|---|---|---|---|
 | GET | `/api/analysis/config` | 无 | `AppConfig` | 200 |
 | POST | `/api/analysis/config` | `AppConfig` | `{"message": ...}` | 200 |
+| GET | `/api/analysis/llm/providers` | 无 | `{providers:[{id,label,api_format,base_url,default_model}]}` | 200 |
 | GET | `/api/analysis/relations/channels` | 无 | `{"channels": [...]}` | 200 |
 | GET | `/api/analysis/builtin-analysis-prompt` | 无 | `{"content": ...}` | 200 |
 | GET | `/api/analysis/grobid/status` | 无 | GROBID 状态 | 200 |
 | POST | `/api/analysis/grobid/pull` | 无 | 拉取状态 | 200 |
-| POST | `/api/analysis/test-connection` | `type/api_key/base_url/model/provider` | 连通性结果 | 200/400 |
+| POST | `/api/analysis/test-connection` | `type/provider/api_format/api_key/base_url/model/timeout_seconds` | `{ok,message,latency_ms,request_id,api_format}` | 200/400 |
 | POST | `/api/analysis/text-action` | `text/action` | `{"result": ...}` | 200/400/422 |
 | POST | `/api/analysis/digest/batch` | `workspace_id/force/max_papers` | 批量速读状态 | 200/400 |
 | GET | `/api/analysis/digest/status/{workspace_id}` | 路径参数 | 速读进度 | 200 |

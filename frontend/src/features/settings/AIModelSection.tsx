@@ -1,7 +1,7 @@
 /**
  * AI 模型配置区块
  *
- * 翻译模型 / 解读模型共用的配置组：服务商预设、Base URL、API Key、模型名、
+ * 全局 LLM 的唯一配置组：服务商预设、显式接口协议、Base URL、API Key、模型名、
  * 高级参数（Temperature / 最大输出 Token / 思考强度）。全部表单控件走
  * .er-field / .er-input 一档形制 —— 之前每个输入框各写一遍 `px-3 py-2 rounded-lg`
  * 加一段内联 borderColor，同一列里三个框的高度和边框颜色都不一致。
@@ -25,6 +25,7 @@ interface AIModelSectionProps {
   onChange: (cfg: AIModelConfig) => void
   defaultMaxTokens: number
   testSlot?: React.ReactNode
+  providerPresets?: ProviderPreset[]
 }
 
 export default function AIModelSection({
@@ -34,6 +35,7 @@ export default function AIModelSection({
   onChange,
   defaultMaxTokens,
   testSlot,
+  providerPresets,
 }: AIModelSectionProps) {
   const [showKey, setShowKey] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -42,8 +44,10 @@ export default function AIModelSection({
   const handlePresetSelect = (preset: ProviderPreset) => {
     onChange({
       ...config,
+      provider: preset.id,
+      api_format: preset.api_format,
       base_url: preset.base_url,
-      model: preset.models[0] ?? '',
+      model: preset.default_model,
     })
   }
 
@@ -58,7 +62,30 @@ export default function AIModelSection({
         <p className="set-group__hint">{description}</p>
       </header>
 
-      <ProviderPresets baseUrl={config.base_url} onSelect={handlePresetSelect} />
+      <ProviderPresets provider={config.provider} presets={providerPresets} onSelect={handlePresetSelect} />
+
+      <div className="er-field">
+        <span className="er-field__label" id={`${title}-protocol-label`}>接口协议</span>
+        <div className="er-btn-group er-btn-group--block" role="radiogroup" aria-labelledby={`${title}-protocol-label`}>
+          {([
+            ['openai_chat', 'OpenAI Chat Completions'],
+            ['anthropic_messages', 'Anthropic Messages'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={config.api_format === value}
+              data-active={config.api_format === value || undefined}
+              onClick={() => onChange({ ...config, provider: 'custom', api_format: value })}
+              className="er-btn er-btn--ghost er-btn--sm"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="set-group__hint">协议由配置明确指定，不再根据 URL 猜测。</p>
+      </div>
 
       <div className="er-field">
         <label className="er-field__label" htmlFor={`${title}-base`}>API Base URL</label>
@@ -67,7 +94,7 @@ export default function AIModelSection({
           type="text"
           className="er-input"
           value={config.base_url}
-          onChange={e => onChange({ ...config, base_url: e.target.value })}
+          onChange={e => onChange({ ...config, provider: 'custom', base_url: e.target.value })}
           placeholder="https://api.openai.com/v1"
         />
       </div>
@@ -139,6 +166,19 @@ export default function AIModelSection({
                 <span>平衡 1</span>
                 <span>随机 2</span>
               </div>
+            </div>
+
+            <div className="er-field">
+              <label className="er-field__label" htmlFor={`${title}-timeout`}>请求超时（秒）</label>
+              <input
+                id={`${title}-timeout`}
+                type="number"
+                className="er-input"
+                min={1}
+                max={600}
+                value={config.timeout_seconds}
+                onChange={e => onChange({ ...config, timeout_seconds: Number(e.target.value) })}
+              />
             </div>
 
             <div className="set-slider">

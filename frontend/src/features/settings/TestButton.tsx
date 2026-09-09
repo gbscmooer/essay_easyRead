@@ -22,9 +22,11 @@ interface TestButtonProps {
   base_url?: string
   model?: string
   provider?: string
+  api_format?: 'openai_chat' | 'anthropic_messages'
+  timeout_seconds?: number
 }
 
-export function TestButton({ type, api_key, base_url, model, provider }: TestButtonProps) {
+export function TestButton({ type, api_key, base_url, model, provider, api_format, timeout_seconds }: TestButtonProps) {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [showError, setShowError] = useState(false)
@@ -40,6 +42,8 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
         base_url: base_url ?? '',
         model: model ?? '',
         provider: provider ?? '',
+        api_format,
+        timeout_seconds,
       })
       setResult(res)
     } catch (e: unknown) {
@@ -47,7 +51,7 @@ export function TestButton({ type, api_key, base_url, model, provider }: TestBut
     } finally {
       setTesting(false)
     }
-  }, [type, api_key, base_url, model, provider])
+  }, [type, api_key, base_url, model, provider, api_format, timeout_seconds])
 
   const btnStyle =
     result === null

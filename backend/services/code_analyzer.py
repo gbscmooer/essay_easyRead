@@ -626,9 +626,10 @@ async def ai_analyze_data_flow(
     file_contents: dict[str, str],
     paper_title: str,
     api_key: str, base_url: str, model: str,
+    *, provider: str = "", api_format: str = "", thinking_effort: str = "off",
 ) -> str:
     """AI 分析代码数据流"""
-    from .ai_analyzer import _create_client
+    from .llm import complete_text
 
     formatted = _format_file_contents(file_contents)
     prompt = (
@@ -644,19 +645,20 @@ async def ai_analyze_data_flow(
         f"以下是代码文件内容：\n{formatted}"
     )
 
-    client = _create_client(api_key, base_url)
-    try:
-        message = await client.messages.create(
-            model=model,
-            max_tokens=4096,
-            system="你是一个专业的代码分析助手。",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
-    finally:
-        await client.close()
-    from .ai_analyzer import _extract_text
-    return _extract_text(message).strip()
+    return await complete_text(
+        {
+            "provider": provider,
+            "api_format": api_format,
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "temperature": 0.2,
+            "max_tokens": 4096,
+            "thinking_effort": thinking_effort,
+        },
+        system="你是一个专业的代码分析助手。",
+        user=prompt,
+    )
 
 
 async def ai_analyze_paper_code_mapping(
@@ -665,10 +667,10 @@ async def ai_analyze_paper_code_mapping(
     paper_one_sentence: str,
     existing_code_mapping: list[dict],
     api_key: str, base_url: str, model: str,
+    *, provider: str = "", api_format: str = "", thinking_effort: str = "off",
 ) -> list[dict]:
     """AI 将论文概念映射到具体代码文件"""
-    import json as json_mod
-    from .ai_analyzer import _create_client
+    from .llm import complete_json
 
     formatted = _format_file_contents(file_contents)
 
@@ -696,42 +698,31 @@ async def ai_analyze_paper_code_mapping(
         f"以下是代码文件内容：\n{formatted}"
     )
 
-    client = _create_client(api_key, base_url)
-    try:
-        message = await client.messages.create(
-            model=model,
-            max_tokens=4096,
-            system="你是一个学术代码分析助手。只输出 JSON 数组，不要其他文字。",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
-    finally:
-        await client.close()
-
-    from .ai_analyzer import _extract_text
-    content = _extract_text(message).strip()
-    # 提取 JSON
-    if "```" in content:
-        start = content.find("[")
-        end = content.rfind("]") + 1
-        if start >= 0 and end > start:
-            content = content[start:end]
-
-    try:
-        result = json_mod.loads(content)
-        if isinstance(result, list):
-            return result
-    except json_mod.JSONDecodeError:
-        pass
-    return []
+    result = await complete_json(
+        {
+            "provider": provider,
+            "api_format": api_format,
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "temperature": 0.2,
+            "max_tokens": 4096,
+            "thinking_effort": thinking_effort,
+        },
+        system="你是一个学术代码分析助手。只输出 JSON 数组，不要其他文字。",
+        user=prompt,
+        expected=list,
+    )
+    return result if isinstance(result, list) else []
 
 
 async def ai_summarize_readme(
     readme_content: str,
     api_key: str, base_url: str, model: str,
+    *, provider: str = "", api_format: str = "", thinking_effort: str = "off",
 ) -> str:
     """AI 总结 README"""
-    from .ai_analyzer import _create_client
+    from .llm import complete_text
 
     prompt = (
         f"请总结以下 README 内容，输出格式：\n\n"
@@ -744,16 +735,17 @@ async def ai_summarize_readme(
         f"README 内容：\n{readme_content[:10000]}"
     )
 
-    client = _create_client(api_key, base_url)
-    try:
-        message = await client.messages.create(
-            model=model,
-            max_tokens=2048,
-            system="你是一个技术文档总结助手。",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
-    finally:
-        await client.close()
-    from .ai_analyzer import _extract_text
-    return _extract_text(message).strip()
+    return await complete_text(
+        {
+            "provider": provider,
+            "api_format": api_format,
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "temperature": 0.2,
+            "max_tokens": 2048,
+            "thinking_effort": thinking_effort,
+        },
+        system="你是一个技术文档总结助手。",
+        user=prompt,
+    )

@@ -9,11 +9,30 @@ export interface CoverageMatrix {
   columns: string[]
   cells: { row: number; column: number; count: number; paper_keys: string[] }[]
 }
+export interface SurveySearchAttempt {
+  phase: string
+  round?: number | null
+  provider: string
+  query: string
+  order: string
+  limit?: number | null
+  hits: number
+}
+export interface SurveySearchSummary {
+  queries: string[]
+  sources: { name?: string; role?: string; status?: string; detail?: string }[]
+  attempts: SurveySearchAttempt[]
+  attempt_count: number
+  total_channel_hits: number
+  directions: string[]
+  stop_reason: string
+  interpretation: string
+}
 export interface SurveyReport {
   version: number
   title: string
   created_at: string
-  status: 'completed' | 'partial' | 'unavailable'
+  status: 'completed' | 'partial' | 'unavailable' | 'no_results'
   summary: string
   findings: string[]
   gaps: string[]
@@ -23,5 +42,7 @@ export interface SurveyReport {
   bibliometrics: { by_year: Record<string, number>; year_span: number[] }
   references: { key: string; title: string; year?: number | null; doi?: string | null; arxiv_id?: string | null; url?: string | null; pdf_url?: string | null; paper_id?: number | null }[]
   warnings: string[]
+  search_summary?: SurveySearchSummary
+  method?: Record<string, unknown>
   markdown: string
 }

@@ -16,12 +16,15 @@ vi.mock('@/features/settings/TestButton', () => ({ TestButton: () => null }))
 vi.mock('@/features/settings/AIModelSection', () => ({
   default: ({ title, config, onChange }: {
     title: string
-    config: AppConfig['translate']
-    onChange: (config: AppConfig['translate']) => void
+    config: AppConfig['llm']
+    onChange: (config: AppConfig['llm']) => void
   }) => (
-    <button type="button" onClick={() => onChange({ ...config, model: `${config.model}-changed` })}>
-      修改{title}
-    </button>
+    <div>
+      <span data-testid="llm-model">{config.model}</span>
+      <button type="button" onClick={() => onChange({ ...config, model: `${config.model}-changed` })}>
+        修改{title}
+      </button>
+    </div>
   ),
 }))
 vi.mock('@/features/settings/PromptEditor', () => ({
@@ -135,5 +138,37 @@ describe('SettingsPage unsaved changes', () => {
 
     await waitFor(() => expect(hasUnsavedConfig()).toBe(false))
     expect(screen.getByRole('status')).toHaveTextContent('已保存')
+  })
+
+  it('reloads the persisted LLM config after leaving and returning to settings', async () => {
+    const user = userEvent.setup()
+    let persisted = serverConfig()
+    persisted.llm = {
+      ...persisted.llm,
+      provider: 'deepseek',
+      base_url: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+    }
+    api.get.mockImplementation((path: string) => {
+      if (path === '/analysis/config') return Promise.resolve(structuredClone(persisted))
+      if (path === '/analysis/llm/providers') return Promise.resolve({ providers: [] })
+      return Promise.resolve({})
+    })
+    api.post.mockImplementation((_path: string, payload: AppConfig) => {
+      persisted = structuredClone(payload)
+      return Promise.resolve({ message: 'ok' })
+    })
+
+    const first = render(<SettingsPage />)
+    expect(await screen.findByTestId('llm-model')).toHaveTextContent('deepseek-chat')
+    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
+    await user.click(screen.getByRole('button', { name: '保存配置' }))
+    await waitFor(() => expect(hasUnsavedConfig()).toBe(false))
+
+    first.unmount()
+    render(<SettingsPage />)
+
+    expect(await screen.findByTestId('llm-model')).toHaveTextContent('deepseek-chat-changed')
+    expect(hasUnsavedConfig()).toBe(false)
   })
 })

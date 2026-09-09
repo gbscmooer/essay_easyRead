@@ -78,16 +78,29 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
   const references = useMemo(() => new Map((report?.references ?? []).map(p => [p.key, p])), [report])
   const citations = useMemo(() => Object.fromEntries((report?.references ?? []).map((p, i) => [String(i + 1), p.key])), [report])
   const years = useMemo(() => Object.entries(report?.bibliometrics.by_year ?? {}).sort(([a], [b]) => Number(a) - Number(b)).map(([year, count]) => ({ year, count })), [report])
+  const noResults = report?.status === 'no_results'
   return <article className="survey-report" aria-label="研究报告">
-    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span>{report.status === 'completed' ? '已生成' : report.status === 'partial' ? '部分完成' : '证据表待生成'}</span>}</div>
+    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span>{noResults ? '检索未命中 · 报告已生成' : report.status === 'completed' ? '已生成' : report.status === 'partial' ? '部分完成' : '证据表待生成'}</span>}</div>
       <div>
         {report && <><a href={`/api/exploration/runs/${runId}/report?format=html`} title="下载含图表的 HTML 报告" aria-label="下载 HTML 报告"><Download size={16} /><span>HTML</span></a>
           <a href={`/api/exploration/runs/${runId}/report?format=markdown`} title="下载 Markdown 报告" aria-label="下载 Markdown 报告"><FileText size={16} /><span>Markdown</span></a></>}
-        <button type="button" onClick={onGenerate} disabled={busy} title={report ? '从已有材料重新生成报告' : '从已有材料生成报告'}><RefreshCw size={16} />{busy ? '生成中' : report ? '重新生成' : '生成报告'}</button>
+        <button type="button" onClick={onGenerate} disabled={busy} title={report ? '从已有材料与搜索记录重新生成报告' : '生成报告'}><RefreshCw size={16} />{busy ? '生成中' : report ? '重新生成' : '生成报告'}</button>
       </div>
     </div>
     {error && <p role="alert" className="survey-error">{error}</p>}
-    {!report ? <p className="survey-empty">{busy ? '报告生成中，已取得的资料与统计可在其他视图查看。' : '这条研究尚未生成结构化报告。已有资料可以继续使用。'}</p> : <>
+    {!report ? <p className="survey-empty">{busy ? '报告生成中，已取得的资料与统计可在其他视图查看。' : '这条研究尚未生成结构化报告。已有资料可以继续使用。'}</p> : noResults ? <>
+      <nav className="survey-toc" aria-label="报告目录"><a href="#survey-search">已执行的搜索</a><a href="#survey-directions">建议补搜方向</a><a href="#survey-limits">结论边界</a></nav>
+      <section id="survey-search" className="survey-section"><h3><FileText size={18} />已执行的搜索</h3>
+        <p>{report.summary}</p>
+        <dl className="survey-stat-strip"><div><dt>正式召回</dt><dd>0<small> 篇</small></dd></div><div><dt>检索通道</dt><dd>{report.search_summary?.attempt_count ?? 0}<small> 个</small></dd></div><div><dt>通道命中</dt><dd>{report.search_summary?.total_channel_hits ?? 0}<small> 条</small></dd></div><div><dt>可引用证据</dt><dd>0<small> 条</small></dd></div></dl>
+        <div className="survey-table-scroll"><table className="survey-table survey-search-table"><caption>本次运行记录的预览与正式检索</caption><thead><tr><th scope="col">阶段</th><th scope="col">轮次</th><th scope="col">数据源</th><th scope="col">检索式</th><th scope="col">排序</th><th scope="col">上限</th><th scope="col">命中</th></tr></thead><tbody>
+          {(report.search_summary?.attempts ?? []).map((attempt, i) => <tr key={`${attempt.phase}-${attempt.round}-${attempt.query}-${i}`}><td>{attempt.phase === 'preview' ? '预览' : '正式'}</td><td>{attempt.round ?? '—'}</td><td>{attempt.provider || '未记录'}</td><td>{attempt.query || '未记录'}</td><td>{attempt.order || '—'}</td><td>{attempt.limit ?? '—'}</td><td>{attempt.hits}</td></tr>)}
+          {!report.search_summary?.attempts?.length && <tr><td colSpan={7}>旧记录未保存逐通道检索明细。</td></tr>}
+        </tbody></table></div>
+      </section>
+      <section id="survey-directions" className="survey-section"><h3><ListTree size={18} />建议补搜方向</h3><p className="survey-note">以下内容是查询策略建议，不是关于领域现状的事实结论。</p><ul>{(report.search_summary?.directions ?? []).map((text, i) => <li key={i}>{text}</li>)}</ul>{!report.search_summary?.directions?.length && <p className="survey-empty">当前搜索记录不足以自动形成补搜方向。</p>}</section>
+      <section id="survey-limits" className="survey-section"><h3><Layers size={18} />结论边界</h3><p>{report.search_summary?.interpretation || '本次零命中不能证明全领域不存在相关工作。'}</p><ul>{report.warnings.map((text, i) => <li key={i}>{text}</li>)}</ul></section>
+    </> : (report.references ?? []).length === 0 ? <p className="survey-empty">这是旧版无材料记录，尚未保存可审计的检索明细；可点击“重新生成”生成零命中报告。</p> : <>
       <nav className="survey-toc" aria-label="报告目录">{[['scope', '摘要与范围'], ['taxonomy', '技术分类'], ['frameworks', '评估框架'], ['metrics', '维度与指标'], ['tasks', '任务与数据集'], ['limits', '局限'], ['references', '参考文献']].map(([id, label]) => <a key={id} href={`#survey-${id}`}>{label}</a>)}</nav>
       <section id="survey-scope" className="survey-section"><h3><FileText size={18} />摘要与研究范围</h3>
         <EvidenceMarkdown text={report.summary || '本次材料尚未形成跨文献摘要。'} papers={report.references} citations={citations} />

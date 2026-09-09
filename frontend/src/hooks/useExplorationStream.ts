@@ -5,7 +5,8 @@ import type { ExplorationResult, ExplorationSynthesis } from '@/types'
  * 领域探索 SSE 进度流（/api/exploration/runs/{id}/stream）。
  *
  * 事件协议（后端 explorer.py）：
- *   stage_start / stage_done   decompose | recall | enrich | metrics | synthesize | persist
+ *   stage_start / stage_iteration / stage_done
+ *                              preflight | decompose | recall | enrich | metrics | synthesize | report | persist
  *   recall_progress            {query, hit_count, total_so_far}
  *   enrich_progress            {done, total}（OpenAlex 逐篇补逐年引用/摘要/关键词）
  *   metrics_ready              统计产物（decompose + papers + metrics + graph）——纯算法，无 Key 也有
@@ -83,6 +84,25 @@ export function useExplorationStream(runId: number | null, revision = 0) {
           else if (st === 'report') setProgress(90)
           else if (st === 'persist') setProgress(96)
         }
+      } catch { /* noop */ }
+    })
+    es.addEventListener('stage_iteration', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const data = JSON.parse(e.data) as {
+          stage?: string; iteration?: number; phase?: string; tool?: string; action?: string
+        }
+        const labels: Record<string, string> = {
+          preflight: '数据源预检', decompose: '检索式拆解', recall: '文献召回', enrich: '资料富化',
+          metrics: '计量分析', synthesize: '证据综合', report: '报告生成', report_extract: '逐篇证据提取',
+          persist: '结果保存',
+        }
+        const label = labels[data.stage ?? ''] ?? data.stage ?? '当前阶段'
+        const iteration = Number.isFinite(data.iteration) ? `第 ${data.iteration} 轮` : '本轮'
+        const action = data.tool || data.action
+        if (data.phase === 'complete') setMessage(`${label} · ${iteration}验收通过`)
+        else if (action) setMessage(`${label} · ${iteration} · 正在使用 ${action}`)
+        else setMessage(`${label} · ${iteration}分析中`)
       } catch { /* noop */ }
     })
     es.addEventListener('stage_done', (e: MessageEvent) => {

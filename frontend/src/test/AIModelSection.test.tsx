@@ -6,13 +6,15 @@ import AIModelSection from '@/features/settings/AIModelSection'
 import type { AIModelConfig } from '@/features/settings/config'
 
 const OPENAI_CONFIG: AIModelConfig = {
+  provider: 'openai',
+  api_format: 'openai_chat',
   api_key: 'test-key',
   base_url: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
-  system_prompt: '',
   temperature: 0.1,
   max_tokens: 4096,
   thinking_effort: 'medium',
+  timeout_seconds: 150,
 }
 
 describe('AIModelSection', () => {
@@ -34,6 +36,8 @@ describe('AIModelSection', () => {
 
     expect(onChange).toHaveBeenCalledWith({
       ...OPENAI_CONFIG,
+      provider: 'anthropic',
+      api_format: 'anthropic_messages',
       base_url: 'https://api.anthropic.com',
       model: 'claude-sonnet-4-6',
     })
