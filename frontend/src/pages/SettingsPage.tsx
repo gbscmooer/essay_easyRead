@@ -132,6 +132,7 @@ function mergeConfig(cfg: AppConfig): AppConfig {
     ...DEFAULT_CONFIG,
     ...cfg,
     embedding: { ...DEFAULT_CONFIG.embedding, ...(cfg.embedding ?? {}) },
+    llm: { ...DEFAULT_CONFIG.llm, ...(cfg.llm ?? cfg.analysis ?? {}) },
     translate: { ...DEFAULT_CONFIG.translate, ...(cfg.translate ?? {}) },
     analysis: { ...DEFAULT_CONFIG.analysis, ...(cfg.analysis ?? {}) },
     analysis_prompt: { ...DEFAULT_CONFIG.analysis_prompt, ...(cfg.analysis_prompt ?? {}) },
@@ -238,35 +239,41 @@ function ModelsPanel({
   config: AppConfig
   setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
 }) {
+  const currentLlm = config.llm || config.analysis
   return (
     <div className="space-y-4 stagger">
       <AIModelSection
-        title="翻译模型"
-        description="用于选中文本的翻译功能。"
-        config={config.translate}
-        onChange={cfg => setConfig(prev => ({ ...prev, translate: cfg }))}
-        defaultMaxTokens={2048}
-        testSlot={
-          <TestButton
-            type="translate"
-            api_key={config.translate.api_key}
-            base_url={config.translate.base_url}
-            model={config.translate.model}
-          />
-        }
-      />
-      <AIModelSection
-        title="解读模型"
-        description="用于论文解析、总结等功能。"
-        config={config.analysis}
-        onChange={cfg => setConfig(prev => ({ ...prev, analysis: cfg }))}
+        title="全局 LLM 模型"
+        description="全项目统一大模型配置：论文精读、划词翻译、领域探索、问句拆解、图谱速读与全景报告等全部 AI 功能均全局通用该配置。"
+        config={currentLlm}
+        onChange={cfg => setConfig(prev => ({
+          ...prev,
+          llm: cfg,
+          translate: {
+            ...prev.translate,
+            api_key: cfg.api_key,
+            base_url: cfg.base_url,
+            model: cfg.model,
+            temperature: cfg.temperature,
+            thinking_effort: cfg.thinking_effort,
+          },
+          analysis: {
+            ...prev.analysis,
+            api_key: cfg.api_key,
+            base_url: cfg.base_url,
+            model: cfg.model,
+            temperature: cfg.temperature,
+            max_tokens: cfg.max_tokens,
+            thinking_effort: cfg.thinking_effort,
+          },
+        }))}
         defaultMaxTokens={16384}
         testSlot={
           <TestButton
-            type="analysis"
-            api_key={config.analysis.api_key}
-            base_url={config.analysis.base_url}
-            model={config.analysis.model}
+            type="llm"
+            api_key={currentLlm.api_key}
+            base_url={currentLlm.base_url}
+            model={currentLlm.model}
           />
         }
       />
@@ -353,9 +360,8 @@ export function SettingsPage() {
     )
   }
 
-  const translateOk = !!config.translate.api_key.trim()
-  const analysisOk = !!config.analysis.api_key.trim()
-  const allConfigured = translateOk && analysisOk
+  const llmOk = !!((config.llm?.api_key || config.analysis?.api_key || config.translate?.api_key || '').trim())
+  const allConfigured = llmOk
 
   return (
     <div className="er-page er-page--settings">
@@ -380,8 +386,7 @@ export function SettingsPage() {
           </svg>
           <div>
             <strong>配置不完整</strong>
-            {!translateOk && <p>翻译模型未配置 API Key，画词翻译不可用。</p>}
-            {!analysisOk && <p>解读模型未配置 API Key，论文分析会退回默认配置。</p>}
+            <p>全局 LLM 未配置 API Key，论文精读、划词翻译与领域探索等功能将不可用。</p>
           </div>
         </div>
       )}

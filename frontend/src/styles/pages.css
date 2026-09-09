@@ -1100,6 +1100,88 @@
   cursor: not-allowed;
 }
 
+/* 数据源预检状态条：开始研究前可见各源权限（401/403/断网提前暴露） */
+.ex-preflight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1, 6px) var(--s2, 10px);
+  padding: 2px 0;
+}
+
+.ex-preflight__label {
+  font-size: var(--fs-label);
+  color: var(--text-muted);
+}
+
+.ex-preflight__hint {
+  font-size: var(--fs-label);
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.ex-preflight__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+}
+
+.ex-preflight__chip em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-preflight__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+
+.ex-preflight__chip.is-ok .ex-preflight__dot { background: var(--success); }
+.ex-preflight__chip.is-ok em { color: var(--success); }
+.ex-preflight__chip.is-auth_error .ex-preflight__dot,
+.ex-preflight__chip.is-network_error .ex-preflight__dot,
+.ex-preflight__chip.is-error .ex-preflight__dot { background: var(--error); }
+.ex-preflight__chip.is-auth_error,
+.ex-preflight__chip.is-network_error,
+.ex-preflight__chip.is-error {
+  border-color: var(--error);
+  color: var(--error);
+}
+.ex-preflight__chip.is-auth_error em,
+.ex-preflight__chip.is-network_error em,
+.ex-preflight__chip.is-error em { color: var(--error); }
+.ex-preflight__chip.is-rate_limited .ex-preflight__dot { background: var(--warning); }
+.ex-preflight__chip.is-rate_limited em { color: var(--warning); }
+.ex-preflight__chip.is-unconfigured .ex-preflight__dot { background: var(--border-light, var(--border)); }
+
+.ex-preflight__refresh {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.ex-preflight__refresh:hover:not(:disabled) { color: var(--accent); }
+.ex-preflight__refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ex-preflight__note {
+  font-size: var(--fs-label);
+  color: var(--warning);
+}
+
 .ex-ask__examples {
   display: flex;
   flex-wrap: wrap;
@@ -1128,61 +1210,135 @@
   font-size: var(--fs-label);
 }
 
-/* ── 历史记录 ── */
+/* ── 历史记录：抽屉式二级菜单 ── */
 
 .ex-history {
   display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  flex-wrap: wrap;
+  align-items: center;
 }
 
-.ex-history__label {
-  color: var(--er-muted);
-  font-size: var(--fs-label);
-  white-space: nowrap;
-}
-
-.ex-history__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ex-history__item {
+.ex-history__toggle {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: var(--seed-radius, 6px);
   background: var(--bg-surface);
-  overflow: hidden;
-}
-
-.ex-history__item.is-active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.ex-history__item > :first-child {
-  max-width: 30ch;
-  overflow: hidden;
-  padding: 4px var(--s2);
-  border: 0;
-  background: transparent;
   color: var(--text-secondary);
   font-size: var(--fs-label);
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
 }
 
-.ex-history__item.is-active > :first-child {
+.ex-history__toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ex-history__count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 600;
 }
 
-.ex-history__del {
-  padding: 4px var(--s2);
+.ex-history__toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.ex-history__toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.ex-drawer__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(15, 23, 42, 0.32);
+  animation: ex-drawer-fade 0.18s ease;
+}
+
+.ex-drawer__panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 221;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+  animation: ex-drawer-slide 0.2s ease;
+}
+
+.ex-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.ex-drawer__close {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.ex-drawer__close:hover {
+  color: var(--text-primary);
+}
+
+.ex-drawer__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.ex-drawer__list li {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+
+.ex-drawer__list li > a {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.ex-drawer__list li > a:hover {
+  background: var(--accent-subtle);
+}
+
+.ex-drawer__q {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ex-drawer__meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ex-drawer__list .ex-history__del {
+  padding: 0 12px;
   border: 0;
   border-left: 1px solid var(--border);
   background: transparent;
@@ -1190,9 +1346,26 @@
   cursor: pointer;
 }
 
-.ex-history__del:disabled {
+.ex-drawer__list .ex-history__del:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+@keyframes ex-drawer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ex-drawer-slide {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ex-drawer__backdrop,
+  .ex-drawer__panel {
+    animation: none;
+  }
 }
 
 /* ── 进度 ── */

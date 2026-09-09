@@ -24,5 +24,10 @@ class LocalProvider:
     async def get_recommendations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
         return []
 
-    async def search_works(self, query: str, limit: int = 20) -> list[RecallCandidate]:
+    async def search_works(self, query: str, limit: int = 20, **_kwargs) -> list[RecallCandidate]:
         return []
+
+    async def health_check(self, **_kwargs) -> dict:
+        # 本地模式不联网，「可达」恒成立
+        return {"name": self.name, "status": "ok", "detail": "本地语料模式（不联网）",
+                "latency_ms": 0, "http_status": None}

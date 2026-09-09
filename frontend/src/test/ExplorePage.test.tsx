@@ -11,7 +11,7 @@ import { useExplorationStream } from '@/hooks/useExplorationStream'
 import { createExploration } from '@/api/exploration'
 import type { ExplorationResult, ExplorationSynthesis } from '@/types'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { getExploration, getExplorationMessages, listExplorations } from '@/api/exploration'
+import { getExploration, getExplorationMessages, listExplorations, preflightExploration } from '@/api/exploration'
 import { getWorkspace } from '@/api/workspaces'
 
 function renderPage(path = '/explore') {
@@ -36,6 +36,7 @@ vi.mock('@/api/exploration', () => ({
   getExplorationMessages: vi.fn().mockResolvedValue([]),
   askExploration: vi.fn(),
   regenerateReport: vi.fn(),
+  preflightExploration: vi.fn().mockResolvedValue({ checked_at: '2026-01-01T00:00:00Z', sources: [] }),
 }))
 
 const mockUse = vi.mocked(useExplorationStream)
@@ -241,12 +242,29 @@ describe('ExplorePage', () => {
     expect(screen.getByText(/检索「tumor detection」命中 15 篇/)).toBeInTheDocument()
   })
 
+  it('数据源体检：权限探测结果在开始研究前可见，主源失效展示回退提示', async () => {
+    vi.mocked(preflightExploration).mockResolvedValue({
+      checked_at: '2026-09-08T00:00:00Z',
+      sources: [
+        { name: 'scopus', role: 'primary', status: 'auth_error', detail: 'HTTP 401：Key 无效', latency_ms: 210, http_status: 401 },
+        { name: 'openalex', role: 'fallback', status: 'ok', detail: '检索服务正常', latency_ms: 95, http_status: 200 },
+      ],
+    })
+    renderPage()
+    expect(await screen.findByText('Scopus')).toBeInTheDocument()
+    expect(screen.getByText('无权限')).toBeInTheDocument()
+    expect(screen.getByText('OpenAlex')).toBeInTheDocument()
+    expect(screen.getByText(/开始研究将自动回退 OpenAlex/)).toBeInTheDocument()
+  })
+
   it('近期探索进入独立详情，刷新读取资料和持久化对话', async () => {
     vi.mocked(listExplorations).mockResolvedValue([{ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
     vi.mocked(getExploration).mockResolvedValue({ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', result: makeResult() })
     vi.mocked(getExplorationMessages).mockResolvedValue([{ id: 1, run_id: 17, question: 'Follow-up', answer: 'Saved answer [P1]', status: 'done', search_more: false, selected_keys: [], papers: [], evidence_keys: ['k:a'], context: { citations: { P1: 'k:a' } }, error_message: null, created_at: '2026-01-01', updated_at: '2026-01-01' }])
     renderPage()
-    const link = await screen.findByRole('link', { name: 'Saved question' })
+    // 历史入口为抽屉式二级菜单：先展开再断言链接
+    fireEvent.click(await screen.findByRole('button', { name: /最近研究/ }))
+    const link = await screen.findByRole('link', { name: /Saved question/ })
     expect(link).toHaveAttribute('href', '/explorer/17')
     fireEvent.click(link)
     await screen.findByRole('heading', { name: 'Saved question' })

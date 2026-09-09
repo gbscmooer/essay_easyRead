@@ -55,6 +55,8 @@ async def download_pdf(
     """下载 PDF 到 uploads/，自动处理 HTML 着陆页跳转与反爬限速，返回本地路径或 None。"""
     if not url or not str(url).startswith(("http://", "https://")):
         return None
+    from ..research_exclusions import check_download_url
+    check_download_url(url)
 
     upload_dir = settings.resolved_upload_dir
     os.makedirs(upload_dir, exist_ok=True)
@@ -78,13 +80,13 @@ async def download_pdf(
 
     try:
         for depth in range(max_redirect_depth + 1):
+            check_download_url(current_url)
             resp = await resilient_get(current_url, headers=req_headers, timeout=timeout)
             content = resp.content
             ctype = resp.headers.get("content-type", "").lower()
-            is_pdf_ctype = ctype.startswith(("application/pdf", "application/octet-stream"))
             is_pdf_magic = content[:5].startswith(b"%PDF")
 
-            if is_pdf_ctype or is_pdf_magic:
+            if is_pdf_magic:
                 with open(path, "wb") as f:
                     f.write(content)
                 logger.info(f"Successfully downloaded PDF ({len(content)} bytes) from {current_url}")

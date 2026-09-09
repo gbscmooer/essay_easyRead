@@ -50,6 +50,15 @@ _LEGACY_RETRIEVAL_WEIGHTS = {
 }
 
 DEFAULT_CONFIG = {
+    "llm": {
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "temperature": 0.2,
+        "max_tokens": 16384,
+        # 全局通用 LLM 默认思考强度：off | low | medium | high
+        "thinking_effort": "off",
+    },
     "translate": {
         "api_key": "",
         "base_url": "https://api.openai.com/v1",
@@ -253,6 +262,99 @@ def _deep_merge_dict(base: dict, override: dict) -> dict:
     return out
 
 
+def _sync_unified_llm(config: dict, saved: Optional[dict] = None) -> None:
+    """保证全局统一的 llm 与 analysis / translate 保持一致，实现全项目一处配置全局通用。"""
+    if not isinstance(config, dict):
+        return
+
+    source = saved if saved is not None else config
+    if not isinstance(source, dict):
+        source = config
+
+    llm_src = source.get("llm") if isinstance(source.get("llm"), dict) else {}
+    analysis_src = source.get("analysis") if isinstance(source.get("analysis"), dict) else {}
+    translate_src = source.get("translate") if isinstance(source.get("translate"), dict) else {}
+
+    llm = config.setdefault("llm", copy.deepcopy(DEFAULT_CONFIG["llm"]))
+    analysis = config.setdefault("analysis", copy.deepcopy(DEFAULT_CONFIG["analysis"]))
+    translate = config.setdefault("translate", copy.deepcopy(DEFAULT_CONFIG["translate"]))
+
+    # 1. API Key: 优先选取非空且非掩码的 key，防止默认空串覆盖已配置 key
+    chosen_key = None
+    for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
+        k = sec.get("api_key")
+        if k and not is_masked_key(k):
+            chosen_key = k
+            break
+    if chosen_key is None:
+        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
+            k = sec.get("api_key")
+            if is_masked_key(k):
+                chosen_key = k
+                break
+    if chosen_key is None:
+        chosen_key = ""
+
+    # 2. Base URL: 优先选取与默认不同的配置，否则按优先级
+    default_base_url = DEFAULT_CONFIG["llm"]["base_url"]
+    chosen_base_url = None
+    for sec in (llm_src, analysis_src, translate_src):
+        b = sec.get("base_url")
+        if b and b != default_base_url:
+            chosen_base_url = b
+            break
+    if not chosen_base_url:
+        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
+            b = sec.get("base_url")
+            if b:
+                chosen_base_url = b
+                break
+    if not chosen_base_url:
+        chosen_base_url = default_base_url
+
+    # 3. Model: 优先选取与默认不同的配置，否则按优先级
+    default_model = DEFAULT_CONFIG["llm"]["model"]
+    chosen_model = None
+    for sec in (llm_src, analysis_src, translate_src):
+        m = sec.get("model")
+        if m and m != default_model:
+            chosen_model = m
+            break
+    if not chosen_model:
+        for sec in (llm_src, analysis_src, translate_src, llm, analysis, translate):
+            m = sec.get("model")
+            if m:
+                chosen_model = m
+                break
+    if not chosen_model:
+        chosen_model = default_model
+
+    # 4. Thinking Effort
+    chosen_thinking = None
+    for sec in (llm_src, analysis_src, translate_src, llm, analysis):
+        t = sec.get("thinking_effort")
+        if t:
+            chosen_thinking = t
+            break
+    if not chosen_thinking:
+        chosen_thinking = DEFAULT_CONFIG["llm"]["thinking_effort"]
+
+    llm["api_key"] = chosen_key
+    analysis["api_key"] = chosen_key
+    translate["api_key"] = chosen_key
+
+    llm["base_url"] = chosen_base_url
+    analysis["base_url"] = chosen_base_url
+    translate["base_url"] = chosen_base_url
+
+    llm["model"] = chosen_model
+    analysis["model"] = chosen_model
+    translate["model"] = chosen_model
+
+    llm["thinking_effort"] = chosen_thinking
+    analysis["thinking_effort"] = chosen_thinking
+
+
 def get_active_config_path() -> str:
     """获取当前生效的配置文件绝对路径。
     如果 CONFIG_PATH 被外部测试 monkeypatch 修改且指定了特定路径，遵从外部指定；
@@ -423,6 +525,7 @@ def load_config(path: Optional[str] = None) -> dict:
                 config[key] = _deep_merge_dict(default_section, saved_section)
             else:
                 config[key] = saved_section if key in saved else copy.deepcopy(default_section)
+        _sync_unified_llm(config, saved=saved)
         return config
     except Exception as e:
         logger.warning(f"Failed to load config from {target_path}: {e}")
@@ -462,6 +565,9 @@ def _migrate_relations_config(saved: dict) -> dict:
 
 def save_config(config: dict, path: Optional[str] = None) -> None:
     """保存 AI 配置（原子写入）。默认保存至当前生效配置文件，若当前为根目录 YAML 则同时同步一份 JSON 到 data/ai_config.json。"""
+    config = copy.deepcopy(config)
+    if isinstance(config, dict):
+        _sync_unified_llm(config)
     target_path = path or get_active_config_path()
     dump_file_config(config, target_path)
     logger.info(f"AI config saved to {target_path}")
@@ -514,43 +620,52 @@ def import_config(content: str, fmt: Optional[str] = None) -> dict:
 
     current = load_config()
     clean_parsed = merge_preserving_keys(parsed, current)
+    _sync_unified_llm(clean_parsed, saved=parsed)
     merged = _deep_merge_dict(current, clean_parsed)
     save_config(merged)
     return merged
 
 
-def get_translate_config() -> dict:
-    """获取翻译模型配置"""
-    return load_config().get("translate", DEFAULT_CONFIG["translate"])
+def get_llm_config() -> dict:
+    """获取全局统一 LLM 模型配置（单 key/单模型全局通用）"""
+    loaded = load_config()
+    raw_sec = loaded.get("llm") or loaded.get("analysis") or loaded.get("translate") or {}
+    cfg = dict(raw_sec)
 
-
-def get_analysis_config() -> dict:
-    """获取解读模型配置"""
-    cfg = dict(load_config().get("analysis", DEFAULT_CONFIG["analysis"]))
-    # 如果解读配置没有填写 api_key，回退到环境变量中的统一 LLM 配置
+    # 如果配置没有填写 api_key，回退到环境变量中的统一 LLM 配置
     if not cfg.get("api_key"):
         from ..config import settings
 
-        # load_config 会把缺失字段补成 DEFAULT_CONFIG，因此仅看合并后的
-        # base_url/model 无法区分“用户已保存”与“只是内置默认值”。读取原始段来
-        # 保留 UI 中显式保存的模型，同时让全新安装真正使用 LLM_* 环境变量。
-        saved_analysis: dict = {}
+        saved_llm: dict = {}
         active_path = get_active_config_path()
         if os.path.exists(active_path):
             try:
                 raw = read_file_config(active_path)
-                raw_analysis = raw.get("analysis", {}) if isinstance(raw, dict) else {}
-                if isinstance(raw_analysis, dict):
-                    saved_analysis = raw_analysis
+                if isinstance(raw, dict):
+                    raw_llm = raw.get("llm") or raw.get("analysis") or raw.get("translate") or {}
+                    if isinstance(raw_llm, dict):
+                        saved_llm = raw_llm
             except (OSError, ValueError):
                 pass
 
         cfg["api_key"] = settings.llm_api_key
-        if not saved_analysis.get("base_url"):
+        if not saved_llm.get("base_url"):
             cfg["base_url"] = settings.llm_base_url
-        if not saved_analysis.get("model"):
+        if not saved_llm.get("model"):
             cfg["model"] = settings.llm_model
     return cfg
+
+
+def get_translate_config() -> dict:
+    """获取翻译模型配置（统一接入全局 LLM 配置，附带翻译系统提示词）"""
+    cfg = dict(get_llm_config())
+    cfg["system_prompt"] = DEFAULT_CONFIG["translate"]["system_prompt"]
+    return cfg
+
+
+def get_analysis_config() -> dict:
+    """获取解读模型配置（统一接入全局 LLM 配置）"""
+    return get_llm_config()
 
 
 def get_analysis_prompt_config() -> dict:

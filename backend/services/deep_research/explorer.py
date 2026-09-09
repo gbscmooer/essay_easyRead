@@ -46,6 +46,7 @@ from .evidence_audit import audit_answer
 from .graphkit.backbone import mutual_knn
 from .survey_report import build_survey_report
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
+from ..research_exclusions import apply_exclusions, active_exclusions
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,8 @@ def _decompose_user(question: str, max_queries: int) -> str:
         '{"intent": "novelty|maturity|landscape（问句意图：查新=有没有人做；成熟度=做到什么程度；全景=领域现状）",',
         f' "en_queries": ["英文检索式1", "英文检索式2", ...]（{max_queries} 条左右，覆盖领域词+任务词+方法词+同义词，'
         "每条是空格分隔的关键词串，不要引号和布尔算符),",
-        ' "focus_terms": ["中文关键术语1", "中文关键术语2"]}',
+        ' "focus_terms": ["中文关键术语1", "中文关键术语2"],',
+        ' "core_query": "2至4个词的核心领域名称，不包含年份、LLM等额外限定词，除非它们就是研究对象"}',
         "```",
         "要求：检索式面向 Scopus/OpenAlex 的 TITLE-ABS-KEY 语义；问题里的中文概念必须译成学界通用英文术语"
         "（如「识别肿瘤」→ tumor detection / cancer diagnosis）；同义词多给几条提高查全。",
@@ -130,7 +132,8 @@ def _normalize_decompose(data: dict, question: str, max_queries: int) -> dict:
     if intent not in _INTENT_VALUES:
         intent = "landscape"
     focus = [str(t).strip() for t in (data.get("focus_terms") or []) if str(t).strip()][:6]
-    return {"intent": intent, "en_queries": queries[:max_queries], "focus_terms": focus, "fallback": False}
+    return {"intent": intent, "en_queries": queries[:max_queries], "focus_terms": focus, "fallback": False,
+            "core_query": " ".join(_sanitize_query(data.get("core_query") or queries[0]).split()[:4])}
 
 
 async def decompose_question(question: str, llm_cfg: Optional[dict], *, max_queries: int) -> dict:
@@ -150,7 +153,7 @@ async def decompose_question(question: str, llm_cfg: Optional[dict], *, max_quer
             return {"intent": "landscape", "en_queries": [_sanitize_query(question)] or [question.strip()],
                     "focus_terms": [], "fallback": True, "fallback_reason": f"{type(e).__name__}: {e}"[:300]}
     return {"intent": "landscape", "en_queries": [_sanitize_query(question)] or [question.strip()],
-            "focus_terms": [], "fallback": True}
+            "focus_terms": [], "fallback": True, "fallback_reason": "UNCONFIGURED_KEY"}
 
 
 # ── Stage 2: recall ───────────────────────────────────────────────────────────
@@ -204,54 +207,118 @@ def _cap_papers(papers: list[dict], *, cap: int, now_year: int, recent_window: i
 
 async def recall_papers(
     queries: list[str], *, per_query: int, cap: int, now_year: int,
-    progress=None,
+    progress=None, preflight_dead: set[str] | None = None, supplement_arxiv: bool = False,
+    search_audit: dict | None = None,
+    core_query: str = "",
 ) -> tuple[list[dict], str]:
     """各检索式**并行**调用 provider.search_works（Scopus 自适应限速下安全并行），
-    返回（去重后的论文清单, provider 名）。academic_only 打开学术类型过滤排干扰。"""
-    from .providers import get_provider
+    返回（去重后的论文清单, provider 名）。academic_only 打开学术类型过滤排干扰。
+
+    双通道召回：relevance 主路天然偏新文献（实测 RAG 问句 relevancy 前 25 篇里
+    2020–2022 奠基论文几乎为零），每条检索式加一路被引降序的经典层（order="cited"），
+    两路排名进同一等权 RRF——领域全景需要「近期进展 + 高被引奠基」双层，缺一不可。
+    preflight_dead：预检判死的源名集合，主源在其中则直接预熔断——401/403 是
+    确定性失败，逐通道试错只会白烧请求与时间。
+    """
+    from .providers import FailoverProvider, get_provider
     from ..ai_config import get_research_config
 
     provider = get_provider(dict(get_research_config()))
     if provider.name == "local":
         return [], provider.name
+    if preflight_dead and isinstance(provider, FailoverProvider):
+        primary = getattr(provider, "_primary", None)
+        if primary is not None and getattr(primary, "name", "") in preflight_dead:
+            primary._disabled = True
+            logger.warning("recall: 预检判死主源 %s，本次直接走 %s",
+                           primary.name, provider._secondary.name)
 
-    async def _one(q: str) -> list:
+    async def _one(q: str, order: str = "relevance", limit: int | None = None) -> list:
         try:
-            return await provider.search_works(q, limit=per_query, academic_only=True)
+            return await provider.search_works(q, limit=limit or per_query, academic_only=True, order=order)
         except Exception as e:
-            logger.warning(f"explorer recall query '{q}' failed: {e}")
+            logger.warning(f"explorer recall query '{q}' (order={order}) failed: {e}")
             return []
 
+    # 双通道：每条检索式 relevance 主路 + 被引经典路（半量，至少 12 条）。
+    # 经典路查询取主式前 3 词并加引号成精确短语：拆解式几乎总以领域核心词组开头，
+    # 时代流行语（LLM 等）在后半且奠基论文不含它们——AND 全词会把经典排除（实测
+    # 6 词式经典层全 2024+）；而不加引号的截短式会单词泛匹配引入跨域噪声（rags/
+    # 增强现实/全息检索），引号短语实测 Lewis 2020 排被引第一且年份干净。跨式去重。
+    def _classic_query(q: str) -> str:
+        return '"' + " ".join(q.split()[:3]) + '"'
+
+    queries = list(dict.fromkeys(q.strip() for q in queries if q.strip()))[:5]
+    classic_queries = ['"' + core_query + '"'] if core_query else list(dict.fromkeys(_classic_query(q) for q in queries))[:1]
+    classic_limit = max(12, per_query // 2)
+    channels: list[tuple[str, str, int]] = [
+        *((q, "relevance", per_query) for q in queries),
+        *((q, "cited", classic_limit) for q in classic_queries),
+    ]
+
     # 并行发射：付费源自适应限速会在 429 时自动收敛，免费源自身有串行节流
-    batches = await asyncio.gather(*[_one(q) for q in queries])
+    batches = await asyncio.gather(*[_one(q, order, limit) for q, order, limit in channels])
 
     # 首选源在并发下熔断时（如无效 Key 连续 401），早到的查询可能已落在死掉的主源上
-    # 拿到空结果——只对落空的检索式改走备用源重试，部分丢失也找得回来
-    from .providers import FailoverProvider
+    # 拿到空结果——只对落空的通道改走备用源重试，部分丢失也找得回来
     if isinstance(provider, FailoverProvider) and getattr(
         getattr(provider, "_primary", None), "_disabled", False
     ):
         dead_idx = [i for i, hits in enumerate(batches) if not hits]
         if dead_idx:
             logger.warning(
-                "explorer recall: 首选源熔断，%d/%d 条检索式落空，改走备用源重试",
-                len(dead_idx), len(queries),
+                "explorer recall: 首选源熔断，%d/%d 通道落空，改走备用源重试",
+                len(dead_idx), len(channels),
             )
-            retried = await asyncio.gather(*[_one(queries[i]) for i in dead_idx])
+            retried = await asyncio.gather(*[_one(*channels[i]) for i in dead_idx])
             for i, hits in zip(dead_idx, retried):
                 batches[i] = hits
 
+    if supplement_arxiv and provider.name in {"scopus", "openalex", "semantic_scholar"}:
+        from .arxiv_client import search_topic
+        from ...models.recall import RecallSource, build_recall_candidate
+        # Three query-level requests at most; abstracts and PDF URLs arrive together.
+        anchor = core_query or " ".join(queries[0].split()[:3]) if queries else ""
+        for q in ([anchor, anchor + " evaluation", anchor + " benchmark"] if anchor else []):
+            hits = []
+            error = None
+            try:
+                rows = await asyncio.wait_for(search_topic(q, limit=min(per_query, 40)), timeout=60)
+                for row in rows:
+                    candidate = build_recall_candidate(
+                        title=row["title"], arxiv_id=row["arxiv_id"], doi=row.get("doi"),
+                        year=row.get("year"), authors=row.get("authors"), abstract=row.get("abstract"),
+                        pdf_url=row.get("pdf_url"), source=RecallSource.SEARCH,
+                        provenance=["provider:arxiv", "method:topic_search"],
+                    )
+                    if candidate:
+                        hits.append(candidate)
+            except Exception as exc:
+                error = type(exc).__name__
+            channels.append((q, "arxiv", min(per_query, 40)))
+            batches.append(hits)
+            if search_audit is not None and error:
+                search_audit.setdefault("warnings", []).append(f"arXiv: {error}")
+                break
+
+    if search_audit is not None:
+        search_audit.update(method="bounded_multisource_rrf_v2", channel_limit=9,
+                            channels=[{"query": q, "order": order, "limit": limit, "hits": len(hits)}
+                                      for (q, order, limit), hits in zip(channels, batches)])
+
     candidates = []
-    for q, hits in zip(queries, batches):
+    for (q, order, _), hits in zip(channels, batches):
         candidates.extend(hits)
         if progress:
             try:
-                await progress(query=q, hit_count=len(hits), total_so_far=len(candidates))
+                await progress(query=f"{q}（{order}）",
+                               hit_count=len(hits), total_so_far=len(candidates))
             except Exception:
                 pass
 
     papers = _dedupe_candidates(candidates)
-    # Equal-query RRF; no publication-age quota or citation-popularity preference.
+    # Equal-weight RRF across channels; the cited channel is an explicit
+    # high-impact supplement, not a per-paper popularity preference.
     ranks: dict[str, float] = defaultdict(float)
     for hits in batches:
         for rank, paper in enumerate(_dedupe_candidates(hits), 1):
@@ -259,6 +326,10 @@ async def recall_papers(
     papers.sort(key=lambda p: (-ranks[p["key"]], p["key"]))
     for p in papers:
         p["retrieval_score"] = ranks[p["key"]]
+    papers, removed = apply_exclusions(papers, active_exclusions.get())
+    if search_audit is not None:
+        search_audit["excluded"] = removed
+    papers = merge_corpus([], papers, len(papers))
     papers = _cap_papers(papers, cap=cap, now_year=now_year)
     aclose = getattr(provider, "aclose", None)
     if aclose:
@@ -316,7 +387,7 @@ async def enrich_papers(papers: list[dict], *, progress=None) -> dict:
             p["abstract"] = hist["abstract"]
         if not p.get("keywords") and hist.get("keywords"):
             p["keywords"] = hist["keywords"]
-        for field in ("venue_name", "venue_issn"):
+        for field in ("venue_name", "venue_issn", "pdf_url", "arxiv_id"):
             if not p.get(field) and hist.get(field):
                 p[field] = hist[field]
         done_count += 1
@@ -845,6 +916,7 @@ async def run_exploration(run_id: int) -> None:
     from ..ai_config import get_analysis_config
 
     bus = get_exploration_bus(run_id)
+    exclusion_token = active_exclusions.set({})
 
     async def emit(event: str, **data):
         await bus.publish(StreamEvent(event=event, data=data))
@@ -855,10 +927,41 @@ async def run_exploration(run_id: int) -> None:
             question = (run.question or "").strip() if run else ""
             depth = run.depth if run else "standard"
             options = dict(run.options or {}) if run else {}
+            active_exclusions.set(options)
             seeds, seed_rows = load_seeds(s, options)
         preset = _preset_for_depth(depth)
         now_year = datetime.now(timezone.utc).year
         llm_cfg = get_analysis_config()
+
+        # 0) preflight —— 数据源预检：带 Key 的最小真实检索探测每个源（权限体检，
+        #    不是 ping 可达）。401/403/断网在烧正式检索配额之前就暴露；主源判死
+        #    则提前熔断（省去逐通道试错），全部判死则快速失败不再空跑。
+        source_warnings: list[str] = []
+        preflight_healths: list[dict] = []
+        preflight_dead: set[str] = set()
+        if options.get("search_online", True):
+            from .preflight import dead_source_names, preflight_research_sources
+
+            _set_stage(run_id, "preflight")
+            await emit("stage_start", stage="preflight")
+            preflight_healths = await preflight_research_sources()
+            preflight_dead = dead_source_names(preflight_healths)
+            for h in preflight_healths:
+                if h["name"] in preflight_dead:
+                    source_warnings.append(
+                        f"数据源预检：{h['name']} 不可用（{h.get('detail') or h.get('status')}）"
+                        + ("，已提前切换备用源。" if h.get("role") == "primary" else "。")
+                    )
+            await emit("stage_done", stage="preflight", summary={
+                "sources": preflight_healths, "dead": sorted(preflight_dead),
+            })
+            if not any(h.get("status") in {"ok", "rate_limited"} for h in preflight_healths):
+                raise RuntimeError(
+                    "数据源预检未通过：" + "；".join(
+                        f"{h['name']} {h.get('detail') or h.get('status')}"
+                        for h in preflight_healths
+                    ) + "。请在设置页检查检索源 Key 与网络（Scopus Key 通常要求校园网机构出口）后重试。"
+                )
 
         # 1) decompose
         _set_stage(run_id, "decompose")
@@ -886,13 +989,15 @@ async def run_exploration(run_id: int) -> None:
         async def _recall_progress(query: str, hit_count: int, total_so_far: int):
             await emit("recall_progress", query=query, hit_count=hit_count, total_so_far=total_so_far)
 
-        source_warnings = []
         neighbors = []
         seed_recall = {}
+        search_audit = {}
         if options.get("search_online", True):
             papers, provider_name = await recall_papers(
                 decompose["en_queries"], per_query=preset["per_query"], cap=preset["cap"],
-                now_year=now_year, progress=_recall_progress,
+                now_year=now_year, progress=_recall_progress, preflight_dead=preflight_dead,
+                supplement_arxiv=True, search_audit=search_audit,
+                core_query=decompose.get("core_query", ""),
             )
             if seed_rows:
                 try:
@@ -908,9 +1013,12 @@ async def run_exploration(run_id: int) -> None:
             )
         else:
             papers = merge_corpus(seeds, papers, preset["cap"])
+        # 盲测排除：问句检索与母论文引文扩展召回之后统一过滤，计量/综合/报告不再接触
+        papers, exclusion_stats = apply_exclusions(papers, options)
+        exclusion_stats["count"] += (search_audit.get("excluded") or {}).get("count", 0)
         _set_stage(run_id, "recall", "running", provider=provider_name)
         await emit("stage_done", stage="recall", summary={
-            "provider": provider_name, "total": len(papers),
+            "provider": provider_name, "total": len(papers), "excluded": exclusion_stats.get("count", 0),
         })
 
         # 3) enrich（指标富化：逐年引用 / 摘要 / 关键词 / 期刊 SJR——全部非致命）
@@ -925,6 +1033,8 @@ async def run_exploration(run_id: int) -> None:
         except Exception as ee:
             logger.warning(f"explorer enrich failed (non-fatal): {ee}")
             enrich_stats = {}
+        papers, enriched_exclusions = apply_exclusions(papers, options)
+        exclusion_stats["count"] += enriched_exclusions["count"]
         await emit("stage_done", stage="enrich", summary=enrich_stats)
 
         # 4) metrics + cluster（纯算法）
@@ -950,8 +1060,11 @@ async def run_exploration(run_id: int) -> None:
             ],
             "metrics": metrics,
             "graph": graph,
-            "sources": {**options, "seed_count": len(seeds), "seed_recall": seed_recall, "warnings": source_warnings},
+            "sources": {**options, "seed_count": len(seeds), "seed_recall": seed_recall,
+                        "warnings": source_warnings, "excluded": exclusion_stats,
+                        "preflight": preflight_healths},
         }
+        result["sources"]["recall"] = search_audit
         _set_stage(run_id, "metrics", result=result)
         await emit("metrics_ready", **result)
 
@@ -1032,6 +1145,7 @@ async def run_exploration(run_id: int) -> None:
         except Exception:
             logger.exception("Failed to emit error event for exploration run %s", run_id)
     finally:
+        active_exclusions.reset(exclusion_token)
         await bus.close()
         drop_exploration_bus(run_id)
 
@@ -1040,12 +1154,15 @@ async def rebuild_survey_report(run_id: int) -> None:
     """Regenerate a report from a saved corpus, without repeating online recall."""
     from ..ai_config import get_analysis_config
     bus = get_exploration_bus(run_id)
+    exclusion_token = active_exclusions.set({})
     try:
         with Session(get_engine()) as session:
             run = session.get(ExplorationRun, run_id)
             result = dict(run.result or {})
             question, depth = run.question, run.depth
             options = dict(run.options or {})
+        active_exclusions.set(options)
+        result["papers"], _ = apply_exclusions(result.get("papers", []), options)
         _set_stage(run_id, "report")
         await bus.publish(StreamEvent(event="stage_start", data={"stage": "report"}))
         await bus.publish(StreamEvent(event="metrics_ready", data=result))
@@ -1067,5 +1184,6 @@ async def rebuild_survey_report(run_id: int) -> None:
         _set_stage(run_id, "report", "failed", error_message=f"报告生成失败（{type(exc).__name__}）")
         await bus.publish(StreamEvent(event="error", data={"message": "报告生成失败，原材料已保留"}))
     finally:
+        active_exclusions.reset(exclusion_token)
         await bus.close()
         drop_exploration_bus(run_id)

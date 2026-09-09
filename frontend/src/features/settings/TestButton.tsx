@@ -17,7 +17,7 @@ interface TestResult {
 
 
 interface TestButtonProps {
-  type: 'translate' | 'analysis' | 'embedding'
+  type: 'llm' | 'translate' | 'analysis' | 'embedding'
   api_key?: string
   base_url?: string
   model?: string

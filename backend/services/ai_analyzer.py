@@ -447,7 +447,9 @@ async def _complete_once(client, use_openai: bool, model: str, system: str, user
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             **create_kwargs,
         )
-        if not resp.choices:
+        if isinstance(resp, str):
+            return resp
+        if not hasattr(resp, "choices") or not resp.choices:
             return ""
         msg = resp.choices[0].message
         content = msg.content or ""

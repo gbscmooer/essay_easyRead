@@ -16,6 +16,7 @@ from .deep_research.explorer import decompose_question, recall_papers
 from .deep_research.literature_retrieval import lexical_order, retrieve_materials
 from .deep_research.evidence_audit import audit_answer
 from .deep_research.survey_report import _source_excerpt
+from .research_exclusions import apply_exclusions, active_exclusions
 
 logger = logging.getLogger(__name__)
 _tasks: set[asyncio.Task] = set()
@@ -88,6 +89,8 @@ async def _answer(message_id: int) -> None:
             return
         run = _run(session, msg.run_id)
         result = run.result or {}
+        options = dict(run.options or {})
+        active_exclusions.set(options)
         root_question = run.question
         question, search_more, selected = msg.question, msg.search_more, msg.selected_keys
         history = list(session.exec(select(ExplorationMessage).where(
@@ -118,6 +121,7 @@ async def _answer(message_id: int) -> None:
             now_year=datetime.now(timezone.utc).year,
         )
         context["provider"] = provider
+        extra, context["excluded"] = apply_exclusions(extra, options)
         if not extra:
             context["warnings"].append("补充检索未返回新资料，本轮仅依据已有资料回答。")
         for p in extra:
@@ -128,8 +132,9 @@ async def _answer(message_id: int) -> None:
     # The complete archive stays in SQLite; each model call gets a bounded relevant subset.
     recent_history = [t for t in history if t.status == "done"][-12:]
     previous_question = recent_history[-1].question if recent_history else ""
+    available, _ = apply_exclusions(list(by_key.values()), options)
     materials, retrieval = await retrieve_materials(
-        list(by_key.values()), question + "\n" + previous_question + "\n" + root_question,
+        available, question + "\n" + previous_question + "\n" + root_question,
         selected,
     )
     context["retrieval"] = retrieval

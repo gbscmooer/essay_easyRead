@@ -22,6 +22,8 @@ API 文档: https://dev.elsevier.com/
 
 import asyncio
 import logging
+import time
+import weakref
 from typing import Optional
 
 import httpx
@@ -39,6 +41,14 @@ _AUTH_FAIL_LIMIT = 2
 # 学术检索的质量过滤：只要 期刊/会议文章、综述、in-press、短综述，
 # 排除 letter / note / erratum / 章节等噪声类型（探索召回的「排除干扰」）
 _ACADEMIC_DOCTYPES = "ar OR cp OR re OR sh OR ip"
+_shared_throttles = weakref.WeakKeyDictionary()
+
+
+def _shared_throttle():
+    loop = asyncio.get_running_loop()
+    if loop not in _shared_throttles:
+        _shared_throttles[loop] = AdaptiveThrottle(start=0.6, floor=0.5, cap=8.0, concurrency=2)
+    return _shared_throttles[loop]
 
 
 class ScopusProvider:
@@ -47,7 +57,7 @@ class ScopusProvider:
     def __init__(self, api_key: str = ""):
         self.api_key = (api_key or "").strip()
         self._client: httpx.AsyncClient | None = None
-        self._throttle = AdaptiveThrottle(start=0.35, floor=0.12, cap=8.0, concurrency=4)
+        self._throttle = None
         self._auth_fails = 0
         self._disabled = False
 
@@ -64,8 +74,11 @@ class ScopusProvider:
         """GET + JSON。自适应限速；鉴权/配额失败计入熔断；瞬时错误重试 2 次。返回 None 表示放弃。"""
         if self._disabled:
             return None
+        self._throttle = self._throttle or _shared_throttle()
         for attempt in range(3):
             async with self._throttle:
+                if self._disabled:
+                    return None
                 try:
                     r = await self._http().get(f"{SCOPUS_BASE}{path}", params=params)
                     if r.status_code == 200:
@@ -268,21 +281,24 @@ class ScopusProvider:
         base = f"TITLE-ABS-KEY({q})"
         return f"{base} AND DOCTYPE({_ACADEMIC_DOCTYPES})" if academic_only else base
 
-    async def search_works(self, query: str, limit: int = 20, *, academic_only: bool = False) -> list[RecallCandidate]:
+    async def search_works(self, query: str, limit: int = 20, *, academic_only: bool = False,
+                           order: str = "relevance") -> list[RecallCandidate]:
         """关键词检索。Scopus Search 单页上限 25 条（count>25 直接 400，实测），
-        超出时按 start 翻页补齐。"""
+        超出时按 start 翻页补齐。order="cited" 走被引降序（经典层补充，relevance
+        排序天然偏新文献，奠基论文需显式按被引召回）。"""
         if not query or not query.strip():
             return []
         entries: list[dict] = []
         remaining = min(limit, 100)
         start = 0
+        sort = "-citedby-count" if order == "cited" else "-relevancy"
         while remaining > 0:
             count = min(25, remaining)
             data = await self._get("/content/search/scopus", {
                 "query": self.build_search_query(query, academic_only=academic_only),
                 "count": count,
                 "start": start,
-                "sort": "relevancy",
+                "sort": sort,
                 "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
             })
             page = self._search_entries(data)
@@ -294,6 +310,45 @@ class ScopusProvider:
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )
+
+    async def health_check(self, *, timeout: float = 10.0) -> dict:
+        """权限体检：带 Key 发一次最小真实 Scopus Search（count=1），不是 ping 可达。
+
+        200 才说明 Key+出口 IP 都有检索权；401/403 是确定性失败，要在烧正式
+        检索配额之前暴露。刻意不走 _get（它会重试 3 次并吞掉状态码），也不
+        计入熔断计数——预检失败不该影响后续独立调用的重试语义。
+        """
+        if not self.api_key:
+            return {"name": self.name, "status": "unconfigured",
+                    "detail": "未配置 Elsevier API Key（auto 模式下不会启用 Scopus）",
+                    "latency_ms": None, "http_status": None}
+        start = time.monotonic()
+        try:
+            self._throttle = self._throttle or _shared_throttle()
+            async with self._throttle:
+                r = await self._http().get(f"{SCOPUS_BASE}/content/search/scopus", params={
+                    "query": "TITLE-ABS-KEY(retrieval)", "count": 1, "field": "dc:identifier",
+                }, timeout=timeout)
+                if r.status_code == 429:
+                    self._throttle.on_rate_limited(parse_retry_after(r.headers, 6.0))
+        except httpx.HTTPError as e:
+            return {"name": self.name, "status": "network_error",
+                    "detail": f"连接失败（{type(e).__name__}）",
+                    "latency_ms": None, "http_status": None}
+        latency = int((time.monotonic() - start) * 1000)
+        base = {"name": self.name, "latency_ms": latency, "http_status": r.status_code}
+        if r.status_code == 200:
+            return {**base, "status": "ok", "detail": "检索权限正常"}
+        if r.status_code == 401:
+            return {**base, "status": "auth_error",
+                    "detail": "HTTP 401：Key 无效或未随请求生效"}
+        if r.status_code == 403:
+            return {**base, "status": "auth_error",
+                    "detail": "HTTP 403：无检索权限（Key 权限档不足或出口 IP 不在订阅范围）"}
+        if r.status_code == 429:
+            return {**base, "status": "rate_limited",
+                    "detail": "HTTP 429：限速或配额耗尽（权限仍在）"}
+        return {**base, "status": "error", "detail": f"HTTP {r.status_code}"}
 
     async def aclose(self):
         if self._client is not None:

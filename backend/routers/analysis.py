@@ -178,6 +178,7 @@ class FindpapersConfig(BaseModel):
     max_results: int = 10
 
 class AppConfig(BaseModel):
+    llm: AIModelConfig = AIModelConfig()
     translate: AIModelConfig = AIModelConfig()
     analysis: AIModelConfig = AIModelConfig()
     analysis_prompt: AnalysisPromptConfig = AnalysisPromptConfig()
@@ -201,7 +202,9 @@ async def get_config() -> AppConfig:
     default_research = DEFAULT_CONFIG.get("research", {})
     recall_raw = {**(default_research.get("recall") or {}), **(research_raw.get("recall") or {})}
     research_payload = {**default_research, **research_raw, "recall": recall_raw}
+    llm_payload = config.get("llm") or config.get("analysis") or {}
     return AppConfig(
+        llm=AIModelConfig(**llm_payload),
         translate=AIModelConfig(**config.get("translate", {})),
         analysis=AIModelConfig(**config.get("analysis", {})),
         analysis_prompt=AnalysisPromptConfig(**config.get("analysis_prompt", {})),
@@ -260,6 +263,7 @@ async def update_config(req: AppConfig) -> dict:
             }
         research_merged[name] = merged
     config = {
+        "llm": req.llm.model_dump(),
         "translate": req.translate.model_dump(),
         "analysis": req.analysis.model_dump(),
         "analysis_prompt": req.analysis_prompt.model_dump(),
@@ -523,7 +527,7 @@ async def findpapers_test_databases(req: FindpapersTestRequest) -> FindpapersTes
 
 class TestConnectionRequest(BaseModel):
     """测试模型连通性请求"""
-    type: str  # "translate" | "analysis" | "embedding"
+    type: str  # "llm" | "translate" | "analysis" | "embedding"
     # 可选：前端直接传入当前表单配置，不传则用已保存的配置
     api_key: Optional[str] = None
     base_url: Optional[str] = None
@@ -548,24 +552,26 @@ async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
     if req.api_key is not None and is_masked_key(req.api_key):
         req.api_key = None
 
-    if req.type in ("translate", "analysis"):
+    if req.type in ("llm", "translate", "analysis"):
         return await _test_anthropic_connection(req)
     elif req.type == "embedding":
         return await _test_embedding_connection(req)
     else:
-        raise HTTPException(status_code=400, detail={"detail": "type 必须是 translate / analysis / embedding", "code": "INVALID_FORMAT"})
+        raise HTTPException(status_code=400, detail={"detail": "type 必须是 llm / translate / analysis / embedding", "code": "INVALID_FORMAT"})
 
 
 async def _test_anthropic_connection(req: TestConnectionRequest) -> TestConnectionResponse:
     """测试 LLM API 连通性（自动适配 Anthropic 格式和 OpenAI 兼容格式）"""
     import time
     from ..services.ai_analyzer import _create_client, _create_openai_client, _is_openai_format
-    from ..services.ai_config import get_translate_config, get_analysis_config
+    from ..services.ai_config import get_llm_config, get_translate_config, get_analysis_config
 
     if req.type == "translate":
         cfg = get_translate_config()
-    else:
+    elif req.type == "analysis":
         cfg = get_analysis_config()
+    else:
+        cfg = get_llm_config()
 
     api_key = req.api_key if req.api_key is not None else cfg.get("api_key", "")
     base_url = req.base_url if req.base_url is not None else cfg.get("base_url", "")

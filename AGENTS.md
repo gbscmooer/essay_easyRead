@@ -54,7 +54,8 @@ backend/
 │   ├── analysis.py       # AnalysisResult + 子结构（MethodModel, ExperimentModel 等）
 │   ├── code_analysis.py  # CodeAnalysis 模型（文件树、数据流、依赖图）
 │   ├── research.py       # ResearchRun + ResearchGraph 模型
-│   ├── exploration.py    # ExplorationRun 模型（问句驱动的领域探索，见 GOAL.md）
+│   ├── exploration.py    # ExplorationRun 模型（问句驱动的领域探索，见 GOAL.md；含 v2 workflow 列）
+│   ├── research_core.py  # academic_survey_v2 契约（S0 冻结）：状态常量、Core Pydantic 契约、research_* 十张表
 │   ├── workspace.py      # Workspace + WorkspacePaper 模型（多对多）
 │   └── schemas.py        # API Schema（PaperResponse, AnalysisResponse 等）
 ├── routers/         # API 路由
@@ -76,6 +77,7 @@ backend/
 │   ├── pdf_parser.py     # PDF 提取（PyMuPDF 主路径 + pypdf 后备）
 │   ├── semantic_scholar.py # Semantic Scholar 相关论文搜索
 │   ├── terminal.py       # WebSocket PTY 终端
+│   ├── research_event_log.py # v2 持久化事件/预算聚合/运行状态 CAS/live-bus 注册缝（S0；worker 由 S3 接入）
 │   └── deep_research/    # 深度研究子模块
 │       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
 │       ├── explorer.py        # 统一研究（问题+可选母论文→召回→计量→综合→报告）
@@ -144,6 +146,7 @@ frontend/src/
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
 6. **论文关联度**（`graphkit/relatedness.py`）: 八通道逐端排名的对称 RRF（k=60、默认等权）→ mutual-kNN（k=10）→ Leiden 与关系 PageRank。原始 Disparity Filter（alpha=.05）独立标记，不控制选边；展示桥不参与统计；自定义权重仅表示偏好，不做引文弱监督拟合。实际方法与解释随图谱保存。
 7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、热力图）。`ExplorationRun.options`保存输入快照；历史材料可单独补生成报告。契约见 `document.md` 2.9–2.11。
+8. **academic_survey_v2（契约层，实验性）**：`models/research_core.py` 冻结任务账本/资产/证据/关系/claim/报告 revision/预算/事件/身份判定十张表与状态常量；`research_event_log.py` 提供持久化事件回放、运行状态 CAS（数据库条件更新为并发权威，守卫 UPDATE 校验受影响行数）与 live-bus 注册缝；`/api/exploration` 新增 protocol/tasks/coverage/budget/pause/resume/cancel/retry/revisions/evidence/stream 扩展（v1 运行走 legacy 投影，行为不变）；任务幂等键以 (run_id, idempotency_key) 唯一；默认报告入口对 v2 解析当前选定 revision（隔离资产 403 拒绝导出）。执行器（S3–S6）接入前，显式 `workflow_version=academic_survey_v2` 创建返回 `WORKFLOW_NOT_IMPLEMENTED`。契约见 `document.md` 2.12 与 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md`。
 
 ### 路由
 
