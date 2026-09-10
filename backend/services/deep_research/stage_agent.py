@@ -44,8 +44,22 @@ class StageLoopResult:
         }
 
 
+def _truncate_strings(value: Any, limit: int) -> Any:
+    if isinstance(value, dict):
+        return {str(k)[:80]: _truncate_strings(v, limit) for k, v in list(value.items())[:40]}
+    if isinstance(value, (list, tuple)):
+        return [_truncate_strings(v, limit) for v in list(value)[:40]]
+    if isinstance(value, str):
+        return value[:limit] + ("…" if len(value) > limit else "")
+    return value
+
+
 def _compact(value: Any, *, max_chars: int = 4000) -> Any:
-    """把事件/模型上下文限制为小型 JSON，避免把原文或提示词写入运行轨迹。"""
+    """把事件/模型上下文限制为小型 JSON，避免把原文或提示词写入运行轨迹。
+
+    超限时渐进截断各字符串字段而不是把整个对象退化成字符串——事件回调和
+    模型视图按 dict 解包/序列化，类型漂移会导致 ** 解包崩溃或多重转义不可读。
+    """
     if isinstance(value, dict):
         compact = {str(k)[:80]: _compact(v, max_chars=max_chars) for k, v in list(value.items())[:40]}
     elif isinstance(value, (list, tuple)):
@@ -56,13 +70,21 @@ def _compact(value: Any, *, max_chars: int = 4000) -> Any:
         compact = value
     else:
         compact = str(value)[:max_chars]
+    for limit in (600, 200, 80):
+        shrunk = _truncate_strings(compact, limit)
+        try:
+            encoded = json.dumps(shrunk, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            break
+        if len(encoded) <= max_chars:
+            return shrunk
     try:
         encoded = json.dumps(compact, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return str(compact)[:max_chars]
     if len(encoded) <= max_chars:
         return compact
-    return encoded[:max_chars] + "…"
+    return {"__truncated__": encoded[:max_chars]}
 
 
 async def _resolve(value):
@@ -94,7 +116,12 @@ async def run_stage_agent(
 
     async def emit(payload: dict) -> None:
         if on_event:
-            await _resolve(on_event(_compact({"stage": stage, **payload})))
+            compacted = _compact({"stage": stage, **payload})
+            if not isinstance(compacted, dict):
+                # _compact 对超限 payload 会退化为截断字符串；事件回调按 dict 解包
+                # （**payload），保持结构避免 TypeError
+                compacted = {"stage": stage, "truncated_payload": compacted}
+            await _resolve(on_event(compacted))
 
     def marker() -> object:
         if progress_marker:
@@ -199,4 +226,9 @@ async def run_stage_agent(
         if stagnant >= no_progress_limit:
             return StageLoopResult(state, trace, "partial", "no_progress", iteration)
 
+    # 预算耗尽时补一次程序验收：模型只是持续改进而未显式 finish 时，验收权威
+    # 在 validator——通过即按完成处理，不把已达标的运行判死
+    budget_validation = await _resolve(validator(state))
+    if isinstance(budget_validation, StageValidation) and budget_validation.passed:
+        return StageLoopResult(state, trace, "completed", "validator_passed_on_budget", max_iterations)
     return StageLoopResult(state, trace, "partial", "iteration_budget_exhausted", max_iterations)

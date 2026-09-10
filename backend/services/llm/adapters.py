@@ -52,7 +52,11 @@ def _safe_provider_error(exc: Exception, config: LLMConfig) -> LLMError:
     raw = str(exc).replace(config.api_key, "***") if config.api_key else str(exc)
     safe = " ".join(raw.split())[:300] or exc.__class__.__name__
     retryable = status in {408, 409, 429, 500, 502, 503, 504} or any(
-        marker in safe.lower() for marker in ("timeout", "temporarily", "overloaded", "capacity")
+        marker in safe.lower() for marker in (
+            "timeout", "temporarily", "overloaded", "capacity",
+            "connection error", "connection reset", "connection refused",
+            "connection aborted", "network", "ssl", "eof",
+        )
     )
     return LLMError(
         code,

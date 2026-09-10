@@ -273,10 +273,15 @@ async def refine_decomposition_with_tools(
         return query_status(loop_state["decompose"].get("en_queries") or [])
 
     async def revise_queries(args: dict, loop_state: dict) -> dict:
-        raw = args.get("en_queries") if isinstance(args.get("en_queries"), list) else []
+        raw = args.get("en_queries")
+        if not isinstance(raw, list):
+            # preview_search 的检索式键名叫 queries，模型常把两个工具的键名混用
+            raw = args.get("queries") if isinstance(args.get("queries"), list) else []
         status = query_status([str(q) for q in raw])
         if not status["usable_queries"]:
-            return {"accepted": False, "detail": "没有合格的英文关键词串", **status}
+            return {"accepted": False, **status,
+                    "detail": 'arguments 必须是 {"en_queries": ["英文学术关键词串", ...]}，'
+                              "且每条都是纯英文关键词串（无中文、无布尔算符）"}
         current = loop_state["decompose"]
         current["en_queries"] = status["usable_queries"]
         intent = str(args.get("intent") or current.get("intent") or "landscape")
@@ -349,11 +354,20 @@ async def refine_decomposition_with_tools(
 
     system = (
         "你是学术检索阶段的查询研究员。你不能回答研究问题，只能操作白名单工具改进检索。"
-        "每轮仅输出 JSON：action 为 inspect_queries、revise_queries、preview_search、"
-        "inspect_search_log 或 finish；arguments 是工具参数；finish 是布尔值；"
-        "rationale_summary 只写一句简短决策依据；remaining_gaps 是字符串数组。"
+        "每轮仅输出一个 JSON 对象，顶层键为 action、arguments、finish（布尔值）、"
+        "rationale_summary（一句决策依据）、remaining_gaps（字符串数组）。"
+        "工具调用格式（arguments 的键名必须与下述完全一致）：\n"
+        "- inspect_queries：{}，查看当前检索式与合格数量；\n"
+        '- revise_queries：{"en_queries": ["英文学术关键词串", ...], '
+        '"intent": "landscape|maturity|novelty"（可选）, "focus_terms": ["关注词"]（可选）, '
+        '"core_query": "领域核心词组"（可选）}，修订检索式，检索式列表的键名必须是 en_queries；\n'
+        '- preview_search：{"queries": ["英文学术关键词串", ...]}（可传 {}，缺省用当前检索式），'
+        "真实试搜数据源并返回命中样本；\n"
+        "- inspect_search_log：{}，查看已试搜轮次与命中总数。\n"
         "preview_search 零命中时应换用学界英文同义词继续尝试；不得声称 idea 不存在。"
-        "当搜索已充分且可以进入正式召回时 action=finish、finish=true。"
+        "停止规则：预览已有命中时，通常 1—2 轮后即应 action=finish、finish=true；"
+        "零命中时按验收反馈要求的轮数补搜后也必须 finish（由零命中审计报告接管），"
+        "不要为追求更完美的检索式耗尽轮次。"
     )
 
     async def model_step(view: dict) -> dict:
@@ -1142,6 +1156,7 @@ async def synthesize_exploration(
                 "accepted_for_validation": True,
                 "verdict_status": verdict.get("status"),
                 "evidence_count": len(verdict.get("evidence") or []),
+                "next_action": "草稿已受理，不会自动验收；请 action=finish、finish=true 申请程序验收",
             }
 
         def validate_synthesis(current: dict) -> StageValidation:
@@ -1166,10 +1181,15 @@ async def synthesize_exploration(
             return StageValidation(True, "证据编号与输出结构验收通过")
 
         system = (
-            _SYNTH_SYSTEM + "\n你现在是综合阶段代理，只能调用 inspect_evidence、inspect_metrics、"
-            "submit_synthesis、finish。每轮只输出 JSON：action、arguments、finish、rationale_summary、"
-            "remaining_gaps。先用工具检查证据，必要时多轮换查询角度；提交草稿后由程序验收，"
-            "只有验收通过才能 finish。不要输出隐藏思维过程。"
+            _SYNTH_SYSTEM + "\n你现在是综合阶段代理，只能调用以下工具（arguments 的键名必须完全一致）：\n"
+            '- inspect_evidence {"query": "检索角度", "limit": 6}（参数可省略），按查询角度检视召回证据；\n'
+            "- inspect_metrics {}，查看文献计量指标；\n"
+            "- submit_synthesis {综合结果本身：verdict.status、verdict.evidence=[证据编号]、"
+            "landscape_summary 或 markdown_report 等}，提交后由程序验收。\n"
+            "每轮只输出 JSON：action、arguments、finish、rationale_summary、remaining_gaps。"
+            "停止规则：通常检视 1—2 轮后即应撰写并调用 submit_synthesis 提交综合结果，"
+            "随后 action=finish 申请验收；证据不必穷尽，基于已检视材料作答并标注编号即可，"
+            "不要为追求完备检视而耗尽轮次。不要输出隐藏思维过程。"
         )
 
         async def model_step(view: dict) -> dict:
