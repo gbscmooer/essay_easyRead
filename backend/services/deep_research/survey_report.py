@@ -320,10 +320,19 @@ async def extract_paper_with_agent(
         chunks = [excerpt[i:i + 2500] for i in range(0, len(excerpt), 2200)] or [""]
         scores = lexical_scores(chunks, focus)
         ranked = sorted(range(len(chunks)), key=lambda i: (-scores[i], i))[:3]
-        current["material_inspections"] += 1
+        inspections = current["material_inspections"] + 1
+        current["material_inspections"] = inspections
+        # 检视引导：检视计入进展但不产生结论，超过两轮继续检视只会烧尽轮次预算
+        if inspections >= 2:
+            hint = (f"材料已检视 {inspections} 次，继续检视不会增加收益；"
+                    "请基于已见内容调用 submit_extraction 提交提取（四张表可留空不确定的字段），"
+                    "随后 verify_relations 复核并 finish")
+        else:
+            hint = "检视完毕即可动笔；调用 submit_extraction 提取（arguments 即提取结果本身）"
         return {
             "paper_title": paper.get("title") or "", "source_kind": kind, "focus": focus,
             "passages": [_clean(chunks[i]) for i in ranked if chunks[i].strip()],
+            "next_action": hint,
         }
 
     async def submit_extraction(args: dict, current: dict) -> dict:

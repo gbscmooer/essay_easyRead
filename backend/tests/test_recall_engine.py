@@ -378,3 +378,49 @@ def test_doi_backfill_batches_of_50_and_fills_abstracts():
     assert [len(c) for c in backfill_calls] == [50, 10]
     assert audit["abstract_backfill"] == {"needed": 60, "filled": 60}
     assert all(p.get("abstract") for p in papers)
+
+
+def test_coverage_dimensions_drive_planner_and_topup():
+    """覆盖驱动：问题含任务/指标词 → 维度清单进入规划员输入；缺口触发补搜。"""
+    planner_payloads = []
+    state = {"planner_calls": 0}
+
+    async def search_one(source, keyword, limit, order):
+        # 每个词都给足量论文，让数量目标一次达标，检验"覆盖缺口"仍触发补搜
+        return [_cand(f"{keyword} {source} {i}", key=f"k:{keyword}:{source}:{i}",
+                      abstract=f"mamba vision backbone {keyword} classification accuracy")
+                for i in range(4)]
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            planner_payloads.append(json.loads(user))
+            state["planner_calls"] += 1
+            if state["planner_calls"] == 1:
+                return {"next_keywords": [], "done": True, "reason": "数量达标"}
+            return {"next_keywords": ["detection segmentation benchmark"], "done": False,
+                    "reason": "补覆盖缺口"}
+        return {"rejected": []}
+
+    question = "视觉 Mamba 在图像分类、目标检测、语义分割上与 Transformer 的参数量和推理速度对比"
+    papers, audit = asyncio.run(run_target_recall(
+        question, ["mamba vision"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
+        search_one=search_one, llm_json=llm_json,
+        backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+    ))
+    # 维度清单来自问题的任务/指标词
+    dims = audit["coverage_dimensions"]
+    assert "图像分类任务证据" in dims and "目标检测任务证据" in dims
+    assert "参数量对比证据" in dims and "推理速度/延迟证据" in dims
+    # 规划员输入携带覆盖清单
+    assert planner_payloads and planner_payloads[0].get("coverage_checklist")
+    # 摘要只含 classification/accuracy：检测/分割/速度维度未覆盖 → 触发补搜
+    assert any(str(r.get("round")).startswith("topup") for r in audit["rounds"])
+    assert audit["coverage_trace"]
+
+
+def test_coverage_dimensions_empty_without_matching_question():
+    from backend.services.deep_research.recall_engine import _coverage_dimensions
+
+    assert _coverage_dimensions("随便一个问题") == []
+    dims = _coverage_dimensions("detection 与 segmentation 的复杂度对比")
+    assert len(dims) == 3
