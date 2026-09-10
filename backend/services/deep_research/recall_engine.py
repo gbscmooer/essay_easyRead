@@ -159,21 +159,28 @@ async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict
 
 
 def _planner_prompt(question: str, *, target: int, corpus: list[dict],
-                    keyword_stats: list[dict]) -> tuple[str, str]:
+                    keyword_stats: list[dict],
+                    coverage: list[dict] | None = None) -> tuple[str, str]:
     by_year: dict[str, int] = defaultdict(int)
     for p in corpus:
         by_year[str(p.get("year") or "unknown")] += 1
     recent_titles = [p.get("title") or "" for p in
                      sorted(corpus, key=lambda p: -(p.get("citation_count") or 0))[:20]]
+    coverage = coverage or []
+    uncovered = [c["dimension"] for c in coverage if not c.get("covered")]
     system = (
         "你是学术检索规划员。任务：查看当前召回语料的覆盖情况，决定下一轮检索关键词。"
         "只输出一个 JSON 对象，顶层键为 next_keywords、done、reason，键名必须完全一致：\n"
         "- next_keywords：字符串数组，最多 4 条，每条是纯英文学术关键词串"
         "（空格分隔，无引号、无布尔算符、无中文），不得与已试关键词重复；\n"
-        "- done：布尔值，语料已达目标或没有值得尝试的新方向时为 true；\n"
+        "- done：布尔值，语料已达目标且覆盖维度均有证据、或没有值得尝试的新方向时为 true；\n"
         "- reason：一句话决策依据。\n"
-        "规则：优先补覆盖缺口（缺失的年份段、缺失的技术路线、缺失的同义词）；"
+        "规则：优先补覆盖缺口——未覆盖的证据维度（如缺失的任务、缺失的对比指标、"
+        "缺失的年份段、缺失的技术路线与同义词）优先于数量；"
+        "领域公认的高被引奠基工作（如综述必引的经典）缺席时优先补其名称检索；"
         "已试关键词零命中说明该表述在数据库中不存在，必须换学界同义表述而不是原样重试。"
+        + (f"\n当前未覆盖维度：{'、'.join(uncovered)}——next_keywords 应至少一半瞄准这些维度。"
+           if uncovered else "")
     )
     import json
 
@@ -181,6 +188,7 @@ def _planner_prompt(question: str, *, target: int, corpus: list[dict],
         "research_question": question,
         "target_corpus_size": target,
         "current_corpus_size": len(corpus),
+        "coverage_checklist": coverage or [],
         "by_year": dict(sorted(by_year.items())),
         "tried_keywords": [{"keyword": k["keyword"], "hits": k["raw_hits"]} for k in keyword_stats],
         "top_titles_sample": recent_titles,
@@ -206,6 +214,58 @@ _TITLE_FILTER_SYSTEM = (
 
 def _chunks(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+# 问题 → 证据覆盖维度的双语映射（程序化推导，不加 LLM 调用）：
+# 研究问题中命中左侧任一词，就要求语料在右侧维度上有确认证据
+_COVERAGE_DIMENSIONS: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = [
+    (("图像分类", "分类", "classification"), "图像分类任务证据",
+     ("classification", "imagenet", "top-1", "accura")),
+    (("目标检测", "检测", "detection"), "目标检测任务证据",
+     ("detection", "coco", "yolo", "mAP".lower(), "anchor")),
+    (("语义分割", "分割", "segmentation"), "语义分割任务证据",
+     ("segmentation", "seg", "ade20k", "cityscapes", "miou")),
+    (("视频", "video", "时序"), "视频/时序任务证据",
+     ("video", "temporal", "tracking", "flow")),
+    (("医学", "医疗", "medical"), "医学影像应用证据",
+     ("medical", "clnic", "segmentation", "diagnos")),
+    (("遥感", "remote sensing"), "遥感应用证据",
+     ("remote sensing", "hyperspectral", "satellite", "aerial")),
+    (("参数量", "参数", "parameter"), "参数量对比证据",
+     ("parameter", "params", "#p", "million")),
+    (("推理速度", "速度", "throughput", "speed", "延迟", "latency"), "推理速度/延迟证据",
+     ("throughput", "fps", "latency", "speed", "ms per")),
+    (("显存", "内存占用", "memory"), "显存/内存占用证据",
+     ("memory", "gpu hours", "footprint", "vram")),
+    (("计算复杂度", "复杂度", "complexity", "flops"), "计算复杂度证据",
+     ("complexity", "flops", "gflops", "linear")),
+    (("引用", "被引", "citation"), "引用影响力证据",
+     ("citation", "cited", "impact")),
+    (("硬件", "hardware", "实际部署", "gpu"), "真实硬件实测证据",
+     ("hardware", "a100", "rtx", "gpu benchmark", "deployment")),
+]
+
+
+def _coverage_dimensions(question: str) -> list[dict]:
+    """从研究问题程序化推导证据覆盖维度清单（无匹配则返回空清单）。"""
+    lowered = question.lower()
+    out: list[dict] = []
+    for triggers, name, probes in _COVERAGE_DIMENSIONS:
+        if any(t.lower() in lowered for t in triggers):
+            out.append({"dimension": name, "probes": list(probes)})
+    return out
+
+
+def _coverage_status(papers: list[dict], dimensions: list[dict]) -> list[dict]:
+    """逐维度统计确认语料中的证据命中（标题+摘要，大小写不敏感）。"""
+    corpus_text = " ".join(
+        f"{p.get('title') or ''} {(p.get('abstract') or '')[:600]}" for p in papers).lower()
+    out: list[dict] = []
+    for dim in dimensions:
+        hits = sum(1 for probe in dim["probes"] if probe.lower() in corpus_text)
+        out.append({"dimension": dim["dimension"], "probe_hits": hits,
+                    "covered": hits >= max(1, len(dim["probes"]) // 3)})
+    return out
 
 
 async def _filter_pool(papers: list[dict], question: str, *, batch_size: int,
@@ -333,6 +393,8 @@ async def run_target_recall(
     effective_rounds = 0
     rounds_trace: list[dict] = []
     planner_trace: list[dict] = []
+    coverage_trace: list[dict] = []
+    coverage_dimensions = _coverage_dimensions(question)
     stop_reason = "planner_unavailable"
 
     def _fresh_corpus() -> list[dict]:
@@ -404,9 +466,14 @@ async def run_target_recall(
         classic_stats.append(row)
 
     async def _planner(corpus: list[dict]) -> dict:
-        """规划员调用；返回归一化后的 dict（非 dict/缺字段不致命）。"""
+        """规划员调用；返回归一化后的 dict（非 dict/缺字段不致命）。
+
+        覆盖维度随确认语料状态动态更新：缺什么补什么优先于数量达标。
+        """
+        coverage = _coverage_status(corpus, coverage_dimensions) if coverage_dimensions else []
+        coverage_trace.append({"corpus": len(corpus), "checklist": coverage})
         system, user = _planner_prompt(question, target=target, corpus=corpus,
-                                       keyword_stats=keyword_stats)
+                                       keyword_stats=keyword_stats, coverage=coverage)
         try:
             plan = await llm_json(system, user)
         except Exception as exc:
@@ -504,11 +571,19 @@ async def run_target_recall(
             unknown = [p for p in kept if p.get("relevance_status") == "unknown"]
 
             topups = 0
-            while (len(confirmed) < target and topups < TOPUP_ROUNDS
+
+            def _uncovered(papers: list[dict]) -> list[str]:
+                if not coverage_dimensions:
+                    return []
+                return [c["dimension"] for c in _coverage_status(papers, coverage_dimensions)
+                        if not c["covered"]]
+
+            # 确认量不足 **或覆盖维度仍有缺口** 都触发预算内补搜（缺什么补什么）
+            while ((len(confirmed) < target or _uncovered(confirmed)) and topups < TOPUP_ROUNDS
                    and attempts < MAX_KEYWORD_ATTEMPTS and effective_rounds < MAX_ROUNDS
                    and stop_reason != "planner_error"):
                 # 注意：搜索循环的 planner_stop 不阻止补搜——规划员的 done 针对
-                # 原始候选量，质量筛选可能推翻它（筛后确认量不足就要补）
+                # 原始候选量，质量筛选/覆盖检查可能推翻它（筛后确认量不足就要补）
                 plan = await _planner(confirmed)
                 if "__error__" in plan or plan.get("done"):
                     planner_trace.append({"round": f"topup{topups + 1}",
@@ -579,6 +654,8 @@ async def run_target_recall(
             "rounds": rounds_trace,
             "classic": classic_stats,
             "planner": planner_trace,
+            "coverage_dimensions": [d["dimension"] for d in coverage_dimensions],
+            "coverage_trace": coverage_trace,
             "excluded": excluded_count,
             "source_failures": dict(source_failures),
             "corpus_after_search": len(corpus),
