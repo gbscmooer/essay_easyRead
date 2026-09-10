@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -47,6 +48,7 @@ from .citation_metrics import annotate_citation_metrics
 from .evidence_audit import audit_answer
 from .graphkit.backbone import mutual_knn
 from .survey_report import build_survey_report
+from .recall_engine import RECALL_TARGETS, run_target_recall
 from .stage_agent import StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
 from ..research_exclusions import apply_exclusions, active_exclusions
@@ -606,33 +608,49 @@ async def recall_papers(
 # 两边基数略有差异属正常（同一篇 ResNet 实测 229184 vs 227875）。
 
 _ENRICH_CONCURRENCY = 8      # OpenAlex 匿名档 ~10 rps，8 并发留余量
+# 目标量召回后语料可达数百上千篇，逐篇富化会形成请求风暴：
+# 只富化缺 counts_by_year 的前 N 篇（按召回排序，排前面的更重要）
+_ENRICH_PAPER_CAP = 200
 _SERIAL_CHUNK = 20           # Serial Title source-id 逗号分隔分块
 
 
-async def enrich_papers(papers: list[dict], *, progress=None) -> dict:
-    """就地富化论文列表（全部非致命：任何一步失败只缺字段，不阻塞探索）。"""
+async def enrich_papers(papers: list[dict], *, progress=None, history_cap: int | None = None) -> dict:
+    """就地富化论文列表（全部非致命：任何一步失败只缺字段，不阻塞探索）。
+
+    history_cap 只限制逐篇引用历史请求的数量预算（按传入顺序取前 N 篇缺历史的），
+    期刊批量富化与 venue 字段投影始终覆盖全部论文——预算内敛到子步，
+    避免外层裁剪输入时把已有历史的论文连带排除在期刊富化之外。
+    """
     stats = {"history_matched": 0, "venue_metrics": 0}
     if not papers:
         return stats
 
     # 1) OpenAlex 按 DOI 逐篇补：逐年引用 / 摘要 / 关键词 / 期刊身份
+    #    history 请求预算按传入顺序只花在缺历史的论文上（预算外的不发请求，
+    #    但不缺席第 2 步的期刊批量富化与字段投影）
     from .providers.openalex import get_shared_openalex_provider
 
     oa = get_shared_openalex_provider()
     sem = asyncio.Semaphore(_ENRICH_CONCURRENCY)
     done_count = 0
+    history_budget = [history_cap] if history_cap is not None else [None]
 
     async def _one(p: dict) -> None:
         nonlocal done_count
         doi = p.get("doi")
         if not doi or p.get("counts_by_year"):
             return
+        if history_budget[0] is not None and history_budget[0] <= 0:
+            return  # 引用历史预算耗尽：跳过请求，但保留在第 2 步期刊批量富化中
         async with sem:
             try:
                 hist = await oa.get_citation_history(doi)
             except Exception as e:
                 logger.debug(f"enrich history failed for {doi}: {e}")
                 return
+            finally:
+                if history_budget[0] is not None:
+                    history_budget[0] -= 1
         if not hist:
             return
         p["counts_by_year"] = hist.get("counts_by_year") or []
@@ -1296,6 +1314,60 @@ async def run_exploration(run_id: int) -> None:
         llm_cfg = get_analysis_config()
         agent_loops: dict[str, dict] = {}
 
+        # ── 可追溯性：阶段时间线 + token 台账；阶段结束即落库 ─────────────────
+        # 失败的 run 也保留已发生的关键记录（检索审计/循环轨迹/耗时/用量），
+        # 供事后复盘与流水线优化，不再依赖跑到 persist 才写 result。
+        from ..llm import set_llm_stage, start_token_ledger, token_ledger_report
+
+        token_ledger = start_token_ledger()
+        stage_timeline: list[dict] = []
+        _stage_clock: dict[str, float] = {}
+
+        def _stage_begin(stage: str) -> None:
+            set_llm_stage(stage)
+            _stage_clock[stage] = time.monotonic()
+            stage_timeline.append({"stage": stage,
+                                   "started_at": datetime.now(timezone.utc).isoformat(),
+                                   "duration_s": None, "status": "running"})
+
+        def _stage_end(stage: str, status: str = "completed", **counts) -> None:
+            started = _stage_clock.pop(stage, None)
+            for row in reversed(stage_timeline):
+                if row.get("stage") == stage and row.get("duration_s") is None:
+                    row["duration_s"] = round(time.monotonic() - started, 2) if started else None
+                    row["status"] = status
+                    row.update(counts)
+                    break
+
+        neighbors: list = []
+        seed_recall: dict = {}
+        search_audit: dict = {}
+        exclusion_stats: dict = {"count": 0}
+
+        def _snapshot_sources() -> dict:
+            return {
+                **options, "seed_count": len(seeds), "seed_recall": seed_recall,
+                "warnings": source_warnings, "excluded": exclusion_stats,
+                "preflight": preflight_healths, "agent_loops": agent_loops,
+                "stage_timeline": [dict(row) for row in stage_timeline],
+                "token_usage": token_ledger_report(token_ledger),
+                **({"recall": search_audit} if search_audit else {}),
+            }
+
+        def persist_sources() -> None:
+            try:
+                with Session(get_engine()) as s:
+                    run = s.get(ExplorationRun, run_id)
+                    if run is None:
+                        return
+                    partial = dict(run.result or {})
+                    partial["sources"] = _snapshot_sources()
+                    run.result = partial
+                    s.add(run)
+                    s.commit()
+            except Exception:
+                logger.warning("persist_sources failed (non-fatal)", exc_info=True)
+
         # 0) preflight —— 数据源预检：带 Key 的最小真实检索探测每个源（权限体检，
         #    不是 ping 可达）。401/403/断网在烧正式检索配额之前就暴露；主源判死
         #    则提前熔断（省去逐通道试错），全部判死则快速失败不再空跑。
@@ -1306,6 +1378,7 @@ async def run_exploration(run_id: int) -> None:
             from .preflight import dead_source_names, preflight_research_sources
 
             _set_stage(run_id, "preflight")
+            _stage_begin("preflight")
             await emit("stage_start", stage="preflight")
             await emit("stage_iteration", stage="preflight", iteration=1, phase="tool", tool="probe_sources")
             preflight_healths = await preflight_research_sources()
@@ -1332,9 +1405,13 @@ async def run_exploration(run_id: int) -> None:
             "iterations": 1 if options.get("search_online", True) else 0,
             "trace": [],
         }
+        if options.get("search_online", True):
+            _stage_end("preflight", sources=len(preflight_healths), dead=sorted(preflight_dead))
+            persist_sources()
 
         # 1) decompose
         _set_stage(run_id, "decompose")
+        _stage_begin("decompose")
         await emit("stage_start", stage="decompose")
         decomposition_question = question
         if seeds:
@@ -1392,9 +1469,13 @@ async def run_exploration(run_id: int) -> None:
             "iterations": agent_loops["decompose"].get("iterations", 0),
             "loop_status": agent_loops["decompose"].get("status"),
         })
+        _stage_end("decompose", queries=len(decompose["en_queries"]),
+                   fallback=bool(decompose.get("fallback")))
+        persist_sources()
 
         # 2) recall
         _set_stage(run_id, "recall")
+        _stage_begin("recall")
         await emit("stage_start", stage="recall")
 
         async def _recall_progress(query: str, hit_count: int, total_so_far: int):
@@ -1403,14 +1484,35 @@ async def run_exploration(run_id: int) -> None:
         neighbors = []
         seed_recall = {}
         search_audit = {}
+        corpus_cap = max(preset["cap"], RECALL_TARGETS.get(depth, 500))
         if options.get("search_online", True):
             await emit("stage_iteration", stage="recall", iteration=1, phase="tool", tool="query_search")
-            papers, provider_name = await recall_papers(
-                decompose["en_queries"], per_query=preset["per_query"], cap=preset["cap"],
-                now_year=now_year, progress=_recall_progress, preflight_dead=preflight_dead,
-                supplement_arxiv=True, search_audit=search_audit,
-                core_query=decompose.get("core_query", ""),
-            )
+            engine_used = False
+            if llm_cfg and llm_cfg.get("api_key"):
+                # 目标量驱动的三源并行引擎（快览 200 / 标准 500 / 深挖 1000）：
+                # 依赖 LLM 做检索规划与摘要筛选，失败退回旧召回路径
+                async def _engine_event(payload: dict):
+                    await emit("stage_iteration", stage="recall", **payload)
+
+                try:
+                    papers, engine_audit = await run_target_recall(
+                        question, decompose["en_queries"], depth=depth, now_year=now_year,
+                        llm_cfg=llm_cfg, progress=_recall_progress,
+                        on_event=_engine_event, preflight_dead=preflight_dead,
+                    )
+                    search_audit.update(engine_audit)
+                    provider_name = "multi:arxiv+scopus+openalex"
+                    engine_used = True
+                except Exception as exc:
+                    logger.warning("target recall engine failed, fallback to legacy recall: %s", exc)
+                    search_audit["engine_fallback"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+            if not engine_used:
+                papers, provider_name = await recall_papers(
+                    decompose["en_queries"], per_query=preset["per_query"], cap=preset["cap"],
+                    now_year=now_year, progress=_recall_progress, preflight_dead=preflight_dead,
+                    supplement_arxiv=True, search_audit=search_audit,
+                    core_query=decompose.get("core_query", ""),
+                )
             if seed_rows:
                 try:
                     neighbors, seed_recall = await recall_seed_neighbors(seed_rows, depth)
@@ -1421,10 +1523,10 @@ async def run_exploration(run_id: int) -> None:
         if neighbors:
             papers = merge_corpus(seeds, [*papers, *neighbors], len(seeds) + len(papers) + len(neighbors))
             papers, seed_recall["corpus_selection"] = await retrieve_materials(
-                papers, question, [p["key"] for p in seeds], limit=max(preset["cap"], len(seeds)),
+                papers, question, [p["key"] for p in seeds], limit=max(corpus_cap, len(seeds)),
             )
         else:
-            papers = merge_corpus(seeds, papers, preset["cap"])
+            papers = merge_corpus(seeds, papers, corpus_cap)
         # 盲测排除：问句检索与母论文引文扩展召回之后统一过滤，计量/综合/报告不再接触
         papers, exclusion_stats = apply_exclusions(papers, options)
         exclusion_stats["count"] += (search_audit.get("excluded") or {}).get("count", 0)
@@ -1432,42 +1534,71 @@ async def run_exploration(run_id: int) -> None:
         await emit("stage_done", stage="recall", summary={
             "provider": provider_name, "total": len(papers), "excluded": exclusion_stats.get("count", 0),
         })
-        agent_loops["recall"] = {
-            "status": "completed",
-            "stop_reason": "formal_recall_finished",
-            "iterations": 1,
-            "trace": [{
-                "iteration": 1,
-                "action": "query_search",
-                "observation": {"provider": provider_name, "total": len(papers)},
-                "validation": {"passed": True, "feedback": "正式召回已记录；零命中允许进入受限报告"},
-            }],
-        }
+        if search_audit.get("engine") == "target_recall_v1":
+            agent_loops["recall"] = {
+                "status": "completed",
+                "stop_reason": "formal_recall_finished",
+                "iterations": search_audit.get("effective_rounds") or 1,
+                "trace": [{
+                    "iteration": r.get("round"),
+                    "action": "multi_source_search",
+                    "observation": {"keywords": r.get("keywords"),
+                                    "corpus_after": r.get("corpus_after")},
+                } for r in (search_audit.get("rounds") or [])],
+                "validation": {"passed": True,
+                               "feedback": "目标量召回已记录；零命中关键词不消耗轮次预算"},
+            }
+        else:
+            agent_loops["recall"] = {
+                "status": "completed",
+                "stop_reason": "formal_recall_finished",
+                "iterations": 1,
+                "trace": [{
+                    "iteration": 1,
+                    "action": "query_search",
+                    "observation": {"provider": provider_name, "total": len(papers)},
+                    "validation": {"passed": True, "feedback": "正式召回已记录；零命中允许进入受限报告"},
+                }],
+            }
+        _stage_end("recall", papers=len(papers), provider=provider_name,
+                   rounds=search_audit.get("effective_rounds"),
+                   engine=search_audit.get("engine"))
+        persist_sources()
 
         # 3) enrich（指标富化：逐年引用 / 摘要 / 关键词 / 期刊 SJR——全部非致命）
         _set_stage(run_id, "enrich")
+        _stage_begin("enrich")
         await emit("stage_start", stage="enrich")
         await emit("stage_iteration", stage="enrich", iteration=1, phase="tool", tool="enrich_sources")
 
+        _enrich_pool = papers  # history 请求预算内敛到 enrich_papers 子步，期刊富化覆盖全部论文
+
         async def _enrich_progress(done: int):
-            await emit("enrich_progress", done=done, total=len(papers))
+            await emit("enrich_progress", done=done, total=len(_enrich_pool))
 
         try:
-            enrich_stats = await enrich_papers(papers, progress=_enrich_progress) if options.get("search_online", True) else {}
+            enrich_stats = await enrich_papers(
+                _enrich_pool, progress=_enrich_progress, history_cap=_ENRICH_PAPER_CAP,
+            ) if options.get("search_online", True) else {}
         except Exception as ee:
             logger.warning(f"explorer enrich failed (non-fatal): {ee}")
-            enrich_stats = {}
+            enrich_stats = {"error": f"{type(ee).__name__}"}
         papers, enriched_exclusions = apply_exclusions(papers, options)
         exclusion_stats["count"] += enriched_exclusions["count"]
         await emit("stage_done", stage="enrich", summary=enrich_stats)
         agent_loops["enrich"] = {
             "status": "completed", "stop_reason": "best_effort_enrichment_finished", "iterations": 1,
             "trace": [{"iteration": 1, "action": "enrich_sources",
+                       "observation": {"pool": len(_enrich_pool), "cap": _ENRICH_PAPER_CAP,
+                                       "corpus": len(papers)},
                        "validation": {"passed": True, "feedback": "富化结果与缺失均已记录"}}],
         }
+        _stage_end("enrich", corpus=len(papers), history_budget=_ENRICH_PAPER_CAP, **enrich_stats)
+        persist_sources()
 
         # 4) metrics + cluster（纯算法）
         _set_stage(run_id, "metrics")
+        _stage_begin("metrics")
         await emit("stage_start", stage="metrics")
         await emit("stage_iteration", stage="metrics", iteration=1, phase="tool", tool="compute_metrics_and_graph")
         metrics = compute_metrics(papers, now_year=now_year)
@@ -1483,8 +1614,11 @@ async def run_exploration(run_id: int) -> None:
         agent_loops["metrics"] = {
             "status": "completed", "stop_reason": "deterministic_metrics_validated", "iterations": 1,
             "trace": [{"iteration": 1, "action": "compute_metrics_and_graph",
+                       "observation": {"corpus": len(papers), "year_span": metrics.get("year_span"),
+                                       "representation": representation.get("representation")},
                        "validation": {"passed": True, "feedback": "计量与图谱结构已生成"}}],
         }
+        _stage_end("metrics", corpus=len(papers), year_span=metrics.get("year_span"))
 
         result = {
             "decompose": decompose,
@@ -1495,17 +1629,16 @@ async def run_exploration(run_id: int) -> None:
             ],
             "metrics": metrics,
             "graph": graph,
-            "sources": {**options, "seed_count": len(seeds), "seed_recall": seed_recall,
-                        "warnings": source_warnings, "excluded": exclusion_stats,
-                        "preflight": preflight_healths, "agent_loops": agent_loops},
+            "sources": _snapshot_sources(),
         }
-        result["sources"]["recall"] = search_audit
         _set_stage(run_id, "metrics", result=result)
         await emit("metrics_ready", **result)
+        persist_sources()
 
         # 5) synthesize（无 Key / 证据不足自动跳过）
         synthesis_dict = None
         _set_stage(run_id, "synthesize")
+        _stage_begin("synthesize")
         await emit("stage_start", stage="synthesize")
         try:
             synthesis = await synthesize_exploration(
@@ -1536,9 +1669,15 @@ async def run_exploration(run_id: int) -> None:
             await emit("stage_done", stage="synthesize", summary={"error": str(se)})
 
         _set_stage(run_id, "synthesize", result=result)
+        _stage_end("synthesize",
+                   status="partial" if agent_loops["synthesize"].get("status") == "partial" else "completed",
+                   partial=bool((synthesis_dict or {}).get("partial")),
+                   verdict=((synthesis_dict or {}).get("verdict") or {}).get("status"))
+        persist_sources()
 
         # 6) Evidence tables are shared by cold-start and seeded research.
         _set_stage(run_id, "report")
+        _stage_begin("report")
         await emit("stage_start", stage="report")
 
         async def report_progress(done: int, total: int):
@@ -1569,9 +1708,16 @@ async def run_exploration(run_id: int) -> None:
             logger.exception("Survey tables failed; existing research artifacts retained")
             result["report_error"] = f"报告表格未完成（{type(exc).__name__}），可从已有材料重新生成。"
         await emit("stage_done", stage="report", summary={})
+        _stage_end("report",
+                   status="partial" if result.get("report_error") else "completed",
+                   report_status=(result.get("survey_report") or {}).get("status"),
+                   examined=((result.get("survey_report") or {}).get("coverage") or {}).get("examined"),
+                   report_error=bool(result.get("report_error")))
+        persist_sources()
 
         # 7) persist
         _set_stage(run_id, "persist")
+        _stage_begin("persist")
         await emit("stage_start", stage="persist")
         await emit("stage_iteration", stage="persist", iteration=1, phase="tool", tool="persist_result")
         agent_loops["persist"] = {
@@ -1579,12 +1725,16 @@ async def run_exploration(run_id: int) -> None:
             "trace": [{"iteration": 1, "action": "persist_result",
                        "validation": {"passed": True, "feedback": "提交失败会使整个阶段失败"}}],
         }
+        result["sources"] = _snapshot_sources()  # 此时 persist 仍为 running
         with Session(get_engine()) as s:
             run = s.get(ExplorationRun, run_id)
             if run is not None:
                 run.result = result
                 s.add(run)
                 s.commit()
+        # 提交成功后才闭合 persist 时间线，并做第二次小写入更新审计
+        _stage_end("persist")
+        persist_sources()
         await emit("stage_done", stage="persist", summary={})
         await emit("metrics_ready", **result)
 
@@ -1595,6 +1745,19 @@ async def run_exploration(run_id: int) -> None:
         logger.exception(f"Exploration run {run_id} failed")
         err_msg = str(e)
         current_stage = ""
+        # 可追溯性：失败的 run 也闭合时间线（标记失败阶段与错误）并落库审计；
+        # 若失败发生在阶段初始化之前（无时间线可写）则跳过
+        try:
+            for row in stage_timeline:
+                if row.get("duration_s") is None:
+                    row["status"] = "failed"
+                    row["error"] = err_msg[:200]
+                    started = _stage_clock.pop(row.get("stage"), None)
+                    if started is not None:
+                        row["duration_s"] = round(time.monotonic() - started, 2)
+            persist_sources()
+        except Exception:
+            logger.debug("stage timeline unavailable before stage init", exc_info=True)
         try:
             with Session(get_engine()) as s:
                 run = s.get(ExplorationRun, run_id)
@@ -1619,6 +1782,8 @@ async def run_exploration(run_id: int) -> None:
 async def rebuild_survey_report(run_id: int) -> None:
     """Regenerate a report from a saved corpus, without repeating online recall."""
     from ..ai_config import get_analysis_config
+    from ..llm import set_llm_stage
+    set_llm_stage("report_regen")
     bus = get_exploration_bus(run_id)
     exclusion_token = active_exclusions.set({})
     try:

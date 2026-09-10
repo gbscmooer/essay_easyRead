@@ -23,7 +23,7 @@ from .stage_agent import StageValidation, run_stage_agent
 from ..research_exclusions import apply_exclusions, active_exclusions, excluded
 
 REPORT_VERSION = 1
-LIMITS = {"quick": 12, "standard": 24, "deep": 40}
+LIMITS = {"quick": 12, "standard": 32, "deep": 48}
 TABLE_FIELDS = {
     "frameworks": ("name", "kind", "target", "aspects", "metrics"),
     "metrics": ("aspect", "metric", "description"),
@@ -65,11 +65,42 @@ def _search_summary(search_context: dict | None) -> dict:
             } for query in preview.get("queries") or [])
 
     recall = context.get("recall") or {}
-    attempts.extend({
-        "phase": "formal", "round": 1, "provider": context.get("provider") or "",
-        "query": row.get("query") or "", "order": row.get("order") or "relevance",
-        "limit": row.get("limit"), "hits": row.get("hits", 0),
-    } for row in recall.get("channels") or [] if isinstance(row, dict))
+    if recall.get("engine") == "target_recall_v1":
+        # 新引擎审计投影：正式轮次按 关键词 × 源 展开，经典通道与补搜单独成行
+        for rd in recall.get("rounds") or []:
+            round_label = rd.get("round")
+            for stat in rd.get("stats") or []:
+                errors = stat.get("source_errors") or {}
+                for src, hits in (stat.get("sources") or {}).items():
+                    attempts.append({
+                        "phase": "formal", "round": round_label, "provider": src,
+                        "query": stat.get("keyword") or "", "order": "relevance",
+                        "limit": None, "hits": hits,
+                        **({"error": errors[src]} if errors.get(src) else {}),
+                    })
+        for row in recall.get("classic") or []:
+            errors = row.get("source_errors") or {}
+            for src, hits in (row.get("sources") or {}).items():
+                attempts.append({
+                    "phase": "formal", "round": row.get("round"), "provider": src,
+                    "query": f"{row.get('keyword') or ''}（被引经典层）", "order": "cited",
+                    "limit": None, "hits": hits,
+                    **({"error": errors[src]} if errors.get(src) else {}),
+                })
+        flt = recall.get("filter") or {}
+        if not flt.get("skipped"):
+            attempts.append({
+                "phase": "filter", "round": None, "provider": "llm_relevance_filter",
+                "query": "摘要/标题三级相关性筛选", "order": None, "limit": None,
+                "hits": flt.get("kept") or 0,
+                "rejected": flt.get("rejected") or 0, "unknown": flt.get("unknown") or 0,
+            })
+    else:
+        attempts.extend({
+            "phase": "formal", "round": 1, "provider": context.get("provider") or "",
+            "query": row.get("query") or "", "order": row.get("order") or "relevance",
+            "limit": row.get("limit"), "hits": row.get("hits", 0),
+        } for row in recall.get("channels") or [] if isinstance(row, dict))
 
     queries = list(dict.fromkeys(
         str(q).strip() for q in decompose.get("en_queries") or [] if str(q).strip()
@@ -86,12 +117,17 @@ def _search_summary(search_context: dict | None) -> dict:
         "name": row.get("name"), "role": row.get("role"), "status": row.get("status"),
         "detail": row.get("detail"),
     } for row in context.get("preflight") or [] if isinstance(row, dict)]
+    recall = context.get("recall") or {}
+    stop_reason = (loops.get("decompose") or {}).get("stop_reason") or "formal_recall_finished"
+    if recall.get("engine") == "target_recall_v1" and recall.get("stop_reason"):
+        stop_reason = f"engine:{recall.get('stop_reason')}"
     return {
         "queries": queries, "sources": sources, "attempts": attempts,
         "attempt_count": len(attempts),
         "total_channel_hits": sum(max(0, int(row.get("hits") or 0)) for row in attempts),
         "directions": directions,
-        "stop_reason": (loops.get("decompose") or {}).get("stop_reason") or "formal_recall_finished",
+        "engine": recall.get("engine") or "",
+        "stop_reason": stop_reason,
         "interpretation": "零命中只描述本次查询、来源和时间范围，不能证明全领域不存在相关工作。",
     }
 
@@ -373,8 +409,8 @@ async def extract_paper_with_agent(
             "verify_relations": verify_relations,
         },
         validator=validate,
-            max_iterations={"quick": 4, "standard": 5, "deep": 7}.get(depth, 5),
-            no_progress_limit=3, turn_timeout=120 if depth == "deep" else 80,
+        max_iterations={"quick": 8, "standard": 10, "deep": 12}.get(depth, 10),
+        no_progress_limit=3, turn_timeout=120,
         progress_marker=lambda current: (
             current["material_inspections"], current["relation_verified"],
             json.dumps(current.get("draft"), ensure_ascii=False, sort_keys=True),
@@ -439,9 +475,9 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
     completed = 0
     download_candidates = sorted(selected, key=lambda p: (not bool(p.get("pdf_url") or p.get("arxiv_id")),
                                                          bool(p.get("source_text"))))
+    # 研究阶段（精读）不受搜索阶段的轮次预算约束：选中篇目全部尝试全文获取，
+    # 排序保证带 PDF 链接/arXiv id 的优先；单篇 45s 截止 + 信号量并发限流兜底
     downloads = {p["key"] for p in download_candidates if not p.get("source_text")}
-    downloads = set([p["key"] for p in download_candidates if p["key"] in downloads]
-                    [:{"quick": 4, "standard": 8, "deep": 12}.get(depth, 8)])
     download_audit = []
 
     async def full_text(paper):

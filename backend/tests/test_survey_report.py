@@ -181,3 +181,35 @@ def test_failed_pdf_download_falls_back_to_abstract(monkeypatch):
     assert report["coverage"]["abstract_only"] == 1
     assert report["coverage"]["failed"] == 0
     assert paper["full_text_status"] == "unavailable"
+
+
+def test_search_summary_projects_engine_audit():
+    """F7：新引擎审计投影进搜索摘要——正式轮次/经典层/筛选行 + engine stop_reason。"""
+    context = {
+        "provider": "multi:arxiv+scopus+openalex",
+        "decompose": {"en_queries": ["mamba vision"]},
+        "preflight": [{"name": "scopus", "role": "primary", "status": "ok"}],
+        "agent_loops": {"decompose": {"preview_rounds": [], "trace": []}},
+        "recall": {
+            "engine": "target_recall_v1", "stop_reason": "planner_stop",
+            "rounds": [{"round": 1, "stats": [{
+                "keyword": "mamba vision", "raw_hits": 12,
+                "sources": {"arxiv": 4, "scopus": 4, "openalex": 4},
+                "source_errors": {"scopus": "ConnectError"},
+            }]}],
+            "classic": [{"round": 1, "keyword": "mamba vision",
+                         "sources": {"scopus": 3, "openalex": 3}, "source_errors": {}}],
+            "filter": {"skipped": False, "kept": 100, "rejected": 20, "unknown": 5},
+        },
+    }
+    summary = sr._search_summary(context)
+    formal = [a for a in summary["attempts"] if a["phase"] == "formal"]
+    assert len(formal) == 5  # 3 源 ×1 关键词 + 2 源经典层
+    scopus_row = next(a for a in formal if a["provider"] == "scopus" and a["order"] == "relevance")
+    assert scopus_row["error"] == "ConnectError" and scopus_row["hits"] == 4
+    classic_row = next(a for a in formal if a["order"] == "cited")
+    assert "被引经典层" in classic_row["query"]
+    filter_rows = [a for a in summary["attempts"] if a["phase"] == "filter"]
+    assert filter_rows and filter_rows[0]["rejected"] == 20
+    assert summary["engine"] == "target_recall_v1"
+    assert summary["stop_reason"] == "engine:planner_stop"
