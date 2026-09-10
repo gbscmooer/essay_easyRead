@@ -300,6 +300,28 @@ class OpenAlexProvider:
             return None
         return _extract_pdf(data)
 
+    async def get_abstracts_by_dois(self, dois: list[str]) -> dict[str, str]:
+        """DOI 批量反查摘要：filter=doi:a|b|…（OR 语义，单请求 ≤50 个）。
+
+        Scopus Search 不返回摘要（个人 Key 权限），召回引擎靠它成批补齐；
+        返回 {doi(小写): 摘要文本}，查不到的 DOI 不出现在结果里。
+        """
+        out: dict[str, str] = {}
+        cleaned = [d.strip().replace("https://doi.org/", "") for d in dois if d and d.strip()]
+        for start in range(0, len(cleaned), 50):
+            chunk = cleaned[start:start + 50]
+            data = await self._safe_get("/works", {
+                "filter": "doi:" + "|".join(chunk),
+                "select": "doi,abstract_inverted_index",
+                "per-page": 50,
+            })
+            for work in (data or {}).get("results") or []:
+                doi = str(work.get("doi") or "").replace("https://doi.org/", "").lower()
+                abstract = _reconstruct_abstract(work)
+                if doi and abstract:
+                    out[doi] = abstract
+        return out
+
     async def get_citation_history(self, doi: str) -> dict | None:
         """按 DOI 拉逐年引用曲线 + 摘要 + 关键词 + 期刊身份（指标富化用）。
 

@@ -5,7 +5,15 @@ Provider-specific URL, authentication, request and response handling lives in
 the adapter layer.
 """
 
-from .client import complete_json, complete_text, stream_text, test_connection
+from .client import (
+    complete_json,
+    complete_text,
+    set_llm_stage,
+    start_token_ledger,
+    stream_text,
+    test_connection,
+    token_ledger_report,
+)
 from .errors import LLMError, LLMResponseError
 from .models import (
     API_FORMAT_ANTHROPIC,
@@ -34,6 +42,9 @@ __all__ = [
     "normalize_api_format",
     "normalize_thinking_effort",
     "resolve_thinking",
+    "set_llm_stage",
+    "start_token_ledger",
     "stream_text",
     "test_connection",
+    "token_ledger_report",
 ]

@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Mapping
+from contextvars import ContextVar
 from typing import Any
 
 from .adapters import get_adapter
@@ -16,6 +17,49 @@ from .models import LLMConfig, LLMResponse
 MAX_RETRIES = 5
 BASE_DELAY = 3.0
 MAX_DELAY = 120.0
+
+# ── Token 台账（工作流可追溯性）──────────────────────────────────────────────
+# 上层流水线 start_token_ledger() 后，每次成功调用的 usage 按当前阶段标签
+# 累计；阶段标签由流水线在各阶段切换时 set_llm_stage() 设置。未启动台账时
+# 零开销，不影响普通调用方。
+_ledger_var: ContextVar[dict | None] = ContextVar("llm_token_ledger", default=None)
+_stage_var: ContextVar[str] = ContextVar("llm_stage", default="")
+
+
+def start_token_ledger() -> dict:
+    """创建并激活一个台账（{stage: {calls, input_tokens, output_tokens}}）。"""
+    ledger: dict = {}
+    _ledger_var.set(ledger)
+    return ledger
+
+
+def set_llm_stage(stage: str) -> None:
+    """标记后续调用归属的工作流阶段（空串表示未标注）。"""
+    _stage_var.set(str(stage or ""))
+
+
+def _accumulate_usage(response: LLMResponse) -> None:
+    ledger = _ledger_var.get()
+    if ledger is None:
+        return
+    usage = dict(response.usage or {})
+    input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    stage = _stage_var.get() or "unlabeled"
+    row = ledger.setdefault(stage, {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+    row["calls"] += 1
+    row["input_tokens"] += input_tokens
+    row["output_tokens"] += output_tokens
+
+
+def token_ledger_report(ledger: dict) -> dict:
+    """台账快照 + 合计，供持久化审计使用。"""
+    stages = {stage: dict(row) for stage, row in (ledger or {}).items()}
+    stages["total"] = {
+        key: sum(row.get(key, 0) for row in (ledger or {}).values())
+        for key in ("calls", "input_tokens", "output_tokens")
+    }
+    return stages
 
 
 def retry_delays(max_retries: int = MAX_RETRIES) -> list[float]:
@@ -79,7 +123,7 @@ async def complete(
     delays = retry_delays(max_retries)
     for attempt in range(max_retries + 1):
         try:
-            return await adapter.complete_once(
+            response = await adapter.complete_once(
                 resolved,
                 system=system,
                 user=user,
@@ -88,6 +132,8 @@ async def complete(
                 thinking_effort=effort,
                 extra_body=extra_body,
             )
+            _accumulate_usage(response)
+            return response
         except Exception as exc:
             if attempt >= max_retries or not is_retryable(exc):
                 raise

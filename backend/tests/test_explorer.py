@@ -769,7 +769,13 @@ def test_run_exploration_stops_before_recall_when_configured_llm_cannot_translat
         assert run.status == "failed"
         assert run.current_stage == "decompose"
         assert "未使用中文原句检索" in (run.error_message or "")
-        assert run.result is None
+        # 可追溯性契约：失败的 run 保留已发生阶段的审计快照（时间线标记失败阶段）
+        sources = (run.result or {}).get("sources") or {}
+        timeline = sources.get("stage_timeline") or []
+        assert {row["stage"]: row["status"] for row in timeline}.get("preflight") == "completed"
+        failed_rows = [row for row in timeline if row["status"] == "failed"]
+        assert failed_rows and failed_rows[0]["stage"] == "decompose"
+        assert "token_usage" in sources
     names = [event for event, _ in events]
     assert "error" in names
     assert "recall_progress" not in names
@@ -846,3 +852,31 @@ def test_recall_recovers_after_primary_breaker(monkeypatch):
     # 两条 relevance + 一条经典补充
     assert len(papers) == 2  # Same-title hits from the classic channel are merged.
     assert backup.calls == 3
+
+
+def test_enrich_history_budget_is_inner_and_venue_projection_covers_all(monkeypatch):
+    """F8：history 请求预算只约束子步；已有历史的论文仍获得 venue 字段投影。"""
+    calls = {"history": 0}
+
+    class _OA:
+        async def get_citation_history(self, doi):
+            calls["history"] += 1
+            return {"counts_by_year": [{"y": 2025, "c": 1}], "abstract": None,
+                    "keywords": ["k"], "venue_name": None}
+
+    from backend.services.deep_research.providers import openalex as oa_mod
+    monkeypatch.setattr(oa_mod, "get_shared_openalex_provider", lambda: _OA())
+
+    papers = [
+        {"key": "k1", "doi": "10.1/a", "venue_name": "Nature"},          # 请求 history
+        {"key": "k2", "doi": "10.1/b", "venue_name": "Cell"},            # 预算耗尽，跳过请求
+        {"key": "k3", "doi": "10.1/c", "counts_by_year": [1],            # 已有历史不请求
+         "venue_name": "Remote Sensing"},
+    ]
+    stats = asyncio.run(explorer.enrich_papers(papers, history_cap=1))
+    assert calls["history"] == 1                    # 预算只花了 1 次请求
+    assert papers[0].get("counts_by_year")          # 拿到历史
+    assert "counts_by_year" not in papers[1]
+    # venue 投影覆盖全部三篇（含未请求/已有历史的）
+    assert [p.get("venue", {}).get("name") for p in papers] == ["Nature", "Cell", "Remote Sensing"]
+    assert stats["history_matched"] == 1
