@@ -13,9 +13,8 @@ import { post, get } from '@/api/client'
 import { refreshConfig, clearUIPreview, setSettingsFormDirty } from '@/hooks/useConfig'
 import { toast } from '@/hooks/useToast'
 import { PromptEditor } from '@/features/settings/PromptEditor'
-import { TestButton } from '@/features/settings/TestButton'
 import { ConfigFileManagement } from '@/features/settings/ConfigFileManagement'
-import AIModelSection from '@/features/settings/AIModelSection'
+import LLMProfilesSection from '@/features/settings/LLMProfilesSection'
 import { PROVIDER_PRESETS, type ProviderPreset } from '@/features/settings/ProviderPresets'
 import UIConfigSection from '@/features/settings/UIConfigSection'
 import {
@@ -234,11 +233,12 @@ function useConfigInit() {
 function ModelsPanel({
   config,
   setConfig,
+  reloadConfig,
 }: {
   config: AppConfig
   setConfig: React.Dispatch<React.SetStateAction<AppConfig>>
+  reloadConfig: () => void
 }) {
-  const currentLlm = config.llm
   const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>(PROVIDER_PRESETS)
 
   useEffect(() => {
@@ -253,24 +253,10 @@ function ModelsPanel({
 
   return (
     <div className="space-y-4 stagger">
-      <AIModelSection
-        title="全局 LLM 模型"
-        description="全项目统一大模型配置（API Key 等密钥不存入数据库，安全保存在根目录 config_key 中）：论文精读、划词翻译、领域探索、问句拆解与图谱速读均全局通用该配置。"
-        config={currentLlm}
+      <LLMProfilesSection
         providerPresets={providerPresets}
-        onChange={cfg => setConfig(prev => ({ ...prev, llm: cfg }))}
-        defaultMaxTokens={16384}
-        testSlot={
-          <TestButton
-            type="llm"
-            api_key={currentLlm.api_key}
-            base_url={currentLlm.base_url}
-            model={currentLlm.model}
-            provider={currentLlm.provider}
-            api_format={currentLlm.api_format}
-            timeout_seconds={currentLlm.timeout_seconds}
-          />
-        }
+        currentLlm={config.llm}
+        onEffectiveChange={reloadConfig}
       />
       <PromptEditor
         value={config.analysis_prompt}
@@ -387,7 +373,7 @@ export function SettingsPage() {
       )}
 
       <div className="set-body">
-        {activeTab === 'models' && <ModelsPanel config={config} setConfig={setConfig} />}
+        {activeTab === 'models' && <ModelsPanel config={config} setConfig={setConfig} reloadConfig={reloadConfig} />}
         {activeTab === 'appearance' && <AppearancePanel config={config} setConfig={setConfig} />}
         {activeTab === 'research' && <ResearchPanel config={config} setConfig={setConfig} />}
       </div>

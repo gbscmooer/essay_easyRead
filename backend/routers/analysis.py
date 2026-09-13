@@ -228,6 +228,83 @@ async def list_llm_providers() -> dict:
     return {"providers": list(PROVIDER_PRESETS)}
 
 
+# ============================================================
+# LLM 配置档案：多套可切换的全局模型接口设置
+# 档案元数据存主配置 llm_profiles 段；密钥存根目录 config_key，不进数据库
+# ============================================================
+
+class LLMProfilePayload(BaseModel):
+    """创建/更新配置档案。api_key 传掩码回显值（***xxxx）时后端保留已存密钥。"""
+    id: Optional[str] = None
+    name: str = ""
+    note: str = ""
+    provider: Optional[str] = None
+    api_format: Optional[Literal["openai_chat", "anthropic_messages"]] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    thinking_effort: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+
+
+@router.get("/llm-profiles")
+async def list_llm_profiles_endpoint() -> dict:
+    """列出全部 LLM 配置档案（api_key 掩码回显）与当前启用 id。
+
+    首次访问会把既有全局 llm 配置收编为第一个「使用中」档案（幂等）。
+    """
+    from ..services.ai_config import ensure_default_llm_profile
+    return ensure_default_llm_profile()
+
+
+@router.post("/llm-profiles")
+async def create_llm_profile(req: LLMProfilePayload) -> dict:
+    from ..services.ai_config import get_llm_profiles, upsert_llm_profile
+    try:
+        created = upsert_llm_profile(req.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"detail": str(e), "code": "INVALID_PROFILE"})
+    return {"message": f"已创建配置档案「{created['name']}」", **get_llm_profiles()}
+
+
+@router.put("/llm-profiles/{profile_id}")
+async def update_llm_profile(profile_id: str, req: LLMProfilePayload) -> dict:
+    from ..services.ai_config import get_llm_profiles, upsert_llm_profile
+    payload = req.model_dump()
+    payload["id"] = profile_id
+    try:
+        updated = upsert_llm_profile(payload)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail={"detail": str(e), "code": "PROFILE_NOT_FOUND"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"detail": str(e), "code": "INVALID_PROFILE"})
+    return {"message": f"已保存配置档案「{updated['name']}」", **get_llm_profiles()}
+
+
+@router.delete("/llm-profiles/{profile_id}")
+async def delete_llm_profile_endpoint(profile_id: str) -> dict:
+    from ..services.ai_config import delete_llm_profile
+    try:
+        state = delete_llm_profile(profile_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail={"detail": str(e), "code": "PROFILE_NOT_FOUND"})
+    return {"message": "配置档案已删除", **state}
+
+
+@router.post("/llm-profiles/{profile_id}/activate")
+async def activate_llm_profile_endpoint(profile_id: str) -> dict:
+    """启用档案：物化为全局 llm 配置（密钥写入 config_key），全部文本生成功能自动跟随。"""
+    from ..services.ai_config import activate_llm_profile
+    try:
+        state = activate_llm_profile(profile_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail={"detail": str(e), "code": "PROFILE_NOT_FOUND"})
+    name = next((p["name"] for p in state["profiles"] if p.get("id") == profile_id), profile_id)
+    return {"message": f"已启用配置档案「{name}」", **state}
+
+
 @router.get("/relations/channels")
 async def list_relation_channels() -> dict:
     """关联度通道元信息（名称/分组/默认权重/说明），供设置页渲染权重编辑器。"""
@@ -539,6 +616,8 @@ class TestConnectionRequest(BaseModel):
     provider: Optional[str] = None
     api_format: Optional[Literal["openai_chat", "anthropic_messages"]] = None
     timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=600.0)
+    # 可选：按配置档案测试（档案卡片上只有掩码 key，后端用它取回真实密钥）
+    profile_id: Optional[str] = None
 
 
 class TestConnectionResponse(BaseModel):
@@ -572,6 +651,12 @@ async def _test_llm_connection(req: TestConnectionRequest) -> TestConnectionResp
     """Test the explicit provider protocol through the shared LLM Core."""
     from ..services.ai_config import get_llm_config, get_translate_config, get_analysis_config
     from ..services.llm import test_connection as test_llm_connection
+
+    if req.profile_id:
+        # 档案卡片上的 api_key 是掩码回显；改用 config_key 中该档案的真实密钥。
+        # 档案未存密钥时置空串，明确报「API Key 未填写」而不是误用全局密钥。
+        from ..services.ai_config import load_llm_profile_keys
+        req.api_key = load_llm_profile_keys().get(req.profile_id, "")
 
     if req.type == "translate":
         cfg = get_translate_config()

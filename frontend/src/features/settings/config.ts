@@ -146,6 +146,43 @@ export interface FindpapersConfig {
   max_results: number
 }
 
+/** LLM 配置档案：一套可命名、可切换的全局模型接口设置（api_key 为掩码回显 ***xxxx） */
+export interface LLMProfile {
+  id: string
+  name: string
+  note: string
+  provider: string
+  api_format: LLMApiFormat
+  base_url: string
+  model: string
+  api_key: string
+  temperature: number
+  max_tokens: number
+  thinking_effort: ThinkingEffort
+  timeout_seconds: number
+}
+
+/** GET/POST /analysis/llm-profiles 返回的档案状态 */
+export interface LLMProfilesState {
+  active_id: string
+  profiles: LLMProfile[]
+}
+
+/** 创建/更新档案的提交载荷；api_key 传掩码回显值时后端保留已存密钥 */
+export interface LLMProfileInput {
+  name: string
+  note?: string
+  provider?: string
+  api_format?: LLMApiFormat
+  base_url?: string
+  model?: string
+  api_key?: string
+  temperature?: number
+  max_tokens?: number
+  thinking_effort?: ThinkingEffort
+  timeout_seconds?: number
+}
+
 export interface AppConfig {
   llm: AIModelConfig
   analysis_prompt: AnalysisPromptConfig

@@ -51,6 +51,13 @@ CANDIDATE_CONFIG_KEY_PATHS = [
 CONFIG_KEY_PATH = DEFAULT_CONFIG_KEY_PATH
 
 RELATIONS_METHOD = "weighted_rrf_v1"
+
+# 配置档案中与全局 llm 段同语义的接口字段（api_key 不在其中，密钥只存 config_key）
+_LLM_PROFILE_FIELDS = (
+    "provider", "api_format", "base_url", "model",
+    "temperature", "max_tokens", "thinking_effort", "timeout_seconds",
+)
+
 _LEGACY_RELATION_WEIGHTS = {
     "topic": 0.18, "purpose": 0.24, "method": 0.16, "term": 0.14,
     "dataset": 0.06, "baseline": 0.04, "bibcoupling": 0.12, "cocitation": 0.06,
@@ -72,6 +79,12 @@ DEFAULT_CONFIG = {
         # 全局通用 LLM 默认思考强度：off | low | medium | high
         "thinking_effort": "off",
         "timeout_seconds": 150,
+    },
+    # LLM 配置档案：多套可命名的全局模型接口设置，一键切换生效配置。
+    # 档案元数据存主配置；各档案的 API Key 存根目录 config_key 的 llm_profiles 映射，不落主配置。
+    "llm_profiles": {
+        "active_id": "",   # 当前启用档案 id；空 = 尚未绑定档案（纯历史全局配置）
+        "profiles": [],    # [{id, name, note, provider, api_format, base_url, model, ...}]
     },
     "translate": {
         "api_key": "",
@@ -389,31 +402,67 @@ def save_config_key(llm_data: dict, path: Optional[str] = None) -> str:
 
     ``load_config_key`` still accepts legacy files containing endpoint/model
     fields, but new writes avoid duplicating non-secret provider state.
+    Other top-level sections in the file — notably the ``llm_profiles`` secret
+    mapping for LLM 配置档案 — are preserved untouched.
     """
     target_path = path or get_active_config_key_path()
     # 保护机制：pytest 测试期间若未显式为测试设置单独的 CONFIG_KEY_PATH，禁止污染或覆盖真实的根目录 config_key
     if "PYTEST_CURRENT_TEST" in os.environ and os.path.abspath(target_path) == os.path.abspath(DEFAULT_CONFIG_KEY_PATH):
         logger.debug("Skipping write to root config_key during pytest run")
         return target_path
+
+    clean_llm = {"api_key": llm_data.get("api_key", "")}
+    content_data = {"llm": clean_llm}
+    for section_name, section_val in read_file_config(target_path).items():
+        if section_name != "llm" and section_name not in content_data:
+            content_data[section_name] = section_val
+
+    _write_config_key_data(content_data, target_path)
+    return target_path
+
+
+def load_llm_profile_keys(path: Optional[str] = None) -> dict:
+    """从根目录 config_key 读取各配置档案的 API Key 映射（profile_id -> api_key）。"""
+    target_path = path or get_active_config_key_path()
+    if "PYTEST_CURRENT_TEST" in os.environ and os.path.abspath(target_path) == os.path.abspath(DEFAULT_CONFIG_KEY_PATH):
+        return {}
+    profiles = read_file_config(target_path).get("llm_profiles")
+    if not isinstance(profiles, dict):
+        return {}
+    return {str(k): str(v or "") for k, v in profiles.items()}
+
+
+def save_llm_profile_keys(keys: dict, path: Optional[str] = None) -> str:
+    """写回配置档案的 API Key 映射（保留 config_key 中的 llm 段），原子写入。"""
+    target_path = path or get_active_config_key_path()
+    if "PYTEST_CURRENT_TEST" in os.environ and os.path.abspath(target_path) == os.path.abspath(DEFAULT_CONFIG_KEY_PATH):
+        logger.debug("Skipping write to root config_key during pytest run")
+        return target_path
+
+    existing = read_file_config(target_path)
+    llm_section = existing.get("llm") if isinstance(existing.get("llm"), dict) else {"api_key": ""}
+    content_data = {"llm": llm_section, "llm_profiles": {str(k): str(v or "") for k, v in keys.items()}}
+    _write_config_key_data(content_data, target_path)
+    return target_path
+
+
+def _write_config_key_data(content_data: dict, target_path: str) -> None:
     dir_name = os.path.dirname(target_path)
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
-
-    clean_llm = {"api_key": llm_data.get("api_key", "")}
 
     header = (
         "# ==============================================================================\n"
         "# 全局通用 LLM 模型与 API Key 配置文件 (config_key)\n"
         "# ------------------------------------------------------------------------------\n"
         "# 说明：\n"
-        "# 1. 本文件位于项目根目录，由设置页面与系统统一读写，只保存全局大模型密钥。\n"
+        "# 1. 本文件位于项目根目录，由设置页面与系统统一读写，只保存全局大模型密钥\n"
+        "#    以及各「配置档案」的密钥映射（llm_profiles 段）。\n"
         "# 2. 本项目绝不将 API Key 存入数据库；密钥独立保存在本文件中，隔离于公开配置。\n"
         "# 3. 全局通用：论文精读、划词翻译、领域探索、问句拆解与图谱速读均默认复用该配置。\n"
         "# 4. 本文件已加入 .gitignore，切勿提交至任何公开 Git 代码仓库！\n"
         "# ==============================================================================\n\n"
     )
-
-    content_data = {"llm": clean_llm}
 
     yaml_body = yaml.safe_dump(content_data, allow_unicode=True, sort_keys=False)
     final_content = header + yaml_body
@@ -430,7 +479,6 @@ def save_config_key(llm_data: dict, path: Optional[str] = None) -> str:
         except OSError:
             pass
         raise
-    return target_path
 
 
 def get_config_file_info() -> dict:
@@ -709,6 +757,9 @@ def save_config(config: dict, path: Optional[str] = None) -> None:
     main_config = copy.deepcopy(config)
     main_config.pop("analysis", None)
     main_config.pop("translate", None)
+    # llm_profiles：整份保存未携带时保留盘上档案（如设置页 POST /config），
+    # 携带时把启用中档案与新 llm 段对齐，保证「生效配置 = 启用档案」不被打破。
+    main_config["llm_profiles"] = _sync_active_llm_profile(config, target_path)
     if is_standard_path and isinstance(main_config, dict):
         if "llm" in main_config and isinstance(main_config["llm"], dict):
             main_config["llm"]["api_key"] = ""
@@ -722,6 +773,205 @@ def save_config(config: dict, path: Optional[str] = None) -> None:
             dump_file_config(main_config, DEFAULT_JSON_PATH)
         except Exception as e:
             logger.debug(f"Sync to fallback json failed: {e}")
+
+
+# ============================================================
+# LLM 配置档案：多套可切换的全局模型接口设置
+# ============================================================
+
+def _sync_active_llm_profile(config: dict, target_path: str) -> dict:
+    """决定随主配置持久化的 llm_profiles 段。
+
+    save_config 的入参可能是不携带档案的整份保存（设置页 POST /config、旧版前端），
+    此时回读盘上档案避免被清空；入参携带档案时，把启用中档案的接口字段与
+    新 ``llm`` 段对齐 —— 用户直接改全局表单并保存，等价于编辑启用中的档案。
+    """
+    section = config.get("llm_profiles")
+    if not isinstance(section, dict):
+        section = copy.deepcopy(read_file_config(target_path).get("llm_profiles") or {})
+    if not isinstance(section, dict):
+        section = {}
+    profiles = [copy.deepcopy(p) for p in section.get("profiles") or [] if isinstance(p, dict)]
+    active_id = str(section.get("active_id") or "")
+    llm_sec = config.get("llm") if isinstance(config.get("llm"), dict) else None
+    if active_id and isinstance(llm_sec, dict):
+        for profile in profiles:
+            if str(profile.get("id") or "") == active_id:
+                for field in _LLM_PROFILE_FIELDS:
+                    if field in llm_sec:
+                        profile[field] = copy.deepcopy(llm_sec[field])
+                break
+    return {"active_id": active_id, "profiles": profiles}
+
+
+def _normalize_llm_profile(raw: dict) -> dict:
+    """校验并规范化一个配置档案（不含密钥），字段语义与全局 llm 段一致。"""
+    from .llm.models import LLMConfig
+
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        raise ValueError("配置档案名称不能为空")
+    fields = {k: raw[k] for k in _LLM_PROFILE_FIELDS if raw.get(k) is not None}
+    resolved = LLMConfig.from_mapping({**DEFAULT_CONFIG["llm"], **fields}).to_dict()
+    resolved.pop("api_key", None)
+    return {
+        "id": str(raw.get("id") or "").strip(),
+        "name": name,
+        "note": str(raw.get("note") or "").strip(),
+        **resolved,
+    }
+
+
+def _load_llm_profiles_section() -> dict:
+    section = load_config().get("llm_profiles")
+    if not isinstance(section, dict):
+        return {"active_id": "", "profiles": []}
+    profiles = [copy.deepcopy(p) for p in section.get("profiles") or [] if isinstance(p, dict)]
+    return {"active_id": str(section.get("active_id") or ""), "profiles": profiles}
+
+
+def _persist_llm_profiles_section(section: dict) -> None:
+    """只更新主配置里的 llm_profiles 段，其余段落原样保留。
+
+    刻意不走 save_config：那边会把启用中档案与新 llm 段对齐，而这里是档案元数据
+    先行变更（如编辑启用中的档案），若先同步会拿旧 llm 覆盖刚写入的新值。
+    密钥在 config_key，由调用方单独维护。
+    """
+    target_path = get_active_config_path()
+    main_config = read_file_config(target_path)
+    if not main_config:
+        main_config = _deep_copy_default()
+    main_config.pop("analysis", None)
+    main_config.pop("translate", None)
+    main_config["llm_profiles"] = section
+    dump_file_config(main_config, target_path)
+
+    abs_target = os.path.abspath(target_path)
+    is_standard = abs_target in (os.path.abspath(DEFAULT_YAML_PATH), os.path.abspath(DEFAULT_JSON_PATH))
+    if is_standard and abs_target != os.path.abspath(DEFAULT_JSON_PATH):
+        try:
+            dump_file_config(main_config, DEFAULT_JSON_PATH)
+        except Exception as e:
+            logger.debug(f"Sync to fallback json failed: {e}")
+
+
+def get_llm_profiles() -> dict:
+    """返回全部配置档案（api_key 以掩码回显）与当前启用 id。"""
+    section = _load_llm_profiles_section()
+    keys = load_llm_profile_keys()
+    profiles = [
+        {**raw, "api_key": _mask_api_key(keys.get(str(raw.get("id") or ""), ""))}
+        for raw in section["profiles"]
+    ]
+    return {"active_id": section["active_id"], "profiles": profiles}
+
+
+def upsert_llm_profile(payload: dict) -> dict:
+    """创建或更新一个配置档案；api_key 为掩码占位时保留已存密钥。
+
+    更新启用中的档案时，会立即把新值（含新密钥）物化为当前生效配置，避免档案
+    与全局 llm 段漂移。
+    """
+    section = _load_llm_profiles_section()
+    profile_id = str(payload.get("id") or "").strip()
+    normalized = _normalize_llm_profile(payload)
+    profiles = section["profiles"]
+    if profile_id:
+        index = next((i for i, p in enumerate(profiles) if str(p.get("id") or "") == profile_id), -1)
+        if index < 0:
+            raise LookupError(f"配置档案不存在: {profile_id}")
+        normalized["id"] = profile_id
+        profiles[index] = normalized
+    else:
+        import uuid
+        normalized["id"] = f"lp_{uuid.uuid4().hex[:12]}"
+        profiles.append(normalized)
+
+    api_key = payload.get("api_key")
+    if api_key is not None and not is_masked_key(str(api_key)):
+        keys = load_llm_profile_keys()
+        keys[normalized["id"]] = str(api_key).strip()
+        save_llm_profile_keys(keys)
+
+    section["profiles"] = profiles
+    _persist_llm_profiles_section(section)
+    if section["active_id"] == normalized["id"]:
+        activate_llm_profile(normalized["id"])
+    return normalized
+
+
+def delete_llm_profile(profile_id: str) -> dict:
+    """删除配置档案。删除启用中的档案时全局生效配置保持不变，仅解除绑定。"""
+    section = _load_llm_profiles_section()
+    remaining = [p for p in section["profiles"] if str(p.get("id") or "") != profile_id]
+    if len(remaining) == len(section["profiles"]):
+        raise LookupError(f"配置档案不存在: {profile_id}")
+    section["profiles"] = remaining
+    if section["active_id"] == profile_id:
+        section["active_id"] = ""
+    _persist_llm_profiles_section(section)
+
+    keys = load_llm_profile_keys()
+    if profile_id in keys:
+        keys.pop(profile_id)
+        save_llm_profile_keys(keys)
+    return get_llm_profiles()
+
+
+def activate_llm_profile(profile_id: str) -> dict:
+    """启用一个配置档案：物化为全局 llm 配置（密钥写入 config_key），所有功能自动跟随。"""
+    section = _load_llm_profiles_section()
+    profile = next((p for p in section["profiles"] if str(p.get("id") or "") == profile_id), None)
+    if profile is None:
+        raise LookupError(f"配置档案不存在: {profile_id}")
+    api_key = load_llm_profile_keys().get(profile_id, "")
+    cfg = load_config()
+    cfg["llm"] = {**copy.deepcopy(profile), "api_key": api_key}
+    cfg["llm_profiles"] = {**section, "active_id": profile_id}
+    save_config(cfg)
+    return get_llm_profiles()
+
+
+def ensure_default_llm_profile() -> dict:
+    """把既有全局 llm 配置收编为第一个档案（幂等，仅在档案为空且已配置时执行一次）。
+
+    老用户升级后打开设置页，原全局配置自动变成一张「使用中」卡片，无需手动迁移；
+    全新安装（未配置任何 key/端点）则返回空列表，由用户从「新增配置」开始。
+    """
+    section = _load_llm_profiles_section()
+    if section["profiles"]:
+        return get_llm_profiles()
+
+    llm = get_llm_config()
+    defaults = DEFAULT_CONFIG["llm"]
+    configured = (
+        bool(llm.get("api_key"))
+        or llm.get("base_url") != defaults["base_url"]
+        or llm.get("model") != defaults["model"]
+    )
+    if not configured:
+        return {"active_id": "", "profiles": []}
+
+    from .llm.models import PROVIDER_PRESETS
+
+    provider = str(llm.get("provider") or "")
+    label = next((p["label"] for p in PROVIDER_PRESETS if p["id"] == provider and p["id"] != "custom"), "默认配置")
+    profile = _normalize_llm_profile({
+        "name": label,
+        "note": "由原全局配置迁移",
+        **{k: llm.get(k) for k in _LLM_PROFILE_FIELDS},
+    })
+    import uuid
+    profile["id"] = f"lp_{uuid.uuid4().hex[:12]}"
+
+    keys = load_llm_profile_keys()
+    keys[profile["id"]] = str(llm.get("api_key") or "")
+    save_llm_profile_keys(keys)
+
+    section["profiles"] = [profile]
+    section["active_id"] = profile["id"]
+    _persist_llm_profiles_section(section)
+    return get_llm_profiles()
 
 
 def export_config(fmt: str = "yaml", mask_keys: bool = False) -> tuple[str, str, str]:
