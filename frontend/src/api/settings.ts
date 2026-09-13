@@ -1,8 +1,9 @@
 /**
- * 设置页专用 API：内置提示词、GROBID 服务状态/下载
+ * 设置页专用 API：内置提示词、GROBID 服务状态/下载、LLM 配置档案
  */
 
-import { get, post } from './client'
+import { get, post, put, del } from './client'
+import type { LLMProfileInput, LLMProfilesState } from '@/features/settings/config'
 
 export interface GrobidStatus {
   url: string
@@ -61,4 +62,33 @@ export async function importConfigFile(file: File): Promise<{ message: string; f
 /** 导入配置文本（YAML/TOML/JSON）并应用 */
 export async function importConfigText(content: string, format?: string): Promise<{ message: string; file_info: ConfigFileInfo }> {
   return post<{ message: string; file_info: ConfigFileInfo }>('/analysis/config/import', { content, format })
+}
+
+/* ── LLM 配置档案（多套可切换的全局模型接口设置） ──── */
+
+export type { LLMProfile, LLMProfilesState, LLMProfileInput } from '@/features/settings/config'
+
+/** 列出全部配置档案（api_key 掩码回显）与当前启用 id */
+export async function listLLMProfiles(): Promise<LLMProfilesState> {
+  return get<LLMProfilesState>('/analysis/llm-profiles')
+}
+
+/** 创建配置档案 */
+export async function createLLMProfile(payload: LLMProfileInput): Promise<{ message: string } & LLMProfilesState> {
+  return post<{ message: string } & LLMProfilesState>('/analysis/llm-profiles', payload)
+}
+
+/** 更新配置档案（api_key 掩码占位时后端保留已存密钥） */
+export async function updateLLMProfile(id: string, payload: LLMProfileInput): Promise<{ message: string } & LLMProfilesState> {
+  return put<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}`, payload)
+}
+
+/** 删除配置档案（删除启用中的档案时全局生效配置保持不变） */
+export async function deleteLLMProfile(id: string): Promise<{ message: string } & LLMProfilesState> {
+  return del<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}`)
+}
+
+/** 启用配置档案：物化为全局 llm 配置，全部文本生成功能自动跟随 */
+export async function activateLLMProfile(id: string): Promise<{ message: string } & LLMProfilesState> {
+  return post<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}/activate`, {})
 }

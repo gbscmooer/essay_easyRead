@@ -24,9 +24,11 @@ interface TestButtonProps {
   provider?: string
   api_format?: 'openai_chat' | 'anthropic_messages'
   timeout_seconds?: number
+  /** 传入后后端改用该配置档案存的密钥测试（表单上的 api_key 只是掩码回显） */
+  profile_id?: string
 }
 
-export function TestButton({ type, api_key, base_url, model, provider, api_format, timeout_seconds }: TestButtonProps) {
+export function TestButton({ type, api_key, base_url, model, provider, api_format, timeout_seconds, profile_id }: TestButtonProps) {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [showError, setShowError] = useState(false)
@@ -44,6 +46,7 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
         provider: provider ?? '',
         api_format,
         timeout_seconds,
+        profile_id,
       })
       setResult(res)
     } catch (e: unknown) {
@@ -51,7 +54,7 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
     } finally {
       setTesting(false)
     }
-  }, [type, api_key, base_url, model, provider, api_format, timeout_seconds])
+  }, [type, api_key, base_url, model, provider, api_format, timeout_seconds, profile_id])
 
   const btnStyle =
     result === null

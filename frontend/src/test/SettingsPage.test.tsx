@@ -9,9 +9,16 @@ import { hasUnsavedConfig, setSettingsFormDirty } from '@/hooks/useConfig'
 const api = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
+  del: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => api)
+
+/** /analysis/llm-profiles 的空档案状态（配置档案区挂载即拉取） */
+function emptyProfilesState() {
+  return { active_id: '', profiles: [] }
+}
 vi.mock('@/features/settings/TestButton', () => ({ TestButton: () => null }))
 vi.mock('@/features/settings/AIModelSection', () => ({
   default: ({ title, config, onChange }: {
@@ -73,12 +80,15 @@ function serverConfig(): AppConfig {
 
 async function renderSettings() {
   render(<SettingsPage />)
-  await screen.findByRole('button', { name: '修改全局 LLM 模型' })
+  await screen.findByRole('button', { name: '修改提示词' })
   expect(hasUnsavedConfig()).toBe(false)
 }
 
 beforeEach(() => {
-  api.get.mockResolvedValue(serverConfig())
+  api.get.mockImplementation((path: string) => {
+    if (String(path).includes('/llm-profiles')) return Promise.resolve(emptyProfilesState())
+    return Promise.resolve(serverConfig())
+  })
   api.post.mockResolvedValue({ message: 'ok' })
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   setSettingsFormDirty(false)
@@ -92,7 +102,6 @@ afterEach(() => {
 
 describe('SettingsPage unsaved changes', () => {
   it.each([
-    { tab: null, action: '修改全局 LLM 模型' },
     { tab: null, action: '修改提示词' },
     { tab: '界面与主题', action: '修改界面' },
     { tab: '深度研究', action: '修改研究参数' },
@@ -113,9 +122,9 @@ describe('SettingsPage unsaved changes', () => {
     api.post.mockRejectedValueOnce(new Error('服务器拒绝保存'))
     const user = userEvent.setup()
     render(<><SettingsPage /><ToastContainer /></>)
-    await screen.findByRole('button', { name: '修改全局 LLM 模型' })
+    await screen.findByRole('button', { name: '修改提示词' })
 
-    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
+    await user.click(screen.getByRole('button', { name: '修改提示词' }))
     await user.click(screen.getByRole('button', { name: '保存配置' }))
 
     expect(await screen.findByText('服务器拒绝保存')).toBeInTheDocument()
@@ -133,42 +142,40 @@ describe('SettingsPage unsaved changes', () => {
     const user = userEvent.setup()
     await renderSettings()
 
-    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
+    await user.click(screen.getByRole('button', { name: '修改提示词' }))
     await user.click(screen.getByRole('button', { name: '保存配置' }))
 
     await waitFor(() => expect(hasUnsavedConfig()).toBe(false))
     expect(screen.getByRole('status')).toHaveTextContent('已保存')
   })
 
-  it('reloads the persisted LLM config after leaving and returning to settings', async () => {
+  it('reloads the global config after activating a profile', async () => {
     const user = userEvent.setup()
-    let persisted = serverConfig()
-    persisted.llm = {
-      ...persisted.llm,
-      provider: 'deepseek',
-      base_url: 'https://api.deepseek.com',
-      model: 'deepseek-chat',
-    }
     api.get.mockImplementation((path: string) => {
-      if (path === '/analysis/config') return Promise.resolve(structuredClone(persisted))
+      if (path === '/analysis/config') return Promise.resolve(serverConfig())
       if (path === '/analysis/llm/providers') return Promise.resolve({ providers: [] })
+      if (path.includes('/llm-profiles')) {
+        return Promise.resolve({
+          active_id: '',
+          profiles: [{
+            id: 'p1', name: 'DeepSeek', note: '', provider: 'deepseek', api_format: 'openai_chat',
+            base_url: 'https://api.deepseek.com', model: 'deepseek-chat', api_key: '***key',
+            temperature: 0.2, max_tokens: 16384, thinking_effort: 'off', timeout_seconds: 150,
+          }],
+        })
+      }
       return Promise.resolve({})
     })
-    api.post.mockImplementation((_path: string, payload: AppConfig) => {
-      persisted = structuredClone(payload)
-      return Promise.resolve({ message: 'ok' })
-    })
+    api.post.mockResolvedValue({ message: '已启用「DeepSeek」', active_id: 'p1', profiles: [] })
 
-    const first = render(<SettingsPage />)
-    expect(await screen.findByTestId('llm-model')).toHaveTextContent('deepseek-chat')
-    await user.click(screen.getByRole('button', { name: '修改全局 LLM 模型' }))
-    await user.click(screen.getByRole('button', { name: '保存配置' }))
-    await waitFor(() => expect(hasUnsavedConfig()).toBe(false))
-
-    first.unmount()
     render(<SettingsPage />)
+    await screen.findByText('DeepSeek')
 
-    expect(await screen.findByTestId('llm-model')).toHaveTextContent('deepseek-chat-changed')
-    expect(hasUnsavedConfig()).toBe(false)
+    const configCalls = () => api.get.mock.calls.filter(([p]) => p === '/analysis/config').length
+    const before = configCalls()
+    await user.click(screen.getByRole('button', { name: '启用' }))
+
+    await waitFor(() => expect(configCalls()).toBeGreaterThan(before))
+    expect(api.post).toHaveBeenCalledWith('/analysis/llm-profiles/p1/activate', {})
   })
 })
