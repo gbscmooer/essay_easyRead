@@ -62,6 +62,11 @@ def token_ledger_report(ledger: dict) -> dict:
     return stages
 
 
+def token_ledger_snapshot() -> dict:
+    """Read the active workflow ledger without replacing or resetting it."""
+    return token_ledger_report(_ledger_var.get() or {})
+
+
 def retry_delays(max_retries: int = MAX_RETRIES) -> list[float]:
     return [min(BASE_DELAY * (2 ** index), MAX_DELAY) for index in range(max(0, max_retries))]
 

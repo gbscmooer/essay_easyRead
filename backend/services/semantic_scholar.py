@@ -177,6 +177,8 @@ async def generate_relevance_descriptions(
     provider: str = "",
     api_format: str = "",
     thinking_effort: str = "off",
+    timeout_seconds: float = 150.0,
+    proxy: dict | None = None,
 ) -> list[dict]:
     """
     用 AI 为每篇相关论文生成一句关联性说明。
@@ -220,6 +222,8 @@ async def generate_relevance_descriptions(
                 "temperature": 0.3,
                 "max_tokens": 1024,
                 "thinking_effort": thinking_effort,
+                "timeout_seconds": timeout_seconds,
+                "proxy": proxy or {},
             },
             system="你是一个学术论文分析助手。只输出 JSON 数组，不要其他文字。",
             user=prompt,

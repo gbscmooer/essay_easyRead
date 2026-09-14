@@ -7,6 +7,7 @@
  * 加一段内联 borderColor，同一列里三个框的高度和边框颜色都不一致。
  */
 import { useState } from 'react'
+import { toast } from '@/hooks/useToast'
 import ProviderPresets from './ProviderPresets'
 import type { ProviderPreset } from './ProviderPresets'
 import type { AIModelConfig, ThinkingEffort } from './config'
@@ -18,6 +19,13 @@ const THINKING_EFFORT_OPTIONS: { value: ThinkingEffort; label: string }[] = [
   { value: 'high', label: '高' },
 ]
 
+/** 与后端 ai_config.is_masked_key 同语义：***xxxx 回显掩码或全 * 占位 */
+function isMaskedKey(value: string): boolean {
+  if (!value) return false
+  if (value.startsWith('***')) return true
+  return /^\*+$/.test(value)
+}
+
 interface AIModelSectionProps {
   title: string
   description: string
@@ -26,6 +34,8 @@ interface AIModelSectionProps {
   defaultMaxTokens: number
   testSlot?: React.ReactNode
   providerPresets?: ProviderPreset[]
+  /** 表单里是掩码回显时，「显示」用它取回完整 key；未提供则只切换明文可见性 */
+  revealKey?: () => Promise<string>
 }
 
 export default function AIModelSection({
@@ -36,10 +46,24 @@ export default function AIModelSection({
   defaultMaxTokens,
   testSlot,
   providerPresets,
+  revealKey,
 }: AIModelSectionProps) {
   const [showKey, setShowKey] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const keyMissing = !config.api_key.trim()
+
+  const handleToggleKey = async () => {
+    if (!showKey && revealKey && isMaskedKey(config.api_key)) {
+      try {
+        const realKey = await revealKey()
+        if (realKey) onChange({ ...config, api_key: realKey })
+        else toast({ type: 'warning', message: '该配置尚未保存 API Key' })
+      } catch (e: unknown) {
+        toast({ type: 'error', message: e instanceof Error ? e.message : '读取 API Key 失败' })
+      }
+    }
+    setShowKey(v => !v)
+  }
 
   const handlePresetSelect = (preset: ProviderPreset) => {
     onChange({
@@ -100,6 +124,39 @@ export default function AIModelSection({
       </div>
 
       <div className="er-field">
+        <label className="flex items-center gap-2" htmlFor={`${title}-proxy-enabled`}>
+          <input
+            id={`${title}-proxy-enabled`}
+            type="checkbox"
+            checked={config.proxy.enabled}
+            onChange={e => onChange({
+              ...config,
+              proxy: { ...config.proxy, enabled: e.target.checked },
+            })}
+          />
+          <span className="er-field__label">通过自托管代理转发</span>
+        </label>
+        <p className="set-group__hint">
+          仅切换到你有权使用的兼容网关，不模拟 Codex、Claude Code 等受限客户端身份，也不复用其订阅登录态。
+        </p>
+        {config.proxy.enabled && (
+          <input
+            type="text"
+            className="er-input"
+            aria-label="代理 Base URL"
+            value={config.proxy.base_url}
+            onChange={e => onChange({
+              ...config,
+              proxy: { ...config.proxy, base_url: e.target.value },
+            })}
+            placeholder={config.api_format === 'anthropic_messages'
+              ? 'http://localhost:8080'
+              : 'http://localhost:8080/v1'}
+          />
+        )}
+      </div>
+
+      <div className="er-field">
         <label className="er-field__label" htmlFor={`${title}-key`}>API Key</label>
         <div className="set-key">
           <input
@@ -113,7 +170,7 @@ export default function AIModelSection({
           />
           <button
             type="button"
-            onClick={() => setShowKey(v => !v)}
+            onClick={handleToggleKey}
             className="er-btn er-btn--ghost er-btn--sm set-key__reveal"
             aria-pressed={showKey}
           >

@@ -206,12 +206,16 @@ async def resilient_get(
     base_backoff: float = 1.5,
     client: httpx.AsyncClient | None = None,
     redirect_limit: int = 5,
+    validate_public_network: bool = False,
 ) -> httpx.Response:
     """具备域名限速与 429/503 弹性重试的 HTTP GET 请求。"""
     cli = client or get_shared_client(timeout=timeout)
     from .research_exclusions import active_exclusions, check_download_url
     check_download_url(url)
-    guarded = bool(active_exclusions.get().get("exclusions"))
+    if validate_public_network:
+        from .url_security import validate_public_http_url
+        await asyncio.to_thread(validate_public_http_url, url)
+    guarded = bool(active_exclusions.get().get("exclusions")) or validate_public_network
     domain = global_rate_limiter._get_domain(url)
     sem = global_rate_limiter.get_semaphore(domain)
 
@@ -284,7 +288,8 @@ async def resilient_get(
 
     if target:
         return await resilient_get(target, headers=merged_headers, timeout=timeout, max_retries=max_retries,
-                                   base_backoff=base_backoff, client=cli, redirect_limit=redirect_limit - 1)
+                                   base_backoff=base_backoff, client=cli, redirect_limit=redirect_limit - 1,
+                                   validate_public_network=validate_public_network)
     if last_exc:
         raise last_exc
     raise RuntimeError(f"resilient_get exhausted {max_retries} retries for {url}")

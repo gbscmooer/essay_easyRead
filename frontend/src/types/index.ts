@@ -598,7 +598,7 @@ export interface ExplorationRun {
   id: number
   question: string
   depth: ExplorationDepth
-  status: 'pending' | 'running' | 'done' | 'failed' | SurveyRunStatusV2
+  status: 'pending' | 'running' | 'done' | 'failed' | 'paused' | SurveyRunStatusV2
   current_stage?: string | null
   error_message?: string | null
   provider: string
@@ -610,6 +610,13 @@ export interface ExplorationRun {
   state_version?: number
   protocol?: { protocol_id: string | null; version: number; hash: string | null; question: string; subquestion_count: number } | null
   current_revision?: SurveyReportRevision | null
+  /** 断点续传检查点摘要（legacy v1；不含逐篇提取正文） */
+  checkpoint_summary?: {
+    completed_stages: string[]
+    report_selected: number
+    report_extracted: number
+    updated_at?: string | null
+  } | null
   created_at: string
   updated_at: string
 }
@@ -843,14 +850,22 @@ export interface SurveyEvidenceSpan {
   char_start: number | null
   char_end: number | null
   quote: string
+  location_id?: string | null
+  location_status?: string | null
 }
 
 export interface SurveyEvidenceDetail {
   evidence_id: string
   run_id: number
-  asset_id: string
+  asset_id: string | null
   spans: SurveyEvidenceSpan[]
   relation: string | null
+  evidence_type?: string | null
+  fact?: Record<string, unknown>
+  subquestion_ids?: string[]
+  missing_fields?: string[]
+  comparability?: Record<string, unknown>
+  verification?: Record<string, unknown>
   document: {
     asset_id?: string
     content_hash?: string | null
@@ -861,7 +876,31 @@ export interface SurveyEvidenceDetail {
     retrieved_at?: string | null
     public_available_at?: string | null
   }
-  created_at: string
+  created_at: string | null
+}
+
+export interface SurveyEvidenceIndexItem {
+  evidence_id: string
+  evidence_type: string | null
+  subquestion_ids: string[]
+  paper_key: string | null
+  fact_summary: string
+  missing_fields: string[]
+  comparability_status: string | null
+  verification_status: string | null
+  location_status: string | null
+}
+
+export interface SurveyEvidenceIndex {
+  run_id: number
+  workflow_version: WorkflowVersion
+  evidence_version: string
+  subquestion_id: string | null
+  cursor: number
+  limit: number
+  total: number
+  next_cursor: number | null
+  items: SurveyEvidenceIndexItem[]
 }
 
 export type SourceHealthStatus = 'ok' | 'auth_error' | 'rate_limited' | 'network_error' | 'error' | 'unconfigured'

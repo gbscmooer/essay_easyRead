@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -90,7 +91,9 @@ export function ConfirmDialog({
 
   if (!open) return null
 
-  return (
+  // Portal 到 body：页面区块（.er-page > * 等）各自是 z-index:1 的层叠上下文，
+  // 弹窗留在组件树内部会被后渲染的兄弟区块整层盖住（遮挡关系错误）。
+  return createPortal(
     <div
       className="er-dialog-backdrop"
       onMouseDown={onCancel}
@@ -139,6 +142,7 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

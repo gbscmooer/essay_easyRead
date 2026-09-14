@@ -50,6 +50,42 @@ async def test_resilient_get_success():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1/private",
+    "http://169.254.169.254/latest/meta-data",
+    "http://10.0.0.8/document.pdf",
+    "http://[::1]/document.pdf",
+])
+async def test_resilient_get_public_network_guard_blocks_private_literals(url):
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    with pytest.raises(ValueError, match="不允许"):
+        await resilient_get(
+            url,
+            client=mock_client,
+            max_retries=1,
+            validate_public_network=True,
+        )
+    mock_client.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resilient_get_public_network_guard_checks_dns(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.url_security.socket.getaddrinfo",
+        lambda *args, **kwargs: [(2, 1, 6, "", ("192.168.1.20", 443))],
+    )
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    with pytest.raises(ValueError, match="非公网"):
+        await resilient_get(
+            "https://papers.example/document.pdf",
+            client=mock_client,
+            max_retries=1,
+            validate_public_network=True,
+        )
+    mock_client.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_resilient_get_retries_on_429():
     mock_429 = MagicMock(spec=httpx.Response)
     mock_429.status_code = 429

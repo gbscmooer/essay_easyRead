@@ -53,20 +53,25 @@ def _local_address(value: str) -> bool:
 
 
 def trusted_local_peer(client_host: str, forwarded_for: str | None = None) -> bool:
-    """Allow direct loopback or an entirely local/private reverse-proxy chain."""
+    """Allow only a direct loopback peer; never trust a private-LAN peer or its XFF."""
     client_is_loopback = client_host.lower() == "localhost"
-    client_is_local = client_is_loopback or _local_address(client_host)
-    if not client_is_local:
-        return False
-    if not forwarded_for:
-        if client_is_loopback:
-            return True
+    if not client_is_loopback:
         try:
-            return ipaddress.ip_address(client_host.strip("[]")).is_loopback
+            client_is_loopback = ipaddress.ip_address(client_host.strip("[]")).is_loopback
         except ValueError:
             return False
+    if not client_is_loopback:
+        return False
+    if not forwarded_for:
+        return True
     forwarded_hosts = [item.strip() for item in forwarded_for.split(",") if item.strip()]
-    return bool(forwarded_hosts) and all(_local_address(host) for host in forwarded_hosts)
+    return bool(forwarded_hosts) and all(
+        host.lower() == "localhost" or (
+            _local_address(host)
+            and ipaddress.ip_address(host.strip("[]")).is_loopback
+        )
+        for host in forwarded_hosts
+    )
 
 
 class TerminalTicketStore:

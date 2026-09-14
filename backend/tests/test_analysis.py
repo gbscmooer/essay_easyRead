@@ -61,6 +61,54 @@ def test_relation_channels(client):
     assert all("default_weight" in c and "group" in c for c in channels)
 
 
+def test_refresh_related_papers_preserves_explicit_llm_protocol(
+    client, session, create_paper, monkeypatch,
+):
+    from backend.services.database import save_analysis_result
+
+    paper_id = create_paper("related.pdf")
+    save_analysis_result(session, paper_id, {
+        "title": "Protocol-safe related work",
+        "authors": "", "venue": "", "year": 2026,
+        "one_sentence": "A protocol regression test.", "problem": "",
+        "key_contributions": [], "outline": [], "method": {}, "experiments": {},
+        "code_mapping": [], "interview_qa": [], "limitations": "", "related_papers": [],
+    })
+    monkeypatch.setattr(
+        "backend.services.ai_config.get_analysis_config",
+        lambda: {
+            "provider": "anthropic", "api_format": "anthropic_messages", "api_key": "secret",
+            "base_url": "https://gateway.example", "model": "claude-test",
+            "thinking_effort": "low", "timeout_seconds": 87,
+            "proxy": {"enabled": True, "base_url": "https://proxy.example"},
+        },
+    )
+    monkeypatch.setattr("backend.services.ai_config.get_findpapers_config", lambda: {"enabled": False})
+
+    async def fake_search(title):
+        return [{"title": "Related", "authors": "A", "year": 2025}]
+
+    captured = {}
+
+    async def fake_describe(*args, **kwargs):
+        captured.update(kwargs)
+        return args[2]
+
+    monkeypatch.setattr("backend.services.semantic_scholar.search_related_papers", fake_search)
+    monkeypatch.setattr("backend.services.semantic_scholar.generate_relevance_descriptions", fake_describe)
+
+    response = client.post(f"/api/analysis/{paper_id}/related-papers")
+
+    assert response.status_code == 200
+    assert captured == {
+        "provider": "anthropic",
+        "api_format": "anthropic_messages",
+        "thinking_effort": "low",
+        "timeout_seconds": 87,
+        "proxy": {"enabled": True, "base_url": "https://proxy.example"},
+    }
+
+
 def test_export_bibtex_uses_analysis_metadata(client, session, create_paper):
     from backend.services.database import save_analysis_result, update_paper_metadata
 

@@ -13,6 +13,12 @@ result 列的完整结构（explorer.py 产出）：
                   "clusters", "modularity"},
   "graph":      {"nodes", "edges", "stats"}   # ResearchGraph 形状，前端总览视图直接复用
   "synthesis":  ExplorationSynthesis | None   # LLM 跨文献综合（无 Key 为 None）
+  "survey_report": {                          # 报告 v2；旧 v1 JSON 仍可读取
+      "tables": {"frameworks", "metrics", "tasks", "taxonomy",
+                 "experimental_comparisons"},
+      "evidence_store": {"evidence_version", "records"},
+      "quality_status", "method": {"final_audit", "diagnostics", "budgets"}
+  }
 }
 """
 
@@ -86,6 +92,12 @@ class ExplorationRun(SQLModel, table=True):
 
     decompose: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     result: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+    # 断点续传检查点（legacy v1）：已完成阶段游标 + 报告逐篇提取/共享证据缓存。
+    # {"completed_stages": [...], "report": {"selected_keys": [...],
+    #  "extractions": {paper_key: 提取结果}, "evidence_store": {...}}, "updated_at": iso}
+    # run 到达 done 后清空；paused/failed 的 run 由此支持从断点续跑。
+    checkpoint: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     workflow_version: str = "legacy_v1"
     state_version: int = 0           # v2 创建时置 1，此后每次 CAS 状态变更 +1

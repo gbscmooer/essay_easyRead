@@ -10,6 +10,7 @@ quotation and answer coverage checks are deterministic. No rewriting is done.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 
@@ -39,7 +40,8 @@ Return one JSON object, without Markdown, using this schema:
   "claims": [{"claim": "one atomic factual claim", "answer_quote": "verbatim answer span",
     "source_ids": ["P1"], "label": "supported|contradicted|insufficient",
     "evidence": [{"source_id": "P1", "quote": "exact contiguous source quote"}],
-    "reason": "short explanation in the answer's language"}],
+    "reason": "short explanation in the answer's language",
+    "repair_direction": "specific evidence-bounded edit, omission, or scope qualifier"}],
   "non_factual_spans": ["verbatim non-factual answer span"],
   "total_claims": 1, "coverage_complete": true, "truncated": false
 }
@@ -69,6 +71,10 @@ claim, use insufficient. No confidence/probability scores or verified_answer.
 
 def _normalize(value: str) -> str:
     return " ".join(value.split())
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _citations(value: str) -> set[str]:
@@ -120,6 +126,13 @@ def _prepare_sources(sources: list[dict]) -> tuple[list[dict], bool]:
             truncated |= len(original) > limit
             budget -= len(item[field])
             remaining -= len(item[field])
+        spans = source.get("evidence_spans") or []
+        item["evidence_spans"] = [
+            {"evidence_id": str(span.get("evidence_id") or "")[:100],
+             "quote": str(span.get("quote") or "")[:MAX_SOURCE_CHARS]}
+            for span in spans[:100]
+            if isinstance(span, dict) and span.get("evidence_id") and span.get("quote")
+        ]
         prepared.append(item)
     return prepared, truncated
 
@@ -171,7 +184,13 @@ def _validate_claim(raw: object, index: int, answer: str, sources: dict) -> dict
         if field is None:
             errors.append("quote_not_in_source")
             continue
-        valid_evidence.append({"source_id": sid, "quote": quote, "field": field})
+        normalized_quote = _normalize(quote)
+        evidence_ids = [
+            span["evidence_id"] for span in sources[sid].get("evidence_spans", [])
+            if normalized_quote in _normalize(span["quote"]) or _normalize(span["quote"]) in normalized_quote
+        ]
+        valid_evidence.append({"source_id": sid, "quote": quote, "field": field,
+                               "evidence_ids": list(dict.fromkeys(evidence_ids))})
     label = raw.get("label")
     if not isinstance(label, str) or label not in _LABELS:
         label = "insufficient"
@@ -181,13 +200,22 @@ def _validate_claim(raw: object, index: int, answer: str, sources: dict) -> dict
         if not ids or set(ids) - quoted_ids:
             errors.append("missing_exact_evidence")
     reason = raw.get("reason")
+    repair = raw.get("repair_direction")
+    stable_evidence_ids = list(dict.fromkeys(
+        evidence_id for item in valid_evidence for evidence_id in item.get("evidence_ids", [])
+    ))
+    effective_label = "insufficient" if errors else label
     return {
         "id": f"C{index + 1}", "claim": claim, "answer_quote": span,
         "source_ids": [sid for sid in ids if sid in sources],
         "cited_source_ids": cited, "unknown_source_ids": unknown,
-        "label": "insufficient" if errors else label,
+        "label": effective_label,
         "judge_label": label, "evidence": valid_evidence,
+        "evidence_ids": stable_evidence_ids,
         "reason": reason[:1000] if isinstance(reason, str) else "",
+        "repair_direction": repair[:1000] if isinstance(repair, str) else (
+            "删除该断言，或缩小到现有证据明确支持的范围后重新核验。" if effective_label != "supported" else ""
+        ),
         "validation_errors": list(dict.fromkeys(errors)),
     }
 
@@ -217,7 +245,21 @@ def _uncovered(answer: str, spans: list[str]) -> tuple[int, list[str]]:
     return count, snippets
 
 
-async def audit_answer(answer: str, sources: list[dict], cfg: dict) -> dict:
+def audit_binding_valid(report: dict | None, answer: str, evidence_version: str | None) -> bool:
+    binding = (report or {}).get("binding") or {}
+    return (
+        binding.get("text_hash") == _sha256(answer)
+        and binding.get("evidence_version") == (evidence_version or "")
+    )
+
+
+async def audit_answer(
+    answer: str,
+    sources: list[dict],
+    cfg: dict,
+    *,
+    evidence_version: str | None = None,
+) -> dict:
     """Audit rendered facts using cfg's existing api_key/base_url/model.
 
     Returns claims, counts, coverage, judge/model/method, limitations and error.
@@ -238,6 +280,8 @@ async def audit_answer(answer: str, sources: list[dict], cfg: dict) -> dict:
         "non_factual_spans": [], "unknown_source_ids": [], "source_ids": [],
         "judge": "llm", "model": model if isinstance(model, str) else "",
         "method": "alce_inspired_claim_citation_audit_v1", "status": "error",
+        "binding": {"text_hash": _sha256(answer if isinstance(answer, str) else ""),
+                    "evidence_version": evidence_version or ""},
         "limitations": list(_LIMITATIONS), "error": None,
     }
     if not isinstance(answer, str) or not isinstance(sources, list) or not isinstance(cfg, dict):
@@ -262,7 +306,9 @@ async def audit_answer(answer: str, sources: list[dict], cfg: dict) -> dict:
     excerpt = answer[:MAX_ANSWER_CHARS]
     normalized_answer = _normalize(excerpt)
     report["unknown_source_ids"] = sorted(_citations(excerpt) - set(report["source_ids"]))
-    payload = {"answer": excerpt, "sources": prepared, "max_claims": MAX_CLAIMS}
+    model_sources = [{key: value for key, value in source.items() if key != "evidence_spans"}
+                     for source in prepared]
+    payload = {"answer": excerpt, "sources": model_sources, "max_claims": MAX_CLAIMS}
     try:
         data = await asyncio.wait_for(
             _llm_json(cfg, _SYSTEM, json.dumps(payload, ensure_ascii=False),

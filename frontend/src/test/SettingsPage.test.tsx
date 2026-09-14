@@ -161,6 +161,7 @@ describe('SettingsPage unsaved changes', () => {
             id: 'p1', name: 'DeepSeek', note: '', provider: 'deepseek', api_format: 'openai_chat',
             base_url: 'https://api.deepseek.com', model: 'deepseek-chat', api_key: '***key',
             temperature: 0.2, max_tokens: 16384, thinking_effort: 'off', timeout_seconds: 150,
+            proxy: { enabled: false, base_url: '' },
           }],
         })
       }
@@ -177,5 +178,39 @@ describe('SettingsPage unsaved changes', () => {
 
     await waitFor(() => expect(configCalls()).toBeGreaterThan(before))
     expect(api.post).toHaveBeenCalledWith('/analysis/llm-profiles/p1/activate', {})
+  })
+
+  it('copies a profile with its full API key into the new draft', async () => {
+    const user = userEvent.setup()
+    api.get.mockImplementation((path: string) => {
+      if (path === '/analysis/config') return Promise.resolve(serverConfig())
+      if (path === '/analysis/llm/providers') return Promise.resolve({ providers: [] })
+      if (path === '/analysis/llm-profiles/p1/key') return Promise.resolve({ api_key: 'sk-real-full' })
+      if (path.includes('/llm-profiles')) {
+        return Promise.resolve({
+          active_id: '',
+          profiles: [{
+            id: 'p1', name: 'DeepSeek', note: '', provider: 'deepseek', api_format: 'openai_chat',
+            base_url: 'https://api.deepseek.com', model: 'deepseek-chat', api_key: '***key',
+            temperature: 0.2, max_tokens: 16384, thinking_effort: 'off', timeout_seconds: 150,
+            proxy: { enabled: false, base_url: '' },
+          }],
+        })
+      }
+      return Promise.resolve({})
+    })
+    api.post.mockResolvedValueOnce({ message: '已创建配置档案「DeepSeek 副本」', active_id: '', profiles: [] })
+
+    render(<SettingsPage />)
+    await screen.findByText('DeepSeek')
+    await user.click(screen.getByRole('button', { name: '复制' }))
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/analysis/llm-profiles/p1/key'))
+    await user.click(await screen.findByRole('button', { name: '保存档案' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/analysis/llm-profiles', expect.objectContaining({
+      name: 'DeepSeek 副本',
+      api_key: 'sk-real-full',
+    })))
   })
 })

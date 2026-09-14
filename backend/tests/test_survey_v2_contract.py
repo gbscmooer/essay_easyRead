@@ -80,7 +80,7 @@ def test_migration_upgrades_legacy_database_idempotently(tmp_path):
     _migrate_schema(engine)  # 幂等
 
     cols = _table_columns(engine, "exploration_runs")
-    assert {"workflow_version", "state_version", "protocol_asset_id"}.issubset(cols)
+    assert {"workflow_version", "state_version", "protocol_asset_id", "checkpoint"}.issubset(cols)
     with engine.connect() as conn:
         row = conn.exec_driver_sql(
             "SELECT question, status, workflow_version, state_version FROM exploration_runs WHERE id = 1"
@@ -347,13 +347,17 @@ def test_v1_run_legacy_projections(client, v1_env):
 
 def test_v1_run_control_and_retry_unsupported(client, engine, v1_env, monkeypatch):
     base = f"/api/exploration/runs/{v1_env}"
-    for action in ("pause", "resume", "cancel"):
+    # v1 的 retry/cancel 仍不支持（retry 只有 v2 任务账本可重试；cancel 走 v2 CAS）
+    for action in ("retry", "cancel"):
         response = client.post(f"{base}/{action}", json={})
         assert response.status_code == 400
         assert response.json()["code"] == "UNSUPPORTED_WORKFLOW"
-    response = client.post(f"{base}/retry", json={})
-    assert response.status_code == 400
-    assert response.json()["code"] == "UNSUPPORTED_WORKFLOW"
+    # 自断点续传起，v1 的 pause/resume 有了真实语义：done 状态不可暂停/继续（409），
+    # 不再返回 UNSUPPORTED_WORKFLOW
+    for action in ("pause", "resume"):
+        response = client.post(f"{base}/{action}", json={})
+        assert response.status_code == 409
+        assert response.json()["code"] == "INVALID_STATE"
     # v1 重建路径不受 v2 守卫影响：无材料也进入零命中报告重建。
     with Session(engine) as session:
         bare = ExplorationRun(question="v1 无材料", status="done", result={})
@@ -372,6 +376,24 @@ def test_v2_run_report_rebuild_and_delete_guarded(client, engine, v2_env):
     base = f"/api/exploration/runs/{v2_env['run_id']}"
     assert client.post(f"{base}/report").json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
     assert client.delete(base).json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
+
+
+def test_v2_resume_is_guarded_before_state_change(client, engine, v2_env):
+    run_id = v2_env["run_id"]
+    with Session(engine) as session:
+        run = session.get(ExplorationRun, run_id)
+        run.status = "paused"
+        session.add(run)
+        session.commit()
+        version = run.state_version
+
+    response = client.post(f"/api/exploration/runs/{run_id}/resume", json={})
+    assert response.status_code == 400
+    assert response.json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
+    with Session(engine) as session:
+        run = session.get(ExplorationRun, run_id)
+        assert run.status == "paused"
+        assert run.state_version == version
 
 
 # ============================================================
@@ -455,7 +477,7 @@ def test_v2_run_summary_in_get_run(client, v2_env):
 # ============================================================
 
 
-def test_pause_resume_cancel_cas_semantics(client, engine, v2_env):
+def test_pause_cancel_cas_and_unimplemented_resume_semantics(client, engine, v2_env):
     run_id = v2_env["run_id"]
     base = f"/api/exploration/runs/{run_id}"
     assert client.post(f"{base}/pause", json={}).json()["status"] == "paused"
@@ -464,23 +486,18 @@ def test_pause_resume_cancel_cas_semantics(client, engine, v2_env):
     again = client.post(f"{base}/pause", json={})
     assert again.status_code == 200 and again.json()["idempotent_replay"] is True
 
-    # 陈旧版本 → 409
-    stale = client.post(f"{base}/resume", json={"expected_state_version": 1})
-    assert stale.status_code == 409 and stale.json()["code"] == "STALE_STATE_VERSION"
-    # 期望状态不符 → 409
-    conflict = client.post(f"{base}/resume", json={"expected_state": "running"})
-    assert conflict.status_code == 409 and conflict.json()["code"] == "STATE_CONFLICT"
-
+    # v2 worker 尚未接入：resume 必须在改状态前失败，不得落入 legacy worker。
     resumed = client.post(f"{base}/resume", json={})
-    assert resumed.json()["status"] == "running"
+    assert resumed.status_code == 400
+    assert resumed.json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
     with Session(engine) as session:
         run = session.get(ExplorationRun, run_id)
-        assert run.state_version == 6  # 4 → pause(5) → resume(6)
+        assert run.status == "paused" and run.state_version == 5
         events = session.exec(
             select(event_log.ResearchEvent).where(event_log.ResearchEvent.run_id == run_id)
         ).all()
         types = [e.type for e in events]
-        assert "run_paused" in types and "run_resumed" in types
+        assert "run_paused" in types and "run_resumed" not in types
 
     cancelled = client.post(f"{base}/cancel", json={})
     assert cancelled.json()["status"] == "cancelled"

@@ -14,6 +14,7 @@ from .models import (
     LLMResponse,
 )
 from .thinking import resolve_thinking
+from ..llm_proxy import resolve_transport
 
 
 def _request_id(response: object) -> object:
@@ -33,7 +34,12 @@ def _usage_dict(response: object) -> dict[str, Any]:
     return dict(usage) if isinstance(usage, dict) else {}
 
 
-def _safe_provider_error(exc: Exception, config: LLMConfig) -> LLMError:
+def _safe_provider_error(
+    exc: Exception,
+    config: LLMConfig,
+    *,
+    request_base_url: str | None = None,
+) -> LLMError:
     if isinstance(exc, LLMError):
         return exc
     status = getattr(exc, "status_code", None)
@@ -61,7 +67,7 @@ def _safe_provider_error(exc: Exception, config: LLMConfig) -> LLMError:
     return LLMError(
         code,
         safe,
-        base_url=config.base_url,
+        base_url=request_base_url or config.base_url,
         model=config.model,
         request_id=request_id,
         status_code=status if isinstance(status, int) else None,
@@ -161,9 +167,10 @@ class OpenAIChatAdapter(ProviderAdapter):
     ) -> LLMResponse:
         from openai import AsyncOpenAI
 
+        transport = resolve_transport(config)
         client = AsyncOpenAI(
             api_key=config.api_key,
-            base_url=config.base_url or None,
+            base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
         )
         try:
@@ -185,7 +192,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 if not choices:
                     raise LLMResponseError(
                         "LLM_INVALID_RESPONSE_ENVELOPE",
-                        base_url=config.base_url,
+                        base_url=transport.base_url,
                         model=config.model,
                         request_id=_request_id(response),
                     )
@@ -193,7 +200,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 if message is None:
                     raise LLMResponseError(
                         "LLM_INVALID_RESPONSE_ENVELOPE",
-                        base_url=config.base_url,
+                        base_url=transport.base_url,
                         model=config.model,
                         request_id=_request_id(response),
                     )
@@ -205,7 +212,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             if not text.strip():
                 raise LLMResponseError(
                     "LLM_EMPTY_CONTENT",
-                    base_url=config.base_url,
+                    base_url=transport.base_url,
                     model=config.model,
                     request_id=_request_id(response),
                     content_length=len(text),
@@ -220,7 +227,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         except LLMError:
             raise
         except Exception as exc:
-            raise _safe_provider_error(exc, config) from exc
+            raise _safe_provider_error(exc, config, request_base_url=transport.base_url) from exc
         finally:
             await client.close()
 
@@ -236,9 +243,10 @@ class OpenAIChatAdapter(ProviderAdapter):
     ) -> AsyncIterator[str]:
         from openai import AsyncOpenAI
 
+        transport = resolve_transport(config)
         client = AsyncOpenAI(
             api_key=config.api_key,
-            base_url=config.base_url or None,
+            base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
         )
         try:
@@ -263,7 +271,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         except LLMError:
             raise
         except Exception as exc:
-            raise _safe_provider_error(exc, config) from exc
+            raise _safe_provider_error(exc, config, request_base_url=transport.base_url) from exc
         finally:
             await client.close()
 
@@ -312,9 +320,10 @@ class AnthropicMessagesAdapter(ProviderAdapter):
     ) -> LLMResponse:
         from anthropic import AsyncAnthropic
 
+        transport = resolve_transport(config)
         client = AsyncAnthropic(
             api_key=config.api_key,
-            base_url=config.base_url or None,
+            base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
         )
         try:
@@ -332,7 +341,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
             if not text.strip():
                 raise LLMResponseError(
                     "LLM_EMPTY_CONTENT",
-                    base_url=config.base_url,
+                    base_url=transport.base_url,
                     model=config.model,
                     request_id=_request_id(response),
                     content_length=len(text),
@@ -347,7 +356,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
         except LLMError:
             raise
         except Exception as exc:
-            raise _safe_provider_error(exc, config) from exc
+            raise _safe_provider_error(exc, config, request_base_url=transport.base_url) from exc
         finally:
             await client.close()
 
@@ -363,9 +372,10 @@ class AnthropicMessagesAdapter(ProviderAdapter):
     ) -> AsyncIterator[str]:
         from anthropic import AsyncAnthropic
 
+        transport = resolve_transport(config)
         client = AsyncAnthropic(
             api_key=config.api_key,
-            base_url=config.base_url or None,
+            base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
         )
         try:
@@ -385,7 +395,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
         except LLMError:
             raise
         except Exception as exc:
-            raise _safe_provider_error(exc, config) from exc
+            raise _safe_provider_error(exc, config, request_base_url=transport.base_url) from exc
         finally:
             await client.close()
 

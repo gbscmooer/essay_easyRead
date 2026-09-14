@@ -11,6 +11,9 @@ const TITLES: Record<string, string> = {
   name: '框架 / 工具', kind: '类型', target: '评估对象', aspects: '评估维度', metrics: '度量指标',
   aspect: '评估维度', metric: '指标', description: '材料说明', task: '下游任务', subtask: '子任务',
   dataset: '数据集', method: '方法', category: '技术类别',
+  baseline_method: '对照方法', split: '数据划分', value: '结果', baseline_value: '对照结果', unit: '单位',
+  metric_direction: '指标方向', hardware: '硬件', batch_size: 'Batch size', input_size: '输入规模',
+  precision: '精度', comparison_limit: '可比性限制',
 }
 
 function Evidence({ items, references }: { items: SurveyEvidence[]; references: Map<string, Ref> }) {
@@ -18,6 +21,7 @@ function Evidence({ items, references }: { items: SurveyEvidence[]; references: 
     {items.map((e, i) => <div key={i}>
       {references.has(e.paper_key) && <PaperTitle paper={references.get(e.paper_key)!} />}
       <span className="survey-source-kind">{e.source_kind === 'abstract' ? '摘要' : '全文片段'}</span>
+      <small>{[e.evidence_id, e.page ? `p.${e.page}` : '', e.section, e.table, e.location_status === 'unavailable' ? '定位不可用' : ''].filter(Boolean).join(' · ')}</small>
       <blockquote>{e.quote}</blockquote>
     </div>)}
   </details>
@@ -80,7 +84,7 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
   const years = useMemo(() => Object.entries(report?.bibliometrics.by_year ?? {}).sort(([a], [b]) => Number(a) - Number(b)).map(([year, count]) => ({ year, count })), [report])
   const noResults = report?.status === 'no_results'
   return <article className="survey-report" aria-label="研究报告">
-    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span>{noResults ? '检索未命中 · 报告已生成' : report.status === 'completed' ? '已生成' : report.status === 'partial' ? '部分完成' : '证据表待生成'}</span>}</div>
+    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span>{noResults ? '检索未命中 · 报告已生成' : report.quality_status === 'internally_checked' ? '已生成 · 终稿核验通过' : report.status === 'completed' ? '已生成 · 终稿待核验' : report.status === 'partial' ? '部分完成 · 终稿待核验' : '证据表待生成'}</span>}</div>
       <div>
         {report && <><a href={`/api/exploration/runs/${runId}/report?format=html`} title="下载含图表的 HTML 报告" aria-label="下载 HTML 报告"><Download size={16} /><span>HTML</span></a>
           <a href={`/api/exploration/runs/${runId}/report?format=markdown`} title="下载 Markdown 报告" aria-label="下载 Markdown 报告"><FileText size={16} /><span>Markdown</span></a></>}
@@ -101,7 +105,7 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
       <section id="survey-directions" className="survey-section"><h3><ListTree size={18} />建议补搜方向</h3><p className="survey-note">以下内容是查询策略建议，不是关于领域现状的事实结论。</p><ul>{(report.search_summary?.directions ?? []).map((text, i) => <li key={i}>{text}</li>)}</ul>{!report.search_summary?.directions?.length && <p className="survey-empty">当前搜索记录不足以自动形成补搜方向。</p>}</section>
       <section id="survey-limits" className="survey-section"><h3><Layers size={18} />结论边界</h3><p>{report.search_summary?.interpretation || '本次零命中不能证明全领域不存在相关工作。'}</p><ul>{report.warnings.map((text, i) => <li key={i}>{text}</li>)}</ul></section>
     </> : (report.references ?? []).length === 0 ? <p className="survey-empty">这是旧版无材料记录，尚未保存可审计的检索明细；可点击“重新生成”生成零命中报告。</p> : <>
-      <nav className="survey-toc" aria-label="报告目录">{[['scope', '摘要与范围'], ['taxonomy', '技术分类'], ['frameworks', '评估框架'], ['metrics', '维度与指标'], ['tasks', '任务与数据集'], ['limits', '局限'], ['references', '参考文献']].map(([id, label]) => <a key={id} href={`#survey-${id}`}>{label}</a>)}</nav>
+      <nav className="survey-toc" aria-label="报告目录">{[['scope', '摘要与范围'], ['taxonomy', '技术分类'], ['frameworks', '评估框架'], ['metrics', '维度与指标'], ['tasks', '任务与数据集'], ['experiments', '实验比较'], ['limits', '局限'], ['references', '参考文献']].map(([id, label]) => <a key={id} href={`#survey-${id}`}>{label}</a>)}</nav>
       <section id="survey-scope" className="survey-section"><h3><FileText size={18} />摘要与研究范围</h3>
         <EvidenceMarkdown text={report.summary || '本次材料尚未形成跨文献摘要。'} papers={report.references} citations={citations} />
         {report.findings.length > 0 && <><h4>跨文献发现</h4><ul>{report.findings.map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul></>}
@@ -118,9 +122,11 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
       <section id="survey-tasks" className="survey-section"><h3><Table2 size={18} />下游任务与数据集</h3><SummaryTable rows={report.tables.tasks} columns={['task', 'subtask', 'dataset', 'method']} references={references} caption="Downstream Tasks and Datasets" />
         <SurveyHeatmap matrix={report.matrices.task_dataset} title="下游任务 × 数据集" references={references} />
       </section>
+      <section id="survey-experiments" className="survey-section"><h3><FlaskConical size={18} />实验结果、条件与可比性</h3><SummaryTable rows={report.tables.experimental_comparisons ?? []} columns={['method', 'baseline_method', 'task', 'dataset', 'split', 'metric', 'value', 'baseline_value', 'unit', 'metric_direction', 'hardware', 'batch_size', 'input_size', 'precision', 'comparison_limit']} references={references} caption="Experimental Comparisons and Conditions" /></section>
       <section id="survey-limits" className="survey-section"><h3><Layers size={18} />局限与未解决问题</h3>
-        <ul>{[...report.gaps, ...report.warnings].map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul>
+        <ul>{[...(report.limitations ?? report.gaps), ...report.warnings].map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul>
         {(report.coverage.failed > 0 || report.coverage.rejected_rows > 0) && <p className="survey-note">提取失败 {report.coverage.failed} 篇；原文、字段或关系复核未通过 {report.coverage.rejected_rows} 条。</p>}
+        <p className="survey-note">终稿核验：{String((report.method?.final_audit as { status?: string } | undefined)?.status ?? 'not_started')}。核验只绑定当前文本与证据版本；未完成不表示通过。</p>
       </section>
       <section id="survey-references" className="survey-section"><h3><BookOpen size={18} />参考文献</h3><ol className="survey-references">{report.references.map(p => <li key={p.key}><PaperTitle paper={p} /><span>{p.year ?? '年份未记录'}</span></li>)}</ol></section>
     </>}

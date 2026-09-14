@@ -1,10 +1,10 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import type { ServerResponse } from 'http'
+import type { IncomingMessage } from 'http'
 
 function manualChunks(id: string): string | undefined {
-  const normalized = id.replaceAll('\\', '/')
+  const normalized = id.replace(/\\/g, '/')
   if (!normalized.includes('/node_modules/')) return undefined
 
   const groups: Array<[string, string[]]> = [
@@ -43,7 +43,7 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
         configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes: ServerResponse) => {
+          proxy.on('proxyRes', (proxyRes: IncomingMessage) => {
             const contentType = proxyRes.headers?.['content-type'] || ''
             if (contentType.includes('text/event-stream')) {
               proxyRes.headers['cache-control'] = 'no-cache'

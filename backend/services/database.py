@@ -284,6 +284,11 @@ def _migrate_schema(engine) -> None:
                 except Exception as e:
                     logger.warning(f"Migration failed for exploration_runs.{col_name}: {e}")
 
+        # 断点续传检查点列（legacy v1）：failed/paused 运行由此支持从断点续跑
+        if exploration_cols and "checkpoint" not in exploration_cols:
+            conn.exec_driver_sql("ALTER TABLE exploration_runs ADD COLUMN checkpoint JSON")
+            conn.commit()
+
         # academic_survey_v2 新表（S0 冻结 schema；正常路径由 create_all 建表，
         # 此处兜底保证旧库升级/部分导入路径也能拿到完整表集，checkfirst 幂等）
         from sqlmodel import SQLModel as _SQLModel
@@ -558,11 +563,23 @@ def init_db(database_url: str) -> None:
     Args:
         database_url: 数据库连接字符串（应为绝对路径）
     """
-    engine = create_engine(database_url, connect_args={"check_same_thread": False})
-    SQLModel.metadata.create_all(engine)
+    from ..config import settings
 
-    # 简易迁移：为已有表添加新列
-    _migrate_schema(engine)
+    owns_engine = database_url != settings.resolved_database_url
+    engine = (
+        create_engine(database_url, connect_args={"check_same_thread": False})
+        if owns_engine else get_engine()
+    )
+    if owns_engine:
+        event.listen(engine, "connect", _set_sqlite_pragma)
+    try:
+        SQLModel.metadata.create_all(engine)
+
+        # 简易迁移：为已有表添加新列
+        _migrate_schema(engine)
+    finally:
+        if owns_engine:
+            engine.dispose()
 
 
 def reconcile_interrupted_runs(engine=None) -> int:

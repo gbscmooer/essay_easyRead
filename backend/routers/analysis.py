@@ -28,6 +28,13 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 # GET/POST /api/analysis/config
 # ============================================================
 
+class LLMProxyConfig(BaseModel):
+    """Authorized OpenAI/Anthropic-compatible gateway transport."""
+
+    enabled: bool = False
+    base_url: str = ""
+
+
 class AIModelConfig(BaseModel):
     provider: str = "openai"
     api_format: Literal["openai_chat", "anthropic_messages"] = "openai_chat"
@@ -41,6 +48,7 @@ class AIModelConfig(BaseModel):
     # 仅对支持的推理模型生效；Anthropic 协议开启思考时强制 temperature=1。
     thinking_effort: str = "off"
     timeout_seconds: float = Field(default=150.0, ge=1.0, le=600.0)
+    proxy: LLMProxyConfig = Field(default_factory=LLMProxyConfig)
 
 class UIConfig(BaseModel):
     highlight_duration: int = 3000
@@ -247,6 +255,7 @@ class LLMProfilePayload(BaseModel):
     max_tokens: Optional[int] = None
     thinking_effort: Optional[str] = None
     timeout_seconds: Optional[float] = None
+    proxy: Optional[LLMProxyConfig] = None
 
 
 @router.get("/llm-profiles")
@@ -291,6 +300,30 @@ async def delete_llm_profile_endpoint(profile_id: str) -> dict:
     except LookupError as e:
         raise HTTPException(status_code=404, detail={"detail": str(e), "code": "PROFILE_NOT_FOUND"})
     return {"message": "配置档案已删除", **state}
+
+
+@router.get("/llm-profiles/{profile_id}/key")
+async def reveal_llm_profile_key(profile_id: str, request: Request, response: Response) -> dict:
+    """返回档案的完整 API Key（设置页「显示」与「复制」带出真钥）。
+
+    本机自用工具，与配置导出 include_secrets 同一信任边界：密钥只落在
+    本机 config_key 与本机前端表单，不进数据库、不进日志。
+    """
+    from ..services.ai_config import get_llm_profile_key, get_llm_profiles
+    from ..services.terminal_access import trusted_local_peer
+
+    client_host = request.client.host if request.client else ""
+    if client_host != "testclient" and not trusted_local_peer(
+        client_host, request.headers.get("x-forwarded-for")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={"detail": "API Key 仅允许从本机查看", "code": "LOCAL_ACCESS_REQUIRED"},
+        )
+    if not any(p.get("id") == profile_id for p in get_llm_profiles()["profiles"]):
+        raise HTTPException(status_code=404, detail={"detail": f"配置档案不存在: {profile_id}", "code": "PROFILE_NOT_FOUND"})
+    response.headers["Cache-Control"] = "no-store"
+    return {"api_key": get_llm_profile_key(profile_id)}
 
 
 @router.post("/llm-profiles/{profile_id}/activate")
@@ -383,7 +416,7 @@ async def export_config_endpoint(
 
     client_host = request.client.host if request.client else ""
     forwarded = request.headers.get("x-forwarded-for")
-    is_local = (client_host in ("127.0.0.1", "localhost", "testclient")) or trusted_local_peer(client_host, forwarded)
+    is_local = client_host == "testclient" or trusted_local_peer(client_host, forwarded)
 
     mask = not (include_secrets and is_local)
     content, filename, media_type = export_config(fmt=format, mask_keys=mask)
@@ -406,7 +439,7 @@ async def import_config_endpoint(request: Request) -> dict:
     # 安全检查：仅允许本地调用导入接口，避免外部网络非法篡改系统配置
     client_host = request.client.host if request.client else ""
     forwarded = request.headers.get("x-forwarded-for")
-    is_local = (client_host in ("127.0.0.1", "localhost", "testclient")) or trusted_local_peer(client_host, forwarded)
+    is_local = client_host == "testclient" or trusted_local_peer(client_host, forwarded)
     if not is_local:
         raise HTTPException(status_code=403, detail="出于安全原因，配置导入仅支持从本地环境发起")
 
@@ -616,6 +649,7 @@ class TestConnectionRequest(BaseModel):
     provider: Optional[str] = None
     api_format: Optional[Literal["openai_chat", "anthropic_messages"]] = None
     timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=600.0)
+    proxy: Optional[LLMProxyConfig] = None
     # 可选：按配置档案测试（档案卡片上只有掩码 key，后端用它取回真实密钥）
     profile_id: Optional[str] = None
 
@@ -676,6 +710,7 @@ async def _test_llm_connection(req: TestConnectionRequest) -> TestConnectionResp
         "provider": req.provider if req.provider is not None else cfg.get("provider", "custom"),
         "api_format": req.api_format if req.api_format is not None else cfg.get("api_format"),
         "timeout_seconds": req.timeout_seconds if req.timeout_seconds is not None else cfg.get("timeout_seconds", 150),
+        "proxy": req.proxy.model_dump() if req.proxy is not None else cfg.get("proxy", {}),
     })
     message = result["message"] if result["ok"] else f"连接失败: {result['message']}"
     return TestConnectionResponse(**{**result, "message": message})
@@ -697,8 +732,12 @@ async def _test_embedding_connection(req: TestConnectionRequest) -> TestConnecti
         t0 = time.monotonic()
         try:
             from sentence_transformers import SentenceTransformer
-            m = SentenceTransformer(model, device="cpu")
-            vec = m.encode(["test"], normalize_embeddings=True)
+
+            def _load_and_encode():
+                loaded = SentenceTransformer(model, device="cpu")
+                return loaded.encode(["test"], normalize_embeddings=True)
+
+            vec = await asyncio.to_thread(_load_and_encode)
             latency = int((time.monotonic() - t0) * 1000)
             dim = len(vec[0])
             return TestConnectionResponse(ok=True, message=f"本地模型加载成功 (维度={dim})", latency_ms=latency)
@@ -1507,6 +1546,11 @@ async def refresh_related_papers(paper_id: int) -> list:
                 ai_cfg["api_key"],
                 ai_cfg["base_url"],
                 ai_cfg["model"],
+                provider=ai_cfg.get("provider", "custom"),
+                api_format=ai_cfg.get("api_format", "openai_chat"),
+                thinking_effort=ai_cfg.get("thinking_effort", "off"),
+                timeout_seconds=ai_cfg.get("timeout_seconds", 150),
+                proxy=ai_cfg.get("proxy", {}),
             )
     except Exception as e:
         logger.warning(f"Related papers refresh failed: {e}")

@@ -1,5 +1,5 @@
 import { get, post, del } from './client'
-import type { ExplorationDepth, ExplorationRun, ExplorationRunSummary, ExplorationMessage, PreflightResponse } from '@/types'
+import type { ExplorationDepth, ExplorationRun, ExplorationRunSummary, ExplorationMessage, PreflightResponse, SurveyEvidenceDetail, SurveyEvidenceIndex } from '@/types'
 
 // 领域探索（问句驱动免读领域认知，见 GOAL.md）
 export async function createExploration(question: string, depth: ExplorationDepth = 'standard', options: import('@/types').ResearchSourceOptions = {}): Promise<ExplorationRun> {
@@ -15,6 +15,16 @@ export function regenerateReport(runId: number) {
   return post<ExplorationRun>(`/exploration/runs/${runId}/report`, {})
 }
 
+/** 请求在安全点（阶段/轮次/篇目边界）暂停研究；断点已保留，可随时继续 */
+export function pauseExploration(runId: number) {
+  return post<{ run_id: number; status: string; detail: string }>(`/exploration/runs/${runId}/pause`, {})
+}
+
+/** 从断点继续失败/暂停的研究（跳过已完成的阶段与已提取的篇目） */
+export function resumeExploration(runId: number) {
+  return post<{ run_id: number; status: string; detail: string }>(`/exploration/runs/${runId}/resume`, {})
+}
+
 export async function listExplorations(limit = 20): Promise<ExplorationRunSummary[]> {
   return get<ExplorationRunSummary[]>(`/exploration/runs?limit=${limit}`)
 }
@@ -25,6 +35,16 @@ export async function getExploration(runId: number, signal?: AbortSignal): Promi
 
 export function getExplorationMessages(runId: number, signal?: AbortSignal) {
   return get<ExplorationMessage[]>(`/exploration/runs/${runId}/messages`, signal)
+}
+
+export function getExplorationEvidenceIndex(runId: number, subquestionId?: string, cursor = 0, limit = 20) {
+  const params = new URLSearchParams({ cursor: String(cursor), limit: String(limit) })
+  if (subquestionId) params.set('subquestion_id', subquestionId)
+  return get<SurveyEvidenceIndex>(`/exploration/runs/${runId}/evidence?${params}`)
+}
+
+export function getExplorationEvidence(runId: number, evidenceId: string) {
+  return get<SurveyEvidenceDetail>(`/exploration/runs/${runId}/evidence/${encodeURIComponent(evidenceId)}`)
 }
 
 export function askExploration(runId: number, question: string, searchMore: boolean, selectedKeys: string[] = []) {

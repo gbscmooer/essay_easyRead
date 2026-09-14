@@ -418,9 +418,15 @@ def test_coverage_dimensions_drive_planner_and_topup():
     assert audit["coverage_trace"]
 
 
-def test_coverage_dimensions_empty_without_matching_question():
+def test_coverage_dimensions_include_dynamic_topic_and_domain_dimensions():
     from backend.services.deep_research.recall_engine import _coverage_dimensions
 
-    assert _coverage_dimensions("随便一个问题") == []
-    dims = _coverage_dimensions("detection 与 segmentation 的复杂度对比")
-    assert len(dims) == 3
+    generic = _coverage_dimensions("蛋白质折叠研究", ["protein folding diffusion model"])
+    assert generic[0]["dimension"].startswith("研究主题相关性")
+    assert {"protein", "folding", "diffusion", "model"}.issubset(generic[0]["probes"])
+
+    dims = _coverage_dimensions("detection 与 segmentation 的复杂度对比", ["vision benchmark"])
+    assert len(dims) == 4
+    medical = _coverage_dimensions("medical imaging in clinic", ["clinical diagnosis"])
+    probes = next(row["probes"] for row in medical if row["dimension"] == "医学影像应用证据")
+    assert "clinic" in probes and "clnic" not in probes

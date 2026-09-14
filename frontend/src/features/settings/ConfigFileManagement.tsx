@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   getConfigFileInfo,
   getExportConfigUrl,
@@ -17,6 +18,17 @@ import {
 } from '@/api/settings'
 import { toast } from '@/hooks/useToast'
 import { LoadingSpinner } from '@/ds-entry'
+
+// 导入/导出弹窗必须 Portal 到 body：设置页每个区块都是 z-index:1 的层叠上下文
+// （pages.css 的 .er-page > *），弹窗留在区块内部会被后续区块整层盖住。
+function Modal({ children }: { children: React.ReactNode }) {
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in" role="dialog" aria-modal="true">
+      {children}
+    </div>,
+    document.body,
+  )
+}
 
 interface ConfigFileManagementProps {
   onConfigReload: () => void
@@ -195,7 +207,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
 
       {/* 导出弹窗 */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in" role="dialog" aria-modal="true">
+        <Modal>
           <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
               <h3 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
@@ -267,12 +279,12 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* 导入弹窗 */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in" role="dialog" aria-modal="true">
+        <Modal>
           <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl max-w-lg w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
               <h3 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
@@ -373,7 +385,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

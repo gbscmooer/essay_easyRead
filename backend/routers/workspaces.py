@@ -156,7 +156,7 @@ async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
 # GET /api/workspaces/{workspace_id}/insights
 # ============================================================
 @router.get("/{workspace_id}/insights", response_model=WorkspaceInsightResponse)
-async def get_workspace_insights(workspace_id: int) -> WorkspaceInsightResponse:
+def get_workspace_insights(workspace_id: int) -> WorkspaceInsightResponse:
     """获取工作区研究洞察。"""
     from ..services.workspace_insights import build_workspace_insights
 

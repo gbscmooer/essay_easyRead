@@ -234,24 +234,26 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
 
         # 1. 构建文件树
         yield format_sse(StreamEvent(event="status", data={"message": "正在分析文件结构..."}))
-        tree = build_file_tree(code_path)
+        tree = await asyncio.to_thread(build_file_tree, code_path)
 
-        # 2. 静态分析：依赖图
+        # 2. 静态分析和文件读取都是同步文件/CPU 工作，移出 SSE 事件循环。
         yield format_sse(StreamEvent(event="status", data={"message": "正在分析模块依赖..."}))
-        core_files = select_core_files(tree, code_path)
-        deps, node_metrics = analyze_imports(code_path, core_files)
 
-        # 3. 读取核心文件内容
-        yield format_sse(StreamEvent(event="status", data={"message": "正在读取核心文件..."}))
-        file_contents = {}
-        for f in core_files:
-            try:
-                content = read_file_content(code_path, f, max_lines=200)
-                if content and not content.startswith("["):
-                    file_contents[f] = content
-            except Exception as e:
-                logger.debug(f"Failed to read file {f}: {e}")
-                continue
+        def _inspect_repository():
+            core = select_core_files(tree, code_path)
+            dependencies, metrics = analyze_imports(code_path, core)
+            contents: dict[str, str] = {}
+            for filename in core:
+                try:
+                    content = read_file_content(code_path, filename, max_lines=200)
+                    if content and not content.startswith("["):
+                        contents[filename] = content
+                except Exception as exc:
+                    logger.debug("Failed to read file %s: %s", filename, exc)
+            return core, dependencies, metrics, contents
+
+        core_files, deps, node_metrics, file_contents = await asyncio.to_thread(_inspect_repository)
+        yield format_sse(StreamEvent(event="status", data={"message": "已读取核心文件"}))
 
         # 4. AI 分析
         data_flow = ""

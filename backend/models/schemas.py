@@ -524,6 +524,8 @@ class ExplorationRunResponse(BaseModel):
     state_version: int = 0
     protocol: Optional["ProtocolSummaryResponse"] = None
     current_revision: Optional["ReportRevisionEntry"] = None
+    # 断点续传检查点摘要（legacy v1；不含逐篇提取正文）
+    checkpoint_summary: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 
@@ -721,17 +723,49 @@ class EvidenceSpanEntry(BaseModel):
     char_start: Optional[int] = None
     char_end: Optional[int] = None
     quote: str = ""
+    location_id: Optional[str] = None
+    location_status: Optional[str] = None
 
 
 class EvidenceDetailResponse(BaseModel):
     """GET /runs/{id}/evidence/{eid}：许可范围内的摘录、文档版本与定位"""
     evidence_id: str
     run_id: int
-    asset_id: str
+    asset_id: Optional[str] = None
     spans: list[EvidenceSpanEntry] = []
     relation: Optional[str] = None
+    evidence_type: Optional[str] = None
+    fact: dict = Field(default_factory=dict)
+    subquestion_ids: list[str] = []
+    missing_fields: list[str] = []
+    comparability: dict = Field(default_factory=dict)
+    verification: dict = Field(default_factory=dict)
     document: dict = Field(default_factory=dict)   # content_hash/format/public_available_at/parse_status
-    created_at: datetime
+    created_at: Optional[datetime] = None
+
+
+class EvidenceIndexItem(BaseModel):
+    evidence_id: str
+    evidence_type: Optional[str] = None
+    subquestion_ids: list[str] = []
+    paper_key: Optional[str] = None
+    fact_summary: str = ""
+    missing_fields: list[str] = []
+    comparability_status: Optional[str] = None
+    verification_status: Optional[str] = None
+    location_status: Optional[str] = None
+
+
+class EvidenceIndexResponse(BaseModel):
+    run_id: int
+    workflow_version: str
+    evidence_version: str = ""
+    subquestion_id: Optional[str] = None
+    cursor: int = 0
+    limit: int = 20
+    total: int = 0
+    next_cursor: Optional[int] = None
+    items: list[EvidenceIndexItem] = []
 
 
 ExplorationRunResponse.model_rebuild()

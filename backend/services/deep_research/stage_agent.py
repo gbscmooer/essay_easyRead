@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -18,6 +19,15 @@ ModelStep = Callable[[dict], dict | Awaitable[dict]]
 Validator = Callable[[dict], "StageValidation" | Awaitable["StageValidation"]]
 ProgressMarker = Callable[[dict], object]
 EventHandler = Callable[[dict], None | Awaitable[None]]
+PauseCheck = Callable[[], bool]
+
+
+class StagePausedError(RuntimeError):
+    """暂停请求在安全点（迭代/轮次边界）被观察到，阶段循环立即让出。
+
+    调用方（explorer 编排层）捕获后把运行置为 paused 并持久化断点；
+    该异常不得被阶段内部的通用 ``except Exception`` 吞掉。
+    """
 
 
 @dataclass(frozen=True)
@@ -34,12 +44,19 @@ class StageLoopResult:
     status: str
     stop_reason: str
     iterations: int
+    duration_ms: int = 0
 
     def audit(self) -> dict:
+        tool_calls = sum(1 for row in self.trace if row.get("action") not in {None, "", "finish", "model_error", "invalid"})
+        failures = sum(1 for row in self.trace if (row.get("observation") or {}).get("ok") is False)
         return {
             "status": self.status,
             "stop_reason": self.stop_reason,
             "iterations": self.iterations,
+            "duration_ms": self.duration_ms,
+            "model_calls": self.iterations,
+            "tool_calls": tool_calls,
+            "failure_count": failures,
             "trace": self.trace,
         }
 
@@ -103,6 +120,7 @@ async def run_stage_agent(
     turn_timeout: float = 120,
     progress_marker: ProgressMarker | None = None,
     on_event: EventHandler | None = None,
+    should_pause: PauseCheck | None = None,
 ) -> StageLoopResult:
     """运行一个有界阶段循环；只有 ``finish + validator.passed`` 才返回 completed。"""
     if max_iterations < 1:
@@ -111,8 +129,15 @@ async def run_stage_agent(
         raise ValueError("no_progress_limit must be positive")
 
     trace: list[dict] = []
+    started_at = time.monotonic()
     last_observation: dict = {"status": "stage_entered"}
     stagnant = 0
+
+    def finish(status: str, stop_reason: str, iterations: int) -> StageLoopResult:
+        return StageLoopResult(
+            state, trace, status, stop_reason, iterations,
+            duration_ms=max(0, round((time.monotonic() - started_at) * 1000)),
+        )
 
     async def emit(payload: dict) -> None:
         if on_event:
@@ -129,6 +154,9 @@ async def run_stage_agent(
         return json.dumps(_compact(state, max_chars=8000), ensure_ascii=False, sort_keys=True, default=str)
 
     for iteration in range(1, max_iterations + 1):
+        # 暂停是协作式安全点：只在迭代边界让出，不打断进行中的模型调用
+        if should_pause is not None and await _resolve(should_pause()):
+            raise StagePausedError(f"stage {stage} paused at iteration {iteration}")
         await emit({"iteration": iteration, "phase": "decide", "max_iterations": max_iterations})
         view = {
             "stage": stage,
@@ -150,7 +178,7 @@ async def run_stage_agent(
             trace.append(turn)
             await emit({"iteration": iteration, "phase": "observe", "action": "model_error",
                         "observation": turn["observation"]})
-            return StageLoopResult(state, trace, "partial", f"model_error:{type(exc).__name__}", iteration)
+            return finish("partial", f"model_error:{type(exc).__name__}", iteration)
         if not isinstance(decision, dict):
             raise ValueError("stage agent decision must be a JSON object")
 
@@ -202,7 +230,7 @@ async def run_stage_agent(
             if validation.passed:
                 trace.append(turn)
                 await emit({"iteration": iteration, "phase": "complete", "validation": turn["validation"]})
-                return StageLoopResult(state, trace, "completed", "validator_passed", iteration)
+                return finish("completed", "validator_passed", iteration)
             last_observation = {
                 "ok": False,
                 "code": "STAGE_VALIDATION_FAILED",
@@ -224,11 +252,11 @@ async def run_stage_agent(
             "no_progress": stagnant,
         })
         if stagnant >= no_progress_limit:
-            return StageLoopResult(state, trace, "partial", "no_progress", iteration)
+            return finish("partial", "no_progress", iteration)
 
     # 预算耗尽时补一次程序验收：模型只是持续改进而未显式 finish 时，验收权威
     # 在 validator——通过即按完成处理，不把已达标的运行判死
     budget_validation = await _resolve(validator(state))
     if isinstance(budget_validation, StageValidation) and budget_validation.passed:
-        return StageLoopResult(state, trace, "completed", "validator_passed_on_budget", max_iterations)
-    return StageLoopResult(state, trace, "partial", "iteration_budget_exhausted", max_iterations)
+        return finish("completed", "validator_passed_on_budget", max_iterations)
+    return finish("partial", "iteration_budget_exhausted", max_iterations)

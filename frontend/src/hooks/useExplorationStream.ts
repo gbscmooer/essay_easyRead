@@ -26,7 +26,7 @@ const STAGE_DEFAULT_MESSAGES: Record<string, string> = {
 
 export function useExplorationStream(runId: number | null, revision = 0) {
   const [streamRunId, setStreamRunId] = useState<number | null>(null)
-  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
+  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'failed' | 'paused'>('idle')
   const [stage, setStage] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState<number>(0)
@@ -196,6 +196,19 @@ export function useExplorationStream(runId: number | null, revision = 0) {
       if (!shouldIgnore()) {
         setStatus('done')
         setProgress(100)
+      }
+      es.close()
+    })
+    // 协作式暂停：worker 在安全点（阶段/轮次/篇目边界）停止并保留断点
+    es.addEventListener('paused', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const data = JSON.parse(e.data) as { stage?: string }
+        setStatus('paused')
+        setStage(data.stage || null)
+        setMessage('已在安全点暂停，断点已保留，可随时继续')
+      } catch {
+        setStatus('paused')
       }
       es.close()
     })

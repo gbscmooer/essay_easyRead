@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 from collections import defaultdict
@@ -228,7 +229,7 @@ _COVERAGE_DIMENSIONS: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = [
     (("视频", "video", "时序"), "视频/时序任务证据",
      ("video", "temporal", "tracking", "flow")),
     (("医学", "医疗", "medical"), "医学影像应用证据",
-     ("medical", "clnic", "segmentation", "diagnos")),
+     ("medical", "clinic", "clinical", "segmentation", "diagnos")),
     (("遥感", "remote sensing"), "遥感应用证据",
      ("remote sensing", "hyperspectral", "satellite", "aerial")),
     (("参数量", "参数", "parameter"), "参数量对比证据",
@@ -246,10 +247,32 @@ _COVERAGE_DIMENSIONS: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = [
 ]
 
 
-def _coverage_dimensions(question: str) -> list[dict]:
-    """从研究问题程序化推导证据覆盖维度清单（无匹配则返回空清单）。"""
+def _topic_probes(question: str, queries: list[str] | None = None) -> list[str]:
+    """Derive domain terms from the actual question/decomposition, not a fixed field map."""
+    stop = {
+        "about", "analysis", "and", "are", "compare", "comparison", "does", "for",
+        "from", "how", "research", "the", "this", "using", "what", "which", "with",
+    }
+    candidates = [*(queries or []), question]
+    out: list[str] = []
+    for value in candidates:
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_.+-]{2,}", str(value)):
+            folded = token.casefold()
+            if folded in stop or folded in {item.casefold() for item in out}:
+                continue
+            out.append(token)
+            if len(out) >= 8:
+                return out
+    return out
+
+
+def _coverage_dimensions(question: str, queries: list[str] | None = None) -> list[dict]:
+    """从问题与实际检索式推导证据覆盖维度。"""
     lowered = question.lower()
     out: list[dict] = []
+    topic = _topic_probes(question, queries)
+    if topic:
+        out.append({"dimension": f"研究主题相关性：{' / '.join(topic[:4])}", "probes": topic})
     for triggers, name, probes in _COVERAGE_DIMENSIONS:
         if any(t.lower() in lowered for t in triggers):
             out.append({"dimension": name, "probes": list(probes)})
@@ -341,11 +364,13 @@ async def run_target_recall(
     search_one: SearchOne | None = None,
     llm_json: LlmJson | None = None,
     backfill_abstracts: Backfill | None = None,
+    should_pause=None,
 ) -> tuple[list[dict], dict]:
     """执行目标量驱动的多源并行召回，返回（论文清单, 审计）。
 
     search_one(source, keyword, limit, order) / llm_json(system, user) /
     backfill_abstracts(dois) 均可注入，缺省接真实三源与统一 LLM Core。
+    should_pause 在每轮边界观察暂停请求，命中则抛 StagePausedError（协作式安全点）。
     """
     from .explorer import _dedupe_candidates, _usable_english_queries
     from ..research_exclusions import apply_exclusions, active_exclusions
@@ -394,7 +419,7 @@ async def run_target_recall(
     rounds_trace: list[dict] = []
     planner_trace: list[dict] = []
     coverage_trace: list[dict] = []
-    coverage_dimensions = _coverage_dimensions(question)
+    coverage_dimensions = _coverage_dimensions(question, queries)
     stop_reason = "planner_unavailable"
 
     def _fresh_corpus() -> list[dict]:
@@ -488,6 +513,13 @@ async def run_target_recall(
 
     try:
         while current_keywords:
+            if should_pause is not None:
+                flag = should_pause()
+                if inspect.isawaitable(flag):
+                    flag = await flag
+                if flag:
+                    from .stage_agent import StagePausedError
+                    raise StagePausedError(f"recall paused at round {len(rounds_trace) + 1}")
             round_no = len(rounds_trace) + 1
             round_stats = []
             for kw in current_keywords:

@@ -70,11 +70,12 @@ def test_terminal_origin_parser_normalizes_default_port():
     [
         ("127.0.0.1", None, True),
         ("127.0.0.1", "8.8.8.8", False),
-        ("172.18.0.2", "172.18.0.1", True),
-        ("172.18.0.2", "127.0.0.1, 192.168.1.10", True),
+        ("172.18.0.2", "172.18.0.1", False),
+        ("172.18.0.2", "127.0.0.1, 192.168.1.10", False),
         ("172.18.0.2", None, False),
         ("172.18.0.2", "8.8.8.8", False),
         ("8.8.8.8", "127.0.0.1", False),
+        ("127.0.0.1", "127.0.0.1", True),
     ],
 )
 def test_terminal_peer_must_be_direct_or_fully_local(client_host, forwarded_for, expected):
