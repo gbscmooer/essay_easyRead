@@ -32,6 +32,33 @@ describe('SurveyReportView', () => {
     expect(generate).toHaveBeenCalledOnce()
   })
 
+  it('shows experimental conditions, stable evidence location and pending final audit', () => {
+    const experimental: SurveyReport = {
+      ...report,
+      version: 2,
+      quality_status: 'needs_review',
+      tables: {
+        ...report.tables,
+        experimental_comparisons: [{
+          id: 'exp-1', method: 'SF-Mamba-B', baseline_method: 'MambaVision-B', task: 'classification',
+          dataset: 'ImageNet-1K', split: 'validation', metric: 'Throughput', value: '3534', baseline_value: '2974',
+          unit: 'images/s', metric_direction: 'higher_is_better', hardware: 'NVIDIA A100', batch_size: '128',
+          input_size: '224×224', precision: '', comparison_limit: 'Only the reported within-table setup is comparable.',
+          evidence: [{ ...evidence[0], evidence_id: 'ev_123', page: 6, section: '4 Experiments', table: 'Table 1', location_status: 'resolved' }],
+        }],
+      },
+      method: { final_audit: { status: 'failed' } },
+    }
+    render(<SurveyReportView report={experimental} runId={7} busy={false} onGenerate={vi.fn()} />)
+    expect(screen.getByText('SF-Mamba-B')).toBeInTheDocument()
+    expect(screen.getByText('NVIDIA A100')).toBeInTheDocument()
+    const sourceToggles = screen.getAllByText('1 篇来源')
+    fireEvent.click(sourceToggles[sourceToggles.length - 1])
+    expect(screen.getByText('ev_123 · p.6 · 4 Experiments · Table 1')).toBeVisible()
+    expect(screen.getByText(/终稿核验：failed/)).toBeInTheDocument()
+    expect(screen.getByText('已生成 · 终稿待核验')).toBeInTheDocument()
+  })
+
   it('heatmap opens supporting papers and keeps missing relations disabled', () => {
     render(<SurveyHeatmap matrix={matrix} title="维度 × 指标" references={new Map([['p1', reference]])} />)
     const empty = screen.getByRole('button', { name: 'Faithfulness，Recall：0 篇证据' })

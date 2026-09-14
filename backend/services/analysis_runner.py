@@ -22,25 +22,12 @@ import os
 import time
 from typing import Optional
 
-from sqlmodel import Session, create_engine
+from sqlmodel import Session
 
-from ..config import settings
 from ..models.schemas import StreamEvent
+from .database import get_engine
 
 logger = logging.getLogger(__name__)
-
-
-_engine = None
-
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(
-            settings.resolved_database_url,
-            connect_args={"check_same_thread": False},
-        )
-    return _engine
 
 
 # 用于进度百分比计算的字段（按典型到达顺序），与前端 LoadingState 对齐
@@ -203,7 +190,7 @@ def ensure_job(paper_id: int, pdf_path: str) -> AnalysisJob:
 async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
     """后台执行完整分析流程，向 job 发射 SSE 事件。"""
     paper_id = job.paper_id
-    engine = _get_engine()
+    engine = get_engine()
 
     from .database import (
         update_paper_status, update_paper_metadata,
@@ -385,6 +372,8 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                             provider=ai_cfg.get("provider", ""),
                             api_format=ai_cfg.get("api_format", ""),
                             thinking_effort=ai_cfg.get("thinking_effort", "off"),
+                            timeout_seconds=ai_cfg.get("timeout_seconds", 150),
+                            proxy=ai_cfg.get("proxy", {}),
                         )
                     return found or []
 

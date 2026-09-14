@@ -4,9 +4,11 @@
  * 点击后调用后端 test-connection，显示测试结果。
  * 成功显示耗时，失败弹出错误详情弹窗。
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { post } from '@/api/client'
 import { LoadingSpinner } from '@/ds-entry'
+import type { LLMProxyConfig } from './config'
 
 
 interface TestResult {
@@ -24,14 +26,17 @@ interface TestButtonProps {
   provider?: string
   api_format?: 'openai_chat' | 'anthropic_messages'
   timeout_seconds?: number
+  proxy?: LLMProxyConfig
   /** 传入后后端改用该配置档案存的密钥测试（表单上的 api_key 只是掩码回显） */
   profile_id?: string
 }
 
-export function TestButton({ type, api_key, base_url, model, provider, api_format, timeout_seconds, profile_id }: TestButtonProps) {
+export function TestButton({ type, api_key, base_url, model, provider, api_format, timeout_seconds, proxy, profile_id }: TestButtonProps) {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [showError, setShowError] = useState(false)
+  const [popupPos, setPopupPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
 
   const handleTest = useCallback(async () => {
     setTesting(true)
@@ -46,6 +51,7 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
         provider: provider ?? '',
         api_format,
         timeout_seconds,
+        proxy,
         profile_id,
       })
       setResult(res)
@@ -54,7 +60,23 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
     } finally {
       setTesting(false)
     }
-  }, [type, api_key, base_url, model, provider, api_format, timeout_seconds, profile_id])
+  }, [type, api_key, base_url, model, provider, api_format, timeout_seconds, proxy, profile_id])
+
+  // 按钮下方弹出；贴近视口底部时翻到上方。
+  // 弹窗与遮罩 portal 到 body：设置页 .stagger 的入场动画（fill-mode: both）
+  // 让每个分组卡片常驻为层叠上下文，absolute 弹窗会被下一分组整层盖住。
+  const openError = () => {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (rect) {
+      const below = rect.bottom + 8
+      setPopupPos(
+        below + 200 > window.innerHeight
+          ? { bottom: window.innerHeight - rect.top + 8, right: window.innerWidth - rect.right }
+          : { top: below, right: window.innerWidth - rect.right },
+      )
+    }
+    setShowError(true)
+  }
 
   const btnStyle =
     result === null
@@ -66,9 +88,11 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
   return (
     <div className="flex items-center gap-2 relative">
       <button
+        ref={btnRef}
         onClick={() => {
           if (result && !result.ok) {
-            setShowError(v => !v)
+            if (showError) setShowError(false)
+            else openError()
           } else {
             handleTest()
           }
@@ -89,8 +113,8 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
             : '测试'}
       </button>
 
-      {/* 失败时点击按钮弹出错误详情 */}
-      {showError && result && !result.ok && (
+      {/* 失败时点击按钮弹出错误详情（portal 到 body，避免被层叠上下文遮挡） */}
+      {showError && result && !result.ok && popupPos && createPortal(
         <>
           {/* 遮罩 */}
           <div
@@ -99,8 +123,11 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
           />
           {/* 弹窗 */}
           <div
-            className="absolute right-0 top-full mt-2 z-50 w-80 p-4 border"
+            className="fixed z-50 w-80 p-4 border"
             style={{
+              top: popupPos.top,
+              bottom: popupPos.bottom,
+              right: popupPos.right,
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border)',
               backdropFilter: 'blur(20px)',
@@ -141,7 +168,8 @@ export function TestButton({ type, api_key, base_url, model, provider, api_forma
               重试
             </button>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   )

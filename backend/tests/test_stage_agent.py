@@ -75,3 +75,37 @@ def test_model_error_returns_auditable_partial_result():
     assert result.status == "partial"
     assert result.stop_reason == "model_error:RuntimeError"
     assert result.trace[0]["observation"]["code"] == "RuntimeError"
+
+
+def test_model_timeout_stops_and_preserves_partial_state():
+    async def model_step(_view):
+        await asyncio.sleep(.05)
+        return {"action": "finish", "finish": True}
+
+    result = asyncio.run(run_stage_agent(
+        stage="test", state={"saved": ["evidence-before-timeout"]},
+        model_step=model_step, tools={}, validator=lambda _state: StageValidation(False),
+        max_iterations=3, turn_timeout=.001,
+    ))
+    assert result.status == "partial"
+    assert result.stop_reason == "model_error:TimeoutError"
+    assert result.state["saved"] == ["evidence-before-timeout"]
+    assert result.audit()["failure_count"] == 1
+
+
+def test_repeated_read_without_new_state_stops_as_no_progress():
+    async def model_step(_view):
+        return {"action": "read_same", "arguments": {"evidence_id": "ev_1"}}
+
+    async def read_same(_args, _state):
+        return {"evidence_id": "ev_1", "cached": True}
+
+    result = asyncio.run(run_stage_agent(
+        stage="test", state={"evidence_ids": ["ev_1"]}, model_step=model_step,
+        tools={"read_same": read_same}, validator=lambda _state: StageValidation(False),
+        max_iterations=5, no_progress_limit=2,
+        progress_marker=lambda state: tuple(state["evidence_ids"]),
+    ))
+    assert result.status == "partial"
+    assert result.stop_reason == "no_progress"
+    assert result.iterations == 2

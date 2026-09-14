@@ -46,7 +46,7 @@ def conversation(run_id: int) -> list[ExplorationMessage]:
 def create_message(run_id: int, question: str, search_more: bool, selected_keys: list[str]) -> ExplorationMessage:
     with Session(get_engine()) as session:
         run = _run(session, run_id)
-        if run.status in ("pending", "running"):
+        if run.status in ("pending", "running", "paused"):
             raise ExplorationChatError(409, "EXPLORATION_RUNNING", "请等待当前探索完成")
         if not get_analysis_config().get("api_key"):
             raise ExplorationChatError(400, "LLM_NOT_CONFIGURED", "请先在设置中配置解读模型")

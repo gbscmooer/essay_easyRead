@@ -72,9 +72,9 @@ export function ExplorationConversation({ runId, papers, disabled, onMessages, q
           const p = papers.find(paper => paper.key === k)
           return p ? <li key={k}><FileText size={14} /><PaperTitle paper={p} /></li> : null
         })}</ul>}
-        {!!m.context.queries?.length && <details><summary>本轮检索资料（{m.papers.length} 篇）</summary>
+        {!!m.context.queries?.length && <details><summary>本轮检索资料（{m.papers?.length ?? 0} 篇）</summary>
           {m.context.queries.map(q => <p key={q}><code>{q}</code></p>)}
-          <ul>{m.papers.map(p => <li key={p.key}><PaperTitle paper={p} /></li>)}</ul>
+          <ul>{(m.papers ?? []).map(p => <li key={p.key}><PaperTitle paper={p} /></li>)}</ul>
         </details>}
         {m.context.warnings?.map(w => <p key={w} className="ex-transparency__warn">{w}</p>)}
       </article>)}

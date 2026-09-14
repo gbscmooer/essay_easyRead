@@ -178,7 +178,7 @@ mutual-kNN 是标准相似图构造（von Luxburg, 2007, §2.2），k=10 是默�
 | GET | `/runs/{id}/coverage` | — | 子问题覆盖+缺口+最近动作；v1 投影 `result.survey_report.coverage` | 200/404 |
 | GET | `/runs/{id}/budget` | — | 各资源 limit/used/reserved/usage_known+停止原因；无凭证 | 200/404 |
 | POST | `/runs/{id}/pause` | `expected_state/expected_state_version` 可选 | CAS 至 paused（safe-point 语义） | 200/400/404/409 |
-| POST | `/runs/{id}/resume` | 同上 | paused→running，不隐式提预算 | 200/400/404/409 |
+| POST | `/runs/{id}/resume` | 同上 | v1 从断点恢复；v2 worker 接入前返回 `WORKFLOW_NOT_IMPLEMENTED`，不改状态 | 200/400/404/409 |
 | POST | `/runs/{id}/cancel` | 同上 | 取消并保留既有产物 | 200/400/404/409 |
 | POST | `/runs/{id}/retry` | `failed_only/task_ids/idempotency_key` | 失败/失效任务重入队 pending；同 key 重放返回原结果 | 200/400/404/409/422 |
 | GET | `/runs/{id}/revisions` | `cursor/limit` | 不可变版本列表；v1 有报告投影单个 legacy 伪版本 | 200/404/422 |
@@ -217,6 +217,49 @@ ALTER TABLE exploration_runs DROP COLUMN protocol_asset_id;
 配置真源只有 `llm`：`provider/api_format/api_key/base_url/model/temperature/max_tokens/thinking_effort/timeout_seconds`。`api_format` 必须是 `openai_chat` 或 `anthropic_messages`，业务代码不得按 URL 猜协议；旧的 `analysis` / `translate` 段和旧环境变量只在配置边界迁移一次。主配置与导出不再写出重复模型段，密钥仍单独写入根目录 `config_key`；重新加载时 `config_key` 只注入密钥，不得覆盖主配置已保存的 provider、协议、Base URL、模型或参数。仅当旧主配置没有 `llm` 段时，才允许把旧版完整 `config_key` 的非密钥字段作为一次性兼容迁移来源。翻译提示词与解读提示词是任务参数，不再拥有独立 provider/model/key。
 
 设置页只展示一张“全局 LLM 模型”表单。供应商预设由 `GET /api/analysis/llm/providers` 返回，选择预设会同时填充 provider、协议、Base URL 和默认模型；自定义配置必须显式选择协议。论文解析、划词操作、代码分析、相关论文说明、图谱速读、研究拆解/综合、引用标题提取和 RAG 回答均读取这份全局配置。
+
+`GET /api/analysis/llm-profiles/{id}/key` 仅允许回环网络对端（测试客户端除外），返回头含 `Cache-Control: no-store`；私网/LAN 客户端不因伪造 `X-Forwarded-For` 获得本地信任。手动刷新相关论文时，provider、api_format、thinking、timeout 和 proxy 与当前档案一起传入统一 LLM Core。
+
+### 2.14 legacy_v1 报告证据补读与终稿核验（2026-09-13）
+
+本节扩展现有 `legacy_v1` 报告链，不启用 `academic_survey_v2` worker，也不改变下载与在线召回边界。`deep_research/document_evidence.py` 只索引运行已经保存的全文/摘要：按页、节和表格建立稳定 location ID，支持问题检索、相邻段落及表格上下文读取；获取文件仍由原下载层负责。补读工具不能联网获取新论文，材料不足时把缺口写入报告。
+
+`deep_research/report_evidence.py` 是报告内共享证据存储。证据 ID 由规范化的证据类型、结构化事实、论文键和原文定位生成；重复提交相同事实与摘录会合并子问题而不新增记录。完整记录写入 `result.survey_report.evidence_store.records` 和报告阶段 checkpoint，不受单次 LLM 上下文大小或列表分页影响。`evidence_version` 是全库规范内容哈希，供终稿核验绑定使用。
+
+报告 `version=2` 保留 `tables.frameworks/metrics/tasks/taxonomy`，新增 `tables.experimental_comparisons`。每行字段为：`method/baseline_method/task/dataset/split/metric/value/baseline_value/unit/metric_direction/hardware/batch_size/input_size/precision/comparison_limit`，以及通用 `id/evidence`。证据详情包含：
+
+- `fact`：从材料逐字或结构化提取的上述字段；原文未说明的字段保持空值并列入 `missing_fields`。
+- `source/spans`：`paper_key/document_hash/source_kind/quote/page/section/table/char_start/char_end/location_id/location_status`。无法解析定位时 `location_status=partial|unavailable`，不猜页码、章节或表号。
+- `comparability`：记录比较范围与限制；`cross_paper_fairness_assumed` 固定为 false，跨论文结果不自动解释为公平对比。
+- `verification`：逐字值检查、关系复核状态、失败原因和时间；引用编号只负责定位，不能代替关系或断言支持。
+- `subquestion_ids`：默认按效果比较、运行效率、方法机制、局限、查新组织，可被多个子问题复用。
+
+逐篇研读 agent 先消费固定初始材料；材料不足时可调用 `search_full_text` 和 `read_context` 定位已有全文，再提交提取并做关系复核。子问题保留效果、效率、机制、局限和查新五个稳定证据类型，但每个定位查询都从当前 `question` 提取有界主题词并叠加通用证据词，不得使用固定的图像分类/ImageNet 词表。相同查询、位置或证据重复读取不计进展。最终报告 agent 可分页检查子问题证据索引、按 ID 读取详情、从 `available_materials` 取得精确 paper key、对已获取论文定向补读和提交结构化补提取、原子提交 `summary/findings/limitations/gaps/novelty`，并调用终稿核验。旧的“每表前 24 行”摘要输入已移除；上下文只分页传索引和定向详情，完整证据始终保存在共享存储。报告阶段的外层等待时间不早于统一 LLM 配置的 `timeout_seconds`（另留 5 秒编排缓冲），避免在供应商期限之前取消请求；供应商自身超时仍按失败关闭并保留证据。
+
+终稿核验复用 `evidence_audit`，范围包含摘要、发现、局限、缺口、查新结论及实验比较断言。失败项返回断言、原因、相关 evidence ID 和可执行修复方向。核验结果绑定 `binding.text_hash` 与 `binding.evidence_version`；文本或证据变化会使旧结果失效，修改后必须重新核验。只有当前绑定、核验完成且无 unsupported claim 时 `quality_status=internally_checked`；未运行、异常或失败均为 `needs_review`，前端不得显示“核验通过”。报告 revision 写入已有 `research_assets/research_report_revisions`，重生成新版本并保留旧版本可读；这不等于启用 v2 执行器。
+
+`method.diagnostics` 分别记录 `locate/extract/relation_verify/synthesize/final_audit` 的耗时、调用数、失败原因；`method.token_usage` 在供应商返回 usage 时记录各阶段 token，否则明确 `usage_known=false`。逐篇任务与整份报告各有轮次/读取/调用预算；超时、预算耗尽或连续无新增有效证据时停止为 partial/needs_review，保留已完成表格、共享证据、检查点和未解决缺口。
+
+HTTP 接口（仅 GET/POST）：
+
+| 方法 | 路径 | 参数 | 返回 | 状态码 |
+|---|---|---|---|---|
+| GET | `/api/exploration/runs/{id}/evidence` | `subquestion_id?`、`cursor>=0`、`limit=1..50` | `{run_id,workflow_version,evidence_version,subquestion_id,cursor,limit,total,next_cursor,items[]}`；item 只含 ID、事实摘要、缺失/可比/核验/定位状态 | 200/404/422 |
+| GET | `/api/exploration/runs/{id}/evidence/{eid}` | 路径参数 | `EvidenceDetailResponse`：结构化事实、完整 spans、缺失字段、可比性、核验和文档版本；旧报告无共享存储为 404 | 200/403/404 |
+| GET | `/api/exploration/runs/{id}/revisions` | `cursor?`、`limit=1..100` | v1 新报告返回真实不可变 revision；没有 revision 的旧报告仍投影 `legacy` | 200/404/422 |
+| GET | `/api/exploration/runs/{id}/revisions/{rid}/report` | `format=html|markdown|json` | 指定 v1/v2 不可变报告版本；`rid=legacy` 兼容当前旧报告 | 200/403/404/422 |
+
+固定材料诊断：`python -m backend.eval.report_evidence_diagnostic --run-id 11 --output data/eval/run11-report-evidence-20260913.json` 仅读取本地运行和保存文本，输出旧报告命中、定向补读命中、缺失条件与耗时，不调用搜索或 LLM、不写业务库。`backend.eval.report_regen_fixed` 可基于指定 paper key 另存重生成 JSON/HTML；模型失败时保存失败关闭状态，不覆盖原运行。两者只用于链路/回归诊断，不构成准确率提升证明。
+
+### 2.15 合规 LLM 代理传输（2026-09-14）
+
+`services/llm_proxy/` 是统一 LLM Core 下的独立传输选择模块。全局 LLM 配置和每个配置档案新增 `proxy={enabled,base_url}`：关闭时 adapter 连接原 `llm.base_url`；开启时连接规范化后的 `llm.proxy.base_url`，协议、模型名、超时与现有 API Key 仍沿用该档案。OpenAI Chat Completions 与 Anthropic Messages 的普通请求、流式请求和连接测试走同一选择逻辑；错误中的 endpoint 指向实际代理主机，仍不输出 API Key。
+
+代理端必须是用户有权使用的 OpenAI/Anthropic 兼容网关。模块不会注入、开放配置或改写 `User-Agent`、`Authorization`、`x-api-key`、应用名、设备 ID 等客户端身份字段，也不读取 Codex、Claude Code 或其他应用的订阅登录态；开源客户端许可证不等于第三方套餐的调用授权。代理开启但地址为空时，调用前返回“启用代理转发后必须填写代理 Base URL”；非法地址仍按统一 URL 校验拒绝。
+
+学术 PDF 下载对初始 URL 和每个重定向目标执行公网地址校验：拒绝带凭据 URL、localhost/`.local`/`.internal`、回环、私网、链路本地、保留及非全局 IP；域名解析失败或任一解析结果不是公网地址时失败关闭。跨主机重定向不转发授权头。
+
+现有 HTTP 路径和方法不变：`GET/POST /api/analysis/config` 的 `llm`、LLM 配置档案请求/响应、`POST /api/analysis/test-connection` 均接受 `proxy.enabled:boolean` 与 `proxy.base_url:string`。设置页在每个档案编辑器中提供“通过自托管代理转发”开关和代理 Base URL；连接测试使用当前档案的真实密钥与代理设置。CORS、`{detail,code}`、密钥脱敏及 `config_key` 单独存储规则不变。
 
 ## 3. 统一约定
 

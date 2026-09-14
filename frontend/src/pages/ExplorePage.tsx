@@ -22,13 +22,14 @@ import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail 
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
-import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport } from '@/api/exploration'
+import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport, pauseExploration, resumeExploration } from '@/api/exploration'
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
   ExplorationRun, ExplorationMessage, CitationMethod, PreflightResponse,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
+import { ConfirmDialog } from '@/ds-entry'
 
 const EXAMPLES = [
   '用 AI 识别肿瘤有没有人做？做得怎样？',
@@ -123,6 +124,7 @@ export default function ExplorePage() {
   const [messages, setMessages] = useState<ExplorationMessage[]>([])
   const [paperSearch, setPaperSearch] = useState('')
   const [history, setHistory] = useState<ExplorationRunSummary[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<ExplorationRunSummary | null>(null)
   const [selected, setSelected] = useState<ExplorationPaper | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -130,9 +132,18 @@ export default function ExplorePage() {
   const [preflightLoading, setPreflightLoading] = useState(false)
 
   const stream = useExplorationStream(runId, revision)
-  const result = stream.result ?? savedRun?.result ?? null
+  // 运行中/失败的 run 其 result 可能只写了检索审计（persist_sources 中途落盘），
+  // 缺 papers/metrics 等字段；不完整的产物一律按"尚无结果"处理，避免渲染期崩溃。
+  const rawResult = stream.result ?? savedRun?.result ?? null
+  const result = rawResult && Array.isArray(rawResult.papers)
+    && rawResult.metrics && rawResult.decompose && rawResult.graph
+    ? rawResult
+    : null
   const synthesis = stream.synthesis ?? result?.synthesis ?? null
   const running = stream.status === 'running' || submitting
+  const paused = stream.status === 'paused'
+  const busy = running || paused
+  const checkpoint = savedRun?.checkpoint_summary ?? null
 
   // 数据源预检：进入列表页即探测（带权限的真实最小请求），开始研究前就能看到 401/403
   const runPreflight = useCallback(async (signal?: AbortSignal) => {
@@ -178,7 +189,7 @@ export default function ExplorePage() {
   const allPapers = useMemo(() => {
     const map = new Map<string, ExplorationPaper>()
     result?.papers.forEach(p => map.set(p.key, p))
-    messages.forEach(m => m.papers.forEach(p => map.set(p.key, { ...map.get(p.key), ...p })))
+    messages.forEach(m => m.papers?.forEach(p => map.set(p.key, { ...map.get(p.key), ...p })))
     return [...map.values()]
   }, [result, messages])
 
@@ -229,6 +240,33 @@ export default function ExplorePage() {
     } catch (e) { toast({ type: 'error', message: e instanceof Error ? e.message : '报告生成失败' }) }
     finally { setSubmitting(false) }
   }
+
+  // 暂停：请求后在最近的安全点（阶段/轮次/篇目边界）停止，断点保留
+  const [pauseRequested, setPauseRequested] = useState(false)
+  useEffect(() => { if (stream.status !== 'running') setPauseRequested(false) }, [stream.status])
+  const pauseRun = useCallback(async () => {
+    if (!runId) return
+    setPauseRequested(true)
+    try {
+      const res = await pauseExploration(runId)
+      toast({ type: 'info', message: res.detail || '已请求暂停，将在安全点停止并保留断点' })
+    } catch (e) {
+      setPauseRequested(false)
+      toast({ type: 'error', message: e instanceof Error ? e.message : '暂停请求失败' })
+    }
+  }, [runId])
+
+  // 续传：跳过已完成阶段与已提取篇目，从断点继续；重连 SSE 观察进度
+  const resumeRun = useCallback(async () => {
+    if (!runId) return
+    try {
+      await resumeExploration(runId)
+      setRevision(v => v + 1)
+      void refreshHistory()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : '继续研究失败' })
+    }
+  }, [runId, refreshHistory])
 
   const removeRun = useCallback(async (id: number) => {
     try {
@@ -302,7 +340,7 @@ export default function ExplorePage() {
     try {
       const [run, turns] = await Promise.all([getExploration(runId), getExplorationMessages(runId)])
       const archive = new Map((run.result?.papers ?? []).map(p => [p.key, p]))
-      turns.forEach(m => m.papers.forEach(p => archive.set(p.key, { ...archive.get(p.key), ...p })))
+      turns.forEach(m => m.papers?.forEach(p => archive.set(p.key, { ...archive.get(p.key), ...p })))
       const blob = new Blob([JSON.stringify({ ...run, messages: turns, papers: [...archive.values()] }, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a'); a.href = url; a.download = `exploration-${runId}.json`; a.click()
@@ -358,7 +396,7 @@ export default function ExplorePage() {
           )}
         </div>
       )}
-      {detail && savedRun && allPapers.length === 0 && (
+      {detail && savedRun && allPapers.length === 0 && !running && !paused && stream.status !== 'failed' && (
         <div className="ex-empty-warning" role="alert">
           <div className="ex-empty-warning__header">
             <span className="ex-empty-warning__badge">未检索到资料</span>
@@ -478,8 +516,8 @@ export default function ExplorePage() {
         </div>
       </section>}
 
-      {/* 探索进行中：进度条与实时动态分析反馈 */}
-      {(stream.status === 'running' || submitting) && (
+      {/* 探索进行中/已暂停：进度条与实时动态分析反馈 */}
+      {(stream.status === 'running' || paused || submitting) && (
         <section className="ex-progress" aria-label="探索进度">
           <div className="ex-progress__header">
             <div className="ex-progress__title-group">
@@ -488,10 +526,16 @@ export default function ExplorePage() {
                 <div className="ex-progress__title">
                   {submitting
                     ? '正在启动领域探索…'
+                    : paused
+                    ? '研究已在安全点暂停'
                     : (currentStageMeta?.label ? `正在进行：${currentStageMeta.label}` : '领域探索分析中…')}
                 </div>
                 <div className="ex-progress__subtitle">
-                  {stream.message || (submitting ? '正在准备分析环境并连接学术检索总线…' : (currentStageMeta?.hint ?? '系统正在自动检索学术文献并计算文献计量指标'))}
+                  {paused
+                    ? (checkpoint?.completed_stages?.length
+                        ? `断点已保留（完成至 ${checkpoint.completed_stages.length} / 8 个阶段${checkpoint.report_extracted ? `，已缓存 ${checkpoint.report_extracted} 篇证据提取` : ''}），可随时继续`
+                        : '断点已保留，可随时继续')
+                    : (stream.message || (submitting ? '正在准备分析环境并连接学术检索总线…' : (currentStageMeta?.hint ?? '系统正在自动检索学术文献并计算文献计量指标')))}
                 </div>
               </div>
             </div>
@@ -499,6 +543,26 @@ export default function ExplorePage() {
               <span className="ex-progress__percent tabular-nums font-mono font-semibold">
                 {displayProgress}%
               </span>
+              {!submitting && stream.status === 'running' && (
+                <button
+                  type="button"
+                  className="er-btn er-btn--ghost er-btn--sm"
+                  onClick={() => void pauseRun()}
+                  disabled={pauseRequested}
+                  title="在最近的安全点（阶段/轮次/篇目边界）停止研究，断点保留"
+                >
+                  {pauseRequested ? '暂停中…' : '暂停'}
+                </button>
+              )}
+              {paused && (
+                <button
+                  type="button"
+                  className="er-btn er-btn--primary er-btn--sm"
+                  onClick={() => void resumeRun()}
+                >
+                  继续研究
+                </button>
+              )}
             </div>
           </div>
 
@@ -566,13 +630,17 @@ export default function ExplorePage() {
                 <li key={h.id}>
                   <Link to={`/explorer/${h.id}`} onClick={() => setHistoryOpen(false)}>
                     <span className="ex-drawer__q">{h.question}</span>
-                    <span className="ex-drawer__meta">{h.status === 'failed' ? '⚠ 失败 · ' : ''}{new Date(h.created_at).toLocaleString()}</span>
+                    <span className="ex-drawer__meta">
+                      {h.status === 'failed' ? '⚠ 失败 · ' : ''}
+                      {h.status === 'paused' ? '⏸ 已暂停 · ' : ''}
+                      {new Date(h.created_at).toLocaleString()}
+                    </span>
                   </Link>
                   <button
                     type="button"
                     className="ex-history__del"
                     aria-label="删除该记录"
-                    onClick={() => void removeRun(h.id)}
+                    onClick={() => setDeleteTarget(h)}
                     disabled={h.status === 'running' || h.status === 'pending'}
                   >×</button>
                 </li>
@@ -583,9 +651,38 @@ export default function ExplorePage() {
         document.body,
       )}
 
-      {stream.status === 'failed' && stream.error && (
-        <section className="ex-empty ex-empty--error">探索失败：{stream.error}</section>
-      )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除研究记录"
+        message={deleteTarget
+          ? `确定永久删除「${deleteTarget.question}」及其报告、证据和对话？此操作无法撤销。`
+          : ''}
+        confirmLabel="永久删除"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          const targetId = deleteTarget.id
+          setDeleteTarget(null)
+          void removeRun(targetId)
+        }}
+      />
+
+      {(stream.status === 'failed' && stream.error) ? (
+        <section className="ex-empty ex-empty--error" role="alert">
+          <div>探索失败：{stream.error}</div>
+          {checkpoint?.completed_stages?.length ? (
+            <p>已保留断点（完成 {checkpoint.completed_stages.length} / 8 个阶段
+              {checkpoint.report_extracted ? `，已缓存 ${checkpoint.report_extracted} 篇证据提取` : ''}），
+              继续时自动跳过已完成部分。</p>
+          ) : null}
+          <div className="ex-empty-warning__actions">
+            <button type="button" className="er-btn er-btn--primary er-btn--sm" onClick={() => void resumeRun()}>
+              从断点继续研究
+            </button>
+            <Link to="/explore" className="er-btn er-btn--secondary er-btn--sm">重新发起研究</Link>
+          </div>
+        </section>
+      ) : null}
 
       {detail && savedRun && <>
         <div className="ex-detail-tabs" role="tablist" aria-label="探索视图">
@@ -593,10 +690,10 @@ export default function ExplorePage() {
             <button key={t.key} id={`tab-${t.key}`} type="button" role="tab" aria-selected={tab === t.key} aria-controls={`panel-${t.key}`} onClick={() => setTab(t.key)}>{t.label}</button>)}
         </div>
         <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden={tab !== 'report'}>
-          <SurveyReportView report={result?.survey_report} runId={runId!} busy={running} onGenerate={generateReport} error={result?.report_error} />
+          <SurveyReportView report={result?.survey_report} runId={runId!} busy={busy} onGenerate={generateReport} error={result?.report_error} />
         </div>
         <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={tab !== 'chat'}>
-          <ExplorationConversation key={runId} runId={runId!} papers={allPapers} disabled={running}
+          <ExplorationConversation key={runId} runId={runId!} papers={allPapers} disabled={busy}
             onMessages={setMessages} question={question} setQuestion={setQuestion} selected={selected} onClearSelection={() => setSelected(null)} />
         </div>
         <div id="panel-papers" role="tabpanel" aria-labelledby="tab-papers" hidden={tab !== 'papers'}>

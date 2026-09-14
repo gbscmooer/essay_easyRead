@@ -69,6 +69,7 @@ backend/
 │   ├── ai_analyzer.py    # 论文分析与增量 JSON 解析（仅依赖统一 LLM Core）
 │   ├── ai_config.py      # 配置仓库（llm 单一真源、旧配置迁移、密钥隔离）
 │   ├── llm/              # 统一 LLM Core：配置契约、协议 adapter、流式/JSON/重试/脱敏错误
+│   ├── llm_proxy/        # 合规代理传输：显式网关地址切换，不伪造受限客户端身份
 │   ├── analysis_runner.py # 分析后台任务管理器（断点续传，SSE 解耦）
 │   ├── code_analyzer.py  # 代码仓库 clone、文件树构建、静态分析、AI 分析
 │   ├── database.py       # SQLite CRUD + schema 自动迁移
@@ -82,7 +83,9 @@ backend/
 │   └── deep_research/    # 深度研究子模块
 │       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
 │       ├── explorer.py        # 统一研究（问题+可选母论文→召回→计量→综合→报告）
-│       ├── survey_report.py   # 证据抽取、框架/指标/任务表、覆盖矩阵、HTML/Markdown导出
+│       ├── survey_report.py   # 报告证据循环、实验比较表、终稿核验、HTML/Markdown导出
+│       ├── document_evidence.py # 已获取全文的章节/页码/表格索引与定向补读（不负责下载）
+│       ├── report_evidence.py # 稳定证据 ID、去重、分页索引、详情与核验版本
 │       ├── stage_agent.py     # 阶段级有界 ReAct（白名单工具、程序验收、预算/无进展终止）
 │       ├── domain_synthesizer.py # 领域认知综合（节点角色/引用因果/流派/全景简报，LLM 批量注入）
 │       ├── embedder.py        # 文本向量化
@@ -147,7 +150,7 @@ frontend/src/
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
 6. **论文关联度**（`graphkit/relatedness.py`）: 八通道逐端排名的对称 RRF（k=60、默认等权）→ mutual-kNN（k=10）→ Leiden 与关系 PageRank。原始 Disparity Filter（alpha=.05）独立标记，不控制选边；展示桥不参与统计；自定义权重仅表示偏好，不做引文弱监督拟合。实际方法与解释随图谱保存。
-7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、热力图）。外层阶段单向推进，拆解/综合/逐篇证据/报告节点由 `stage_agent.py` 执行有界 ReAct，程序验收后才能完成；零召回仍产出带搜索审计与补搜方向的 `no_results` 报告，不宣称领域空白。`ExplorationRun.options`保存输入快照；历史材料或搜索记录可单独补生成报告。契约见 `document.md` 2.9–2.11。
+7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、实验比较、热力图）。报告侧由 `document_evidence.py` 对已获取文本建立页/节/表索引，`report_evidence.py` 持久保存稳定证据 ID 和完整原文；agent 可按子问题分页读索引、读取详情、定向补读已有论文，并对实际终稿逐断言核验。外层阶段单向推进，拆解/综合/逐篇证据/报告节点由 `stage_agent.py` 执行有界 ReAct，程序验收后才能完成；零召回仍产出带搜索审计与补搜方向的 `no_results` 报告，不宣称领域空白。`ExplorationRun.options`保存输入快照；历史材料或搜索记录可单独补生成报告。阶段边界落检查点（`ExplorationRun.checkpoint`：已完成阶段游标 + 报告逐篇提取与共享证据缓存），语料/计量/综合产物随 `result` 列逐阶段持久化；失败/暂停的 run 经 `POST /runs/{id}/resume` 从断点续跑（跳过已完成阶段与已提取篇目），`POST /runs/{id}/pause` 在安全点（阶段/召回轮/agent 迭代/篇目边界）协作式暂停；进程重启遗留的僵尸 run 启动自愈置 failed 后同样可续传。契约见 `document.md` 2.9–2.14。
 8. **academic_survey_v2（契约层，实验性）**：`models/research_core.py` 冻结任务账本/资产/证据/关系/claim/报告 revision/预算/事件/身份判定十张表与状态常量；`research_event_log.py` 提供持久化事件回放、运行状态 CAS（数据库条件更新为并发权威，守卫 UPDATE 校验受影响行数）与 live-bus 注册缝；`/api/exploration` 新增 protocol/tasks/coverage/budget/pause/resume/cancel/retry/revisions/evidence/stream 扩展（v1 运行走 legacy 投影，行为不变）；任务幂等键以 (run_id, idempotency_key) 唯一；默认报告入口对 v2 解析当前选定 revision（隔离资产 403 拒绝导出）。执行器（S3–S6）接入前，显式 `workflow_version=academic_survey_v2` 创建返回 `WORKFLOW_NOT_IMPLEMENTED`。契约见 `document.md` 2.12 与 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md`。
 
 ### 路由

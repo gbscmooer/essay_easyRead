@@ -88,6 +88,11 @@ export async function deleteLLMProfile(id: string): Promise<{ message: string } 
   return del<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}`)
 }
 
+/** 读取某档案的完整 API Key（设置页「显示」与「复制」带出真钥；本机自用信任边界） */
+export async function revealLLMProfileKey(id: string): Promise<{ api_key: string }> {
+  return get<{ api_key: string }>(`/analysis/llm-profiles/${id}/key`)
+}
+
 /** 启用配置档案：物化为全局 llm 配置，全部文本生成功能自动跟随 */
 export async function activateLLMProfile(id: string): Promise<{ message: string } & LLMProfilesState> {
   return post<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}/activate`, {})

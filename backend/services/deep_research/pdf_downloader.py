@@ -81,7 +81,12 @@ async def download_pdf(
     try:
         for depth in range(max_redirect_depth + 1):
             check_download_url(current_url)
-            resp = await resilient_get(current_url, headers=req_headers, timeout=timeout)
+            resp = await resilient_get(
+                current_url,
+                headers=req_headers,
+                timeout=timeout,
+                validate_public_network=True,
+            )
             content = resp.content
             ctype = resp.headers.get("content-type", "").lower()
             is_pdf_magic = content[:5].startswith(b"%PDF")

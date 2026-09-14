@@ -15,6 +15,7 @@ const OPENAI_CONFIG: AIModelConfig = {
   max_tokens: 4096,
   thinking_effort: 'medium',
   timeout_seconds: 150,
+  proxy: { enabled: false, base_url: '' },
 }
 
 describe('AIModelSection', () => {
@@ -70,5 +71,72 @@ describe('AIModelSection', () => {
       ...OPENAI_CONFIG,
       thinking_effort: 'high',
     })
+  })
+
+  it('enables an authorized proxy without offering client impersonation headers', async () => {
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <AIModelSection
+        title="解读模型"
+        description="测试配置"
+        config={OPENAI_CONFIG}
+        onChange={onChange}
+        defaultMaxTokens={4096}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: '通过自托管代理转发' }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...OPENAI_CONFIG,
+      proxy: { enabled: true, base_url: '' },
+    })
+    expect(screen.queryByLabelText(/User-Agent|客户端身份/i)).not.toBeInTheDocument()
+  })
+
+  it('fetches the full key when revealing a masked echo', async () => {
+    const onChange = vi.fn()
+    const revealKey = vi.fn().mockResolvedValue('sk-real-full-key')
+    const user = userEvent.setup()
+
+    render(
+      <AIModelSection
+        title="解读模型"
+        description="测试配置"
+        config={{ ...OPENAI_CONFIG, api_key: '***full' }}
+        onChange={onChange}
+        defaultMaxTokens={4096}
+        revealKey={revealKey}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '显示' }))
+
+    expect(revealKey).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith({ ...OPENAI_CONFIG, api_key: 'sk-real-full-key' })
+  })
+
+  it('does not fetch when the field already holds a real key', async () => {
+    const onChange = vi.fn()
+    const revealKey = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <AIModelSection
+        title="解读模型"
+        description="测试配置"
+        config={OPENAI_CONFIG}
+        onChange={onChange}
+        defaultMaxTokens={4096}
+        revealKey={revealKey}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '显示' }))
+
+    expect(revealKey).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
   })
 })

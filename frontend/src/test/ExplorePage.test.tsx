@@ -8,7 +8,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ExplorePage from '@/pages/ExplorePage'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
-import { createExploration } from '@/api/exploration'
+import { createExploration, deleteExploration } from '@/api/exploration'
 import type { ExplorationResult, ExplorationSynthesis } from '@/types'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { getExploration, getExplorationMessages, listExplorations, preflightExploration } from '@/api/exploration'
@@ -272,5 +272,17 @@ describe('ExplorePage', () => {
     expect(await screen.findByText('Follow-up')).toBeVisible()
     expect(screen.getByRole('link', { name: '[P1]' })).toHaveAttribute('href', 'https://doi.org/10.1/a')
     expect(screen.queryByPlaceholderText(/用 AI 识别肿瘤/)).not.toBeInTheDocument()
+  })
+
+  it('删除近期研究前要求二次确认', async () => {
+    vi.mocked(listExplorations).mockResolvedValue([{ id: 18, question: 'Delete me', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
+    vi.mocked(deleteExploration).mockResolvedValue(undefined)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /最近研究/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除该记录' }))
+    expect(deleteExploration).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '删除研究记录' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '永久删除' }))
+    await waitFor(() => expect(deleteExploration).toHaveBeenCalledWith(18))
   })
 })

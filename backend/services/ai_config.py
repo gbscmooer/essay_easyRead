@@ -55,7 +55,7 @@ RELATIONS_METHOD = "weighted_rrf_v1"
 # 配置档案中与全局 llm 段同语义的接口字段（api_key 不在其中，密钥只存 config_key）
 _LLM_PROFILE_FIELDS = (
     "provider", "api_format", "base_url", "model",
-    "temperature", "max_tokens", "thinking_effort", "timeout_seconds",
+    "temperature", "max_tokens", "thinking_effort", "timeout_seconds", "proxy",
 )
 
 _LEGACY_RELATION_WEIGHTS = {
@@ -79,6 +79,10 @@ DEFAULT_CONFIG = {
         # 全局通用 LLM 默认思考强度：off | low | medium | high
         "thinking_effort": "off",
         "timeout_seconds": 150,
+        "proxy": {
+            "enabled": False,
+            "base_url": "",
+        },
     },
     # LLM 配置档案：多套可命名的全局模型接口设置，一键切换生效配置。
     # 档案元数据存主配置；各档案的 API Key 存根目录 config_key 的 llm_profiles 映射，不落主配置。
@@ -430,6 +434,11 @@ def load_llm_profile_keys(path: Optional[str] = None) -> dict:
     if not isinstance(profiles, dict):
         return {}
     return {str(k): str(v or "") for k, v in profiles.items()}
+
+
+def get_llm_profile_key(profile_id: str) -> str:
+    """读取指定配置档案的完整 API Key（设置页「显示」与「复制」需要带出真钥）。"""
+    return load_llm_profile_keys().get(profile_id, "")
 
 
 def save_llm_profile_keys(keys: dict, path: Optional[str] = None) -> str:
@@ -826,7 +835,14 @@ def _load_llm_profiles_section() -> dict:
     section = load_config().get("llm_profiles")
     if not isinstance(section, dict):
         return {"active_id": "", "profiles": []}
-    profiles = [copy.deepcopy(p) for p in section.get("profiles") or [] if isinstance(p, dict)]
+    profiles = []
+    for raw in section.get("profiles") or []:
+        if not isinstance(raw, dict):
+            continue
+        profile = copy.deepcopy(raw)
+        proxy = profile.get("proxy") if isinstance(profile.get("proxy"), dict) else {}
+        profile["proxy"] = _deep_merge_dict(DEFAULT_CONFIG["llm"]["proxy"], proxy)
+        profiles.append(profile)
     return {"active_id": str(section.get("active_id") or ""), "profiles": profiles}
 
 

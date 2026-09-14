@@ -34,7 +34,13 @@ def _make_profile(name: str, base_url: str, model: str, api_key: str) -> dict:
 
 def test_profile_crud_and_activate_materializes_llm(profile_env):
     cfg_path, _ = profile_env
-    first = _make_profile("猫肥 API", "https://api.neko.example/v1", "neko-chat", "sk-neko-123")
+    first = ai_config.upsert_llm_profile({
+        "name": "猫肥 API",
+        "base_url": "https://api.neko.example/v1",
+        "model": "neko-chat",
+        "api_key": "sk-neko-123",
+        "proxy": {"enabled": True, "base_url": "http://localhost:9000/v1"},
+    })
     _make_profile("Zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", "sk-zhipu-456")
 
     state = ai_config.get_llm_profiles()
@@ -51,12 +57,32 @@ def test_profile_crud_and_activate_materializes_llm(profile_env):
     assert llm["api_key"] == "sk-neko-123"
     assert llm["base_url"] == "https://api.neko.example/v1"
     assert llm["model"] == "neko-chat"
+    assert llm["proxy"] == {"enabled": True, "base_url": "http://localhost:9000/v1"}
 
     # 档案密钥映射存 config_key，全局生效密钥也写在其 llm 段（密钥唯一真源）
     on_disk = json.loads(cfg_path.read_text())
     assert on_disk["llm_profiles"]["active_id"] == first["id"]
     assert ai_config.load_config_key().get("api_key") == "sk-neko-123"
     assert ai_config.load_llm_profile_keys()[first["id"]] == "sk-neko-123"
+
+
+def test_legacy_profile_without_proxy_gets_disabled_default(profile_env):
+    cfg_path, _ = profile_env
+    cfg_path.write_text(json.dumps({
+        "llm_profiles": {
+            "active_id": "legacy",
+            "profiles": [{
+                "id": "legacy",
+                "name": "旧档案",
+                "base_url": "https://legacy.example/v1",
+                "model": "legacy-model",
+            }],
+        },
+    }), encoding="utf-8")
+
+    profile = ai_config.get_llm_profiles()["profiles"][0]
+
+    assert profile["proxy"] == {"enabled": False, "base_url": ""}
 
 
 def test_profile_update_masked_key_preserved_and_active_synced(profile_env):
@@ -158,6 +184,32 @@ def test_profile_api_endpoints(profile_env):
     assert client.delete(f"/api/analysis/llm-profiles/{pid}").status_code == 404
     assert client.post(f"/api/analysis/llm-profiles/{pid}/activate").status_code == 404
     assert client.put(f"/api/analysis/llm-profiles/{pid}", json={"name": "x"}).status_code == 404
+
+
+def test_profile_key_reveal_endpoint(profile_env):
+    """「显示 / 复制」取回完整密钥：真钥回真值、未存密钥回空串、未知档案 404。"""
+    pid = _make_profile("A", "https://a.example/v1", "m1", "sk-aaa-111")["id"]
+    keyless = _make_profile("B", "https://b.example/v1", "m2", "")["id"]
+    client = TestClient(app)
+
+    resp = client.get(f"/api/analysis/llm-profiles/{pid}/key")
+    assert resp.status_code == 200
+    assert resp.json() == {"api_key": "sk-aaa-111"}
+    assert resp.headers["cache-control"] == "no-store"
+
+    resp = client.get(f"/api/analysis/llm-profiles/{keyless}/key")
+    assert resp.status_code == 200
+    assert resp.json() == {"api_key": ""}
+
+    assert client.get("/api/analysis/llm-profiles/lp_missing/key").status_code == 404
+
+    remote = TestClient(app, client=("192.168.1.50", 50000))
+    denied = remote.get(
+        f"/api/analysis/llm-profiles/{pid}/key",
+        headers={"x-forwarded-for": "127.0.0.1"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "LOCAL_ACCESS_REQUIRED"
 
 
 def test_profile_test_connection_uses_profile_key(profile_env, monkeypatch):

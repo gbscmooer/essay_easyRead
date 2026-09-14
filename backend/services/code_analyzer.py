@@ -10,7 +10,6 @@ import asyncio
 import logging
 import re
 import subprocess
-import ipaddress
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
@@ -51,24 +50,11 @@ def get_code_download_dir() -> str:
 
 def validate_url_not_internal(url: str) -> None:
     """Block URLs that resolve to private/internal IP ranges (SSRF protection)."""
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError("URL 缺少主机名")
+    from .url_security import validate_public_http_url
 
-    # Block localhost variants
-    if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        raise ValueError("不允许访问本地地址")
-
-    # Try to parse as IP address
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            raise ValueError(f"不允许访问内部 IP 地址: {hostname}")
-    except ValueError:
-        # Not a raw IP — that's fine for hostnames like github.com
-        pass
+    # Repository hosts are separately allowlisted below; literal-IP validation here closes
+    # the old exception-swallowing bug without adding blocking DNS work to the event loop.
+    validate_public_http_url(url, resolve_dns=False)
 
 
 async def clone_repository(url: str, paper_id: int) -> str:

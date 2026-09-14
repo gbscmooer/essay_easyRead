@@ -13,6 +13,7 @@ from .client import (
     stream_text,
     test_connection,
     token_ledger_report,
+    token_ledger_snapshot,
 )
 from .errors import LLMError, LLMResponseError
 from .models import (
@@ -47,4 +48,5 @@ __all__ = [
     "stream_text",
     "test_connection",
     "token_ledger_report",
+    "token_ledger_snapshot",
 ]

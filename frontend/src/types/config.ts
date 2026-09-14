@@ -6,6 +6,7 @@
  */
 export type {
   AIModelConfig,
+  LLMProxyConfig,
   UIConfig,
   EmbeddingConfig,
   ResearchConfig,

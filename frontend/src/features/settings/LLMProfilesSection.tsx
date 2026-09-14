@@ -5,7 +5,9 @@
  * 点「启用」即全局切换——论文精读、划词翻译、领域探索等全部文本生成跟随生效；
  * 启用中的卡片标「使用中」。支持 启用 / 测试 / 编辑 / 复制 / 删除，操作即时持久化，
  * 不走页面底部的「保存配置」。各档案的 API Key 与全局密钥一样只存根目录
- * config_key，不进数据库。编辑器复用 AIModelSection，字段与预设和全局表单一致。
+ * config_key，不进数据库；「复制」会从 config_key 取回真钥完整带出，
+ * 编辑器里点「显示」也回显完整 key（本机自用信任边界）。编辑器复用
+ * AIModelSection，字段与预设和全局表单一致。
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -13,6 +15,7 @@ import {
   createLLMProfile,
   deleteLLMProfile,
   listLLMProfiles,
+  revealLLMProfileKey,
   updateLLMProfile,
 } from '@/api/settings'
 import { toast } from '@/hooks/useToast'
@@ -27,7 +30,10 @@ interface ProfileDraft extends AIModelConfig {
   note: string
 }
 
-type EditorState = { mode: 'create' } | { mode: 'edit'; profile: LLMProfile } | null
+type EditorState =
+  | { mode: 'create'; /** 复制来源档案 id；用于取回完整密钥回显 */ sourceId?: string }
+  | { mode: 'edit'; profile: LLMProfile }
+  | null
 
 interface LLMProfilesSectionProps {
   providerPresets: ProviderPreset[]
@@ -86,12 +92,19 @@ export default function LLMProfilesSection({
       max_tokens: profile.max_tokens,
       thinking_effort: profile.thinking_effort,
       timeout_seconds: profile.timeout_seconds,
+      proxy: { ...(profile.proxy ?? { enabled: false, base_url: '' }) },
     })
     setEditor({ mode: 'edit', profile })
   }
 
-  const openDuplicate = (profile: LLMProfile) => {
-    // 复制不带密钥（表单里只有掩码），保存后需为新档案填一个 key
+  const openDuplicate = async (profile: LLMProfile) => {
+    // 复制完整带出密钥：从 config_key 取回真钥随表单预填，副本保存后可直接启用
+    let apiKey = ''
+    try {
+      apiKey = (await revealLLMProfileKey(profile.id)).api_key
+    } catch {
+      toast({ type: 'warning', message: '读取原档案 API Key 失败，副本需手动填写密钥' })
+    }
     setDraft({
       name: `${profile.name} 副本`,
       note: profile.note,
@@ -99,13 +112,14 @@ export default function LLMProfilesSection({
       api_format: profile.api_format,
       base_url: profile.base_url,
       model: profile.model,
-      api_key: '',
+      api_key: apiKey,
       temperature: profile.temperature,
       max_tokens: profile.max_tokens,
       thinking_effort: profile.thinking_effort,
       timeout_seconds: profile.timeout_seconds,
+      proxy: { ...(profile.proxy ?? { enabled: false, base_url: '' }) },
     })
-    setEditor({ mode: 'create' })
+    setEditor({ mode: 'create', sourceId: profile.id })
   }
 
   const closeEditor = () => {
@@ -167,6 +181,19 @@ export default function LLMProfilesSection({
     }
   }
 
+  /** 编辑器内「显示」密钥时取回完整 key：编辑态取当前档案，复制态取来源档案 */
+  const revealKeyForEditor = (() => {
+    if (!editor) return undefined
+    if (editor.mode === 'edit') {
+      const id = editor.profile.id
+      return async () => (await revealLLMProfileKey(id)).api_key
+    }
+    const sourceId = editor.sourceId
+    return sourceId
+      ? async () => (await revealLLMProfileKey(sourceId)).api_key
+      : undefined
+  })()
+
   return (
     <section className="set-group">
       <header className="set-group__head">
@@ -199,6 +226,7 @@ export default function LLMProfilesSection({
         <ul className="set-profiles">
           {state.profiles.map(profile => {
             const isActive = profile.id === state.active_id
+            const proxy = profile.proxy ?? { enabled: false, base_url: '' }
             return (
               <li key={profile.id} className="set-profile" data-active={isActive || undefined}>
                 <span className="set-profile__avatar" aria-hidden="true">{avatarInitials(profile.name)}</span>
@@ -208,8 +236,10 @@ export default function LLMProfilesSection({
                     {isActive && <span className="er-tag er-tag--signal">✓ 使用中</span>}
                     {profile.note && <span className="set-profile__note" title={profile.note}>{profile.note}</span>}
                   </div>
-                  <div className="set-profile__url" title={`${profile.base_url || '未填写 Base URL'} · ${profile.model || '未填写模型'}`}>
-                    {profile.base_url || '未填写 Base URL'}
+                  <div className="set-profile__url" title={`${proxy.enabled ? proxy.base_url : profile.base_url || '未填写 Base URL'} · ${profile.model || '未填写模型'}`}>
+                    {proxy.enabled
+                      ? `代理：${proxy.base_url || '未填写代理 URL'}`
+                      : profile.base_url || '未填写 Base URL'}
                     <span className="set-profile__model">{profile.model || '未填写模型'}</span>
                   </div>
                 </div>
@@ -233,6 +263,7 @@ export default function LLMProfilesSection({
                     model={profile.model}
                     provider={profile.provider}
                     api_format={profile.api_format}
+                    proxy={proxy}
                   />
                   <button
                     type="button"
@@ -305,6 +336,7 @@ export default function LLMProfilesSection({
             onChange={cfg => setDraft({ ...draft, ...cfg })}
             defaultMaxTokens={16384}
             providerPresets={providerPresets}
+            revealKey={revealKeyForEditor}
           />
 
           <div className="set-profile-editor__foot">

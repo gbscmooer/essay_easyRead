@@ -199,7 +199,7 @@ async def get_paper_facets(
 
 
 @router.get("/smart-search")
-async def smart_search(
+def smart_search(
     q: str = Query(..., min_length=1, description="搜索关键词（大小写不敏感）"),
     category: str = Query(None, description="按 arXiv 学科方向筛选，如 cs.LG"),
     year: int = Query(None, description="按年份筛选"),

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
+from ..llm_proxy import ProxyTransportConfig
+
 API_FORMAT_OPENAI = "openai_chat"
 API_FORMAT_ANTHROPIC = "anthropic_messages"
 API_FORMATS = (API_FORMAT_OPENAI, API_FORMAT_ANTHROPIC)
@@ -133,6 +135,7 @@ class LLMConfig:
     max_tokens: int = 16384
     thinking_effort: str = "off"
     timeout_seconds: float = 150.0
+    proxy: ProxyTransportConfig = field(default_factory=ProxyTransportConfig)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "LLMConfig") -> "LLMConfig":
@@ -160,6 +163,7 @@ class LLMConfig:
             max_tokens=max(1, max_tokens),
             thinking_effort=normalize_thinking_effort(value.get("thinking_effort")),
             timeout_seconds=max(1.0, min(600.0, timeout_seconds)),
+            proxy=ProxyTransportConfig.from_mapping(value.get("proxy"), api_format=api_format),
         )
 
     def with_overrides(self, **values: Any) -> "LLMConfig":
@@ -178,12 +182,14 @@ class LLMConfig:
             "max_tokens": self.max_tokens,
             "thinking_effort": self.thinking_effort,
             "timeout_seconds": self.timeout_seconds,
+            "proxy": self.proxy.to_dict(),
         }
 
     def validate_for_request(self) -> None:
         if not self.api_key:
             raise ValueError("API Key 未填写")
-        if not self.base_url:
+        self.proxy.validate()
+        if not self.base_url and not self.proxy.enabled:
             raise ValueError("Base URL 未填写")
         if not self.model:
             raise ValueError("模型名称未填写")

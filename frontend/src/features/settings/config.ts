@@ -11,6 +11,11 @@ import type { Theme } from '@/theme/themes'
 export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high'
 export type LLMApiFormat = 'openai_chat' | 'anthropic_messages'
 
+export interface LLMProxyConfig {
+  enabled: boolean
+  base_url: string
+}
+
 export interface AIModelConfig {
   provider: string
   api_format: LLMApiFormat
@@ -21,6 +26,7 @@ export interface AIModelConfig {
   max_tokens: number
   thinking_effort: ThinkingEffort
   timeout_seconds: number
+  proxy: LLMProxyConfig
 }
 
 export interface UIConfig {
@@ -160,6 +166,7 @@ export interface LLMProfile {
   max_tokens: number
   thinking_effort: ThinkingEffort
   timeout_seconds: number
+  proxy?: LLMProxyConfig
 }
 
 /** GET/POST /analysis/llm-profiles 返回的档案状态 */
@@ -181,6 +188,7 @@ export interface LLMProfileInput {
   max_tokens?: number
   thinking_effort?: ThinkingEffort
   timeout_seconds?: number
+  proxy?: LLMProxyConfig
 }
 
 export interface AppConfig {
@@ -207,6 +215,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     max_tokens: 16384,
     thinking_effort: 'off',
     timeout_seconds: 150,
+    proxy: {
+      enabled: false,
+      base_url: '',
+    },
   },
   analysis_prompt: {
     active: 'builtin',

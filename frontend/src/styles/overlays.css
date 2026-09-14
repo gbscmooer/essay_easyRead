@@ -413,6 +413,115 @@
   background: var(--bg-elevated);
 }
 
+/* Confirm dialog ------------------------------------------------------ */
+
+.er-dialog-backdrop {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 44px);
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: er-overlay-backdrop 0.2s ease-out both;
+}
+
+.er-dialog-plane {
+  position: relative;
+  width: min(440px, 100%);
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  animation: er-overlay-register 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.er-dialog-code {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.er-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.er-dialog-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.er-dialog-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.er-dialog-message {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+  overflow-wrap: anywhere;
+}
+
+.er-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.er-dialog-action {
+  padding: 8px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 8px);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.er-dialog-action:is(:hover, :focus-visible) {
+  border-color: var(--border-light);
+  background: var(--bg-base);
+}
+
+.er-dialog-action--confirm {
+  border-color: transparent;
+}
+
+.er-dialog-action--confirm[data-variant='danger'] {
+  color: #fff;
+  background: var(--error);
+}
+
+.er-dialog-action--confirm[data-variant='warning'] {
+  color: rgba(0, 0, 0, 0.85);
+  background: var(--warning);
+}
+
+.er-dialog-action--confirm:is(:hover, :focus-visible) {
+  border-color: transparent;
+  filter: brightness(1.08);
+}
+
 /* Tooltip ------------------------------------------------------------- */
 
 .er-tooltip {

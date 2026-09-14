@@ -6,11 +6,15 @@ Exploration 路由 — 问句驱动的领域探索（GOAL.md 核心命题）
 academic_survey_v2（S0 冻结接口边界，见 docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §7.2）：
 - 现有接口默认保留 v1 行为；只有显式 workflow_version=academic_survey_v2 使用新链路。
 - 新端点仅 GET/POST；v2 执行器接入前创建返回 WORKFLOW_NOT_IMPLEMENTED（S3 替换该门禁）。
+
+断点续传（legacy v1）：pause 在安全点协作式停止并保留 checkpoint；resume 从
+checkpoint/result 快照恢复，跳过已完成阶段与已提取篇目；v2 worker 接入前拒绝 resume。
 """
 
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -45,11 +49,12 @@ from ..models.schemas import (
     RunControlRequest, RunControlResponse,
     RunRetryRequest, RunRetryResponse,
     ReportRevisionEntry, ReportRevisionListResponse,
-    EvidenceSpanEntry, EvidenceDetailResponse,
+    EvidenceSpanEntry, EvidenceDetailResponse, EvidenceIndexItem, EvidenceIndexResponse,
 )
 from ..utils.streaming import format_sse
 from ..services.deep_research.explorer import (
     get_exploration_bus, has_exploration_bus, run_exploration, rebuild_survey_report,
+    request_pause, cancel_pause_request, drop_exploration_bus, _checkpoint_summary,
 )
 from ..routers.research import _stream_bus_with_heartbeat
 
@@ -171,7 +176,7 @@ async def regenerate_report(run_id: int):
                 detail={"detail": "academic_survey_v2 报告以不可变 revision 重建，待 S6 接入",
                         "code": "WORKFLOW_NOT_IMPLEMENTED"},
             )
-        active = session.exec(select(ExplorationRun).where(ExplorationRun.status.in_(["pending", "running"]))).first()
+        active = session.exec(select(ExplorationRun).where(ExplorationRun.status.in_(["pending", "running", "paused"]))).first()
         chat = session.exec(select(ExplorationMessage).where(
             ExplorationMessage.run_id == run_id, ExplorationMessage.status.in_(["pending", "running"]),
         )).first()
@@ -231,13 +236,14 @@ def _v2_options_snapshot(req: ExplorationRunCreate, options: dict) -> dict:
 async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunResponse:
     engine = get_engine()
     with Session(engine) as session:
-        # 同一时刻只允许一个探索任务（检索配额与 LLM 成本控制）
+        # 同一时刻只允许一个探索任务（检索配额与 LLM 成本控制）；暂停的研究同样占位
         existing = session.exec(
             select(ExplorationRun)
-            .where(ExplorationRun.status.in_(["running", "pending"]))
+            .where(ExplorationRun.status.in_(["running", "pending", "paused"]))
         ).first()
         if existing:
-            raise HTTPException(409, detail={"detail": "已有运行中的探索任务", "code": "EXPLORATION_RUNNING"})
+            hint = "已有暂停的研究，请先继续或删除该研究" if existing.status == "paused" else "已有运行中的探索任务"
+            raise HTTPException(409, detail={"detail": hint, "code": "EXPLORATION_RUNNING"})
 
         if len(req.question.strip()) < 2:
             raise HTTPException(422, detail={"detail": "研究问题至少两个字符", "code": "INVALID_QUESTION"})
@@ -341,6 +347,7 @@ async def get_exploration(run_id: int) -> ExplorationRunResponse:
         if not run:
             raise HTTPException(404, detail={"detail": "Run not found", "code": "NOT_FOUND"})
         response = ExplorationRunResponse.model_validate(run, from_attributes=True)
+        response.checkpoint_summary = _checkpoint_summary(run.checkpoint)
         for key, value in _v2_summary_fields(session, run).items():
             setattr(response, key, value)
         return response
@@ -370,6 +377,9 @@ async def delete_exploration(run_id: int) -> dict:
         session.flush()
         session.delete(run)
         session.commit()
+    # 已暂停（worker 已退出）的 run 允许删除：清掉残留的暂停旗标与事件总线
+    cancel_pause_request(run_id)
+    drop_exploration_bus(run_id)
     return {"message": "已删除"}
 
 
@@ -444,10 +454,13 @@ async def stream_exploration(
                 "message": run_error or "Unknown error", "stage": run_stage or "",
             }))
             return
+        if run_status == "paused":
+            yield format_sse(StreamEvent(event="paused", data={"run_id": run_id, "stage": run_stage or ""}))
+            return
 
         if not has_exploration_bus(run_id):
             yield format_sse(StreamEvent(event="error", data={
-                "message": "探索任务未在当前进程中运行，请重新创建任务",
+                "message": "研究进程已中断（可能是服务重启或断网），可从断点继续研究",
                 "stage": run_stage or "",
             }))
             return
@@ -702,14 +715,108 @@ def _control_run(run_id: int, req: RunControlRequest, target: str, allowed_from:
 
 @router.post("/runs/{run_id}/pause", response_model=RunControlResponse)
 def pause_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
-    """safe-point 暂停请求：worker 在安全点观察状态后停止新任务（S3 实现信号消费）。"""
-    return _control_run(run_id, req, "paused", RUN_ACTIVE_STATES_V2, "run_paused", "已请求在安全点暂停")
+    """safe-point 暂停请求：v2 走 CAS 契约；v1 置协作旗标，worker 在安全点
+    （阶段/召回轮/agent 迭代/报告逐篇提取边界）观察后停止并持久化断点。
+    本进程无活跃 worker 的僵尸 run（如服务重启遗留）直接落库置 paused。"""
+    from sqlalchemy import update as sa_update
+
+    with Session(get_engine()) as session:
+        run = _get_run_or_404(session, run_id)
+        if (run.workflow_version or WORKFLOW_LEGACY_V1) == WORKFLOW_ACADEMIC_SURVEY_V2:
+            try:
+                _, replay = event_log.cas_run_state(
+                    session, run_id=run_id, new_status="paused",
+                    expected_state=req.expected_state,
+                    expected_state_version=req.expected_state_version,
+                    allowed_from=RUN_ACTIVE_STATES_V2, event_type="run_paused",
+                )
+                return RunControlResponse(
+                    run_id=run_id, status="paused", state_version=run.state_version,
+                    idempotent_replay=replay, detail="已请求在安全点暂停",
+                )
+            except event_log.RunStateError as exc:
+                raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code})
+        if run.status == "paused":
+            return RunControlResponse(
+                run_id=run_id, status="paused", state_version=run.state_version,
+                idempotent_replay=True, detail="已在安全点暂停",
+            )
+        if run.status not in ("running", "pending"):
+            raise HTTPException(
+                409, detail={"detail": f"当前状态 {run.status} 不可暂停", "code": "INVALID_STATE"})
+        if request_pause(run_id):
+            return RunControlResponse(
+                run_id=run_id, status=run.status, state_version=run.state_version,
+                detail="已请求暂停，将在最近的安全点（阶段/轮次/篇目边界）停止并保留断点",
+            )
+        stmt = (
+            sa_update(ExplorationRun)
+            .where(ExplorationRun.id == run_id, ExplorationRun.status == run.status)
+            .values(status="paused", updated_at=datetime.now(timezone.utc))
+        )
+        if session.exec(stmt).rowcount != 1:  # type: ignore[attr-defined]
+            raise HTTPException(409, detail={"detail": "状态已变化，请刷新后重试", "code": "STATE_CONFLICT"})
+        session.commit()
+        return RunControlResponse(
+            run_id=run_id, status="paused", state_version=run.state_version,
+            detail="研究进程已不在运行（可能服务重启过），已直接标记为暂停，可从断点继续",
+        )
 
 
 @router.post("/runs/{run_id}/resume", response_model=RunControlResponse)
-def resume_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
-    """恢复已暂停运行；不隐式提高预算（预算变更必须是用户显式动作）。"""
-    return _control_run(run_id, req, "running", ("paused",), "run_resumed", "已恢复执行")
+async def resume_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
+    """从断点继续研究（v2 走 CAS 契约；v1 重启 worker 并复用 checkpoint/result 快照）。
+
+    v1 允许从 failed/paused 继续；状态是 running/pending 但本进程无活跃 worker 的
+    僵尸 run 同样可续（服务重启或断网遗留）。同一时刻仍只允许一个探索任务。
+    """
+    engine = get_engine()
+    with Session(engine) as session:
+        run = _get_run_or_404(session, run_id)
+        if (run.workflow_version or WORKFLOW_LEGACY_V1) == WORKFLOW_ACADEMIC_SURVEY_V2:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "detail": "academic_survey_v2 执行器尚未接入，不能恢复运行",
+                    "code": "WORKFLOW_NOT_IMPLEMENTED",
+                },
+            )
+        else:
+            has_live_worker = has_exploration_bus(run_id)
+            if run.status in ("running", "pending") and has_live_worker:
+                raise HTTPException(
+                    409, detail={"detail": "研究正在运行中，无需继续", "code": "INVALID_STATE"})
+            if run.status not in ("failed", "paused", "running", "pending"):
+                raise HTTPException(
+                    409, detail={"detail": f"已完成的研究无需继续（当前状态 {run.status}）",
+                                 "code": "INVALID_STATE"})
+            other = session.exec(
+                select(ExplorationRun).where(
+                    ExplorationRun.id != run_id,
+                    ExplorationRun.status.in_(["running", "pending"]),
+                )
+            ).first()
+            if other:
+                raise HTTPException(409, detail={"detail": "已有运行中的探索任务", "code": "EXPLORATION_RUNNING"})
+            from sqlalchemy import update as sa_update
+
+            stmt = (
+                sa_update(ExplorationRun)
+                .where(ExplorationRun.id == run_id, ExplorationRun.status == run.status)
+                .values(status="running", error_message=None,
+                        updated_at=datetime.now(timezone.utc))
+            )
+            if session.exec(stmt).rowcount != 1:  # type: ignore[attr-defined]
+                raise HTTPException(409, detail={"detail": "状态已变化，请刷新后重试", "code": "STATE_CONFLICT"})
+            session.commit()
+            detail = "已从断点继续研究"
+            state_version = run.state_version
+
+    get_exploration_bus(run_id)
+    _start(run_exploration(run_id, resume=True))
+    return RunControlResponse(
+        run_id=run_id, status="running", state_version=state_version, detail=detail,
+    )
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunControlResponse)
@@ -817,16 +924,36 @@ def list_run_revisions(
         run = _get_run_or_404(session, run_id)
         workflow = run.workflow_version or WORKFLOW_LEGACY_V1
         if workflow != WORKFLOW_ACADEMIC_SURVEY_V2:
-            report = (run.result or {}).get("survey_report")
-            items = []
-            if report:
+            before_seq = None
+            if cursor is not None:
+                try:
+                    before_seq = int(cursor)
+                except ValueError:
+                    raise HTTPException(422, detail={"detail": "无效的版本分页游标", "code": "INVALID_CURSOR"})
+            statement = select(ResearchReportRevision).where(
+                ResearchReportRevision.run_id == run_id,
+                ResearchReportRevision.workflow_version == WORKFLOW_LEGACY_V1,
+            )
+            if before_seq is not None:
+                statement = statement.where(ResearchReportRevision.id < before_seq)
+            rows = session.exec(statement.order_by(ResearchReportRevision.id.desc()).limit(limit + 1)).all()  # type: ignore[arg-type]
+            has_more = len(rows) > limit
+            rows = rows[:limit]
+            items = [ReportRevisionEntry(
+                revision_id=row.revision_id, parent_revision=row.parent_revision,
+                protocol_hash=row.protocol_hash, quality_status=row.quality_status,
+                stop_reason=row.stop_reason, is_selected=row.is_selected,
+                legacy=True, created_at=row.created_at,
+            ) for row in rows]
+            if not items and (run.result or {}).get("survey_report"):
                 items = [ReportRevisionEntry(
                     revision_id="legacy", quality_status="unchecked",
                     is_selected=True, legacy=True, created_at=run.updated_at,
                 )]
             return ReportRevisionListResponse(
                 run_id=run_id, workflow_version=workflow, legacy=True,
-                items=items, next_cursor=None,
+                items=items,
+                next_cursor=str(rows[-1].id) if has_more and rows and rows[-1].id is not None else None,
             )
         before_seq = None
         if cursor is not None:
@@ -873,12 +1000,21 @@ def get_revision_report(
         run = _get_run_or_404(session, run_id)
         workflow = run.workflow_version or WORKFLOW_LEGACY_V1
         if workflow != WORKFLOW_ACADEMIC_SURVEY_V2:
-            if revision_id != "legacy":
+            if revision_id == "legacy":
+                report = (run.result or {}).get("survey_report")
+                if not report:
+                    raise HTTPException(404, detail={"detail": "报告尚未生成", "code": "REPORT_NOT_FOUND"})
+                return _render_report_response(report, run_id, "legacy", format, revision_id="legacy")
+            revision = session.exec(select(ResearchReportRevision).where(
+                ResearchReportRevision.run_id == run_id,
+                ResearchReportRevision.revision_id == revision_id,
+                ResearchReportRevision.workflow_version == WORKFLOW_LEGACY_V1,
+            )).first()
+            if not revision:
                 raise HTTPException(404, detail={"detail": "报告版本不存在", "code": "REVISION_NOT_FOUND"})
-            report = (run.result or {}).get("survey_report")
-            if not report:
-                raise HTTPException(404, detail={"detail": "报告尚未生成", "code": "REPORT_NOT_FOUND"})
-            return _render_report_response(report, run_id, "legacy", format, revision_id="legacy")
+            report = _load_exposable_report(session, run_id, revision.report_asset_id)
+            return _render_report_response(report, run_id, revision.revision_id[:8], format,
+                                           revision_id=revision.revision_id)
         revision = session.exec(
             select(ResearchReportRevision).where(
                 ResearchReportRevision.run_id == run_id,
@@ -892,18 +1028,78 @@ def get_revision_report(
                                        revision_id=revision.revision_id)
 
 
+@router.get("/runs/{run_id}/evidence", response_model=EvidenceIndexResponse)
+def list_evidence(
+    run_id: int,
+    subquestion_id: Optional[str] = Query(None, max_length=100),
+    cursor: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+) -> EvidenceIndexResponse:
+    """按子问题分页返回小型证据索引；详情由 evidence_id 单独读取。"""
+    with Session(get_engine()) as session:
+        run = _get_run_or_404(session, run_id)
+        workflow = run.workflow_version or WORKFLOW_LEGACY_V1
+        if workflow != WORKFLOW_ACADEMIC_SURVEY_V2:
+            from ..services.deep_research.report_evidence import ReportEvidenceStore
+
+            report = (run.result or {}).get("survey_report") or {}
+            store = ReportEvidenceStore.from_dict(report.get("evidence_store"))
+            page = store.index(subquestion_id=subquestion_id, cursor=cursor, limit=limit)
+            return EvidenceIndexResponse(run_id=run_id, workflow_version=workflow, **page)
+
+        rows = session.exec(
+            select(ResearchEvidence).where(ResearchEvidence.run_id == run_id)
+            .order_by(ResearchEvidence.id)  # type: ignore[arg-type]
+        ).all()
+        items = []
+        for row in rows:
+            relation = row.relation or ""
+            if subquestion_id and subquestion_id not in relation:
+                continue
+            items.append(EvidenceIndexItem(
+                evidence_id=row.evidence_id, evidence_type="relation", paper_key=None,
+                fact_summary=relation[:360], verification_status="unverified",
+                location_status=((row.spans or [{}])[0]).get("location_status"),
+            ))
+        selected = items[cursor:cursor + limit]
+        return EvidenceIndexResponse(
+            run_id=run_id, workflow_version=workflow, evidence_version="database",
+            subquestion_id=subquestion_id, cursor=cursor, limit=limit, total=len(items),
+            next_cursor=cursor + limit if cursor + limit < len(items) else None, items=selected,
+        )
+
+
 @router.get("/runs/{run_id}/evidence/{evidence_id}", response_model=EvidenceDetailResponse)
 def get_evidence(run_id: int, evidence_id: str) -> EvidenceDetailResponse:
     """许可范围内的摘录、文档版本与页/表定位。
 
     403 语义（S2 内容许可）：资产被隔离（quarantined）时不通过 API 暴露内容。
-    v1 证据存于 result 快照内、无独立证据对象，固定 404。
+    v1 证据从当前报告的共享证据存储读取；旧报告没有该存储时返回 404。
     """
     with Session(get_engine()) as session:
         run = _get_run_or_404(session, run_id)
         if (run.workflow_version or WORKFLOW_LEGACY_V1) != WORKFLOW_ACADEMIC_SURVEY_V2:
-            # v1 证据存于 result 快照内、无独立证据对象
-            raise HTTPException(404, detail={"detail": "证据不存在", "code": "EVIDENCE_NOT_FOUND"})
+            from ..services.deep_research.report_evidence import ReportEvidenceStore
+
+            report = (run.result or {}).get("survey_report") or {}
+            records = ReportEvidenceStore.from_dict(report.get("evidence_store")).details([evidence_id])
+            if not records:
+                raise HTTPException(404, detail={"detail": "证据不存在", "code": "EVIDENCE_NOT_FOUND"})
+            record = records[0]
+            source = record.get("source") or {}
+            return EvidenceDetailResponse(
+                evidence_id=evidence_id, run_id=run_id, asset_id=None,
+                spans=[EvidenceSpanEntry.model_validate(span) for span in record.get("spans") or []],
+                relation=None, evidence_type=record.get("evidence_type"),
+                fact=record.get("fact") or {}, subquestion_ids=record.get("subquestion_ids") or [],
+                missing_fields=record.get("missing_fields") or [],
+                comparability=record.get("comparability") or {},
+                verification=record.get("verification") or {},
+                document={"content_hash": source.get("document_hash"),
+                          "paper_key": source.get("paper_key"),
+                          "source_kind": source.get("source_kind")},
+                created_at=None,
+            )
         evidence = session.exec(
             select(ResearchEvidence).where(
                 ResearchEvidence.run_id == run_id, ResearchEvidence.evidence_id == evidence_id
