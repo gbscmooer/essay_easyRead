@@ -557,6 +557,8 @@ export interface ExplorationResult {
     warnings?: string[]
     /** stage 0 数据源预检快照（search_online=false 时为空数组） */
     preflight?: SourceHealth[]
+    /** 阶段时间线（与后端 explorer.py 的 stage_timeline 对应），阶段边界逐次落库 */
+    stage_timeline?: ExplorationStageTiming[]
   }
   decompose: ExplorationDecompose
   provider: string
@@ -576,7 +578,18 @@ export interface ExplorationResult {
   synthesis?: ExplorationSynthesis
 }
 
-export type ExplorationDepth = 'quick' | 'standard' | 'deep'
+/** 阶段时间线行：started_at 为 UTC ISO；duration_s 为该阶段耗时秒数（运行中为 null） */
+export interface ExplorationStageTiming {
+  stage: string
+  started_at: string
+  duration_s: number | null
+  status: string
+  error?: string
+  /** 各阶段附加的计数（queries/papers/corpus 等），展示不需要但保留透传 */
+  [key: string]: unknown
+}
+
+export type ExplorationDepth = 'lite' | 'quick' | 'standard' | 'deep'
 
 export interface ExplorationMessage {
   id: number
@@ -630,6 +643,10 @@ export interface ExplorationRunSummary {
   options?: ResearchSourceOptions
   workflow_version?: WorkflowVersion
   state_version?: number
+  /** 流程结束 ≠ 报告完成：报告本体状态（completed/partial/unavailable/no_results） */
+  report_status?: string
+  /** 终稿核验状态（internally_checked/needs_review/unchecked） */
+  quality_status?: string
   created_at: string
 }
 
@@ -642,6 +659,90 @@ export interface ResearchSourceOptions {
   exclude_dois?: string[] | null
   exclude_arxiv_ids?: string[] | null
   exclude_titles?: string[] | null
+}
+
+// ── LLM token 用量统计（与后端 services/token_usage.py 对应）──────────────────
+
+export interface TokenUsageCounters {
+  calls: number
+  /** 失败尝试次数（status=error，token 计 0；旧快照恒为 0） */
+  failed_calls?: number
+  input_tokens: number
+  output_tokens: number
+  cached_input_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  /** 成功请求的累计墙钟耗时（旧记录/旧快照为 0，表示未计时） */
+  elapsed_ms: number
+  /** 输出 token/秒；未计时或无输出时为 null */
+  tps: number | null
+}
+
+export interface TokenUsageCategoryRow extends TokenUsageCounters {
+  category: string
+}
+
+export interface TokenUsageDayRow extends TokenUsageCounters {
+  date: string
+}
+
+export interface TokenUsageModelRow extends TokenUsageCounters {
+  model: string
+}
+
+export interface TokenUsageSummary {
+  since: string | null
+  days: number | null
+  totals: TokenUsageCounters
+  by_category: TokenUsageCategoryRow[]
+  by_day: TokenUsageDayRow[]
+  models: TokenUsageModelRow[]
+}
+
+/** 一次 LLM 调用尝试的明细（与后端 LLMUsageRecord 对应；status=error 为失败尝试，token 为 0） */
+export interface TokenUsageRecord {
+  id: number
+  created_at: string
+  category: string
+  stage: string
+  run_id: string | null
+  run_instance_id?: string
+  operation?: string
+  status?: string
+  error_code?: string
+  model: string
+  api_format: string
+  input_tokens: number
+  output_tokens: number
+  cached_input_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  elapsed_ms: number
+  tps: number | null
+}
+
+export interface TokenUsageRecordsPage {
+  since: string | null
+  days: number | null
+  total: number
+  limit: number
+  offset: number
+  records: TokenUsageRecord[]
+}
+
+export interface RunTokenUsageStageRow extends TokenUsageCounters {
+  stage: string
+}
+
+export interface RunTokenUsage {
+  run_id: number
+  totals: TokenUsageCounters
+  by_stage: RunTokenUsageStageRow[]
+  recorded: boolean
+  /** records=持久用量记录；legacy_result=旧 run 的 result.token_usage 台账快照 */
+  source: 'records' | 'legacy_result'
 }
 
 // ── academic_survey_v2 契约（S0 冻结；与后端 models/schemas.py / models/research_core.py 对应）──
@@ -831,6 +932,9 @@ export interface SurveyReportRevision {
   is_selected: boolean
   /** v1 有报告时投影 revision_id="legacy" 的伪版本 */
   legacy: boolean
+  /** v3 交付契约投影；旧 revision 缺失时为 null */
+  delivery_status?: string | null
+  narrative_source?: string | null
   created_at: string
 }
 

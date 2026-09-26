@@ -71,11 +71,38 @@ def _truncate_strings(value: Any, limit: int) -> Any:
     return value
 
 
+def _trim_lists(value: Any, keep: int) -> Any:
+    """递归保留每个列表的前 keep 个元素，其余记为 {"__dropped__": N}。
+
+    索引/观察里最要紧的是每条记录的标识字段（如 evidence_id）：宁可丢列表尾部、
+    字符串截短，也不能把整个对象坍缩成字符串——模型看不到有效编号就会凭空
+    生成不存在的 ID（v7.4.1 研究 5 实测 11 条索引压缩后只剩 1 条完整编号）。
+    """
+    if isinstance(value, dict):
+        return {str(k)[:80]: _trim_lists(v, keep) for k, v in list(value.items())[:40]}
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+        head = [_trim_lists(v, keep) for v in items[:keep]]
+        if len(items) > keep:
+            head.append({"__dropped__": len(items) - keep})
+        return head
+    return value
+
+
+def _encoded_size(value: Any) -> int:
+    try:
+        return len(json.dumps(value, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        return 1 << 60  # unencodable → treat as oversized, force next ladder step
+
+
 def _compact(value: Any, *, max_chars: int = 4000) -> Any:
     """把事件/模型上下文限制为小型 JSON，避免把原文或提示词写入运行轨迹。
 
-    超限时渐进截断各字符串字段而不是把整个对象退化成字符串——事件回调和
-    模型视图按 dict 解包/序列化，类型漂移会导致 ** 解包崩溃或多重转义不可读。
+    超限时渐进收缩，**始终保持 dict/list 结构**：先截短字符串（600→200→80），
+    仍超限再裁列表长度（24→12→6→3→1，尾部记 __dropped__），只对完全无法
+    收纳的对象退化为 ``{"__truncated__": ...}``。事件回调和模型视图按 dict
+    解包/序列化，类型漂移会导致 ** 解包崩溃或多重转义不可读。
     """
     if isinstance(value, dict):
         compact = {str(k)[:80]: _compact(v, max_chars=max_chars) for k, v in list(value.items())[:40]}
@@ -89,19 +116,15 @@ def _compact(value: Any, *, max_chars: int = 4000) -> Any:
         compact = str(value)[:max_chars]
     for limit in (600, 200, 80):
         shrunk = _truncate_strings(compact, limit)
-        try:
-            encoded = json.dumps(shrunk, ensure_ascii=False, default=str)
-        except (TypeError, ValueError):
-            break
-        if len(encoded) <= max_chars:
+        if _encoded_size(shrunk) <= max_chars:
             return shrunk
-    try:
-        encoded = json.dumps(compact, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        return str(compact)[:max_chars]
-    if len(encoded) <= max_chars:
-        return compact
-    return {"__truncated__": encoded[:max_chars]}
+    for keep in (24, 12, 6, 3, 1):
+        trimmed = _trim_lists(compact, keep)
+        for limit in (200, 80):
+            candidate = _truncate_strings(trimmed, limit)
+            if _encoded_size(candidate) <= max_chars:
+                return candidate
+    return {"__truncated__": str(compact)[:max_chars]}
 
 
 async def _resolve(value):
@@ -158,14 +181,20 @@ async def run_stage_agent(
         if should_pause is not None and await _resolve(should_pause()):
             raise StagePausedError(f"stage {stage} paused at iteration {iteration}")
         await emit({"iteration": iteration, "phase": "decide", "max_iterations": max_iterations})
+        # 字段顺序即请求前缀稳定性顺序：网关前缀缓存按最长相同前缀命中，
+        # 逐轮不变的内容（stage/工具表/仅追加的 state）必须排在前面，
+        # 每轮变化的内容（最近观察/轨迹/轮次号）必须排在最后——否则轮次号
+        # 出现在载荷开头会让后续每一轮的缓存前缀在第一个字节处就断掉。
         view = {
             "stage": stage,
-            "iteration": iteration,
-            "max_iterations": max_iterations,
             "available_tools": sorted(tools),
             "state": _compact(state, max_chars=8000),
-            "last_observation": _compact(last_observation),
-            "recent_trace": _compact(trace[-3:]),
+            # 证据索引一页 12 条 × 80 字符摘要 + coverage/材料清单 ≈ 5k+：
+            # 预算给足 6000，配合保结构压缩让 evidence_id 全部可见
+            "last_observation": _compact(last_observation, max_chars=6000),
+            "recent_trace": _compact(trace[-3:], max_chars=5000),
+            "iteration": iteration,
+            "max_iterations": max_iterations,
         }
         try:
             decision = await asyncio.wait_for(_resolve(model_step(view)), timeout=turn_timeout)

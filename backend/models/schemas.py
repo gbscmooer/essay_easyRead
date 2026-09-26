@@ -473,7 +473,7 @@ class ExplorationRunCreate(BaseModel):
     只有显式 workflow_version=academic_survey_v2 使用新链路。
     """
     question: str = Field(..., min_length=2, max_length=4000)
-    depth: str = Field("standard", pattern=r"^(quick|standard|deep)$")
+    depth: str = Field("standard", pattern=r"^(lite|quick|standard|deep)$")
     workspace_id: Optional[int] = Field(None, ge=1)
     seed_paper_ids: Optional[list[int]] = Field(None, max_length=240)
     search_online: bool = True
@@ -540,6 +540,9 @@ class ExplorationRunSummary(BaseModel):
     options: dict = Field(default_factory=dict)
     workflow_version: str = "legacy_v1"
     state_version: int = 0
+    # 流程结束 ≠ 报告完成：列表直接展示报告状态，避免 done run 被当成完整报告
+    report_status: str = ""
+    quality_status: str = ""
     created_at: datetime
 
 
@@ -703,6 +706,9 @@ class ReportRevisionEntry(BaseModel):
     stop_reason: Optional[str] = None
     is_selected: bool = False
     legacy: bool = False
+    # v3 交付契约投影：旧 revision 缺失时为 None，不猜测、不自动升级质量状态
+    delivery_status: Optional[str] = None
+    narrative_source: Optional[str] = None
     created_at: datetime
 
 

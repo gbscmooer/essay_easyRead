@@ -32,7 +32,7 @@ describe('SurveyReportView', () => {
     expect(generate).toHaveBeenCalledOnce()
   })
 
-  it('shows experimental conditions, stable evidence location and pending final audit', () => {
+  it('shows experimental conditions and stable evidence location without a verification state', () => {
     const experimental: SurveyReport = {
       ...report,
       version: 2,
@@ -55,8 +55,29 @@ describe('SurveyReportView', () => {
     const sourceToggles = screen.getAllByText('1 篇来源')
     fireEvent.click(sourceToggles[sourceToggles.length - 1])
     expect(screen.getByText('ev_123 · p.6 · 4 Experiments · Table 1')).toBeVisible()
-    expect(screen.getByText(/终稿核验：failed/)).toBeInTheDocument()
-    expect(screen.getByText('已生成 · 终稿待核验')).toBeInTheDocument()
+    expect(screen.getByText('执行完成')).toBeInTheDocument()
+    expect(screen.getByText('旧版报告 · 生成状态未记录')).toBeInTheDocument()
+    expect(screen.getByText('报告生成后流程结束，未进行额外真实性核验。')).toBeInTheDocument()
+    expect(screen.queryByText('核验失败')).not.toBeInTheDocument()
+  })
+
+  it('separates execution and answer states', () => {
+    const partial: SurveyReport = {
+      ...report,
+      status: 'partial',
+      quality_status: 'needs_review',
+      delivery: {
+        delivery_status: 'partial', narrative_source: 'none', evidence_version: 'ev1',
+        citation_map_version: 'cm1', failure_stage: 'evidence_pack', error_code: 'NO_FACTUAL_EVIDENCE',
+        attempts: { write_calls: 0, repair_calls: 0, revision_calls: 0, audit_batches: 0, repair_quota_used: false, failures: [] },
+      },
+      method: { final_audit: { status: 'not_started' } },
+    }
+    render(<SurveyReportView report={partial} runId={7} busy={false} onGenerate={vi.fn()} />)
+    expect(screen.getByText('执行部分完成')).toBeInTheDocument()
+    expect(screen.getByText('答案未生成')).toBeInTheDocument()
+    expect(screen.queryByText('核验未开始')).not.toBeInTheDocument()
+    expect(screen.getByText(/本次运行未产出终稿叙述/)).toBeInTheDocument()
   })
 
   it('heatmap opens supporting papers and keeps missing relations disabled', () => {
@@ -89,11 +110,51 @@ describe('SurveyReportView', () => {
       warnings: ['系统不会用模型记忆填补结论。'],
     }
     render(<SurveyReportView report={noResults} runId={9} busy={false} onGenerate={generate} />)
-    expect(screen.getByText('检索未命中 · 报告已生成')).toBeInTheDocument()
+    expect(screen.getByText('执行完成 · 检索未命中')).toBeInTheDocument()
+    expect(screen.getByText('答案未生成 · 检索审计')).toBeInTheDocument()
     expect(screen.getByText('novel tumor idea')).toBeInTheDocument()
     expect(screen.getByText('novel tumor idea review')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '下载 HTML 报告' })).toHaveAttribute('href', '/api/exploration/runs/9/report?format=html')
     fireEvent.click(screen.getByRole('button', { name: '重新生成' }))
     expect(generate).toHaveBeenCalledOnce()
+  })
+
+  it('truncates references by default and expands/collapses on click', () => {
+    const manyRefs = Array.from({ length: 8 }, (_, i) => ({
+      key: `ref-${i + 1}`,
+      title: `Paper Title ${i + 1}`,
+      year: 2020 + i,
+    }))
+    const reportWithManyRefs: SurveyReport = {
+      ...report,
+      references: manyRefs,
+    }
+    render(<SurveyReportView report={reportWithManyRefs} runId={7} busy={false} onGenerate={vi.fn()} />)
+
+    // Header displays total count
+    expect(screen.getByText('（共 8 篇）')).toBeInTheDocument()
+
+    // First 5 items visible
+    expect(screen.getByText('Paper Title 1')).toBeInTheDocument()
+    expect(screen.getByText('Paper Title 5')).toBeInTheDocument()
+    // 6th item should not be rendered initially (abbreviated/collapsed by default)
+    expect(screen.queryByText('Paper Title 6')).not.toBeInTheDocument()
+
+    // Click expand
+    const expandBtn = screen.getByRole('button', { name: '展开全部 8 篇' })
+    fireEvent.click(expandBtn)
+
+    // Now Paper Title 6 and 8 are visible
+    expect(screen.getByText('Paper Title 6')).toBeInTheDocument()
+    expect(screen.getByText('Paper Title 8')).toBeInTheDocument()
+
+    // Collapse button is available
+    const collapseBtns = screen.getAllByRole('button', { name: '收起' })
+    expect(collapseBtns.length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(collapseBtns[collapseBtns.length - 1])
+
+    // Paper Title 6 is truncated again
+    expect(screen.queryByText('Paper Title 6')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开全部 8 篇' })).toBeInTheDocument()
   })
 })

@@ -136,6 +136,12 @@ def test_api_config_export_and_import(tmp_path, monkeypatch):
     assert "llm:" in yaml_content
     assert "translate:" not in yaml_content
 
+    # 默认备份不携带密钥；本机显式选择才可导出明文。
+    masked_default = client.get("/api/analysis/config/export?format=yaml")
+    assert masked_default.status_code == 200
+    assert masked_default.headers["x-config-masked"] == "true"
+    assert masked_default.headers["cache-control"] == "no-store"
+
     # 通过 JSON payload 导入
     new_payload = {
         "content": "ui:\n  highlight_duration: 4500\n",
@@ -153,6 +159,32 @@ def test_api_config_export_and_import(tmp_path, monkeypatch):
     )
     assert upload_resp.status_code == 200
     assert upload_resp.json()["message"] == "配置导入成功并已即时生效"
+
+
+def test_loopback_proxy_with_remote_client_cannot_export_secrets_or_import(tmp_path, monkeypatch):
+    test_yaml_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(ai_config, "CONFIG_PATH", str(test_yaml_path))
+    test_key_path = tmp_path / "config_key"
+    monkeypatch.setattr(ai_config, "CONFIG_KEY_PATH", str(test_key_path))
+    config = copy.deepcopy(ai_config.DEFAULT_CONFIG)
+    config["llm"]["api_key"] = "sk-proxy-secret"
+    ai_config.save_config(config, path=str(test_yaml_path))
+
+    proxy_peer = TestClient(app, client=("127.0.0.1", 55173))
+    headers = {"x-forwarded-for": "203.0.113.8"}
+    exported = proxy_peer.get(
+        "/api/analysis/config/export?format=json&include_secrets=true", headers=headers,
+    )
+    assert exported.status_code == 200
+    assert exported.headers["x-config-masked"] == "true"
+    assert "sk-proxy-secret" not in exported.text
+
+    imported = proxy_peer.post(
+        "/api/analysis/config/import", headers=headers,
+        json={"format": "yaml", "content": "ui:\n  theme: dark\n"},
+    )
+    assert imported.status_code == 403
+    assert imported.json()["code"] == "LOCAL_ACCESS_REQUIRED"
 
 
 def test_config_key_save_and_load(tmp_path, monkeypatch):

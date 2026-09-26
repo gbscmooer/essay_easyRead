@@ -757,6 +757,10 @@ async def run_research_workflow(
     call_tool: Optional[ToolCaller] = None,
     plan_goal: Optional[GoalPlanner] = None,
 ) -> dict[str, Any]:
+    from .llm import set_llm_scope, set_llm_stage
+
+    set_llm_scope("workspace_research")
+    set_llm_stage("agent_workflow")
     if workflow not in WORKFLOW_SPECS:
         raise AgentToolError(f"未知 workflow: {workflow}", "NOT_FOUND", 404)
     goal = _safe(goal)

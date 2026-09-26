@@ -206,6 +206,7 @@ from ..models.research_core import (
 from ..models.tag import Tag, PaperTag
 from ..models.note import Note
 from ..models.annotation import Annotation
+from ..models.token_usage import LLMUsageRecord  # noqa: F401  注册 llm_usage_records 表
 
 # ============================================================
 # Engine 单例 — 所有路由统一从此处获取引擎
@@ -323,6 +324,75 @@ def _migrate_schema(engine) -> None:
             except Exception as e:
                 logger.warning(f"Migration failed for research_tasks idempotency index: {e}")
 
+
+        # llm_usage_records 表迁移：逐次调用耗时（TPS 统计；旧记录 0 表示未计时）
+        try:
+            usage_cols = {
+                row[1] for row in conn.exec_driver_sql(
+                    "PRAGMA table_info(llm_usage_records)"
+                ).fetchall()
+            }
+        except Exception:
+            usage_cols = set()
+        if usage_cols and "elapsed_ms" not in usage_cols:
+            try:
+                conn.exec_driver_sql(
+                    "ALTER TABLE llm_usage_records ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0"
+                )
+                conn.commit()
+                logger.info("Migration: added column elapsed_ms to llm_usage_records")
+            except Exception as e:
+                logger.warning(f"Migration failed for llm_usage_records.elapsed_ms: {e}")
+
+        # llm_usage_records 表迁移（P1，计划 §16.5）：运行实例/操作归属与失败尝试。
+        # 旧记录 run_instance_id=''（按时间下限兜底）、status='ok'（只含成功的历史行）。
+        usage_identity_migrations = [
+            ("run_instance_id", "TEXT NOT NULL DEFAULT ''"),
+            ("operation", "TEXT NOT NULL DEFAULT ''"),
+            ("status", "TEXT NOT NULL DEFAULT 'ok'"),
+            ("error_code", "TEXT NOT NULL DEFAULT ''"),
+        ]
+        for col_name, col_def in usage_identity_migrations:
+            if usage_cols and col_name not in usage_cols:
+                try:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE llm_usage_records ADD COLUMN {col_name} {col_def}"
+                    )
+                    conn.commit()
+                    logger.info(f"Migration: added column {col_name} to llm_usage_records")
+                except Exception as e:
+                    logger.warning(f"Migration failed for llm_usage_records.{col_name}: {e}")
+        if usage_cols:
+            try:
+                conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_llm_usage_records_run_instance "
+                    "ON llm_usage_records(run_instance_id)"
+                )
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Migration failed for llm_usage_records instance index: {e}")
+
+        # exploration_runs 表迁移（P1，计划 §16.5）：运行实例身份列。
+        # 新 run 由 ORM 生成 UUID；旧行一次性回填 legacy-<id>-<hex>（此后稳定，
+        # 历史用量归因不因迁移重写；回填值只用于把旧 run 与未来同号 run 区分开）。
+        if exploration_cols and "run_instance_id" not in exploration_cols:
+            try:
+                conn.exec_driver_sql(
+                    "ALTER TABLE exploration_runs ADD COLUMN run_instance_id TEXT"
+                )
+                conn.exec_driver_sql(
+                    "UPDATE exploration_runs SET run_instance_id = "
+                    "'legacy-' || id || '-' || lower(hex(randomblob(16))) "
+                    "WHERE run_instance_id IS NULL OR run_instance_id = ''"
+                )
+                conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_exploration_runs_run_instance "
+                    "ON exploration_runs(run_instance_id)"
+                )
+                conn.commit()
+                logger.info("Migration: added+backfilled column run_instance_id to exploration_runs")
+            except Exception as e:
+                logger.warning(f"Migration failed for exploration_runs.run_instance_id: {e}")
 
         # papers 表迁移：代码仓库相关字段
         try:

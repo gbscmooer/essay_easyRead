@@ -174,7 +174,7 @@ def test_failed_pdf_download_falls_back_to_abstract(monkeypatch):
         raise TimeoutError("unavailable")
     async def llm(*args, **kwargs):
         return extracted()
-    monkeypatch.setattr("backend.services.deep_research.pdf_downloader.download_pdf", download)
+    monkeypatch.setattr("backend.services.deep_research.pdf_downloader.download_pdf_detailed", download)
     monkeypatch.setattr(sr, "_llm_json", llm)
     paper = {**PAPER, "pdf_url": "https://example.org/paper.pdf"}
     report = asyncio.run(sr.build_survey_report("q", [paper], {}, None, {"api_key": "test"}, fetch_full_text=True))

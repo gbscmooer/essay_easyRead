@@ -24,6 +24,7 @@ result 列的完整结构（explorer.py 产出）：
 
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 from sqlmodel import SQLModel, Field, Column
 from sqlalchemy import JSON, Index, text
 
@@ -81,7 +82,7 @@ class ExplorationRun(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
     question: str                    # 学者的自然语言问句
-    depth: str = "standard"          # quick | standard | deep
+    depth: str = "standard"          # lite | quick | standard | deep
     status: str = "pending"          # pending | running | done | failed（v2 另见 RUN_STATES_V2）
     current_stage: Optional[str] = None  # decompose | recall | enrich | metrics | synthesize | persist
     error_message: Optional[str] = None
@@ -102,6 +103,11 @@ class ExplorationRun(SQLModel, table=True):
     workflow_version: str = "legacy_v1"
     state_version: int = 0           # v2 创建时置 1，此后每次 CAS 状态变更 +1
     protocol_asset_id: Optional[str] = None
+
+    # 运行实例身份（P1，计划 §16.5）：创建时落库的不可复用 UUID。数字 id 删除后
+    # 可被 SQLite 复用，用量/性能归因以本字段为准（llm_usage_records.run_instance_id）；
+    # 迁移前的旧行由启动迁移回填 legacy-<id>-<hex> 一次性值，历史归因不重写。
+    run_instance_id: str = Field(default_factory=lambda: uuid4().hex, index=True)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

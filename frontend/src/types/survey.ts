@@ -37,6 +37,34 @@ export interface SurveySearchSummary {
   stop_reason: string
   interpretation: string
 }
+export interface ReportDelivery {
+  /** v3 交付契约：旧报告缺失该字段时按未知处理，不猜测 */
+  delivery_status: 'ready' | 'partial' | 'unavailable'
+  narrative_source: 'final_draft' | 'preliminary' | 'none'
+  evidence_version?: string
+  citation_map_version?: string | null
+  failure_stage?: string | null
+  error_code?: string | null
+  attempts?: Record<string, unknown>
+}
+export interface NarrativeEntry {
+  text: string
+  display_text: string
+  evidence_ids: string[]
+  citation_numbers: number[]
+  subquestion_id?: string | null
+  role?: string | null
+  statement_kind: 'fact' | 'synthesis_inference' | 'process_note'
+  citation_status: 'ok' | 'missing' | 'unknown' | 'not_required'
+  unknown_evidence?: string[]
+}
+export interface ReportNarrative {
+  summary: NarrativeEntry[]
+  findings: NarrativeEntry[]
+  limitations: NarrativeEntry[]
+  gaps: NarrativeEntry[]
+  novelty: NarrativeEntry[]
+}
 export interface SurveyReport {
   version: number
   title: string
@@ -59,5 +87,7 @@ export interface SurveyReport {
   warnings: string[]
   search_summary?: SurveySearchSummary
   method?: Record<string, unknown>
+  delivery?: ReportDelivery
+  narrative?: ReportNarrative
   markdown: string
 }

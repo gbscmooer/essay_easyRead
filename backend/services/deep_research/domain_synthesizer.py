@@ -20,6 +20,7 @@ Domain Synthesizer — 领域认知综合（stage_synthesize）
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -66,7 +67,10 @@ def _clip(text: str | None, limit: int) -> str:
 
 
 async def _llm_json(cfg: dict, system: str, user: str, *, max_tokens: int,
-                    temperature: float = 0.15) -> dict:
+                    temperature: float = 0.15,
+                    thinking_effort: str | None = None,
+                    max_retries: int = MAX_RETRIES,
+                    metadata_out: dict | None = None) -> dict:
     """Generate one JSON object through the provider-neutral LLM Core."""
     return await complete_json(
         cfg,
@@ -74,8 +78,10 @@ async def _llm_json(cfg: dict, system: str, user: str, *, max_tokens: int,
         user=user,
         max_tokens=max_tokens,
         temperature=temperature,
-        thinking_effort=cfg.get("thinking_effort"),
-        max_retries=MAX_RETRIES,
+        thinking_effort=(cfg.get("thinking_effort")
+                         if thinking_effort is None else thinking_effort),
+        max_retries=max_retries,
+        metadata_out=metadata_out,
     )
 
 
@@ -218,15 +224,29 @@ def _normalize_node_semantic(item: dict, batch: list[dict]) -> tuple[str, NodeSe
     )
 
 
+# 节点/边语义批次的并发度：批次间无依赖（输出按 id 聚合，顺序无关），
+# LLM Core 的 rate_limiter 兜住上游 429
+_BATCH_CONCURRENCY = 3
+
+
 async def _task_nodes(cfg: dict, node_items: list[dict], *, batch_size: int) -> dict[str, NodeSemantic]:
     out: dict[str, NodeSemantic] = {}
-    for start in range(0, len(node_items), batch_size):
-        batch = node_items[start:start + batch_size]
-        data = await _llm_json(cfg, _NODE_SYSTEM, _node_user(batch), max_tokens=4000)
+    batches = [node_items[start:start + batch_size]
+               for start in range(0, len(node_items), batch_size)]
+    sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
+
+    async def _one(batch: list[dict]) -> dict[str, NodeSemantic]:
+        async with sem:
+            data = await _llm_json(cfg, _NODE_SYSTEM, _node_user(batch), max_tokens=4000)
+        parsed_out: dict[str, NodeSemantic] = {}
         for item in data.get("papers") or []:
             parsed = _normalize_node_semantic(item, batch)
             if parsed:
-                out[parsed[0]] = parsed[1]
+                parsed_out[parsed[0]] = parsed[1]
+        return parsed_out
+
+    for partial_out in await asyncio.gather(*(_one(batch) for batch in batches)):
+        out.update(partial_out)
     return out
 
 
@@ -280,13 +300,22 @@ def _normalize_edge_semantic(item: dict, batch: list[dict]) -> tuple[str, EdgeSe
 
 async def _task_edges(cfg: dict, edge_items: list[dict], *, batch_size: int) -> dict[str, EdgeSemantic]:
     out: dict[str, EdgeSemantic] = {}
-    for start in range(0, len(edge_items), batch_size):
-        batch = edge_items[start:start + batch_size]
-        data = await _llm_json(cfg, _EDGE_SYSTEM, _edge_user(batch), max_tokens=4000)
+    batches = [edge_items[start:start + batch_size]
+               for start in range(0, len(edge_items), batch_size)]
+    sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
+
+    async def _one(batch: list[dict]) -> dict[str, EdgeSemantic]:
+        async with sem:
+            data = await _llm_json(cfg, _EDGE_SYSTEM, _edge_user(batch), max_tokens=4000)
+        parsed_out: dict[str, EdgeSemantic] = {}
         for item in data.get("edges") or []:
             parsed = _normalize_edge_semantic(item, batch)
             if parsed:
-                out[parsed[0]] = parsed[1]
+                parsed_out[parsed[0]] = parsed[1]
+        return parsed_out
+
+    for partial_out in await asyncio.gather(*(_one(batch) for batch in batches)):
+        out.update(partial_out)
     return out
 
 
@@ -516,24 +545,38 @@ async def synthesize_domain(
             except Exception:
                 pass
 
-    # Task 1：节点角色
-    if node_items:
+    # Task 1（节点角色）与 Task 2（引用边因果）互不依赖：并行执行；
+    # 各任务内部的 LLM 批次同样并发（_BATCH_CONCURRENCY 路信号量）。
+    # （Task 3 流派依赖 Task 1 的角色输出，Task 4 简报依赖全部，保持串行）
+    async def _task1() -> dict[str, NodeSemantic] | None:
         try:
-            synthesis.enriched_nodes = await _task_nodes(cfg, node_items, batch_size=scfg["node_batch"])
-            logger.info("synthesize: %d/%d 个节点获得学术角色", len(synthesis.enriched_nodes), len(node_items))
+            enriched = await _task_nodes(cfg, node_items, batch_size=scfg["node_batch"])
+            logger.info("synthesize: %d/%d 个节点获得学术角色", len(enriched), len(node_items))
+            return enriched
         except Exception as e:
             synthesis.partial = True
             logger.warning(f"synthesize Task1 (nodes) failed (non-fatal): {e}")
-        _tick("nodes")
+            return None
 
-    # Task 2：cites 边因果
-    if edge_items:
+    async def _task2() -> dict[str, EdgeSemantic] | None:
         try:
-            synthesis.enriched_edges = await _task_edges(cfg, edge_items, batch_size=scfg["edge_batch"])
-            logger.info("synthesize: %d/%d 条引用边获得因果标注", len(synthesis.enriched_edges), len(edge_items))
+            enriched = await _task_edges(cfg, edge_items, batch_size=scfg["edge_batch"])
+            logger.info("synthesize: %d/%d 条引用边获得因果标注", len(enriched), len(edge_items))
+            return enriched
         except Exception as e:
             synthesis.partial = True
             logger.warning(f"synthesize Task2 (edges) failed (non-fatal): {e}")
+            return None
+
+    nodes_result, edges_result = await asyncio.gather(
+        _task1() if node_items else asyncio.sleep(0, result=None),
+        _task2() if edge_items else asyncio.sleep(0, result=None),
+    )
+    if node_items:
+        synthesis.enriched_nodes = nodes_result or {}
+        _tick("nodes")
+    if edge_items:
+        synthesis.enriched_edges = edges_result or {}
         _tick("edges")
 
     # Task 3：流派（依赖 Task 1 的角色；Task 1 失败也能跑，只是输入少一档信息）

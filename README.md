@@ -24,8 +24,7 @@ npm install
 ### 分别启动
 
 ```bash
-cd backend
-source ../.venv/bin/activate
+source .venv/bin/activate
 python -m backend
 ```
 

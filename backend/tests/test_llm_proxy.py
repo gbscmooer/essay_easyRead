@@ -89,4 +89,5 @@ async def test_openai_adapter_uses_proxy_without_spoofed_headers(monkeypatch):
     assert response.text == "OK"
     assert captured["base_url"] == "http://localhost:9000/v1"
     assert captured["api_key"] == "proxy-token"
+    assert captured["max_retries"] == 0
     assert "default_headers" not in captured

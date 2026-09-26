@@ -11,7 +11,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   getConfigFileInfo,
-  getExportConfigUrl,
+  exportConfigFile,
   importConfigFile,
   importConfigText,
   type ConfigFileInfo,
@@ -43,7 +43,8 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
 
   // 导出设置
   const [exportFormat, setExportFormat] = useState<'yaml' | 'toml' | 'json'>('yaml')
-  const [includeSecrets, setIncludeSecrets] = useState(true)
+  const [includeSecrets, setIncludeSecrets] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   // 导入设置
   const [importMode, setImportMode] = useState<'file' | 'text'>('file')
@@ -67,17 +68,34 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
     loadInfo()
   }, [])
 
-  const handleExportDownload = () => {
-    const url = getExportConfigUrl(exportFormat, includeSecrets)
-    // 创建隐藏 a 标签触发下载
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `config.${exportFormat === 'yaml' ? 'yaml' : exportFormat === 'toml' ? 'toml' : 'json'}`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setShowExportModal(false)
-    toast({ type: 'success', message: `已导出 ${exportFormat.toUpperCase()} 配置文件` })
+  const handleExportDownload = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const { blob, masked } = await exportConfigFile(exportFormat, includeSecrets)
+      const url = URL.createObjectURL(blob)
+      try {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `config.${exportFormat}`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+      setShowExportModal(false)
+      toast({
+        type: masked && includeSecrets ? 'warning' : 'success',
+        message: masked && includeSecrets
+          ? '已导出脱敏配置；当前访问环境不允许导出 API 密钥'
+          : `已导出 ${exportFormat.toUpperCase()} 配置文件${masked ? '（密钥已脱敏）' : ''}`,
+      })
+    } catch (err: unknown) {
+      toast({ type: 'error', message: err instanceof Error ? err.message : '配置文件导出失败' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,7 +182,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
           <button
             type="button"
             className="er-btn er-btn--secondary er-btn--sm"
-            onClick={() => setShowExportModal(true)}
+            onClick={() => { setIncludeSecrets(false); setShowExportModal(true) }}
             title="导出配置文件供迁移备份"
           >
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -219,7 +237,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
               <button
                 type="button"
                 className="er-btn er-btn--ghost er-btn--sm"
-                onClick={() => setShowExportModal(false)}
+                onClick={() => !exporting && setShowExportModal(false)}
                 aria-label="关闭"
               >
                 ✕
@@ -255,7 +273,7 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
                   <span>
                     <strong>包含 API 密钥（用于环境迁移与快速部署）</strong>
                     <span className="block text-[var(--text-muted)] mt-0.5">
-                      本地访问时将导出完整密钥以便在新机器即开即用；若要分享给他人请取消勾选进行脱敏。
+                      默认导出脱敏配置。仅在迁移到自己的设备时勾选，且只允许本机访问导出完整密钥。
                     </span>
                   </span>
                 </label>
@@ -266,7 +284,8 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
               <button
                 type="button"
                 className="er-btn er-btn--ghost er-btn--sm"
-                onClick={() => setShowExportModal(false)}
+                onClick={() => !exporting && setShowExportModal(false)}
+                disabled={exporting}
               >
                 取消
               </button>
@@ -274,8 +293,9 @@ export function ConfigFileManagement({ onConfigReload }: ConfigFileManagementPro
                 type="button"
                 className="er-btn er-btn--primary er-btn--sm"
                 onClick={handleExportDownload}
+                disabled={exporting}
               >
-                下载配置文件
+                {exporting ? '正在导出…' : '下载配置文件'}
               </button>
             </div>
           </div>

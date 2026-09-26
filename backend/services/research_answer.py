@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .llm import complete_text
+from .llm import complete_text, set_llm_scope, set_llm_stage
 
 
 async def generate_research_answer(
@@ -11,6 +11,8 @@ async def generate_research_answer(
     graph_context: str,
     config: dict,
 ) -> str:
+    set_llm_scope("workspace_research")
+    set_llm_stage("rag_qa")
     context = "\n\n".join(
         f"[{index + 1}] {hit['paper_title']} / {hit['section_name']}:\n{hit['snippet']}"
         for index, hit in enumerate(hits)

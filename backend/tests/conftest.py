@@ -54,6 +54,7 @@ def engine(test_db_url):
     from backend.models.tag import Tag, PaperTag
     from backend.models.note import Note
     from backend.models.annotation import Annotation
+    from backend.models.token_usage import LLMUsageRecord  # noqa: F401 — 注册 LLM 用量表
 
     eng = create_engine(test_db_url, connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(eng)

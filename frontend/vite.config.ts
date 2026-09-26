@@ -41,6 +41,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        xfwd: true,
         ws: true,
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes: IncomingMessage) => {

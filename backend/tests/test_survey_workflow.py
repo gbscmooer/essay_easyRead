@@ -71,8 +71,15 @@ async def test_pdf_candidates_fall_through_and_clean_up(monkeypatch, tmp_path):
                         AsyncMock(return_value=["https://example.org/failed", "https://example.org/good"]))
     path = tmp_path / "source.pdf"
     path.write_bytes(b"%PDF-1.4")
-    download = AsyncMock(side_effect=[None, str(path)])
-    monkeypatch.setattr("backend.services.deep_research.pdf_downloader.download_pdf", download)
+    from backend.services.deep_research.pdf_downloader import DownloadResult
+    download = AsyncMock(side_effect=[
+        DownloadResult(status="unavailable",
+                       attempts=[{"host": "example.org", "stage": "response",
+                                  "error_code": "NON_PDF_CONTENT", "http_status": 200,
+                                  "retryable": False, "elapsed_ms": 5}]),
+        DownloadResult(status="available", path=str(path)),
+    ])
+    monkeypatch.setattr("backend.services.deep_research.pdf_downloader.download_pdf_detailed", download)
     monkeypatch.setattr("backend.services.pdf_parser.extract_pdf_content",
                         lambda path: SimpleNamespace(full_text="Evaluation of question answering on ExampleQA."))
     paper = {"key": "doi:10.1/example", "title": "Example", "doi": "10.1/example"}
@@ -111,3 +118,122 @@ def test_table_facets_reserve_material_beyond_top_relevance():
     chosen = sr.select_report_materials(papers, 12)
     assert len(chosen) == 12
     assert {"eval", "tasks"}.issubset({p["key"] for p in chosen})
+
+
+def test_depth_contract_lite_accepted_and_knobs_covered():
+    """lite 档（2026-09-18）：schema 接受 lite/拒绝未知档；所有按档位分支的
+    旋钮表必须覆盖全部合法档位，防止后续加档漏配静默落默认值。"""
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.models.schemas import ExplorationRunCreate
+    from backend.services.deep_research.explorer import (
+        AGENT_LOOP_PRESETS, DEPTH_PRESETS,
+    )
+    from backend.services.deep_research.recall_engine import (
+        FILTER_BATCH, PER_SOURCE_LIMIT, RECALL_TARGETS,
+    )
+    from backend.services.deep_research.survey_report import LIMITS
+
+    assert ExplorationRunCreate(question="lite depth question", depth="lite").depth == "lite"
+    with pytest.raises(ValidationError):
+        ExplorationRunCreate(question="bad depth question", depth="turbo")
+
+    accepted = {"lite", "quick", "standard", "deep"}
+    for name, table in (("RECALL_TARGETS", RECALL_TARGETS),
+                        ("FILTER_BATCH", FILTER_BATCH),
+                        ("PER_SOURCE_LIMIT", PER_SOURCE_LIMIT),
+                        ("DEPTH_PRESETS", DEPTH_PRESETS),
+                        ("AGENT_LOOP_PRESETS", AGENT_LOOP_PRESETS),
+                        ("LIMITS", LIMITS)):
+        missing = accepted - set(table)
+        assert not missing, f"{name} 缺档位配置: {sorted(missing)}"
+    assert RECALL_TARGETS["lite"] == 50 and DEPTH_PRESETS["lite"]["max_queries"] == 2
+
+
+# ── v8 分层选材：结构覆盖 + unknown 隔离 + 候补池 ─────────────────────────────
+
+def test_select_stratified_materials_layers_and_unknown_exclusion():
+    from backend.services.deep_research.survey_report import select_stratified_materials
+
+    papers = []
+    papers.append({"key": "k:dataset-paper", "title": "MVTec AD: A Comprehensive Dataset",
+                   "year": 2019, "citation_count": 2000})
+    papers.append({"key": "k:survey-paper", "title": "A Survey of Surface Defect Detection",
+                   "year": 2021, "citation_count": 800})
+    papers.append({"key": "k:recent-a", "title": "New method A", "year": 2026, "citation_count": 3})
+    papers.append({"key": "k:recent-b", "title": "New method B", "year": 2025, "citation_count": 5})
+    papers.append({"key": "k:classic", "title": "PatchCore foundation", "year": 2020,
+                   "citation_count": 900})
+    for i in range(6):
+        papers.append({"key": f"k:m{i}", "title": f"Method {i}", "year": 2023,
+                       "citation_count": 20 + i})
+    # unknown 论文（fail-open 遗留）不得进入正选或候补
+    papers.append({"key": "k:unknown-survey", "title": "PINN survey review",
+                   "year": 2020, "citation_count": 5000,
+                   "relevance_status": "unknown"})
+    papers.append({"key": "k:unknown-dataset", "title": "UAV benchmark dataset",
+                   "year": 2022, "citation_count": 3000,
+                   "relevance_status": "unknown"})
+
+    selected, backfill, audit = select_stratified_materials(
+        papers, limit=8, now_year=2026, depth="lite")
+    keys = {p["key"] for p in selected}
+    assert "k:unknown-survey" not in keys and "k:unknown-dataset" not in keys
+    assert all(p["key"] not in {b["key"] for b in backfill} for p in backfill)
+    assert {b["key"] for b in backfill} & {"k:unknown-survey", "k:unknown-dataset"} == set()
+    # dataset/survey 层入选（结构性覆盖，不再是纯相关性聚簇）
+    assert "k:dataset-paper" in keys and "k:survey-paper" in keys
+    assert audit["policy"] == "stratified_layers_v1"
+    assert audit["excluded_unknown"] == 2
+    assert len(selected) <= 8
+
+
+def test_evolution_question_keeps_new_benchmark_and_recent_method():
+    from backend.services.deep_research.survey_report import select_stratified_materials
+
+    papers = [
+        {"key": "old-benchmark", "title": "MVTec AD benchmark", "year": 2019,
+         "citation_count": 3000},
+        {"key": "survey", "title": "A survey of visual defect detection", "year": 2023},
+        {"key": "new-benchmark", "title": "MVTec AD 2 benchmark", "year": 2026},
+        {"key": "new-method", "title": "Segment Any Anomaly", "year": 2026},
+        {"key": "foundation", "title": "PatchCore", "year": 2020, "citation_count": 900},
+        *({"key": f"method-{i}", "title": f"Method {i}", "year": 2023}
+          for i in range(5)),
+    ]
+    selected, _, audit = select_stratified_materials(
+        papers, 8, now_year=2026, depth="lite",
+        question="缺陷检测图像任务的发展和最新方向是什么？")
+    keys = {paper["key"] for paper in selected}
+    assert {"old-benchmark", "new-benchmark", "new-method"} <= keys
+    assert audit["evolution_intent"] is True
+
+
+def test_rescreen_does_not_promote_unresolved_papers():
+    from backend.services.deep_research.explorer import _partition_rescreened
+
+    pool = [{"key": "accepted", "relevance_status": "confirmed"},
+            {"key": "still-unknown", "relevance_status": "unknown"},
+            {"key": "rejected", "relevance_status": "unknown"}]
+    recovered, quarantined = _partition_rescreened(pool, pool[:2])
+    assert recovered == 1
+    assert [paper["key"] for paper in quarantined] == ["still-unknown", "rejected"]
+
+
+def test_recall_final_trim_escorts_unknown_with_cap():
+    """终裁：confirmed 占满 target；unknown 不再补位填满目标量，只随行有界数量。"""
+    from backend.services.deep_research import recall_engine as re_mod
+
+    now = 2026
+    confirmed = [{"key": f"k:c{i}", "title": f"confirmed {i}", "year": 2024,
+                  "citation_count": 100 - i} for i in range(4)]
+    unknown = [{"key": f"k:u{i}", "title": f"unknown {i}", "year": 2020,
+                "citation_count": 9000 + i, "relevance_status": "unknown"} for i in range(6)]
+    final = re_mod.dual_track_trim(confirmed, 4, now)
+    escort_cap = max(10, int(4 * 0.2))
+    escorted = re_mod.dual_track_trim(unknown, min(len(unknown), escort_cap), now)
+    # escort_cap=10 > unknown 数量 → 全随行；小 target 时也至少 10 上限保护
+    assert len(final) == 4 and len(escorted) == 6
+    # 隔离纪律由 screen 阶段执行：unknown 论文携带 relevance_status 进入下游裁决
+    assert all(p.get("relevance_status") == "unknown" for p in escorted)

@@ -10,12 +10,13 @@ import { listWorkspaces, createWorkspace, deleteWorkspace, type WorkspaceItem } 
 import { toast } from '@/hooks/useToast'
 import { ConfirmDialog, LoadingSpinner } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
+import { parseServerDate } from '@/utils/datetime'
 import '@/styles/workspace.css'
 
 
 /** 相对时间展示（纯展示，无副作用）；解析失败时回退到本地日期。 */
 function formatRelativeTime(iso: string): string {
-  const t = new Date(iso).getTime()
+  const t = parseServerDate(iso).getTime()
   if (Number.isNaN(t)) return ''
   const diff = Date.now() - t
   if (diff < 0) return '刚刚'

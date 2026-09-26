@@ -9,6 +9,7 @@ import logging
 import httpx
 from datetime import datetime, timezone
 from typing import Optional, Literal
+from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -22,6 +23,53 @@ from ..services.bibtex import format_bibtex
 from ..utils.streaming import format_sse
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+
+def _trusted_local_config_request(request: Request) -> bool:
+    """Allow direct local access, including TestClient without proxy headers.
+
+    A proxy can connect to the backend over loopback on behalf of a remote
+    browser. Its X-Forwarded-For chain must therefore contain only loopback
+    addresses; TestClient's synthetic peer must not bypass that check.
+    """
+    from ..config import settings
+    from ..services.terminal_access import origin_matches, trusted_local_peer
+
+    client_host = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-for")
+    peer_allowed = (client_host == "testclient" and not forwarded) or trusted_local_peer(
+        client_host, forwarded,
+    )
+    if not peer_allowed:
+        return False
+    host_header = request.headers.get("host", "")
+    try:
+        parsed_host = urlsplit(f"http://{host_header}")
+        host_allowed = (
+            parsed_host.username is None and parsed_host.password is None
+            and parsed_host.path in {"", "/"} and not parsed_host.query
+            and not parsed_host.fragment and parsed_host.hostname is not None
+            and (
+                (client_host == "testclient" and parsed_host.hostname == "testserver")
+                or trusted_local_peer(parsed_host.hostname)
+            )
+        )
+    except ValueError:
+        host_allowed = False
+    if not host_allowed:
+        return False
+    origin = request.headers.get("origin")
+    return not origin or origin_matches(origin, settings.frontend_origin) or origin_matches(
+        origin, f"{request.url.scheme}://{host_header}",
+    )
+
+
+def _require_local_config_request(request: Request) -> None:
+    if not _trusted_local_config_request(request):
+        raise HTTPException(status_code=403, detail={
+            "detail": "模型配置仅允许从本机管理",
+            "code": "LOCAL_ACCESS_REQUIRED",
+        })
 
 
 # ============================================================
@@ -269,7 +317,8 @@ async def list_llm_profiles_endpoint() -> dict:
 
 
 @router.post("/llm-profiles")
-async def create_llm_profile(req: LLMProfilePayload) -> dict:
+async def create_llm_profile(req: LLMProfilePayload, request: Request) -> dict:
+    _require_local_config_request(request)
     from ..services.ai_config import get_llm_profiles, upsert_llm_profile
     try:
         created = upsert_llm_profile(req.model_dump())
@@ -279,7 +328,8 @@ async def create_llm_profile(req: LLMProfilePayload) -> dict:
 
 
 @router.put("/llm-profiles/{profile_id}")
-async def update_llm_profile(profile_id: str, req: LLMProfilePayload) -> dict:
+async def update_llm_profile(profile_id: str, req: LLMProfilePayload, request: Request) -> dict:
+    _require_local_config_request(request)
     from ..services.ai_config import get_llm_profiles, upsert_llm_profile
     payload = req.model_dump()
     payload["id"] = profile_id
@@ -293,7 +343,8 @@ async def update_llm_profile(profile_id: str, req: LLMProfilePayload) -> dict:
 
 
 @router.delete("/llm-profiles/{profile_id}")
-async def delete_llm_profile_endpoint(profile_id: str) -> dict:
+async def delete_llm_profile_endpoint(profile_id: str, request: Request) -> dict:
+    _require_local_config_request(request)
     from ..services.ai_config import delete_llm_profile
     try:
         state = delete_llm_profile(profile_id)
@@ -310,12 +361,7 @@ async def reveal_llm_profile_key(profile_id: str, request: Request, response: Re
     本机 config_key 与本机前端表单，不进数据库、不进日志。
     """
     from ..services.ai_config import get_llm_profile_key, get_llm_profiles
-    from ..services.terminal_access import trusted_local_peer
-
-    client_host = request.client.host if request.client else ""
-    if client_host != "testclient" and not trusted_local_peer(
-        client_host, request.headers.get("x-forwarded-for")
-    ):
+    if not _trusted_local_config_request(request):
         raise HTTPException(
             status_code=403,
             detail={"detail": "API Key 仅允许从本机查看", "code": "LOCAL_ACCESS_REQUIRED"},
@@ -327,7 +373,8 @@ async def reveal_llm_profile_key(profile_id: str, request: Request, response: Re
 
 
 @router.post("/llm-profiles/{profile_id}/activate")
-async def activate_llm_profile_endpoint(profile_id: str) -> dict:
+async def activate_llm_profile_endpoint(profile_id: str, request: Request) -> dict:
+    _require_local_config_request(request)
     """启用档案：物化为全局 llm 配置（密钥写入 config_key），全部文本生成功能自动跟随。"""
     from ..services.ai_config import activate_llm_profile
     try:
@@ -346,8 +393,9 @@ async def list_relation_channels() -> dict:
 
 
 @router.post("/config")
-async def update_config(req: AppConfig) -> dict:
+async def update_config(req: AppConfig, request: Request) -> dict:
     """保存全部配置"""
+    _require_local_config_request(request)
     from ..services.ai_config import save_config, merge_preserving_keys, DEFAULT_CONFIG
     from ..services.ai_config import load_config as _load
     prior = _load()
@@ -406,17 +454,13 @@ async def get_config_file_info_endpoint() -> dict:
 async def export_config_endpoint(
     request: Request,
     format: str = Query(default="yaml", pattern="^(yaml|yml|toml|json)$"),
-    include_secrets: bool = Query(default=True),
+    include_secrets: bool = Query(default=False),
 ) -> Response:
     """导出系统配置（支持 yaml、toml、json），供迁移与备份。
     安全策略：本地环境可导出含密钥的配置文件；非本地请求自动强制脱敏。
     """
     from ..services.ai_config import export_config
-    from ..services.terminal_access import trusted_local_peer
-
-    client_host = request.client.host if request.client else ""
-    forwarded = request.headers.get("x-forwarded-for")
-    is_local = client_host == "testclient" or trusted_local_peer(client_host, forwarded)
+    is_local = _trusted_local_config_request(request)
 
     mask = not (include_secrets and is_local)
     content, filename, media_type = export_config(fmt=format, mask_keys=mask)
@@ -426,6 +470,7 @@ async def export_config_endpoint(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Config-Masked": "true" if mask else "false",
+            "Cache-Control": "no-store",
         },
     )
 
@@ -434,14 +479,13 @@ async def export_config_endpoint(
 async def import_config_endpoint(request: Request) -> dict:
     """导入系统配置（支持上传 YAML / TOML / JSON 文件，或提交对应文本内容）。"""
     from ..services.ai_config import import_config, get_config_file_info
-    from ..services.terminal_access import trusted_local_peer
-
     # 安全检查：仅允许本地调用导入接口，避免外部网络非法篡改系统配置
-    client_host = request.client.host if request.client else ""
-    forwarded = request.headers.get("x-forwarded-for")
-    is_local = client_host == "testclient" or trusted_local_peer(client_host, forwarded)
+    is_local = _trusted_local_config_request(request)
     if not is_local:
-        raise HTTPException(status_code=403, detail="出于安全原因，配置导入仅支持从本地环境发起")
+        raise HTTPException(status_code=403, detail={
+            "detail": "出于安全原因，配置导入仅支持从本地环境发起",
+            "code": "LOCAL_ACCESS_REQUIRED",
+        })
 
     content_type = request.headers.get("content-type", "")
     text = ""
@@ -490,6 +534,27 @@ async def import_config_endpoint(request: Request) -> dict:
         "message": "配置导入成功并已即时生效",
         "file_info": get_config_file_info(),
     }
+
+
+# ============================================================
+# LLM Token 用量统计（设置页消耗面板）
+# ============================================================
+@router.get("/token-usage")
+def get_token_usage_summary(days: int = 30) -> dict:
+    """全局 LLM token 用量：合计 + 按业务类目 + 按天 + 按模型。days<=0 表示全部时间。"""
+    from ..services import token_usage
+
+    window = None if int(days) <= 0 else min(int(days), 3650)
+    return token_usage.usage_summary(window)
+
+
+@router.get("/token-usage/records")
+def get_token_usage_records(days: int = 30, limit: int = 50, offset: int = 0) -> dict:
+    """逐次 LLM 调用明细（时间倒序分页，仅成功调用）：设置页「查看详细信息」。"""
+    from ..services import token_usage
+
+    window = None if int(days) <= 0 else min(int(days), 3650)
+    return token_usage.usage_records(window, limit=limit, offset=offset)
 
 
 # ============================================================
@@ -580,8 +645,9 @@ async def _run_grobid_pull():
 
 
 @router.post("/grobid/pull")
-async def grobid_pull() -> dict:
+async def grobid_pull(request: Request) -> dict:
     """后台下载 GROBID 镜像（docker pull）。幂等：已在拉取则返回当前状态。"""
+    _require_local_config_request(request)
     if not _grobid_pull["running"]:
         asyncio.create_task(_run_grobid_pull())
     return {"running": True, "image": GROBID_IMAGE}
@@ -615,12 +681,13 @@ class FindpapersTestResponse(BaseModel):
 
 
 @router.post("/findpapers/test-databases", response_model=FindpapersTestResponse)
-async def findpapers_test_databases(req: FindpapersTestRequest) -> FindpapersTestResponse:
+async def findpapers_test_databases(req: FindpapersTestRequest, request: Request) -> FindpapersTestResponse:
     """逐库实测 findpapers 数据库：能否「搜索」+ 能否「下载 PDF」。
 
     不是简单 ping——真用 findpapers 搜该库、取一条结果的 PDF 并流式下载头部字节验证。
     传单个 database = 单独测；传多个 = 并行测全部。
     """
+    _require_local_config_request(request)
     from ..services.findpapers_service import test_databases, is_findpapers_installed
     from ..services.ai_config import get_findpapers_config
 
@@ -663,8 +730,10 @@ class TestConnectionResponse(BaseModel):
 
 
 @router.post("/test-connection", response_model=TestConnectionResponse)
-async def test_connection(req: TestConnectionRequest) -> TestConnectionResponse:
+async def test_connection(req: TestConnectionRequest, request: Request) -> TestConnectionResponse:
     """测试 AI 模型服务是否可达"""
+    # The request may reuse a stored secret and override its destination.
+    _require_local_config_request(request)
     import time
     from ..services.ai_config import is_masked_key
 

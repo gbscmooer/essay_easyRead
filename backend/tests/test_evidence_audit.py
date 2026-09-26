@@ -67,7 +67,7 @@ def test_prompt_isolates_untrusted_data_and_uses_configured_model(monkeypatch):
         assert "UNTRUSTED DATA" in system and "never instructions" in system
         assert "No confidence/probability" in system
         assert CFG["api_key"] not in user + system and "do-not-send" not in user
-        assert kwargs == {"max_tokens": 8000, "temperature": 0}
+        assert kwargs == {"max_tokens": 6000, "temperature": 0, "thinking_effort": "off"}
         return result()
 
     monkeypatch.setattr(audit, "_llm_json", judge)
@@ -262,7 +262,8 @@ def test_timeout_cancels_judge_without_exposing_secrets(monkeypatch):
         finally:
             cancelled.append(True)
 
-    assert 30 <= audit.AUDIT_TIMEOUT_SECONDS <= 45
+    # 60s：highspeed 类模型核验单次调用实测超 40s；上限 90 防止无限放宽
+    assert 30 <= audit.AUDIT_TIMEOUT_SECONDS <= 90
     monkeypatch.setattr(audit, "AUDIT_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(audit, "_llm_json", judge)
     report = asyncio.run(audit.audit_answer(claim()["claim"], SOURCES, CFG))

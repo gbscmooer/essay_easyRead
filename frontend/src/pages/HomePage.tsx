@@ -1,15 +1,13 @@
 /**
- * HomePage — Origin research intake.
- *
- * The data boundary stays unchanged: the page still loads papers and
- * workspaces from the existing API and hands uploads to the reader route.
- * The visible layer is a hard-edged 12 / 8 / 6 column composition.
+ * 首页：PDF 上传、论文与工作区摘要、快捷入口。
+ * 使用 Tailwind 响应式布局；上传成功后进入论文阅读页。
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listPapers, uploadPaperWithProgress } from '@/api/papers'
 import { listWorkspaces, type WorkspaceItem } from '@/api/workspaces'
+import { parseServerDate } from '@/utils/datetime'
 import { UploadZone } from '@/features/upload/UploadZone'
 import { toast } from '@/hooks/useToast'
 import type { Paper } from '@/types'
@@ -57,7 +55,7 @@ export default function HomePage() {
       listWorkspaces()
         .then(workspaces => {
           const sorted = workspaces.sort(
-            (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+            (a, b) => parseServerDate(b.updated_at).getTime() - parseServerDate(a.updated_at).getTime(),
           )
           setRecentWorkspaces(sorted.slice(0, 6))
           setStats(current => ({
@@ -103,7 +101,7 @@ export default function HomePage() {
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
             面向研究者的学术文献精读系统
           </div>
-          <h1 id="home-title" className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text-primary)]">
+          <h1 id="home-title" className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-display)' }}>
             论文精读与深度分析
           </h1>
           <p className="text-sm text-[var(--text-secondary)] max-w-2xl leading-relaxed">
@@ -206,7 +204,7 @@ export default function HomePage() {
                     <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                       <span>{paper.venue || '本地文档'}</span>
                       {paper.year && <span>· {paper.year}</span>}
-                      <span>· {new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
+                      <span>· {parseServerDate(paper.created_at).toLocaleDateString('zh-CN')}</span>
                     </div>
                   </div>
 
@@ -330,7 +328,7 @@ export default function HomePage() {
                         {workspace.name}
                       </span>
                       <span className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                        {workspace.paper_count} 篇文献 · {new Date(workspace.updated_at).toLocaleDateString('zh-CN')}
+                        {workspace.paper_count} 篇文献 · {parseServerDate(workspace.updated_at).toLocaleDateString('zh-CN')}
                       </span>
                     </div>
                     <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)] shrink-0">

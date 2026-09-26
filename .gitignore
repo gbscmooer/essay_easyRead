@@ -51,6 +51,10 @@ data/
 *.swp
 *.swo
 
+# Local planning and personal graduation materials
+.zcode/
+/毕业设计资料/
+
 # Claude Code worktrees
 .claude/worktrees/
 

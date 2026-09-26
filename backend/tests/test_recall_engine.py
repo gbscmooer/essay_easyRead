@@ -14,7 +14,8 @@ import json
 from types import SimpleNamespace
 
 from backend.services.deep_research.recall_engine import (
-    MAX_KEYWORD_ATTEMPTS, dual_track_trim, run_target_recall,
+    MAX_KEYWORD_ATTEMPTS, _coverage_status, _filter_pool,
+    dual_track_trim, relevance_trim, run_target_recall,
 )
 
 
@@ -24,6 +25,11 @@ def _cand(title, *, year=2025, cites=0, doi=None, abstract=None, key=None):
         citation_count=cites, doi=doi, arxiv_id=None, url=None, pdf_url=None,
         authors=None, abstract=abstract, seed_relation=None, extra=None,
     )
+
+
+def _accept_all(user):
+    return {"accepted": [item["key"] for item in json.loads(user)["papers"]],
+            "rejected": [], "uncertain": []}
 
 
 # ── 双轨配额裁剪 ─────────────────────────────────────────────────────────────
@@ -45,6 +51,39 @@ def test_dual_track_trim_keeps_classic_and_recent():
 def test_dual_track_trim_empty_and_small():
     assert dual_track_trim([], 10, now_year=2026) == []
     assert dual_track_trim([{"key": "a", "year": 2024, "citation_count": 1}], 10, 2026)
+
+
+def test_topical_candidate_survives_high_citation_pretrim():
+    papers = [{"key": f"off-{i}", "title": "Mouse genome sequencing",
+               "abstract": "genetics", "citation_count": 1000 + i, "year": 2020}
+              for i in range(20)]
+    papers.append({"key": "key-paper", "title": "Defect detection with visual anomalies",
+                   "abstract": "industrial anomaly detection", "citation_count": 0,
+                   "year": 2026})
+    chosen = relevance_trim(papers, 5, "defect detection", ["visual anomaly detection"], 2026)
+    assert "key-paper" in {paper["key"] for paper in chosen}
+
+
+def test_coverage_requires_probes_in_same_paper():
+    dims = [{"dimension": "benchmark", "probes": [
+        "benchmark", "dataset", "mvtec", "testbed", "corpus", "split"]}]
+    papers = [{"title": "benchmark", "abstract": ""},
+              {"title": "dataset", "abstract": ""}]
+    assert _coverage_status(papers, dims)[0]["covered"] is False
+
+
+def test_filter_requires_explicit_acceptance():
+    papers = [{"key": "good", "title": "Vision Mamba", "abstract": "visual state space"},
+              {"key": "uncertain", "title": "Other", "abstract": "unclear"}]
+
+    async def llm_json(system, user):
+        return {"accepted": ["good"], "rejected": [], "uncertain": ["uncertain"]}
+
+    kept, audit = asyncio.run(_filter_pool(
+        papers, "vision mamba", batch_size=10, llm_json=llm_json, verdict_cache={}))
+    assert {paper["key"]: paper["relevance_status"] for paper in kept} == {
+        "good": "confirmed", "uncertain": "unknown"}
+    assert audit["confirmed"] == 1 and audit["unknown"] == 1
 
 
 # ── F1：默认 arXiv 通道与源级错误记账 ───────────────────────────────────────
@@ -78,7 +117,7 @@ def test_source_errors_recorded_not_swallowed_as_zero():
     async def llm_json(system, user):
         if "检索规划员" in system:
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["alpha"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
@@ -110,7 +149,7 @@ def test_exclusions_applied_before_model_inputs_and_output():
         if "检索规划员" in system:
             planner_users.append(user)
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     token = active_exclusions.set({"exclusions": {"dois": ["10.1/genome"]}})
     try:
@@ -142,11 +181,11 @@ def test_title_filter_rejects_cross_domain_no_abstract_paper():
         return []
 
     async def llm_json(system, user):
-        if "标题" in system:  # 标题级筛选
-            return {"rejected": [{"key": "k:genome", "reason": "跨域"}]}
+        if "只有标题" in system:  # 标题级筛选
+            return {"accepted": [], "rejected": [{"key": "k:genome", "reason": "跨域"}]}
         if "检索规划员" in system:
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "vision mamba", ["mamba vision"], depth="quick", now_year=2026,
@@ -170,9 +209,9 @@ def test_unknown_papers_do_not_displace_confirmed():
     async def llm_json(system, user):
         if "检索规划员" in system:
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        if "标题" in system:
+        if "只有标题" in system:
             raise RuntimeError("title filter down")  # 无摘要者全部 unknown
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "vision mamba", ["mamba vision"], depth="quick", now_year=2026,
@@ -202,12 +241,12 @@ def test_filter_shortfall_triggers_topup_within_budget():
             if state["planner_calls"] == 2:
                 return {"next_keywords": ["beta words"], "done": False, "reason": "补搜缺口"}
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        if "筛选员" in system and "标题" not in system:
+        if "筛选员" in system and "只有标题" not in system:
             items = json.loads(user)["papers"]
             if all("alpha" in it["key"] for it in items):
-                return {"rejected": [{"key": it["key"], "reason": "无关"} for it in items]}
-            return {"rejected": []}
-        return {"rejected": []}
+                return {"accepted": [], "rejected": [{"key": it["key"], "reason": "无关"} for it in items]}
+            return _accept_all(user)
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["alpha query"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
@@ -233,7 +272,7 @@ def test_classic_channel_fired_once_per_round():
     async def llm_json(system, user):
         if "检索规划员" in system:
             return {"next_keywords": [], "done": True, "reason": "ok"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     asyncio.run(run_target_recall(
         "q", ["alpha beta", "gamma delta", "epsilon zeta"], depth="quick", now_year=2026,
@@ -243,6 +282,69 @@ def test_classic_channel_fired_once_per_round():
     # 第一轮 3 个关键词：经典通道只应对锚定词发射 scopus+openalex 各一次
     assert cited_calls == [("scopus", "alpha beta"), ("openalex", "alpha beta")]
 
+
+# ── F5：轮中达标即停（累计硬顶） ─────────────────────────────────────────────
+
+def test_main_loop_stops_mid_round_at_target():
+    """累计到达目标量后立即停发关键词：不再把整轮预算烧成超额数百篇。"""
+    calls: list[tuple[str, int]] = []
+
+    async def search_one(source, keyword, limit, order):
+        calls.append((keyword, limit))
+        # 每源 30 篇、三源不重叠 → 单关键词最多 +90
+        return [_cand(f"{keyword} {source} {i}", key=f"k:{keyword}:{source}:{i}",
+                      abstract="abs") for i in range(30)]
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            return {"next_keywords": ["kw-b", "kw-c", "kw-d", "kw-e"], "done": False,
+                    "reason": "expand"}
+        return _accept_all(user)
+
+    papers, audit = asyncio.run(run_target_recall(
+        "q", ["kw-a"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
+        search_one=search_one, llm_json=llm_json,
+        backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+    ))
+
+    assert audit["stop_reason"] == "target_reached"
+    # 最终语料按目标量收口
+    assert len(papers) == 200
+    fired = {kw for kw, _ in calls}
+    # 并发发射（KEYWORD_CONCURRENCY=3）下目标检查在**领词时**进行：
+    # 未领到槽位的关键词不再发射（kw-e 不发），在飞的最多小幅超出
+    assert "kw-e" not in fired
+    assert fired == {"kw-a", "kw-b", "kw-c", "kw-d"}
+    # 超额有界：达标轮的总语料 ≤ 目标 + 在飞关键词数 × 三源 × 单源上限
+    assert audit["rounds"][-1]["corpus_after"] <= 200 + 3 * 3 * 25
+
+
+def test_classic_round_skipped_once_target_reached():
+    """已达目标量后经典通道不再发射（不做无谓的超额检索）。"""
+    cited_calls: list[str] = []
+
+    async def search_one(source, keyword, limit, order):
+        if order == "cited":
+            cited_calls.append(source)
+            return []
+        return [_cand(f"{keyword} {source} {i}", key=f"k:{keyword}:{source}:{i}",
+                      abstract="a") for i in range(80)]
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            return {"next_keywords": [], "done": True, "reason": "ok"}
+        return _accept_all(user)
+
+    asyncio.run(run_target_recall(
+        "q", ["alpha"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
+        search_one=search_one, llm_json=llm_json,
+        backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+    ))
+    # 首个关键词已使语料超过 quick 目标 → 不再有 cited 通道调用
+    assert cited_calls == []
+
+
+# ── F6：planner 容错 ────────────────────────────────────────────────────────
 
 def test_planner_malformed_returns_do_not_lose_material():
     """planner 返回非 dict / 缺字段 / 抛异常：引擎保留已召回材料并优雅终止。"""
@@ -259,7 +361,7 @@ def test_planner_malformed_returns_do_not_lose_material():
         async def llm_json(system, user):
             if "检索规划员" in system:
                 return plan_result
-            return {"rejected": []}
+            return _accept_all(user)
 
         papers, audit = asyncio.run(run_target_recall(
             "q", ["alpha"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
@@ -272,7 +374,7 @@ def test_planner_malformed_returns_do_not_lose_material():
     async def llm_raise(system, user):
         if "检索规划员" in system:
             raise RuntimeError("gateway down")
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["alpha"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
@@ -299,7 +401,7 @@ def test_zero_hit_keywords_do_not_consume_round_budget():
             if len(planner_calls) == 1:
                 return {"next_keywords": ["still deadword x"], "done": False, "reason": "重试同义"}
             return {"next_keywords": ["living words"], "done": False, "reason": "补搜"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["deadword one", "deadword two"], depth="quick", now_year=2026,
@@ -322,7 +424,7 @@ def test_attempt_cap_stops_all_zero_keyword_loop():
             counter["n"] += 1
             return {"next_keywords": [f"attempt {counter['n']} {w}" for w in ("a", "b", "c", "d")],
                     "done": False, "reason": "stub"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["nothing here"], depth="quick", now_year=2026,
@@ -344,7 +446,7 @@ def test_no_llm_runs_single_round_without_planner_or_filter():
 
     async def llm_json(system, user):
         planner_or_filter.append(system)
-        return {"rejected": []}
+        return _accept_all(user)
 
     papers, audit = asyncio.run(run_target_recall(
         "q", ["alpha beta"], depth="quick", now_year=2026,
@@ -399,7 +501,7 @@ def test_coverage_dimensions_drive_planner_and_topup():
                 return {"next_keywords": [], "done": True, "reason": "数量达标"}
             return {"next_keywords": ["detection segmentation benchmark"], "done": False,
                     "reason": "补覆盖缺口"}
-        return {"rejected": []}
+        return _accept_all(user)
 
     question = "视觉 Mamba 在图像分类、目标检测、语义分割上与 Transformer 的参数量和推理速度对比"
     papers, audit = asyncio.run(run_target_recall(
@@ -430,3 +532,93 @@ def test_coverage_dimensions_include_dynamic_topic_and_domain_dimensions():
     medical = _coverage_dimensions("medical imaging in clinic", ["clinical diagnosis"])
     probes = next(row["probes"] for row in medical if row["dimension"] == "医学影像应用证据")
     assert "clinic" in probes and "clnic" not in probes
+
+
+# ── 筛选并发与暂停安全点 ─────────────────────────────────────────────────────
+
+def _filter_papers(n, with_abstract=True):
+    return [{"key": f"k{i}", "title": f"paper {i}",
+             "abstract": f"abstract about topic {i}" if with_abstract else "",
+             "year": 2025, "citation_count": 0} for i in range(n)]
+
+
+def test_filter_pool_runs_batches_concurrently():
+    """筛选批次由多 worker 并发执行：同一时刻存在 ≥2 个在飞 LLM 调用。"""
+    from backend.services.deep_research.recall_engine import _filter_pool
+
+    in_flight = 0
+    max_in_flight = 0
+
+    async def llm_json(system, user):
+        nonlocal in_flight, max_in_flight
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        await asyncio.sleep(0.02)
+        in_flight -= 1
+        return _accept_all(user)
+
+    papers = _filter_papers(30)
+    kept, audit = asyncio.run(_filter_pool(
+        papers, "q", batch_size=10, llm_json=llm_json, verdict_cache={}))
+    assert audit["batches"] == 3
+    assert max_in_flight >= 2  # 串行实现 max 恒为 1
+    assert len(kept) == 30 and all(p["relevance_status"] == "confirmed" for p in kept)
+
+
+def test_filter_pool_pause_between_batches_preserves_inflight_verdicts():
+    """暂停在领新批次时观察：在飞批次完成并写缓存，未领的批次留给续跑。"""
+    from backend.services.deep_research.recall_engine import _filter_pool
+    from backend.services.deep_research.stage_agent import StagePausedError
+
+    screened_so_far = []
+
+    async def on_progress(done, total):
+        screened_so_far.append(done)
+
+    async def llm_json(system, user):
+        await asyncio.sleep(0.01)
+        return _accept_all(user)
+
+    papers = _filter_papers(60)
+
+    def should_pause():
+        # 首批完成后置位：worker 领下一批前会观察到
+        return bool(screened_so_far) and screened_so_far[-1] >= 10
+
+    verdict_cache: dict[str, str] = {}
+    try:
+        asyncio.run(_filter_pool(papers, "q", batch_size=10, llm_json=llm_json,
+                                 verdict_cache=verdict_cache, should_pause=should_pause,
+                                 on_progress=on_progress))
+        raise AssertionError("expected StagePausedError")
+    except StagePausedError:
+        pass
+    # 4 个 worker 同时领批：首批 4 批全部在飞并完成（判定入缓存不浪费），
+    # 第 5 批起不再发射——未筛篇目留给续跑
+    assert 10 <= len(verdict_cache) <= 40
+    assert len(verdict_cache) < 60
+
+
+def test_lite_depth_target_is_50_and_stops_mid_round():
+    """lite（轻量）档：目标量 50，比快览更轻，达标即停不发多余关键词。"""
+    fired: list[str] = []
+
+    async def search_one(source, keyword, limit, order):
+        fired.append(keyword)
+        return [_cand(f"{keyword} {source} {i}", key=f"k:{keyword}:{source}:{i}",
+                      abstract="abs") for i in range(30)]
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            return {"next_keywords": ["kw-b", "kw-c"], "done": False, "reason": "expand"}
+        return _accept_all(user)
+
+    papers, audit = asyncio.run(run_target_recall(
+        "q", ["kw-a"], depth="lite", now_year=2026, llm_cfg={"api_key": "k"},
+        search_one=search_one, llm_json=llm_json,
+        backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+    ))
+
+    assert audit["stop_reason"] == "target_reached"
+    assert len(papers) == 50  # 语料按 lite 目标量收口
+    assert set(fired) == {"kw-a"}  # 单关键词 3 源×30 已超 50 → 后续词不再发射

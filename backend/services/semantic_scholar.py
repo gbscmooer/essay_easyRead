@@ -182,7 +182,6 @@ async def generate_relevance_descriptions(
 ) -> list[dict]:
     """
     用 AI 为每篇相关论文生成一句关联性说明。
-
     Args:
         paper_title: 当前论文标题
         paper_one_sentence: 当前论文一句话描述
@@ -192,6 +191,10 @@ async def generate_relevance_descriptions(
     Returns:
         填充了 relevance 字段的 related_papers 列表
     """
+    from .llm import set_llm_scope, set_llm_stage
+
+    set_llm_scope("paper_analysis", run_id=None)
+    set_llm_stage("related_papers")
     if not related_papers or not api_key:
         return related_papers
 

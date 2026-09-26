@@ -17,6 +17,10 @@ SUMMARY_SYSTEM = (
 
 async def run_text_action(text: str, action: str) -> str:
     """Run a text action through the single global LLM provider."""
+    from .llm import set_llm_scope, set_llm_stage
+
+    set_llm_scope("text_action")
+    set_llm_stage(action)
 
     cfg = get_llm_config()
     if action == "translate":

@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ConfigFileManagement } from '@/features/settings/ConfigFileManagement'
+import { ToastContainer } from '@/components/ToastContainer'
 
 const settingsApi = vi.hoisted(() => ({
   getConfigFileInfo: vi.fn(),
-  getExportConfigUrl: vi.fn(),
+  exportConfigFile: vi.fn(),
   importConfigFile: vi.fn(),
   importConfigText: vi.fn(),
 }))
@@ -21,12 +22,13 @@ beforeEach(() => {
     format: 'yaml',
     supported_formats: ['yaml', 'toml', 'json'],
   })
-  settingsApi.getExportConfigUrl.mockReturnValue('/api/analysis/config/export?format=yaml&include_secrets=true')
+  settingsApi.exportConfigFile.mockResolvedValue({ blob: new Blob(['masked']), masked: true })
 })
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.clearAllMocks()
 })
 
 describe('ConfigFileManagement component', () => {
@@ -72,5 +74,38 @@ describe('ConfigFileManagement component', () => {
     // Switch to paste tab
     await user.click(screen.getByText('直接粘贴文本'))
     expect(screen.getByPlaceholderText(/在此粘贴 YAML、TOML 或 JSON 配置文本/)).toBeInTheDocument()
+  })
+
+  it('defaults to masked export and downloads only after a successful response', async () => {
+    const user = userEvent.setup()
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:config')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    render(<><ConfigFileManagement onConfigReload={vi.fn()} /><ToastContainer /></>)
+
+    await user.click(await screen.findByRole('button', { name: /导出配置/ }))
+    expect(screen.getByRole('checkbox', { name: /包含 API 密钥/ })).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: '下载配置文件' }))
+
+    await waitFor(() => expect(settingsApi.exportConfigFile).toHaveBeenCalledWith('yaml', false))
+    expect(createUrl).toHaveBeenCalledOnce()
+    expect(click).toHaveBeenCalledOnce()
+    expect(screen.getByText(/密钥已脱敏/)).toBeInTheDocument()
+  })
+
+  it('keeps export dialog open and does not download an error response', async () => {
+    const user = userEvent.setup()
+    settingsApi.exportConfigFile.mockRejectedValueOnce(new Error('本地访问限定'))
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:config')
+    render(<><ConfigFileManagement onConfigReload={vi.fn()} /><ToastContainer /></>)
+
+    await user.click(await screen.findByRole('button', { name: /导出配置/ }))
+    await user.click(screen.getByRole('checkbox', { name: /包含 API 密钥/ }))
+    await user.click(screen.getByRole('button', { name: '下载配置文件' }))
+
+    await waitFor(() => expect(settingsApi.exportConfigFile).toHaveBeenCalledWith('yaml', true))
+    expect(screen.getByText('本地访问限定')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(createUrl).not.toHaveBeenCalled()
   })
 })

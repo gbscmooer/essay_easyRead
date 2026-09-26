@@ -2,8 +2,9 @@
  * 设置页专用 API：内置提示词、GROBID 服务状态/下载、LLM 配置档案
  */
 
-import { get, post, put, del } from './client'
+import { get, getBinary, post, put, del } from './client'
 import type { LLMProfileInput, LLMProfilesState } from '@/features/settings/config'
+import type { TokenUsageRecordsPage, TokenUsageSummary } from '@/types'
 
 export interface GrobidStatus {
   url: string
@@ -48,9 +49,19 @@ export async function getConfigFileInfo(): Promise<ConfigFileInfo> {
   return get<ConfigFileInfo>('/analysis/config/file-info')
 }
 
-/** 获取导出配置文件的下载链接 */
-export function getExportConfigUrl(format: 'yaml' | 'toml' | 'json' = 'yaml', includeSecrets: boolean = true): string {
-  return `/api/analysis/config/export?format=${format}&include_secrets=${includeSecrets}`
+function exportConfigPath(format: 'yaml' | 'toml' | 'json', includeSecrets: boolean): string {
+  return `/analysis/config/export?format=${format}&include_secrets=${includeSecrets}`
+}
+
+/** 获取导出配置文件的下载链接；默认脱敏。 */
+export function getExportConfigUrl(format: 'yaml' | 'toml' | 'json' = 'yaml', includeSecrets = false): string {
+  return `/api${exportConfigPath(format, includeSecrets)}`
+}
+
+/** 获取经状态码校验的导出文件；下载动作由页面负责。 */
+export async function exportConfigFile(format: 'yaml' | 'toml' | 'json', includeSecrets = false): Promise<{ blob: Blob; masked: boolean }> {
+  const response = await getBinary(exportConfigPath(format, includeSecrets))
+  return { blob: await response.blob(), masked: response.headers.get('X-Config-Masked') !== 'false' }
 }
 
 /** 上传配置文件（YAML/TOML/JSON）并应用 */
@@ -96,4 +107,23 @@ export async function revealLLMProfileKey(id: string): Promise<{ api_key: string
 /** 启用配置档案：物化为全局 llm 配置，全部文本生成功能自动跟随 */
 export async function activateLLMProfile(id: string): Promise<{ message: string } & LLMProfilesState> {
   return post<{ message: string } & LLMProfilesState>(`/analysis/llm-profiles/${id}/activate`, {})
+}
+
+/* ── LLM token 用量统计（设置页消耗面板） ───────────── */
+
+/** 全局 LLM token 用量：合计 + 按业务类目 + 按天 + 按模型；days=0 表示全部时间 */
+export async function getTokenUsageSummary(days: number = 30, signal?: AbortSignal): Promise<TokenUsageSummary> {
+  return get<TokenUsageSummary>(`/analysis/token-usage?days=${days}`, signal)
+}
+
+/** 逐次 LLM 调用明细（时间倒序分页，仅成功调用）：设置页「查看详细信息」 */
+export async function getTokenUsageRecords(
+  days: number = 30,
+  limit: number = 50,
+  offset: number = 0,
+  signal?: AbortSignal,
+): Promise<TokenUsageRecordsPage> {
+  return get<TokenUsageRecordsPage>(
+    `/analysis/token-usage/records?days=${days}&limit=${limit}&offset=${offset}`, signal,
+  )
 }

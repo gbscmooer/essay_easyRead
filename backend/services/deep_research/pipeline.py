@@ -113,6 +113,9 @@ async def _auto_digest(papers, *, max_papers: int = 100) -> int:
 
 
 async def run_pipeline(run_id: int):
+    from ..llm import set_llm_scope
+
+    set_llm_scope("workspace_research", run_id=str(run_id))
     bus = get_event_bus(run_id)
 
     async def emit(event: str, **data):

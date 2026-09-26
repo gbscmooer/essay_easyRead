@@ -15,6 +15,7 @@ import { toast } from '@/hooks/useToast'
 import { PromptEditor } from '@/features/settings/PromptEditor'
 import { ConfigFileManagement } from '@/features/settings/ConfigFileManagement'
 import LLMProfilesSection from '@/features/settings/LLMProfilesSection'
+import TokenUsageSection from '@/features/settings/TokenUsageSection'
 import { PROVIDER_PRESETS, type ProviderPreset } from '@/features/settings/ProviderPresets'
 import UIConfigSection from '@/features/settings/UIConfigSection'
 import {
@@ -258,6 +259,7 @@ function ModelsPanel({
         currentLlm={config.llm}
         onEffectiveChange={reloadConfig}
       />
+      <TokenUsageSection />
       <PromptEditor
         value={config.analysis_prompt}
         onChange={ap => setConfig(prev => ({ ...prev, analysis_prompt: ap }))}
