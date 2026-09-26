@@ -12,11 +12,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 
 from .domain_synthesizer import _llm_json
 
-AUDIT_TIMEOUT_SECONDS = 40
+logger = logging.getLogger(__name__)
+
+# 60s：核验是「断言 + 证据源」的大上下文单次调用，flash 类 40s 内可完成，
+# highspeed 类模型实测会超（run6 it8 AUDIT_TIMEOUT 吃掉最后一轮交付预算）
+AUDIT_TIMEOUT_SECONDS = 60
 MAX_CLAIMS = 24
 MAX_ANSWER_CHARS = 18000
 MAX_SOURCES = 48
@@ -245,12 +250,17 @@ def _uncovered(answer: str, spans: list[str]) -> tuple[int, list[str]]:
     return count, snippets
 
 
-def audit_binding_valid(report: dict | None, answer: str, evidence_version: str | None) -> bool:
+def audit_binding_valid(report: dict | None, answer: str, evidence_version: str | None,
+                        citation_map_version: str | None = None) -> bool:
+    """旧调用不传 citation_map_version 时不检查该维度（兼容追问等其他业务）。"""
     binding = (report or {}).get("binding") or {}
-    return (
+    valid = (
         binding.get("text_hash") == _sha256(answer)
         and binding.get("evidence_version") == (evidence_version or "")
     )
+    if citation_map_version is not None:
+        valid = valid and binding.get("citation_map_version") == citation_map_version
+    return valid
 
 
 async def audit_answer(
@@ -259,6 +269,9 @@ async def audit_answer(
     cfg: dict,
     *,
     evidence_version: str | None = None,
+    timeout_seconds: float | None = None,
+    max_tokens: int = 6000,
+    thinking_effort: str | None = "off",
 ) -> dict:
     """Audit rendered facts using cfg's existing api_key/base_url/model.
 
@@ -270,6 +283,11 @@ async def audit_answer(
     an independently measured quantity. Inspect coverage and status with counts.
     Cancellation propagates to the caller. No DB/network source fetching or
     answer mutation occurs. Unknown output fields (including rewrites) are ignored.
+
+    timeout_seconds / max_tokens / thinking_effort 由分批审计按模型吞吐自适应
+    传入；thinking_effort 默认 off——核验是逐字比对任务，推理型模型默认思考
+    每批多烧数千 reasoning token（与输出共享 max_tokens），8 tok/s 吞吐下
+    单批必然超过外层时间预算（run6 21 段全超时的主根因）。
     """
     model = cfg.get("model", "") if isinstance(cfg, dict) else ""
     report = {
@@ -312,8 +330,9 @@ async def audit_answer(
     try:
         data = await asyncio.wait_for(
             _llm_json(cfg, _SYSTEM, json.dumps(payload, ensure_ascii=False),
-                      max_tokens=8000, temperature=0),
-            timeout=AUDIT_TIMEOUT_SECONDS,
+                      max_tokens=max_tokens, temperature=0,
+                      thinking_effort=thinking_effort),
+            timeout=AUDIT_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds,
         )
     except asyncio.TimeoutError:
         return _fail(report, "AUDIT_TIMEOUT", "The evidence audit exceeded its time budget.")
@@ -366,3 +385,213 @@ async def audit_answer(
         _fail(report, "AUDIT_INCOMPLETE", "Coverage or evidence validation is incomplete; inspect claims and uncovered spans.", "partial")
     # Only known fields leave this boundary; also redact an accidentally echoed key.
     return _redact(report, key)
+
+
+# ── 报告专用分批审计（最终交付正文按段核验；不影响 audit_answer 既有行为）──────
+
+BATCH_AUDIT_VERSION = "batch_audit_v2"
+# run6 复盘校准：单批 30s 在慢模型（~8 tok/s）+ 全量 sources（≤60k 字符）下与
+# 批大小无关地全超时。v2 起单批 90s、并发 2、全局按批数自适应，且每批只携带
+# 该批段落引用的证据（sources_for_batch），核验调用关闭思考模型。
+REPORT_BATCH_SECONDS = 90.0
+REPORT_BATCH_CONCURRENCY = 2
+REPORT_AUDIT_TOTAL_SECONDS = 180.0
+_BATCH_CHAR_BUDGET = 3500
+
+
+def _segment_batches(segments: list[dict]) -> list[list[dict]]:
+    """按字符预算把交付正文段聚成批：一批≈3-5条短断言或一个有界段落。"""
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    size = 0
+    for segment in segments:
+        length = len(str(segment.get("text") or ""))
+        if current and size + length > _BATCH_CHAR_BUDGET:
+            batches.append(current)
+            current, size = [], 0
+        current.append(segment)
+        size += length
+    if current:
+        batches.append(current)
+    return batches or [[]]
+
+
+def merge_batch_audits(batch_reports: list[dict], *, all_completed: bool) -> dict:
+    """合并分批结果；覆盖不完整时 support_rate 保持 None，不把 unsupported=0 当通过。"""
+    claims = [claim for report in batch_reports for claim in report.get("claims") or []]
+    counts = {label: sum(int(report.get(f"{label}_count") or 0) for report in batch_reports)
+              for label in _LABELS}
+    complete = all_completed and bool(batch_reports) and all(
+        report.get("status") == "completed" for report in batch_reports)
+    merged = {
+        "claims": claims,
+        "supported_count": counts["supported"],
+        "contradicted_count": counts["contradicted"],
+        "insufficient_count": counts["insufficient"],
+        "unsupported_count": counts["contradicted"] + counts["insufficient"],
+        "claim_count": len(claims),
+        "total_claims": counts and (counts["supported"] + counts["contradicted"] + counts["insufficient"]),
+        "judge": "llm", "method": f"batched_{BATCH_AUDIT_VERSION}",
+        "batches": [{
+            "status": report.get("status"), "claim_count": report.get("claim_count"),
+            "error": report.get("error"),
+        } for report in batch_reports],
+        "status": "completed" if complete else "partial",
+        "support_rate": (counts["supported"] / len(claims)) if complete and claims else None,
+        "limitations": list(_LIMITATIONS),
+    }
+    if not complete:
+        merged["error"] = {
+            "code": "AUDIT_INCOMPLETE",
+            "detail": "部分批次未完成或覆盖不完整；已完成批次的结果保留，未审文字不能视为通过。",
+        }
+    return merged
+
+
+async def audit_report_text(
+    answer: str,
+    segments: list[dict],
+    sources: list[dict],
+    cfg: dict,
+    *,
+    evidence_version: str | None = None,
+    citation_map_version: str | None = None,
+    deadline_at: float | None = None,
+    batch_seconds: float = REPORT_BATCH_SECONDS,
+    concurrency: int = REPORT_BATCH_CONCURRENCY,
+    on_batch=None,
+    sources_for_batch=None,
+) -> dict:
+    """最终交付正文的分批审计。
+
+    - 每批一个有界段落组，单批超时计为该批失败；失败的批只允许一次缩小范围重试
+      （对半拆分），计入全局 deadline；不原样重跑全文；
+    - sources_for_batch(batch_segments) -> list[dict]：批内段落携带 evidence_ids
+      时由调用方构造「只含该批引用证据」的裁剪 sources；未提供或段落无
+      evidence_ids 时退回全量 sources（旧行为兼容）；
+    - 每批完成即回调 on_batch(batch_index, report)（不等全部 gather 返回），
+      重试替换结果后同一批次再次回调；超时后已完成部分保留；
+    - coverage 清单记录每个正文段的核验状态；覆盖不完整时 support_rate=None。
+    - 全局预算：调用方未给 deadline_at 时按「真实分批后的批数」/并发自适应
+      （每并发波次一组 batch_seconds，再加半波余量），下限 REPORT_AUDIT_TOTAL_SECONDS。
+    """
+    loop = asyncio.get_running_loop()
+    # 空文早退与真实分批都必须先于全局预算计算：预算按「实际批次数」而不是
+    # len(segments)/3 估算——长段落时分批器（按字符量切块）产出的批数远多于
+    # 段数/3，估算值会让全局 deadline 提前耗尽，后段全部白判 AUDIT_DEADLINE。
+    if not any(str(segment.get("text") or "").strip() for segment in segments):
+        merged = merge_batch_audits([], all_completed=False)
+        merged.update(coverage=[], binding={
+            "text_hash": _sha256(answer), "evidence_version": evidence_version or "",
+            "citation_map_version": citation_map_version or "",
+            "audit_config": {"version": BATCH_AUDIT_VERSION, "batch_seconds": batch_seconds,
+                             "concurrency": concurrency},
+            "scope": [],
+        }, segment_count=0, status="no_claims", error={
+            "code": "EMPTY_TEXT", "detail": "没有可核验的交付正文。",
+        })
+        return merged
+    batches = _segment_batches(segments)
+    if deadline_at is None:
+        waves = max(1, -(-len(batches) // max(1, concurrency)))
+        deadline_at = loop.time() + max(
+            REPORT_AUDIT_TOTAL_SECONDS, waves * batch_seconds * 1.5)
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    coverage = {str(segment.get("id")): {"status": "pending", "claim_count": 0}
+                for segment in segments}
+
+    async def run_batch(index: int, batch: list[dict]) -> dict:
+        text = "\n\n".join(str(segment.get("text") or "") for segment in batch)
+        async with semaphore:
+            remaining = deadline_at - loop.time()
+            if remaining <= 0:
+                return _fail({"claims": [], "status": "pending"}, "AUDIT_DEADLINE",
+                             "全局核验预算已耗尽；该批保留为未审。", "partial")
+            batch_sources = sources
+            if sources_for_batch is not None:
+                try:
+                    batch_sources = await sources_for_batch(batch)
+                except Exception:
+                    logger.warning("sources_for_batch failed; falling back to full sources",
+                                   exc_info=True)
+                    batch_sources = sources
+            try:
+                remaining_budget = min(batch_seconds, remaining)
+                report = await asyncio.wait_for(
+                    audit_answer(text, batch_sources, cfg,
+                                 evidence_version=evidence_version,
+                                 timeout_seconds=remaining_budget),
+                    timeout=remaining_budget,
+                )
+            except asyncio.TimeoutError:
+                return _fail({"claims": [], "status": "pending"}, "AUDIT_TIMEOUT",
+                             "该批核验超过单批时间预算。", "partial")
+            except Exception:
+                return _fail({"claims": [], "status": "pending"}, "AUDIT_JUDGE_FAILED",
+                             "该批评审调用失败。", "partial")
+        for segment in batch:
+            coverage[str(segment.get("id"))] = {
+                "status": "audited" if report.get("status") == "completed" else "partial",
+                "claim_count": report.get("claim_count") or 0,
+            }
+        return report
+
+    async def run_batch_and_notify(index: int, batch: list[dict]) -> dict:
+        report = await run_batch(index, batch)
+        if on_batch is not None:
+            await on_batch(index, report)
+        return report
+
+    tasks = [asyncio.create_task(run_batch_and_notify(i, batch))
+             for i, batch in enumerate(batches)]
+    reports: list[dict] = list(await asyncio.gather(*tasks))
+
+    # 失败的批：还有时间时对半拆分重试一次（缩小范围，不原样重跑）
+    for index, report in enumerate(reports):
+        if report.get("status") in {"partial", "error"} and not report.get("claims"):
+            batch = batches[index]
+            if len(batch) <= 1 or deadline_at - loop.time() <= 0:
+                for segment in batch:
+                    coverage[str(segment.get("id"))] = {
+                        "status": "failed", "claim_count": 0,
+                        "error": (report.get("error") or {}).get("code"),
+                    }
+                reports[index] = report
+            else:
+                half = (len(batch) + 1) // 2
+                halves = (batch[:half], batch[half:])
+                retries = await asyncio.gather(*(
+                    run_batch(index, part) for part in halves))
+                retried = merge_batch_audits(list(retries), all_completed=all(
+                    r.get("status") == "completed" for r in retries))
+                retried["retried"] = True
+                reports[index] = retried
+                # 重试后仍未通过的段标 failed（不再原样重跑）
+                for part, result in zip(halves, retries):
+                    if result.get("status") != "completed":
+                        for segment in part:
+                            if coverage[str(segment.get("id"))]["status"] == "pending":
+                                coverage[str(segment.get("id"))] = {
+                                    "status": "failed", "claim_count": 0,
+                                    "error": (result.get("error") or {}).get("code"),
+                                }
+        if on_batch is not None:
+            await on_batch(index, reports[index])
+
+    merged = merge_batch_audits(reports, all_completed=True)
+    merged["coverage"] = [{"segment_id": key, **value} for key, value in coverage.items()]
+    merged["binding"] = {
+        "text_hash": _sha256(answer),
+        "evidence_version": evidence_version or "",
+        "citation_map_version": citation_map_version or "",
+        "audit_config": {"version": BATCH_AUDIT_VERSION, "batch_seconds": batch_seconds,
+                         "concurrency": concurrency},
+        "scope": [str(segment.get("id")) for segment in segments],
+    }
+    merged["segment_count"] = len(segments)
+    if any(row["status"] != "audited" for row in merged["coverage"]):
+        merged["status"] = "partial"
+        merged["support_rate"] = None
+        merged.setdefault("error", {"code": "AUDIT_INCOMPLETE",
+                                    "detail": "存在未完成核验的正文段；已完成部分保留。"})
+    return merged

@@ -9,10 +9,10 @@
 - 排除规则（用户盲测黑名单）在去重后立即生效：被排除论文不进入规划员输入、
   摘要筛选提示词、目标计数与裁剪；
 - Scopus 搜索不返回摘要（个人 Key 权限）→ DOI 批量反查 OpenAlex（50/请求）补齐；
-- 相关性三级判定：confirmed（摘要级通过）/ title_confirmed（标题级通过）/
-  unknown（筛选失败待判）；unknown 保留但不挤占 confirmed 的目标配额；
-- 超量裁剪走双轨配额：被引经典轨 + 年均被引近年轨各半——纯引用降序会系统性
-  饿死新工作（引用需要时间累积），双轨让「奠基 + 前沿」都进语料。
+- 相关性三级判定：confirmed（摘要级显式接受）/ title_confirmed（标题级显式接受）/
+  unknown（未确认或筛选失败待判）；unknown 保留但不挤占 confirmed 的目标配额；
+- 超量候选按问题主题匹配裁剪，保留少量被引经典/近年论文作多样性配额，
+  避免在内容筛选之前仅凭引用量丢弃低引关键论文。
 
 引擎依赖全部可注入（search_one / llm_json / backfill_abstracts），便于单测离线运行。
 """
@@ -28,18 +28,30 @@ from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
-# 深度档位 → 目标召回量（确认相关论文的规模，作为数量预算而非唯一停止条件）
-RECALL_TARGETS: dict[str, int] = {"quick": 200, "standard": 500, "deep": 1000}
-# 摘要/标题批量筛选每批篇数（快览批次小、换判断精度；标准/深挖用大批省指令开销）
-FILTER_BATCH: dict[str, int] = {"quick": 5, "standard": 10, "deep": 10}
+# 深度档位 → 目标召回量（确认相关论文的规模，同时是累计语料的硬顶：
+# 轮中达标立即停发，只允许最后一个在发关键词的小幅超出）
+RECALL_TARGETS: dict[str, int] = {"lite": 50, "quick": 200, "standard": 500, "deep": 1000}
+# 摘要/标题批量筛选每批篇数（标准/深挖用大批省指令开销；快览曾用 5，
+# 但 200 目标 ÷ 5 = 40 次筛选调用是快览耗时的主要来源，10 与标准档对齐）
+FILTER_BATCH: dict[str, int] = {"lite": 10, "quick": 10, "standard": 10, "deep": 10}
+# 筛选批次的并发 worker 数：串行时 40 批 × 单次调用延迟线性叠加（实测快览
+# 档仅筛选就 5-8 分钟）；4 路 worker 把它压到 ~1/4。asyncio 单线程事件循环里
+# 共享计数器/审计 dict 的读-改-写之间没有 await，天然原子，无需锁。
+FILTER_CONCURRENCY = 4
+# 单轮内多个关键词的发射并发：串行关键词 × Scopus 自适应限速退避是召回阶段的
+# 主要墙钟来源；Scopus 侧有 AdaptiveThrottle（内部并发 4）兜底，外部 3 路安全
+KEYWORD_CONCURRENCY = 3
 # 单源单检索式的取回上限（沿用旧档位 per_query）
-PER_SOURCE_LIMIT: dict[str, int] = {"quick": 25, "standard": 40, "deep": 50}
+PER_SOURCE_LIMIT: dict[str, int] = {"lite": 15, "quick": 25, "standard": 40, "deep": 50}
 
 MAX_ROUNDS = 5               # 非零命中轮的上限（零命中轮不计数）
 MAX_KEYWORD_ATTEMPTS = 15    # 绝对关键词尝试上限（含零命中），防坏词死循环
 MAX_KEYWORDS_PER_ROUND = 4   # 规划员每轮最多给出的新检索词数
 CLASSIC_ROUNDS = 2           # 被引经典通道只在最初 N 轮发射（每轮一次，不随关键词重复）
 TOPUP_ROUNDS = 2             # 筛选后确认量不足时的补搜轮上限
+# 单源单次检索的总预算（含内部重试/限速等待）。兜底任何源把协程挂死在不可中断的
+# 等待里（如 429 Retry-After 巨值、代理黑洞连接）——超时按该源失败记账，不拖垮整轮。
+SEARCH_ONE_BUDGET_SECONDS = 120.0
 
 SearchOne = Callable[[str, str, int, str], Awaitable[list]]
 LlmJson = Callable[[str, str], Awaitable[dict]]
@@ -100,6 +112,30 @@ def dual_track_trim(papers: list[dict], keep: int, now_year: int) -> list[dict]:
     _fill(by_cpy, keep)
     _fill(by_cited, keep)  # 两轨并集仍不足（论文池太小/重合高）时按被引补齐
     return chosen[:keep]
+
+
+def relevance_trim(papers: list[dict], keep: int, question: str,
+                   queries: list[str], now_year: int) -> list[dict]:
+    """Bound candidates by topic while reserving source order and citation diversity."""
+    if keep <= 0:
+        return []
+    if len(papers) <= keep:
+        return list(papers)
+    from .literature_retrieval import lexical_scores
+
+    texts = [f"{p.get('title') or ''} {(p.get('abstract') or '')[:1200]}" for p in papers]
+    scores = lexical_scores(texts, " ".join([question, *queries]))
+    ranked = sorted(range(len(papers)), key=lambda i: (-float(scores[i]), i))
+    citation_reserve = max(1, keep // 10)
+    source_reserve = max(1, keep // 10)
+    chosen = {p["key"]: p for p in papers[:source_reserve]}
+    for paper in dual_track_trim(papers, citation_reserve, now_year):
+        chosen.setdefault(paper["key"], paper)
+    for i in ranked:
+        if len(chosen) >= keep:
+            break
+        chosen.setdefault(papers[i]["key"], papers[i])
+    return list(chosen.values())[:keep]
 
 
 async def _default_search_one(source: str, keyword: str, limit: int, order: str,
@@ -180,36 +216,38 @@ def _planner_prompt(question: str, *, target: int, corpus: list[dict],
         "缺失的年份段、缺失的技术路线与同义词）优先于数量；"
         "领域公认的高被引奠基工作（如综述必引的经典）缺席时优先补其名称检索；"
         "已试关键词零命中说明该表述在数据库中不存在，必须换学界同义表述而不是原样重试。"
-        + (f"\n当前未覆盖维度：{'、'.join(uncovered)}——next_keywords 应至少一半瞄准这些维度。"
-           if uncovered else "")
+        "user 载荷里的 uncovered_dimensions 非空时，next_keywords 应至少一半瞄准这些维度。"
     )
     import json
 
+    # system 保持逐字节恒定（轮间前缀缓存共享）；逐轮变化的未覆盖维度
+    # 放在 user 载荷末尾（易变区殿后），不拼进 system。
     user = {
         "research_question": question,
         "target_corpus_size": target,
-        "current_corpus_size": len(corpus),
-        "coverage_checklist": coverage or [],
         "by_year": dict(sorted(by_year.items())),
         "tried_keywords": [{"keyword": k["keyword"], "hits": k["raw_hits"]} for k in keyword_stats],
+        "coverage_checklist": coverage or [],
         "top_titles_sample": recent_titles,
+        "current_corpus_size": len(corpus),
+        "uncovered_dimensions": uncovered,
     }
     return system, json.dumps(user, ensure_ascii=False)
 
 
 _FILTER_SYSTEM = (
-    "你是文献召回筛选员。逐篇判断论文摘要与研究问题的相关性：明确相关 → 保留不输出；"
-    "跨域无关、仅字面重叠、主题明显偏离 → 列入 rejected 并给一词原因。边界样本宁可保留。"
-    '只输出一个 JSON 对象：{"rejected": [{"key": "论文key", "reason": "一词原因"}]}，'
-    "键名必须完全一致；key 必须原样取自输入的 papers 列表。没有需要拒绝的就输出空数组。"
+    "你是文献召回筛选员。逐篇依据标题和摘要判断其能否回答研究问题。"
+    "明确相关的论文列入 accepted；明显无关或只有字面重叠的列入 rejected；"
+    "信息不足的列入 uncertain。每篇必须恰好出现一次，不可因为未列入 rejected 就默认相关。"
+    '只输出 JSON：{"accepted":["论文key"],"rejected":[{"key":"论文key","reason":"原因"}],'
+    '"uncertain":["论文key"]}。key 必须原样取自 papers。'
 )
 
 _TITLE_FILTER_SYSTEM = (
-    "你是文献召回筛选员。部分候选只有标题（无摘要）。仅依据标题判断其与研究问题的"
-    "领域相关性：明显跨域/无关（如研究问题之外的学科、社会、生物主题）→ 列入 rejected；"
-    "标题信息不足以判断 → 保留（不要因信息不足而拒绝）。"
-    '只输出一个 JSON 对象：{"rejected": [{"key": "论文key", "reason": "一词原因"}]}，'
-    "键名必须完全一致；key 必须原样取自输入。"
+    "你是文献召回筛选员。候选只有标题，没有摘要。逐篇判断：标题明确相关列入 accepted；"
+    "明显跨域或无关列入 rejected；其余列入 uncertain。每篇必须恰好出现一次。"
+    '只输出 JSON：{"accepted":["论文key"],"rejected":[{"key":"论文key","reason":"原因"}],'
+    '"uncertain":["论文key"]}。key 必须原样取自 papers。'
 )
 
 
@@ -244,6 +282,12 @@ _COVERAGE_DIMENSIONS: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = [
      ("citation", "cited", "impact")),
     (("硬件", "hardware", "实际部署", "gpu"), "真实硬件实测证据",
      ("hardware", "a100", "rtx", "gpu benchmark", "deployment")),
+    # 综述问题的结构化覆盖（run6 审查：没有数据集/基准与演进维度的召回，
+    # 报告只能堆分类体系，出不了方法—数据集—指标的对照）
+    (("综述", "survey", "review", "现状", "全景", "landscape", "领域"), "综述与演进证据",
+     ("survey", "review", "overview", "taxonomy")),
+    (("数据集", "dataset", "基准", "benchmark"), "基准/数据集证据",
+     ("benchmark", "dataset", "mvtec", "coco", "imagenet", "visA", "open access dataset")),
 ]
 
 
@@ -281,22 +325,30 @@ def _coverage_dimensions(question: str, queries: list[str] | None = None) -> lis
 
 def _coverage_status(papers: list[dict], dimensions: list[dict]) -> list[dict]:
     """逐维度统计确认语料中的证据命中（标题+摘要，大小写不敏感）。"""
-    corpus_text = " ".join(
-        f"{p.get('title') or ''} {(p.get('abstract') or '')[:600]}" for p in papers).lower()
+    paper_texts = [f"{p.get('title') or ''} {(p.get('abstract') or '')[:600]}".lower()
+                   for p in papers]
     out: list[dict] = []
     for dim in dimensions:
-        hits = sum(1 for probe in dim["probes"] if probe.lower() in corpus_text)
-        out.append({"dimension": dim["dimension"], "probe_hits": hits,
-                    "covered": hits >= max(1, len(dim["probes"]) // 3)})
+        threshold = max(1, len(dim["probes"]) // 3)
+        matching_papers = sum(
+            sum(1 for probe in dim["probes"] if probe.lower() in body) >= threshold
+            for body in paper_texts)
+        out.append({"dimension": dim["dimension"], "probe_hits": matching_papers,
+                    "covered": matching_papers > 0})
     return out
 
 
 async def _filter_pool(papers: list[dict], question: str, *, batch_size: int,
-                       llm_json: LlmJson, verdict_cache: dict[str, str]) -> tuple[list[dict], dict]:
+                       llm_json: LlmJson, verdict_cache: dict[str, str],
+                       should_pause=None, on_progress=None) -> tuple[list[dict], dict]:
     """三级相关性筛选：摘要级（confirmed）/ 标题级（title_confirmed）/ 待判（unknown）。
 
-    只信显式拒绝；未提及即通过；LLM 调用失败标 unknown 保留（fail-open）。
+    只有显式接受才算确认；未提及或调用失败标 unknown 保留待复筛。
     verdict_cache 按 key 复用判定，补搜时只筛新增论文。
+    并发模型：FILTER_CONCURRENCY 个 worker 从批次队列领活。暂停在**领新批次时**
+    观察——在飞的 ≤4 批跑完并写缓存（判定不浪费），未领的批次留给续跑。
+    on_progress(done, total) 在每批完成后回报——筛选是召回阶段最耗时的一段，
+    没有进度输出时前端会误以为卡死。
     """
     import json
 
@@ -308,9 +360,35 @@ async def _filter_pool(papers: list[dict], question: str, *, batch_size: int,
     audit["cache_hits"] = len(papers) - len(pending)
     with_abstract = [p for p in pending if (p.get("abstract") or "").strip()]
     title_only = [p for p in pending if not (p.get("abstract") or "").strip()]
+    screened = audit["cache_hits"]
 
-    async def _run(batch: list[dict], system: str, passed_status: str) -> None:
-        for chunk in _chunks(batch, batch_size):
+    async def _report() -> None:
+        if on_progress is not None:
+            try:
+                await on_progress(min(screened, len(papers)), len(papers))
+            except Exception:
+                pass
+
+    await _report()
+
+    # 统一工作队列：摘要级批次在前、标题级在后（两类无依赖，混跑也安全）
+    work: list[tuple[list[dict], str, str]] = [
+        *(  (chunk, _FILTER_SYSTEM, "confirmed") for chunk in _chunks(with_abstract, batch_size)),
+        *((chunk, _TITLE_FILTER_SYSTEM, "title_confirmed") for chunk in _chunks(title_only, batch_size)),
+    ]
+    paused = False
+
+    async def _worker() -> None:
+        nonlocal screened, paused
+        while work:
+            if should_pause is not None:
+                flag = should_pause()
+                if inspect.isawaitable(flag):
+                    flag = await flag
+                if flag:
+                    paused = True
+                    return
+            chunk, system, passed_status = work.pop(0)
             items = [{
                 "key": p["key"], "title": p.get("title") or "",
                 "year": p.get("year"), "citation_count": p.get("citation_count") or 0,
@@ -321,8 +399,10 @@ async def _filter_pool(papers: list[dict], question: str, *, batch_size: int,
             try:
                 data = await llm_json(system, json.dumps(
                     {"research_question": question, "papers": items}, ensure_ascii=False))
-                rejected = data.get("rejected") if isinstance(data, dict) and isinstance(
-                    data.get("rejected"), list) else []
+                if not isinstance(data, dict) or not isinstance(data.get("accepted"), list):
+                    raise ValueError("relevance filter response missing accepted list")
+                rejected = data.get("rejected") if isinstance(data.get("rejected"), list) else []
+                accepted_keys = {str(item) for item in data["accepted"] if isinstance(item, str)}
                 reject_keys: set[str] = set()
                 for item in rejected:
                     key = str(item.get("key")) if isinstance(item, dict) else ""
@@ -331,15 +411,22 @@ async def _filter_pool(papers: list[dict], question: str, *, batch_size: int,
                         audit["rejections"].append({"key": key,
                                                     "reason": str(item.get("reason") or "")[:80]})
                 for p in chunk:
-                    verdict_cache[p["key"]] = "rejected" if p["key"] in reject_keys else passed_status
+                    verdict_cache[p["key"]] = (
+                        "rejected" if p["key"] in reject_keys else
+                        passed_status if p["key"] in accepted_keys else "unknown")
             except Exception as exc:
                 logger.warning("relevance filter batch failed (fail-open as unknown): %s", exc)
                 for p in chunk:
                     verdict_cache[p["key"]] = "unknown"
                 audit["fail_open_batches"] += 1
+            screened += len(chunk)
+            await _report()
 
-    await _run(with_abstract, _FILTER_SYSTEM, "confirmed")
-    await _run(title_only, _TITLE_FILTER_SYSTEM, "title_confirmed")
+    await asyncio.gather(*(_worker() for _ in range(
+        max(1, min(FILTER_CONCURRENCY, len(work))))))
+    if paused:
+        from .stage_agent import StagePausedError
+        raise StagePausedError("recall paused between filter batches")
 
     kept = [p for p in papers if verdict_cache.get(p["key"]) != "rejected"]
     for p in kept:
@@ -365,12 +452,15 @@ async def run_target_recall(
     llm_json: LlmJson | None = None,
     backfill_abstracts: Backfill | None = None,
     should_pause=None,
+    protocol_dimensions: list[dict] | None = None,
 ) -> tuple[list[dict], dict]:
     """执行目标量驱动的多源并行召回，返回（论文清单, 审计）。
 
     search_one(source, keyword, limit, order) / llm_json(system, user) /
     backfill_abstracts(dois) 均可注入，缺省接真实三源与统一 LLM Core。
     should_pause 在每轮边界观察暂停请求，命中则抛 StagePausedError（协作式安全点）。
+    protocol_dimensions：研究协议阶段产出的六类覆盖目标（[{dimension, probes}]），
+    并入程序化推导的覆盖维度，驱动补搜缺口检查。
     """
     from .explorer import _dedupe_candidates, _usable_english_queries
     from ..research_exclusions import apply_exclusions, active_exclusions
@@ -420,6 +510,11 @@ async def run_target_recall(
     planner_trace: list[dict] = []
     coverage_trace: list[dict] = []
     coverage_dimensions = _coverage_dimensions(question, queries)
+    for dim in protocol_dimensions or []:
+        name = str((dim or {}).get("dimension") or "").strip()
+        probes = [str(p) for p in (dim or {}).get("probes") or [] if str(p).strip()]
+        if name and probes and name not in {d["dimension"] for d in coverage_dimensions}:
+            coverage_dimensions.append({"dimension": name, "probes": probes[:8]})
     stop_reason = "planner_unavailable"
 
     def _fresh_corpus() -> list[dict]:
@@ -443,13 +538,21 @@ async def run_target_recall(
             out.append(kw)
         return out[:MAX_KEYWORDS_PER_ROUND]
 
-    async def _search_keyword(kw: str) -> dict:
-        """单关键词三源并行（relevance）；源错误单独记账，不吞成零命中。"""
+    async def _search_keyword(kw: str, *, limit: int | None = None) -> dict:
+        """单关键词三源并行（relevance）；源错误单独记账，不吞成零命中。
+
+        limit 可按剩余目标量收紧（临近达标时少取），避免一轮冲过目标数百篇。
+        """
         nonlocal attempts
         attempts += 1
+        fetch = max(1, min(limit or per_source, per_source))
+
+        async def _budgeted(src: str) -> list:
+            return await asyncio.wait_for(
+                search_one(src, kw, fetch, "relevance"), timeout=SEARCH_ONE_BUDGET_SECONDS)
+
         results = await asyncio.gather(
-            *[search_one(src, kw, per_source, "relevance")
-              for src in ("arxiv", "scopus", "openalex")],
+            *(_budgeted(src) for src in ("arxiv", "scopus", "openalex")),
             return_exceptions=True)
         raw: list = []
         per_source_hits: dict[str, int] = {}
@@ -474,9 +577,13 @@ async def run_target_recall(
 
     async def _classic_round(round_no: int, anchor: str) -> None:
         """被引经典通道：每轮对锚定词只发射一次（不随关键词数重复）。"""
+        async def _budgeted(src: str) -> list:
+            return await asyncio.wait_for(
+                search_one(src, anchor, max(12, per_source // 2), "cited"),
+                timeout=SEARCH_ONE_BUDGET_SECONDS)
+
         results = await asyncio.gather(
-            search_one("scopus", anchor, max(12, per_source // 2), "cited"),
-            search_one("openalex", anchor, max(12, per_source // 2), "cited"),
+            _budgeted("scopus"), _budgeted("openalex"),
             return_exceptions=True)
         row = {"round": round_no, "keyword": anchor, "order": "cited",
                "sources": {}, "source_errors": {}}
@@ -506,6 +613,28 @@ async def run_target_recall(
             return {"__error__": f"{type(exc).__name__}"}
         return plan if isinstance(plan, dict) else {}
 
+    async def _fire_keywords(keywords: list[str]) -> list[dict]:
+        """轮内关键词并发发射（KEYWORD_CONCURRENCY 路信号量）。
+
+        串行关键词 × Scopus AdaptiveThrottle 退避曾把单轮拖到数分钟（v7.4.1 实测
+        召回 26 分钟里 ~14 分钟是无 LLM 的串行网络等待）；并发后 arXiv/OpenAlex
+        在 Scopus 退避时照常推进。目标量与尝试预算在**领词时**检查：并发下允许
+        小幅超出目标（≤ 在飞关键词数 × 单源上限），后续 dual_track_trim 收口。
+        """
+        sem = asyncio.Semaphore(KEYWORD_CONCURRENCY)
+
+        async def _bounded(kw: str) -> dict | None:
+            async with sem:
+                if attempts >= MAX_KEYWORD_ATTEMPTS:
+                    return None
+                remaining = target - len(_fresh_corpus())
+                if remaining <= 0:
+                    return None
+                return await _search_keyword(kw, limit=max(10, min(per_source, remaining)))
+
+        results = await asyncio.gather(*(_bounded(kw) for kw in keywords))
+        return [stat for stat in results if stat is not None]
+
     current_keywords = _next_keywords(list(queries))
     if not current_keywords:
         current_keywords = _usable_english_queries([str(q) for q in queries])[:MAX_KEYWORDS_PER_ROUND]
@@ -521,12 +650,8 @@ async def run_target_recall(
                     from .stage_agent import StagePausedError
                     raise StagePausedError(f"recall paused at round {len(rounds_trace) + 1}")
             round_no = len(rounds_trace) + 1
-            round_stats = []
-            for kw in current_keywords:
-                if attempts >= MAX_KEYWORD_ATTEMPTS:
-                    break
-                round_stats.append(await _search_keyword(kw))
-            if round_no <= CLASSIC_ROUNDS and round_stats:
+            round_stats = await _fire_keywords(current_keywords)
+            if round_no <= CLASSIC_ROUNDS and round_stats and len(_fresh_corpus()) < target:
                 await _classic_round(round_no, round_stats[0]["keyword"])
             corpus = _fresh_corpus()
             rounds_trace.append({"round": round_no,
@@ -594,15 +719,23 @@ async def run_target_recall(
         # 先按目标量 1.3 倍预裁 → 三级筛选 → 确认量不足且预算未尽时规划员补搜，
         # 补搜只筛新增论文（verdict_cache 复用），合并后按 confirmed 优先裁剪
         verdict_cache: dict[str, str] = {}
-        pool = dual_track_trim(corpus, min(len(corpus), int(target * 1.3)), now_year)
+        pool = relevance_trim(corpus, min(len(corpus), int(target * 1.3)),
+                              question, queries, now_year)
+        supplement_budget_stop = ""
         if has_llm and llm_json is not None and pool:
             kept, filter_audit = await _filter_pool(
                 pool, question, batch_size=batch_size, llm_json=llm_json,
-                verdict_cache=verdict_cache)
+                verdict_cache=verdict_cache, should_pause=should_pause,
+                on_progress=lambda done, total: _emit(
+                    {"phase": "filter", "done": done, "total": total}))
             confirmed = [p for p in kept if p.get("relevance_status") != "unknown"]
             unknown = [p for p in kept if p.get("relevance_status") == "unknown"]
 
             topups = 0
+            # supplement_batches 消费点：每个补搜批次预占一档额度（记账模式
+            # 只累计用量；enforce 耗尽即停——lite 预设 0 表示不做覆盖缺口补搜）
+            from ..llm import llm_budget as _llm_budget_ctx
+            _sup_budget = _llm_budget_ctx()
 
             def _uncovered(papers: list[dict]) -> list[str]:
                 if not coverage_dimensions:
@@ -616,6 +749,11 @@ async def run_target_recall(
                    and stop_reason != "planner_error"):
                 # 注意：搜索循环的 planner_stop 不阻止补搜——规划员的 done 针对
                 # 原始候选量，质量筛选/覆盖检查可能推翻它（筛后确认量不足就要补）
+                if _sup_budget is not None and hasattr(_sup_budget, "reserve"):
+                    if not _sup_budget.reserve("supplement_batches", 1.0):
+                        supplement_budget_stop = "supplement_budget_exhausted"
+                        break
+                    _sup_budget.settle("supplement_batches", 1.0, 1.0)
                 plan = await _planner(confirmed)
                 if "__error__" in plan or plan.get("done"):
                     planner_trace.append({"round": f"topup{topups + 1}",
@@ -627,11 +765,7 @@ async def run_target_recall(
                     break
                 topups += 1
                 tried.update(k.lower() for k in plan_keywords)
-                round_stats = []
-                for kw in plan_keywords:
-                    if attempts >= MAX_KEYWORD_ATTEMPTS:
-                        break
-                    round_stats.append(await _search_keyword(kw))
+                round_stats = await _fire_keywords(plan_keywords)
                 if any(s["raw_hits"] > 0 for s in round_stats):
                     effective_rounds += 1
                 corpus = _fresh_corpus()
@@ -643,11 +777,12 @@ async def run_target_recall(
                                       "next_keywords": plan_keywords})
                 known_keys = {p["key"] for p in confirmed} | {p["key"] for p in unknown}
                 new_pool = [p for p in corpus if p["key"] not in known_keys]
-                new_pool = dual_track_trim(new_pool, min(len(new_pool), target), now_year)
+                new_pool = relevance_trim(new_pool, min(len(new_pool), target),
+                                          question, [*queries, *plan_keywords], now_year)
                 if new_pool:
                     new_kept, new_audit = await _filter_pool(
                         new_pool, question, batch_size=batch_size, llm_json=llm_json,
-                        verdict_cache=verdict_cache)
+                        verdict_cache=verdict_cache, should_pause=should_pause)
                     confirmed.extend(p for p in new_kept if p.get("relevance_status") != "unknown")
                     unknown.extend(p for p in new_kept if p.get("relevance_status") == "unknown")
                     for k in ("batches", "rejected", "fail_open_batches", "confirmed",
@@ -671,10 +806,16 @@ async def run_target_recall(
             for p in confirmed:
                 p["relevance_status"] = "unfiltered"
 
-        # 终裁：confirmed 优先占满目标配额，unknown 只用剩余额度补位
-        final = dual_track_trim(confirmed, target, now_year)
-        if len(final) < target:
-            final.extend(dual_track_trim(unknown, target - len(final), now_year))
+        # 终裁：confirmed 优先占满目标配额；unknown 不再补位填满 target——
+        # fail-open 批次的未决论文只随行一个有界数量（screen 阶段重试裁决的
+        # 对象），隔离后不进入计量/聚类/综合/选材。宁可语料少于 target 也不
+        # 让未裁决论文污染下游（run6 教训：6 篇 unknown 综述凭高被引进入
+        # top_cited 与聚类，计量图被跨领域论文整体带偏）。
+        final = relevance_trim(confirmed, target, question, queries, now_year)
+        escort_cap = max(10, int(target * 0.2))
+        escorted_unknown = relevance_trim(
+            unknown, min(len(unknown), escort_cap), question, queries, now_year) if unknown else []
+        final.extend(escorted_unknown)
 
         audit = {
             "engine": "target_recall_v1",
@@ -694,10 +835,14 @@ async def run_target_recall(
             "abstract_backfill": backfill_audit,
             "filter": filter_audit,
             "relevance": {"confirmed": len(confirmed), "unknown": len(unknown),
+                          "escorted_unknown": len(escorted_unknown),
+                          "unknown_pending_screen": max(0, len(unknown) - len(escorted_unknown)),
                           "final_count": len(final)},
             "final_count": len(final),
             "keyword_stats": keyword_stats,
         }
+        if supplement_budget_stop:
+            audit["supplement_budget_stop"] = supplement_budget_stop
         for p in final:
             p.setdefault("provenance", ["engine:target_recall_v1"])
         return final, audit

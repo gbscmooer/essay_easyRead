@@ -104,6 +104,7 @@ class ProviderAdapter(ABC):
         max_tokens: int,
         temperature: float,
         thinking_effort: str,
+        usage_out: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         raise NotImplementedError
 
@@ -172,6 +173,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             api_key=config.api_key,
             base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
+            max_retries=0,
         )
         try:
             response = await client.chat.completions.create(
@@ -187,6 +189,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             )
             if isinstance(response, str):
                 text = response
+                finish_reason = None
             else:
                 choices = getattr(response, "choices", None)
                 if not choices:
@@ -197,6 +200,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                         request_id=_request_id(response),
                     )
                 message = getattr(choices[0], "message", None)
+                finish_reason = getattr(choices[0], "finish_reason", None)
                 if message is None:
                     raise LLMResponseError(
                         "LLM_INVALID_RESPONSE_ENVELOPE",
@@ -223,6 +227,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 api_format=config.api_format,
                 request_id=str(_request_id(response)) if _request_id(response) else None,
                 usage=_usage_dict(response),
+                finish_reason=str(finish_reason) if finish_reason is not None else None,
             )
         except LLMError:
             raise
@@ -240,6 +245,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         max_tokens: int,
         temperature: float,
         thinking_effort: str,
+        usage_out: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         from openai import AsyncOpenAI
 
@@ -248,6 +254,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             api_key=config.api_key,
             base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
+            max_retries=0,
         )
         try:
             kwargs = self._kwargs(
@@ -259,8 +266,21 @@ class OpenAIChatAdapter(ProviderAdapter):
                 thinking_effort=thinking_effort,
             )
             kwargs["stream"] = True
-            stream = await client.chat.completions.create(**kwargs)
+            # 请求最终 chunk 附带 usage（token 统计依赖）；个别网关不认这个参数，
+            # 400/422 时退化为无遥测的普通流重试一次。
+            kwargs["stream_options"] = {"include_usage": True}
+            try:
+                stream = await client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                if getattr(exc, "status_code", None) not in (400, 422):
+                    raise
+                kwargs.pop("stream_options", None)
+                stream = await client.chat.completions.create(**kwargs)
             async for chunk in stream:
+                usage = _usage_dict(chunk)
+                if usage and usage_out is not None:
+                    usage_out.clear()
+                    usage_out.update(usage)
                 choices = getattr(chunk, "choices", None)
                 if not choices:
                     continue
@@ -325,6 +345,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
             api_key=config.api_key,
             base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
+            max_retries=0,
         )
         try:
             response = await client.messages.create(
@@ -352,6 +373,8 @@ class AnthropicMessagesAdapter(ProviderAdapter):
                 api_format=config.api_format,
                 request_id=str(_request_id(response)) if _request_id(response) else None,
                 usage=_usage_dict(response),
+                finish_reason=(str(getattr(response, "stop_reason", None))
+                               if getattr(response, "stop_reason", None) is not None else None),
             )
         except LLMError:
             raise
@@ -369,6 +392,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
         max_tokens: int,
         temperature: float,
         thinking_effort: str,
+        usage_out: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         from anthropic import AsyncAnthropic
 
@@ -377,6 +401,7 @@ class AnthropicMessagesAdapter(ProviderAdapter):
             api_key=config.api_key,
             base_url=transport.base_url or None,
             timeout=config.timeout_seconds,
+            max_retries=0,
         )
         try:
             async with client.messages.stream(
@@ -392,6 +417,12 @@ class AnthropicMessagesAdapter(ProviderAdapter):
                 async for text in stream.text_stream:
                     if text:
                         yield text
+                if usage_out is not None:
+                    # 结束后从终态消息取 usage（token 统计）；失败不影响主流程
+                    try:
+                        usage_out.update(_usage_dict(await stream.get_final_message()))
+                    except Exception:
+                        pass
         except LLMError:
             raise
         except Exception as exc:

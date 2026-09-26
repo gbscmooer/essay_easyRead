@@ -30,9 +30,6 @@ def offline_retrieval(monkeypatch):
         raise RuntimeError("offline test")
     monkeypatch.setattr(retrieval, "document_vectors", unavailable)
     monkeypatch.setattr(retrieval, "get_reranker_config", lambda: {"enabled": False})
-    async def audit(*args, **kwargs):
-        return {"status": "skipped", "support_rate": None}
-    monkeypatch.setattr(explorer, "audit_answer", audit)
 
 
 # ── 测试材料 ────────────────────────────────────────────────────────────────
@@ -129,12 +126,12 @@ def test_query_react_loop_requires_multiple_real_previews_for_zero_hits(monkeypa
 
     calls = []
 
-    async def empty_recall(queries, **kwargs):
+    async def empty_preview(queries, **kwargs):
         calls.append(list(queries))
         return [], "stub"
 
     monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", fake_llm)
-    monkeypatch.setattr(explorer, "recall_papers", empty_recall)
+    monkeypatch.setattr(explorer, "_fast_preview_search", empty_preview)
     decompose, audit = asyncio.run(refine_decomposition_with_tools(
         "用 AI 识别肿瘤有没有人做",
         {"intent": "novelty", "en_queries": ["AI tumor detection"], "focus_terms": [],
@@ -587,6 +584,7 @@ def test_synthesize_react_loop_inspects_tools_before_finish(monkeypatch):
     assert out is not None and out.verdict.status == "done_partial"
     assert out.stats["agent_loop"]["status"] == "completed"
     assert out.stats["agent_loop"]["iterations"] == 4
+    assert out.stats["evidence_audit"]["status"] == "not_requested"
     assert any(event.get("phase") == "tool" for event in events)
 
 
@@ -668,6 +666,8 @@ def exploration_env(tmp_path, monkeypatch):
     # stage 0 数据源预检：测试环境不触网，恒返回健康的 stub 源
     async def _healthy_sources(*args, **kwargs):
         return [{"name": "openalex", "role": "primary", "status": "ok",
+                 "detail": "测试环境", "latency_ms": 1, "http_status": 200},
+                {"name": "arxiv", "role": "supplement", "status": "ok",
                  "detail": "测试环境", "latency_ms": 1, "http_status": 200}]
 
     monkeypatch.setattr(
@@ -767,14 +767,14 @@ def test_run_exploration_stops_before_recall_when_configured_llm_cannot_translat
     with Session(engine) as s:
         run = s.get(ExplorationRun, run_id)
         assert run.status == "failed"
-        assert run.current_stage == "decompose"
+        assert run.current_stage == "protocol"
         assert "未使用中文原句检索" in (run.error_message or "")
         # 可追溯性契约：失败的 run 保留已发生阶段的审计快照（时间线标记失败阶段）
         sources = (run.result or {}).get("sources") or {}
         timeline = sources.get("stage_timeline") or []
         assert {row["stage"]: row["status"] for row in timeline}.get("preflight") == "completed"
         failed_rows = [row for row in timeline if row["status"] == "failed"]
-        assert failed_rows and failed_rows[0]["stage"] == "decompose"
+        assert failed_rows and failed_rows[0]["stage"] == "protocol"
         assert "token_usage" in sources
     names = [event for event, _ in events]
     assert "error" in names

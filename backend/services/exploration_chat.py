@@ -83,11 +83,18 @@ def select_materials(papers: list[dict], question: str, selected: list[str], lim
 
 
 async def _answer(message_id: int) -> None:
+    from .llm import set_llm_scope, set_llm_stage
+
     with Session(get_engine(), expire_on_commit=False) as session:
         msg = session.get(ExplorationMessage, message_id)
         if not msg:
             return
         run = _run(session, msg.run_id)
+        # 操作归属（§16.5）：追问是独立操作；run_instance_id 使用量归因到运行实例
+        set_llm_scope("exploration", run_id=str(msg.run_id),
+                      run_instance_id=run.run_instance_id if run else None,
+                      operation="chat")
+        set_llm_stage("chat")
         result = run.result or {}
         options = dict(run.options or {})
         active_exclusions.set(options)

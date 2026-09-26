@@ -4,24 +4,36 @@ import type { ExplorationResult, ExplorationSynthesis } from '@/types'
 /**
  * 领域探索 SSE 进度流（/api/exploration/runs/{id}/stream）。
  *
- * 事件协议（后端 explorer.py）：
+ * 事件协议（后端 explorer.py，v8 八阶段）：
  *   stage_start / stage_iteration / stage_done
- *                              preflight | decompose | recall | enrich | metrics | synthesize | report | persist
+ *                              preflight | protocol | recall | screen | select | extract | synthesize | report
  *   recall_progress            {query, hit_count, total_so_far}
  *   enrich_progress            {done, total}（OpenAlex 逐篇补逐年引用/摘要/关键词）
  *   metrics_ready              统计产物（decompose + papers + metrics + graph）——纯算法，无 Key 也有
  *   synthesis_ready            LLM 跨文献综合
  *   done / error
+ *  旧阶段名（decompose/enrich/metrics/persist）保留在消息表里，历史 run 回放不退化。
  */
 const STAGE_DEFAULT_MESSAGES: Record<string, string> = {
-  preflight: '正在用带 Key 的最小真实检索探测各数据源权限（Scopus / OpenAlex）…',
-  decompose: '正在使用 AI 将自然语言问题拆解为学术检索式与意图…',
-  recall: '正在多源检索学术文献（Scopus / OpenAlex）…',
-  enrich: '正在获取文献被引轨迹、摘要、关键词与期刊指标…',
-  metrics: '正在执行纯算法计量分析与子方向聚类…',
-  synthesize: '正在深度研判文献证据、查新结论与技术成熟度…',
-  report: '正在逐篇提取评估框架、指标、任务与数据集的原文证据…',
-  persist: '正在持久化分析产物并构建知识图谱…',
+  preflight: '正在用带 Key 的最小真实检索探测各数据源权限（Scopus / OpenAlex / arXiv）…',
+  protocol: '正在制定研究协议：拆解检索式 + 六类覆盖目标（演进/方法/数据集/指标/部署/趋势）…',
+  recall: '正在多源检索学术文献（arXiv / Scopus / OpenAlex）…',
+  screen: '正在裁决候选论文相关性并清洗计量语料（隔离未决论文）…',
+  select: '正在分层选材（奠基/最新/综述/数据集/方法）并获取全文…',
+  extract: '正在逐篇提取方法、数据集、指标与实验结果的原文证据…',
+  synthesize: '正在基于证据行综合领域认知并撰写报告草稿…',
+  report: '正在整理报告并保存交付版本…',
+  decompose: '正在使用 AI 将自然语言问题拆解为学术检索式与意图…（旧阶段）',
+  enrich: '正在获取文献被引轨迹、摘要、关键词与期刊指标…（旧阶段）',
+  metrics: '正在执行纯算法计量分析与子方向聚类…（旧阶段）',
+  persist: '正在持久化分析产物并构建知识图谱…（旧阶段）',
+}
+
+export interface StageTimingEntry {
+  /** 阶段开始时刻（ms，来自服务端 ts 或本地时钟） */
+  startTs: number
+  /** 阶段结束时刻；运行中缺省 */
+  endTs?: number
 }
 
 export function useExplorationStream(runId: number | null, revision = 0) {
@@ -33,6 +45,7 @@ export function useExplorationStream(runId: number | null, revision = 0) {
   const [result, setResult] = useState<ExplorationResult | null>(null)
   const [synthesis, setSynthesis] = useState<ExplorationSynthesis | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [stageTimings, setStageTimings] = useState<Record<string, StageTimingEntry>>({})
   const esRef = useRef<EventSource | null>(null)
   const isUnmounted = useRef(false)
 
@@ -48,6 +61,7 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     setResult(null)
     setSynthesis(null)
     setError(null)
+    setStageTimings({})
 
     if (runId === null) {
       setStreamRunId(null)
@@ -65,24 +79,33 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     setProgress(8)
     setMessage('正在连接分析事件总线…')
 
+    // 服务端 epoch 秒 → 本地 ms；旧后端事件无 ts 时退回本地时钟
+    const eventTs = (data: { ts?: unknown }) => (
+      typeof data.ts === 'number' && data.ts > 0 ? data.ts * 1000 : Date.now()
+    )
+
     es.addEventListener('stage_start', (e: MessageEvent) => {
       if (shouldIgnore()) return
       try {
-        const data = JSON.parse(e.data) as { stage?: unknown }
+        const data = JSON.parse(e.data) as { stage?: unknown; ts?: unknown }
         if (typeof data.stage === 'string') {
           const st = data.stage
           setStage(st)
+          // 重入覆盖：暂停→续跑后同一阶段会再次 stage_start（新计时段）。
+          // 若沿用第一次的 startTs，暂停间隔会被计入该阶段的走秒；
+          // 重置 startTs 并清掉旧 endTs，旧段由落库时间线补回（求和）。
+          setStageTimings(prev => ({ ...prev, [st]: { startTs: eventTs(data) } }))
           if (STAGE_DEFAULT_MESSAGES[st]) {
             setMessage(STAGE_DEFAULT_MESSAGES[st])
           }
-          if (st === 'preflight') setProgress(10)
-          else if (st === 'decompose') setProgress(15)
-          else if (st === 'recall') setProgress(30)
-          else if (st === 'enrich') setProgress(52)
-          else if (st === 'metrics') setProgress(74)
-          else if (st === 'synthesize') setProgress(86)
-          else if (st === 'report') setProgress(90)
-          else if (st === 'persist') setProgress(96)
+          if (st === 'preflight') setProgress(8)
+          else if (st === 'protocol') setProgress(15)
+          else if (st === 'recall') setProgress(32)
+          else if (st === 'screen') setProgress(55)
+          else if (st === 'select') setProgress(66)
+          else if (st === 'extract') setProgress(78)
+          else if (st === 'synthesize') setProgress(88)
+          else if (st === 'report') setProgress(94)
         }
       } catch { /* noop */ }
     })
@@ -91,16 +114,23 @@ export function useExplorationStream(runId: number | null, revision = 0) {
       try {
         const data = JSON.parse(e.data) as {
           stage?: string; iteration?: number; phase?: string; tool?: string; action?: string
+          done?: number; total?: number
         }
         const labels: Record<string, string> = {
-          preflight: '数据源预检', decompose: '检索式拆解', recall: '文献召回', enrich: '资料富化',
-          metrics: '计量分析', synthesize: '证据综合', report: '报告生成', report_extract: '逐篇证据提取',
-          persist: '结果保存',
+          preflight: '数据源预检', protocol: '研究协议', recall: '文献召回', screen: '相关性裁决与计量',
+          select: '分层选材与全文', extract: '证据提取', synthesize: '证据综合与写作',
+          report: '报告保存', report_extract: '逐篇证据提取',
+          decompose: '检索式拆解（旧）', enrich: '资料富化（旧）', metrics: '计量分析（旧）',
+          persist: '结果保存（旧）',
         }
         const label = labels[data.stage ?? ''] ?? data.stage ?? '当前阶段'
         const iteration = Number.isFinite(data.iteration) ? `第 ${data.iteration} 轮` : '本轮'
         const action = data.tool || data.action
         if (data.phase === 'complete') setMessage(`${label} · ${iteration}验收通过`)
+        else if (data.phase === 'filter' && Number.isFinite(data.done) && Number.isFinite(data.total)) {
+          // 筛选是召回阶段最耗时的一段：逐批回报，避免长时间无消息被误判为卡死
+          setMessage(`摘要相关性筛选：${data.done}/${data.total} 篇`)
+        }
         else if (action) setMessage(`${label} · ${iteration} · 正在使用 ${action}`)
         else setMessage(`${label} · ${iteration}分析中`)
       } catch { /* noop */ }
@@ -111,6 +141,10 @@ export function useExplorationStream(runId: number | null, revision = 0) {
         const data = JSON.parse(e.data)
         const st = String(data.stage || '')
         setStage(`${st} 完成`)
+        setStageTimings(prev => ({
+          ...prev,
+          [st]: { ...(prev[st] ?? { startTs: eventTs(data) }), endTs: eventTs(data) },
+        }))
         if (st === 'preflight') {
           const srcs: { name: string; status: string }[] = Array.isArray(data.summary?.sources) ? data.summary.sources : []
           const dead: string[] = Array.isArray(data.summary?.dead) ? data.summary.dead : []
@@ -212,9 +246,20 @@ export function useExplorationStream(runId: number | null, revision = 0) {
       }
       es.close()
     })
-    es.addEventListener('error', (e: MessageEvent) => {
+    es.addEventListener('error', (e: Event) => {
       if (shouldIgnore()) return
-      try { setError(JSON.parse(e.data).message || '失败') } catch { setError('连接错误') }
+      // EventSource 的原生网络 error 是普通 Event，浏览器会自行重连；
+      // 服务端 `event: error` 才是带 JSON data 的 MessageEvent，表示任务失败。
+      if (!('data' in e) || typeof e.data !== 'string') {
+        if (es.readyState === 2) {
+          setError('事件连接已关闭，请刷新页面后重试')
+          setStatus('failed')
+          return
+        }
+        setMessage('连接暂时中断，正在自动重连…')
+        return
+      }
+      try { setError(JSON.parse(e.data).message || '失败') } catch { setError('研究失败') }
       setStatus('failed')
       es.close()
     })
@@ -232,5 +277,6 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     result: isCurrentRun ? result : null,
     synthesis: isCurrentRun ? synthesis : null,
     error: isCurrentRun ? error : null,
+    stageTimings: isCurrentRun ? stageTimings : {},
   }
 }

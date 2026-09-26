@@ -37,19 +37,59 @@ def dead_source_names(healths: list[dict]) -> set[str]:
     return {h["name"] for h in healths if h.get("status") in _DEAD_STATUSES}
 
 
+def any_primary_source_alive(healths: list[dict]) -> bool:
+    """主源（primary/fallback 的 provider 组合）是否仍有可用者。
+
+    supplement 源（arXiv）不参与该判定：它判死只触发召回侧熔断与警告，
+    不能让「arXiv 可用但主库全死」的运行误判通过，也不能因 arXiv 抖动
+    把主库正常的运行卡死在预检。
+    """
+    primaries = [h for h in healths if h.get("role") != "supplement"]
+    if not primaries:
+        return False
+    return any(h.get("status") in {"ok", "rate_limited"} for h in primaries)
+
+
 def any_source_ok(healths: list[dict]) -> bool:
     return any(h.get("status") == "ok" for h in healths)
 
 
-async def preflight_research_sources(cfg: dict | None = None, *, use_cache: bool = True) -> list[dict]:
+async def _probe_arxiv() -> dict:
+    """arXiv 是三检索源之一（recall 引擎 arxiv+scopus+openalex 并行），但历史上
+    预检只测 provider 组合——arXiv 挂了要等正式召回阶段逐通道报错才暴露（run6
+    实测 6 次 arXiv HTTPStatusError 全部发生在预检标记完成之后）。这里用
+    search_topic 的最小真实查询补上这块盲区。role=supplement：arXiv 判死只
+    触发召回熔断与警告，不参与「全部判死才快速失败」的主源判定。"""
+    from .arxiv_client import search_topic
+
+    started = time.monotonic()
+    try:
+        rows = await asyncio.wait_for(search_topic("machine learning", limit=1), timeout=12.0)
+        return {"name": "arxiv", "role": "supplement", "status": "ok",
+                "detail": f"最小查询命中 {len(rows)} 条", "http_status": None,
+                "latency_ms": round((time.monotonic() - started) * 1000)}
+    except asyncio.TimeoutError:
+        return {"name": "arxiv", "role": "supplement", "status": "network_error",
+                "detail": "探测超时（12s）", "http_status": None,
+                "latency_ms": round((time.monotonic() - started) * 1000)}
+    except Exception as e:
+        return {"name": "arxiv", "role": "supplement", "status": "network_error",
+                "detail": f"探测失败（{type(e).__name__}）", "http_status": None,
+                "latency_ms": round((time.monotonic() - started) * 1000)}
+
+
+async def preflight_research_sources(cfg: dict | None = None, *, use_cache: bool = True,
+                                     include_arxiv: bool = True) -> list[dict]:
     loop = asyncio.get_running_loop()
     if loop not in _locks:
         _locks[loop] = asyncio.Lock()
     async with _locks[loop]:
-        return await _preflight_research_sources(cfg, use_cache=use_cache)
+        return await _preflight_research_sources(cfg, use_cache=use_cache,
+                                                 include_arxiv=include_arxiv)
 
 
-async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: bool = True) -> list[dict]:
+async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: bool = True,
+                                      include_arxiv: bool = True) -> list[dict]:
     """按当前研究配置体检数据源，返回 [{name, role, status, detail, latency_ms, http_status}]。
 
     role=primary 是首选源（auto+Key 时为 Scopus），role=fallback 是熔断回退源。
@@ -67,7 +107,8 @@ async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: boo
     key = _elsevier_key(cfg)
     email = str(cfg.get("email") or "").strip()
 
-    cache_key = hashlib.sha256(f"{provider_name}|{key}|{email}|{cfg.get('api_key', '')}".encode()).hexdigest()
+    cache_key = hashlib.sha256(
+        f"{provider_name}|{key}|{email}|{cfg.get('api_key', '')}|arxiv={int(include_arxiv)}".encode()).hexdigest()
     now = time.monotonic()
     if use_cache:
         hit = _cache.get(cache_key)
@@ -109,6 +150,8 @@ async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: boo
         return {**health, "role": role}
 
     healths = list(await asyncio.gather(*(_probe(f, r) for f, r in targets)))
+    if include_arxiv:
+        healths.append(await _probe_arxiv())
     for h in healths:
         log = logger.info if h.get("status") == "ok" else logger.warning
         log("preflight %s[%s]: %s %s (%sms)", h.get("name"), h.get("role"),

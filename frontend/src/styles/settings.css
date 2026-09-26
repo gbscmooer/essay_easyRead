@@ -535,3 +535,169 @@
     flex-wrap: wrap;
   }
 }
+
+/* ── Token 消耗统计 ────────────────────────────────────────────── */
+
+.set-usage-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding: var(--s3);
+  border: 1px dashed var(--border);
+  border-radius: var(--seed-radius, 12px);
+  color: var(--text-secondary);
+  font-size: var(--fs-ui);
+}
+
+.set-usage-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--s2);
+}
+
+.set-usage-card {
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-elevated);
+}
+
+.set-usage-card__label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-caption, 12px);
+}
+
+.set-usage-card__value {
+  margin: var(--s1) 0 0;
+  color: var(--text-primary);
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.set-usage-card__sub {
+  margin: var(--s1) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-caption, 12px);
+}
+
+.set-usage-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.set-usage-chart {
+  min-width: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-elevated);
+}
+
+.set-usage-chart__title {
+  margin: 0 0 var(--s2);
+  color: var(--text-primary);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.set-usage-models {
+  margin: var(--s2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-caption, 12px);
+  overflow-wrap: anywhere;
+}
+
+.set-usage-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  justify-self: end;
+}
+
+.set-usage-details {
+  margin-top: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-elevated);
+  overflow-x: auto;
+}
+
+.set-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-caption, 12px);
+}
+
+.set-usage-table th,
+.set-usage-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.set-usage-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.set-usage-table td {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.set-usage-table th.is-num,
+.set-usage-table td.is-num {
+  text-align: right;
+}
+
+.set-usage-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.set-usage-table__stage {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.set-usage-table__model {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.set-usage-table__empty {
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.set-usage-details__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  color: var(--text-secondary);
+  font-size: var(--fs-caption, 12px);
+}
+
+@media (max-width: 700px) {
+  .set-usage-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .set-usage-actions {
+    justify-self: start;
+  }
+}

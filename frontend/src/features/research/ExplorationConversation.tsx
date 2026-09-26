@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Send, RotateCcw } from 'lucide-react'
 import { askExploration, getExplorationMessages } from '@/api/exploration'
+import { parseServerDate } from '@/utils/datetime'
 import type { ExplorationMessage, ExplorationPaper } from '@/types'
 import { EvidenceMarkdown, PaperTitle } from './paperLinks'
 import { EvidenceAuditPanel } from './EvidenceAuditPanel'
@@ -58,7 +59,7 @@ export function ExplorationConversation({ runId, papers, disabled, onMessages, q
       {!loaded && !error && <p>正在加载对话…</p>}
       {loaded && messages.length === 0 && <p className="ex-chat-empty">暂无追问</p>}
       {messages.map(m => <article key={m.id} className="ex-chat-turn">
-        <header><strong>你</strong><time>{new Date(m.created_at).toLocaleString()}</time></header>
+        <header><strong>你</strong><time>{parseServerDate(m.created_at).toLocaleString()}</time></header>
         <p className="ex-chat-question">{m.question}</p>
         <strong>AI</strong>
         {m.status === 'done' && <div className="ex-report"><EvidenceMarkdown text={m.answer} papers={papers} citations={m.context.citations} /></div>}

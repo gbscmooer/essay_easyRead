@@ -53,6 +53,85 @@
 .ex-detail-readouts .er-link:hover {
   text-decoration: underline;
 }
+/* ── 研究计时面板：总耗时 + 各阶段耗时分配 ─────────────────────────────── */
+.ex-timing {
+  margin: calc(-1 * var(--s2)) 0 var(--s3);
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 8px);
+  background: var(--bg-surface);
+}
+.ex-timing__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ex-timing__label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ex-timing__total {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+.ex-timing__live {
+  padding: 1px 8px;
+  color: #2f7d78;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(47, 125, 120, 0.45);
+  border-radius: 999px;
+  animation: ex-timing-pulse 2s ease-in-out infinite;
+}
+@keyframes ex-timing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.ex-timing__sum {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+.ex-timing__bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-elevated, rgba(127, 127, 127, 0.15));
+}
+.ex-timing__bar i {
+  display: block;
+  min-width: 2px;
+  border-radius: 1px;
+}
+.ex-timing__stages {
+  display: flex;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ex-timing__stages li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ex-timing__stages li.is-running .ex-timing__stage-time { color: var(--text-primary); font-weight: 600; }
+.ex-timing__stages li.is-failed .ex-timing__stage-time { color: #d94a38; }
+.ex-timing__stages li.is-paused .ex-timing__stage-time { color: #d3a52f; }
+.ex-timing__dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
 .ex-empty-warning {
   margin: var(--s2) 0 var(--s4);
   padding: var(--s3) var(--s4);
@@ -177,4 +256,98 @@
   .ex-chart-toolbar { gap: 6px; padding: 10px; }
   .ex-chart-toolbar h2 { width: 100%; font-size: 16px; }
   .ex-chart-scroll { height: calc(100% - 96px); padding: 12px; }
+}
+
+/* ── 单次研究 Token 用量卡 ─────────────────────────────────────── */
+
+.ex-tokens {
+  margin-top: var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 12px);
+  background: var(--bg-elevated);
+}
+
+.ex-tokens__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.ex-tokens__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.ex-tokens__badge {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta, 12px);
+}
+
+.ex-tokens__failed {
+  color: var(--accent-danger, #e5484d);
+  font-size: var(--fs-meta, 12px);
+}
+
+.ex-tokens__toggle {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-meta, 12px);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.ex-tokens__toggle:hover { text-decoration: underline; }
+
+.ex-tokens__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--s2);
+  margin: var(--s2) 0 0;
+}
+
+.ex-tokens__grid dt {
+  color: var(--text-muted);
+  font-size: var(--fs-meta, 12px);
+}
+
+.ex-tokens__grid dd {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-tokens__table {
+  width: 100%;
+  margin-top: var(--s2);
+  border-collapse: collapse;
+  font-size: var(--fs-meta, 12px);
+}
+
+.ex-tokens__table th,
+.ex-tokens__table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-tokens__table th:first-child,
+.ex-tokens__table td:first-child {
+  text-align: left;
+}
+
+.ex-tokens__table th {
+  color: var(--text-muted);
+  font-weight: 500;
 }

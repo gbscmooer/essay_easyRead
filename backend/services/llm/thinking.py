@@ -11,7 +11,11 @@ _ANTHROPIC_THINKING_MODEL_RE = re.compile(
     r"claude-(?:3[.-][7-9]|[4-9]|(?:sonnet|opus|haiku)-[4-9])"
 )
 _OPENAI_REASONING_MODEL_RE = re.compile(r"^(o\d|gpt-5)")
-_DEEPSEEK_THINKING_MODEL_RE = re.compile(r"deepseek-v[4-9]")
+# OpenAI-compatible gateways use names beyond deepseek-vN (for example
+# deepseek-flash / deepseek-chat and vendor-prefixed deepseek/*).  Treat the
+# whole DeepSeek family consistently so a stage-level ``off`` override really
+# disables reasoning instead of silently inheriting the provider default.
+_DEEPSEEK_THINKING_MODEL_RE = re.compile(r"(?:^|[/])deepseek(?:[-/]|$)", re.IGNORECASE)
 
 
 def anthropic_thinking_budget_tokens(effort: str) -> int:

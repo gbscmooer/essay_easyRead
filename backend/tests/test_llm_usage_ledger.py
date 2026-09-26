@@ -36,9 +36,15 @@ def test_ledger_accumulates_by_stage_and_normalizes_usage_keys():
         ))
 
     report = token_ledger_report(ledger)
-    assert report["decompose"] == {"calls": 1, "input_tokens": 100, "output_tokens": 20}
+    assert report["decompose"] == {
+        "calls": 1, "input_tokens": 100, "output_tokens": 20,
+        "cached_input_tokens": 0, "cache_write_tokens": 0,
+    }
     assert report["synthesize"]["calls"] == 1
-    assert report["total"] == {"calls": 2, "input_tokens": 200, "output_tokens": 40}
+    assert report["total"] == {
+        "calls": 2, "input_tokens": 200, "output_tokens": 40,
+        "cached_input_tokens": 0, "cache_write_tokens": 0,
+    }
 
 
 def test_ledger_accepts_anthropic_usage_keys():

@@ -37,12 +37,19 @@ vi.mock('@/api/exploration', () => ({
   askExploration: vi.fn(),
   regenerateReport: vi.fn(),
   preflightExploration: vi.fn().mockResolvedValue({ checked_at: '2026-01-01T00:00:00Z', sources: [] }),
+  getRunTokenUsage: vi.fn().mockResolvedValue({
+    run_id: 0,
+    totals: { calls: 0, input_tokens: 0, output_tokens: 0, cached_input_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_tokens: 0 },
+    by_stage: [],
+    recorded: false,
+    source: 'records',
+  }),
 }))
 
 const mockUse = vi.mocked(useExplorationStream)
 const mockCreate = vi.mocked(createExploration)
 
-const IDLE = { status: 'idle' as const, stage: null, message: '', progress: 0, result: null, synthesis: null, error: null }
+const IDLE = { status: 'idle' as const, stage: null, message: '', progress: 0, result: null, synthesis: null, error: null, stageTimings: {} }
 
 function makeResult(overrides: Partial<ExplorationResult> = {}): ExplorationResult {
   const papers = [
@@ -284,5 +291,94 @@ describe('ExplorePage', () => {
     expect(screen.getByRole('dialog', { name: '删除研究记录' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '永久删除' }))
     await waitFor(() => expect(deleteExploration).toHaveBeenCalledWith(18))
+  })
+
+  it('计时面板：详情页展示总耗时与各阶段耗时分配', async () => {
+    vi.mocked(getExploration).mockResolvedValue({
+      id: 21, question: 'Timed question', depth: 'standard', status: 'done', provider: 'openalex',
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:10:00Z',
+      result: makeResult({
+        sources: {
+          stage_timeline: [
+            { stage: 'preflight', started_at: '2026-01-01T00:00:00Z', duration_s: 2.5, status: 'completed' },
+            { stage: 'decompose', started_at: '2026-01-01T00:00:03Z', duration_s: 7.5, status: 'completed' },
+            { stage: 'recall', started_at: '2026-01-01T00:00:10Z', duration_s: 120, status: 'completed' },
+            { stage: 'enrich', started_at: '2026-01-01T00:02:10Z', duration_s: 30, status: 'completed' },
+            { stage: 'metrics', started_at: '2026-01-01T00:02:40Z', duration_s: 20, status: 'completed' },
+            { stage: 'synthesize', started_at: '2026-01-01T00:03:00Z', duration_s: 60, status: 'completed' },
+            { stage: 'report', started_at: '2026-01-01T00:04:00Z', duration_s: 360, status: 'completed' },
+            { stage: 'persist', started_at: '2026-01-01T00:10:00Z', duration_s: 0.4, status: 'completed' },
+          ],
+        },
+      }) as ExplorationResult,
+    })
+    mockUse.mockReturnValue({ ...IDLE })
+    renderPage('/explorer/21')
+
+    await screen.findByRole('heading', { name: 'Timed question' })
+    expect(screen.getByRole('region', { name: '研究耗时' })).toBeInTheDocument()
+    expect(screen.getByText('10 分 0 秒')).toBeInTheDocument() // 墙钟：00:00 → 00:10
+    expect(screen.getByText(/各阶段合计 10 分/)).toBeInTheDocument()
+    expect(screen.getByText('2 分 0 秒')).toBeInTheDocument() // ② 多源检索
+    expect(screen.getByText('6 分 0 秒')).toBeInTheDocument() // ⑥ 报告
+    expect(screen.queryByText(/进行中/)).not.toBeInTheDocument()
+  })
+
+  it('计时面板：报告重生成更新 updated_at 不放大已完成研究总耗时', async () => {
+    vi.mocked(getExploration).mockResolvedValue({
+      id: 26, question: 'Regenerated report timing', depth: 'lite', status: 'done', provider: 'openalex',
+      created_at: '2026-09-19T07:36:21.988Z',
+      // 后续重生成完成时间，比原研究结束晚 71 分钟。
+      updated_at: '2026-09-19T09:06:33.848Z',
+      result: makeResult({
+        sources: {
+          stage_timeline: [
+            { stage: 'decompose', started_at: '2026-09-19T07:36:22.021Z', duration_s: 42.74, status: 'completed' },
+            { stage: 'recall', started_at: '2026-09-19T07:37:04.766Z', duration_s: 293.65, status: 'completed' },
+            { stage: 'enrich', started_at: '2026-09-19T07:41:58.430Z', duration_s: 3.22, status: 'completed' },
+            { stage: 'metrics', started_at: '2026-09-19T07:42:01.677Z', duration_s: 60.19, status: 'completed' },
+            { stage: 'synthesize', started_at: '2026-09-19T07:43:01.896Z', duration_s: 104.79, status: 'completed' },
+            { stage: 'report', started_at: '2026-09-19T07:44:46.717Z', duration_s: 647.66, status: 'completed' },
+            { stage: 'persist', started_at: '2026-09-19T07:55:34.456Z', duration_s: 0.01, status: 'completed' },
+          ],
+        },
+      }) as ExplorationResult,
+    })
+    mockUse.mockReturnValue({ ...IDLE })
+    renderPage('/explorer/26')
+
+    await screen.findByRole('heading', { name: 'Regenerated report timing' })
+    expect(screen.getByText('19 分 12 秒')).toBeInTheDocument()
+    expect(screen.queryByText('1 时 30 分 11 秒')).not.toBeInTheDocument()
+    expect(screen.getByText(/各阶段合计 19 分 12 秒/)).toBeInTheDocument()
+  })
+
+  it('计时面板：运行中走秒并标注当前阶段', async () => {
+    vi.mocked(getExploration).mockResolvedValue({
+      id: 22, question: 'Running timing', depth: 'standard', status: 'running', provider: 'openalex',
+      created_at: new Date(Date.now() - 120_000).toISOString(), updated_at: new Date().toISOString(),
+      result: makeResult({
+        sources: {
+          stage_timeline: [
+            { stage: 'preflight', started_at: new Date(Date.now() - 120_000).toISOString(), duration_s: 3, status: 'completed' },
+            { stage: 'decompose', started_at: new Date(Date.now() - 117_000).toISOString(), duration_s: 57, status: 'completed' },
+          ],
+        },
+      }) as ExplorationResult,
+    })
+    mockUse.mockReturnValue({
+      ...IDLE,
+      status: 'running',
+      stage: 'recall',
+      stageTimings: { recall: { startTs: Date.now() - 8_000 } },
+    })
+    renderPage('/explorer/22')
+
+    await screen.findByRole('heading', { name: 'Running timing' })
+    expect(screen.getByText('计时中')).toBeInTheDocument()
+    expect(screen.getByText(/进行中/)).toBeInTheDocument() // ② 多源检索走秒中
+    // 墙钟 ≥ 2 分钟（运行中按当前时刻累计）
+    expect(screen.getByText(/总耗时/)).toBeInTheDocument()
+    expect(screen.getByText(/2 分/)).toBeInTheDocument()
   })
 })

@@ -656,7 +656,9 @@ async def ai_analyze_paper_code_mapping(
     *, provider: str = "", api_format: str = "", thinking_effort: str = "off",
 ) -> list[dict]:
     """AI 将论文概念映射到具体代码文件"""
-    from .llm import complete_json
+    from .llm import complete_json, set_llm_scope
+
+    set_llm_scope("code_analysis")
 
     formatted = _format_file_contents(file_contents)
 

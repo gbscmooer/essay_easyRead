@@ -46,12 +46,14 @@ class OpenAlexProvider:
         params = dict(params or {})
         if self.email:
             params["mailto"] = self.email
+        from ...rate_limiter import account_source_request
         for attempt in range(4):
             async with self._lock:
                 gap = time.monotonic() - self._last_req
                 if gap < 0.12:
                     await asyncio.sleep(0.12 - gap)
                 self._last_req = time.monotonic()
+            account_source_request()
             try:
                 r = await self._http().get(f"{OA_BASE}{path}", params=params)
                 if r.status_code == 429:
@@ -463,6 +465,23 @@ _GENERIC_KEYWORDS = {
     "mathematics", "physics", "engineering", "medicine", "biology", "chemistry", "psychology",
     "science", "technology", "data science", "big data", "statistics", "algorithm", "computer vision",
 }
+# 带括号消歧后缀的概念词是 OpenAlex 的跨学科条目：后缀学科不在 CS/AI 允许集内的
+# 一律丢弃（run6 实测 "Anomaly (physics)"、"Benchmark (surveying)"、"Quality (philosophy)"
+# 这类词凭高出现频次进了关键词趋势热力图，把缺陷检测语料污染成了跨学科大杂烩）
+_KEYWORD_SUFFIX_ALLOWLIST = {
+    "computer science", "artificial intelligence", "machine learning", "computer vision",
+    "natural language processing", "data mining", "information retrieval", "software engineering",
+    "electrical engineering", "human computer interaction", "operating system",
+}
+
+
+def _keyword_suffix_allowed(name: str) -> bool:
+    """无括号后缀的概念词直接放行；带后缀的只留 CS/AI 学科消歧条目。"""
+    lowered = name.casefold()
+    if "(" not in lowered:
+        return True
+    suffix = lowered.rsplit("(", 1)[-1].rstrip(")").strip() if "(" in lowered else ""
+    return suffix in _KEYWORD_SUFFIX_ALLOWLIST
 
 
 def _extract_keywords(work: dict, *, min_score: float = _KEYWORD_MIN_SCORE, cap: int = 6) -> list[str]:
@@ -476,7 +495,8 @@ def _extract_keywords(work: dict, *, min_score: float = _KEYWORD_MIN_SCORE, cap:
         except (TypeError, ValueError):
             score = 0.0
         folded = name.casefold()
-        if len(name) < 3 or score < min_score or folded in seen or folded in _GENERIC_KEYWORDS:
+        if (len(name) < 3 or score < min_score or folded in seen
+                or folded in _GENERIC_KEYWORDS or not _keyword_suffix_allowed(name)):
             continue
         seen.add(folded)
         out.append(name)

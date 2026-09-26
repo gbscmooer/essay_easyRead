@@ -202,3 +202,7 @@ class LLMResponse:
     api_format: str
     request_id: str | None = None
     usage: Mapping[str, Any] = field(default_factory=dict)
+    # Provider termination signal: OpenAI ``finish_reason`` or Anthropic
+    # ``stop_reason``.  Business orchestration uses this to distinguish a
+    # complete response from max-token truncation without parsing prose.
+    finish_reason: str | None = None

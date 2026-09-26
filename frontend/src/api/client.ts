@@ -124,6 +124,13 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return parseResponse<T>(res)
 }
 
+/** 下载二进制响应，沿用 JSON API 的网络和状态码错误处理。 */
+async function getBinary(path: string): Promise<Response> {
+  const res = await safeFetch(`${API_BASE}${path}`)
+  if (!res.ok) await parseError(res)
+  return res
+}
+
 
 /**
  * 发送 POST 请求（JSON body）
@@ -239,4 +246,4 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: numb
 }
 
 
-export { get, post, put, upload, del, uploadWithProgress }
+export { get, getBinary, post, put, upload, del, uploadWithProgress }

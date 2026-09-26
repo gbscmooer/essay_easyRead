@@ -75,11 +75,13 @@ class ScopusProvider:
         if self._disabled:
             return None
         self._throttle = self._throttle or _shared_throttle()
+        from ...rate_limiter import account_source_request
         for attempt in range(3):
             async with self._throttle:
                 if self._disabled:
                     return None
                 try:
+                    account_source_request()
                     r = await self._http().get(f"{SCOPUS_BASE}{path}", params=params)
                     if r.status_code == 200:
                         self._throttle.on_success()

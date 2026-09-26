@@ -22,39 +22,19 @@
  * 看起来像仪器打上去的，而不是像一句被缩小的标题。换成等宽之后，它们
  * 自动退到「注记」的层级，不再和标题抢注意力。
  *
- * 中文没有可用的自托管方案（一套黑体 CJK 至少 5MB），继续用系统 PingFang
- * SC，但套一层 @font-face 改写垂直度量，让中英混排落在同一条基线上。
+ * 中文继续使用系统字族。由系统字体匹配原生字重，避免把单个本地字面
+ * 伪装成 100–900 全字重后，粗体中文标题落到普通字面。
  */
 
 @import '@fontsource-variable/archivo/standard.css';
 @import '@fontsource-variable/inter/standard.css';
 @import '@fontsource-variable/jetbrains-mono/index.css';
 
-/* ── 中文度量对齐 ────────────────────────────────────────────────────────
-   PingFang SC 的 ascent/descent 合计约 1.4em，Inter 约 1.21em。同一个
-   line-height 下，纯中文行的实际行距会比纯英文行大出一截 —— 这是「中英
-   混排看起来各行各的」的直接原因。这里把中文的行盒改写成与 Inter 一致，
-   字号轻微下调 2%（中文方块字在同字号下视觉面积本来就比拉丁小写大）。
-
-   不限制字重区间：700+ 仍然走浏览器合成粗体。PingFang 最粗只到 Semibold，
-   若把 700–900 映射过去，中文标题会明显比同行的拉丁标题轻。 */
-@font-face {
-  font-family: 'CJK Adjusted';
-  src: local('PingFang SC'), local('PingFangSC-Regular'), local('Hiragino Sans GB'),
-    local('Microsoft YaHei'), local('Noto Sans CJK SC');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 98%;
-  ascent-override: 92%;
-  descent-override: 22%;
-  line-gap-override: 0%;
-}
-
 :root {
-  --font-cjk: 'CJK Adjusted', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-cjk: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
 
-  --font-display: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --font-display: 'Archivo Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    var(--font-cjk);
   --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     var(--font-cjk);
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;

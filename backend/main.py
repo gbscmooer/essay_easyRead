@@ -156,6 +156,10 @@ async def lifespan(app: FastAPI):
     init_db(db_url)
     logger.info("数据库初始化完成")
 
+    # 安装全局 LLM 用量统计（内存缓冲 + 后台落库线程）
+    from .services import token_usage
+    token_usage.install()
+
     # 启动自愈：重置上次被杀时残留的 running 研究任务（否则 UI 永久卡「运行中」）
     try:
         n = reconcile_interrupted_runs()
@@ -173,7 +177,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # shutdown (如有需要)
+    # shutdown：清空 LLM 用量统计缓冲
+    from .services import token_usage
+    token_usage.shutdown()
 
 
 # 创建 FastAPI 实例

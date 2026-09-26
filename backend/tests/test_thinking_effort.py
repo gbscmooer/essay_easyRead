@@ -88,6 +88,11 @@ def test_deepseek_thinking_toggle():
     kwargs, _ = resolve_thinking(True, "https://api.deepseek.com/v1", "deepseek-v4", "medium", 4096)
     assert kwargs == {"extra_body": {"thinking": {"type": "enabled"}}}
 
+    kwargs, _ = resolve_thinking(
+        True, "https://gateway.example/v1", "deepseek-flash", "off", 8192,
+    )
+    assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+
 
 # ── Adapter 参数合流 ──────────────────────────────────────────
 

@@ -2131,3 +2131,19 @@
     white-space: normal;
   }
 }
+
+/* 卡片摘要渲染级截断；用独立按钮避免点击引用链接时误收起。 */
+.ex-chip-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ex-chip-toggle {
+  margin-top: 4px;
+  padding: 2px 0;
+  color: var(--accent);
+  font-size: var(--fs-label);
+  font-weight: 600;
+}

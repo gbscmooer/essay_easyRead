@@ -13,6 +13,7 @@ import type { Paper, SearchResult } from '@/types'
 import type { PaperFacets } from '@/api/papers'
 import { ConfirmDialog, Tooltip, LoadingSpinner } from '@/ds-entry'
 import { stopRowActivation } from '@/utils/keyboard'
+import { parseServerDate } from '@/utils/datetime'
 import { SlidersHorizontal, Pencil, Trash2, FolderPlus, ExternalLink } from 'lucide-react'
 import { paperLink } from '@/features/research/paperLinks'
 
@@ -536,7 +537,7 @@ export const PaperList = memo(function PaperList({
                       {(paper.subjects ?? []).map(s => <span key={s}>{s}</span>)}
                       <span>{paper.providers?.length ? paper.providers.map(v => PROVIDERS[v] || v).join(' · ') : '来源未识别'}</span>
                       {paper.source === 'expanded' && <span>扩展发现</span>}
-                      <span>添加于 {new Date(paper.created_at).toLocaleDateString('zh-CN')}</span>
+                      <span>添加于 {parseServerDate(paper.created_at).toLocaleDateString('zh-CN')}</span>
                     </span>
                   </span>
                   <span className="er-ledger__aside">

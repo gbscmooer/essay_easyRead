@@ -248,11 +248,17 @@ async def resolve_pdf_url(title: str, config: dict) -> Optional[str]:
 # ============================================================
 # 数据库功能检测（逐库实测：能否成功「搜索」+「下载 PDF」）
 # ============================================================
-# 不是简单 ping/HTTP 探测，而是真的用 findpapers 搜该库 → 拿一条结果的 PDF →
-# 流式下载头部字节确认是真 PDF。这样能区分：库通但搜不到 / 搜得到但下不了 / 全通。
+# 不是简单 ping/HTTP 探测，而是真的用 findpapers 搜该库。下载验证分两档：
+# 免费库（arXiv 等）流式拉头部字节确认真 PDF；付费库（IEEE/Scopus/WoS）
+# 必须「真实下载一篇完整论文 → 验证魔数与正文 → 删除临时文件」——头部检查
+# 只能证明可连接，订阅/IP 权限问题要完整下载才暴露。
 
 # 功能检测用的通用查询（findpapers 布尔语法，单个常见词足够命中各库）
 _TEST_QUERY = "[machine learning]"
+
+# 付费库真实下载测试的总预算：搜索之后，DOI 解析 + 完整下载 + 正文验证要在
+# 这个窗口内完成，超时按「可搜但完整下载失败」处理，不挂死测试按钮。
+_REAL_DOWNLOAD_BUDGET_S = 60.0
 
 
 def is_findpapers_installed() -> bool:
@@ -278,6 +284,58 @@ def _test_search_one_sync(db: str, query: str, max_n: int = 2) -> dict:
             "doi": p.doi or "",
         })
     return {"ok": len(papers) > 0, "papers": papers, "error": ""}
+
+
+async def _real_download_test(papers: list[dict], timeout: float = 25.0) -> tuple[bool, str]:
+    """付费库专用：对搜索结果候选做一次「真实完整下载」，成功后删除临时文件。
+
+    与免费库的头部字节检查不同：流式拉 2KB 只能证明可连接，证明不了完整下载
+    链路（订阅/IP 权限问题往往在后续字节或重定向里才暴露）。这里走生产同款
+    download_pdf_detailed：完整下载 → PDF 魔数 → 正文非空 → 删除临时文件。
+    候选优先 pdf_url，无 pdf_url 的用 DOI 走生产级联（Unpaywall/OpenAlex/出版商）。
+    """
+    import os
+
+    from .deep_research.pdf_downloader import download_pdf_detailed
+    from .paper_download import resolve_candidate_pdf_urls
+    from .paper_identity import PaperWork
+    from .pdf_parser import extract_pdf_content
+
+    last_reason = "结果未提供可下载地址（pdf_url/DOI 均缺失）"
+    for paper in papers[:4]:
+        urls: list[str] = []
+        if paper.get("pdf_url"):
+            urls.append(paper["pdf_url"])
+        if paper.get("doi"):
+            try:
+                candidates = await asyncio.wait_for(
+                    resolve_candidate_pdf_urls(PaperWork(doi=paper["doi"])), timeout=18)
+                urls.extend(u for u in candidates[:2] if u)
+            except Exception:
+                pass
+        for url in urls[:3]:
+            try:
+                result = await download_pdf_detailed(url, timeout=timeout)
+            except Exception as e:
+                last_reason = f"{type(e).__name__}: {str(e)[:80]}"
+                continue
+            if result.status == "available" and result.path and os.path.isfile(result.path):
+                size_kb = os.path.getsize(result.path) // 1024
+                chars = 0
+                try:
+                    content = await asyncio.to_thread(extract_pdf_content, result.path)
+                    chars = len(content.full_text.strip())
+                except Exception:
+                    pass
+                try:
+                    os.remove(result.path)
+                except OSError:
+                    pass
+                detail = f"{size_kb}KB" + (f"，正文 {chars} 字符" if chars else "，正文提取为空")
+                return True, f"已真实下载完整论文 PDF（{detail}）并删除临时文件 ✓"
+            att = result.attempts[-1] if result.attempts else {}
+            last_reason = f"{att.get('error_code') or 'unavailable'}（stage={att.get('stage')}）"
+    return False, f"完整下载失败：{last_reason}"
 
 
 async def _verify_pdf_downloadable(client: httpx.AsyncClient, url: str) -> tuple[bool, str]:
@@ -344,6 +402,20 @@ async def test_database(db: str, *, query: str = _TEST_QUERY, timeout: float = 3
             out["message"] = "搜索无结果（多半是缺 API key / 未授权）"
         else:
             out["message"] = "搜索无结果（库暂不可用或配额耗尽）"
+        return out
+
+    # 付费库（IEEE/Scopus/WoS）：头部字节检查证明不了订阅/IP 权限下的完整下载，
+    # 必须真实下载一篇完整论文并验证，再删除临时文件，才算「可下载」。
+    if needs_key:
+        try:
+            dl_ok, dl_msg = await asyncio.wait_for(
+                _real_download_test(search["papers"]), timeout=_REAL_DOWNLOAD_BUDGET_S)
+        except asyncio.TimeoutError:
+            dl_ok = False
+            dl_msg = f"完整下载超时（>{_REAL_DOWNLOAD_BUDGET_S:.0f}s，多半是权限或网络问题）"
+        out["downloadable"] = dl_ok
+        out["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        out["message"] = f"可搜索 + {dl_msg}" if dl_ok else f"可搜索；{dl_msg}"
         return out
 
     # 取第一条有 pdf_url 的结果验证下载

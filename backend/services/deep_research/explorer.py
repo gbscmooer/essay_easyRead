@@ -49,9 +49,8 @@ from .event_bus import EventBus
 from .graph_analytics import _detect_communities, _label_clusters, _tokenize
 from .literature_retrieval import paper_similarity, retrieve_materials
 from .citation_metrics import annotate_citation_metrics
-from .evidence_audit import audit_answer
 from .graphkit.backbone import mutual_knn
-from .survey_report import build_survey_report
+from .survey_report import build_survey_report, redeliver_survey_report
 from .recall_engine import RECALL_TARGETS, run_target_recall
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
@@ -71,20 +70,25 @@ def _persist_legacy_report_revision(
     report: dict,
     *,
     previous_report: dict | None = None,
+    select: bool = True,
 ) -> str:
-    """Persist immutable report snapshots without enabling the v2 worker."""
-    from sqlmodel import select
+    """Persist immutable report snapshots without enabling the v2 worker.
+
+    select=False 用于“重新生成未产出有效终稿”：新快照保存为未选中 revision，
+    旧的成功版本保持选定，页面与导出继续读取旧版。
+    """
+    from sqlmodel import select as sm_select
 
     def add_revision(session: Session, payload: dict, parent: str | None, selected: bool) -> str:
         clean = dict(payload)
         content_hash = _report_hash(clean)
-        existing = session.exec(select(ResearchAsset).where(
+        existing = session.exec(sm_select(ResearchAsset).where(
             ResearchAsset.run_id == run_id,
             ResearchAsset.content_kind == "report",
             ResearchAsset.content_hash == content_hash,
         )).first()
         if existing is not None:
-            revision = session.exec(select(ResearchReportRevision).where(
+            revision = session.exec(sm_select(ResearchReportRevision).where(
                 ResearchReportRevision.run_id == run_id,
                 ResearchReportRevision.report_asset_id == existing.asset_id,
             )).first()
@@ -114,30 +118,34 @@ def _persist_legacy_report_revision(
         return revision.revision_id
 
     with Session(get_engine()) as session:
-        selected_rows = session.exec(select(ResearchReportRevision).where(
+        selected_rows = session.exec(sm_select(ResearchReportRevision).where(
             ResearchReportRevision.run_id == run_id,
             ResearchReportRevision.is_selected == True,  # noqa: E712
         ).order_by(ResearchReportRevision.id.desc())).all()  # type: ignore[arg-type]
         current = selected_rows[0] if selected_rows else None
-        for row in selected_rows:
-            row.is_selected = False
-            session.add(row)
+        if select:
+            for row in selected_rows:
+                row.is_selected = False
+                session.add(row)
         parent = current.revision_id if current else None
         if current is None and previous_report and _report_hash(previous_report) != _report_hash(report):
             parent = add_revision(session, previous_report, None, False)
-        revision_id = add_revision(session, report, parent, True)
+        revision_id = add_revision(session, report, parent, select)
         session.commit()
-    report["revision_id"] = revision_id
+    if select:
+        report["revision_id"] = revision_id
     return revision_id
 
 # ── 深度档位：控制检索式数量 / 单式召回上限 / 总量上限 / 送入 LLM 的论文数 ────
 DEPTH_PRESETS: dict[str, dict] = {
+    "lite": {"max_queries": 2, "per_query": 15, "cap": 50, "llm_papers": 12},
     "quick": {"max_queries": 3, "per_query": 25, "cap": 80, "llm_papers": 20},
     "standard": {"max_queries": 4, "per_query": 40, "cap": 160, "llm_papers": 30},
     "deep": {"max_queries": 5, "per_query": 50, "cap": 240, "llm_papers": 40},
 }
 
 AGENT_LOOP_PRESETS: dict[str, dict] = {
+    "lite": {"query_turns": 3, "zero_preview_rounds": 1, "preview_limit": 4},
     "quick": {"query_turns": 4, "zero_preview_rounds": 1, "preview_limit": 5},
     "standard": {"query_turns": 7, "zero_preview_rounds": 2, "preview_limit": 8},
     "deep": {"query_turns": 10, "zero_preview_rounds": 3, "preview_limit": 10},
@@ -171,15 +179,54 @@ def drop_exploration_bus(run_id: int) -> None:
 # 路由层 request_pause 置位；worker 只在安全点（阶段边界 / 召回轮边界 / agent 循环
 # 迭代边界 / 报告逐篇提取之间）观察并消费，不打断进行中的网络与模型调用。
 # 进程内旗标：worker 已死（服务重启后的僵尸 run）时由路由层直接改库置 paused。
+# 若 worker 卡死在不可中断的调用里（安全点永远到不了），由路由层看门狗在宽限期后
+# 强制取消 worker（cancel_worker），worker 在 CancelledError 收尾中落库 paused。
 
 _pause_requests: set[int] = set()
 _checkpoint_lock = asyncio.Lock()
+
+# 活跃 worker 任务注册表（run_id → 任务集合）。bus 只能证明「本进程曾经跑过」，
+# 未退出的 worker 任务才能证明「现在还在跑」——request_pause 的可观察性以此为准。
+_worker_tasks: dict[int, set["asyncio.Task"]] = {}
+
+
+def start_worker(run_id: int, coro) -> "asyncio.Task":
+    """创建并注册探索 worker 任务；结束（含异常/取消）时自动注销。"""
+    task = asyncio.create_task(coro)
+    _worker_tasks.setdefault(run_id, set()).add(task)
+
+    def _unregister(done: "asyncio.Task") -> None:
+        tasks = _worker_tasks.get(run_id)
+        if tasks is not None:
+            tasks.discard(done)
+            if not tasks:
+                _worker_tasks.pop(run_id, None)
+
+    task.add_done_callback(_unregister)
+    return task
+
+
+def has_live_worker(run_id: int) -> bool:
+    return any(not t.done() for t in _worker_tasks.get(run_id, ()))
+
+
+def cancel_worker(run_id: int) -> int:
+    """强制取消该 run 的所有活跃 worker，返回取消数量。"""
+    live = [t for t in _worker_tasks.get(run_id, ()) if not t.done()]
+    for t in live:
+        t.cancel()
+    return len(live)
 
 
 def request_pause(run_id: int) -> bool:
     """请求在安全点暂停。返回 True 表示本进程内有活跃 worker 能观察到该请求。"""
     _pause_requests.add(run_id)
-    return has_exploration_bus(run_id)
+    return has_live_worker(run_id)
+
+
+def pause_pending(run_id: int) -> bool:
+    """暂停请求是否尚未被 worker 消费（看门狗据此判断是否需要强制取消）。"""
+    return run_id in _pause_requests
 
 
 def cancel_pause_request(run_id: int) -> None:
@@ -197,13 +244,19 @@ def _checkpoint_summary(checkpoint: dict | None) -> dict | None:
         return None
     report = checkpoint.get("report") or {}
     extractions = report.get("extractions") or {}
-    return {
+    summary = {
         "completed_stages": list(checkpoint.get("completed_stages") or []),
         "report_selected": len(report.get("selected_keys") or []),
         "report_extracted": sum(
             1 for v in extractions.values() if isinstance(v, dict) and v.get("status") == "examined"),
         "updated_at": checkpoint.get("updated_at"),
     }
+    # v2 检查点元信息（v8 迁移状态对 API 消费方可见）
+    for key in ("checkpoint_schema_version", "workflow_revision", "migration_status",
+                "migration_reason", "reusable_artifacts", "invalidated_artifacts"):
+        if checkpoint.get(key) is not None:
+            summary[key] = checkpoint[key]
+    return summary
 
 
 def _merge_checkpoint(run_id: int, **fields) -> None:
@@ -224,8 +277,12 @@ def _merge_checkpoint(run_id: int, **fields) -> None:
         logger.warning("merge checkpoint failed for run %s (non-fatal)", run_id, exc_info=True)
 
 
-def _save_report_plan(run_id: int, selected_keys: list[str]) -> None:
-    """冻结报告选材清单（先于任何提取发生，崩溃后也能按同一清单续跑）。"""
+def _save_report_plan(run_id: int, selected_keys: list[str],
+                      backfill_keys: list[str] | None = None) -> None:
+    """冻结报告选材清单（先于任何提取发生，崩溃后也能按同一清单续跑）。
+
+    backfill_keys：分层选材的关键层候补（dataset/survey 层正选提取失败时递补）。
+    """
     try:
         with Session(get_engine()) as s:
             run = s.get(ExplorationRun, run_id)
@@ -234,6 +291,8 @@ def _save_report_plan(run_id: int, selected_keys: list[str]) -> None:
             cp = dict(run.checkpoint or {})
             rep = dict(cp.get("report") or {})
             rep["selected_keys"] = [str(k) for k in selected_keys]
+            if backfill_keys is not None:
+                rep["backfill_keys"] = [str(k) for k in backfill_keys]
             cp["report"] = rep
             cp["updated_at"] = datetime.now(timezone.utc).isoformat()
             run.checkpoint = cp
@@ -286,6 +345,204 @@ def _save_report_evidence(run_id: int, evidence_store: dict) -> None:
         logger.warning("save report evidence failed for run %s (non-fatal)", run_id, exc_info=True)
 
 
+
+# ── v8 检查点 schema 与旧检查点迁移 ────────────────────────────────────────────
+
+CHECKPOINT_SCHEMA_VERSION = 2
+WORKFLOW_REVISION = "exploration_v8"
+# v8 八阶段（旧：preflight/decompose/recall/enrich/metrics/synthesize/report/persist）
+STAGE_ORDER_V2 = ("preflight", "protocol", "recall", "screen",
+                  "select", "extract", "synthesize", "report")
+
+
+def _migrate_checkpoint_v1_to_v2(run: ExplorationRun) -> dict:
+    """旧八阶段检查点 → v2。幂等：migration_status=migrated 直接原样返回。
+
+    按产物可信度分层复用（用户 2026-09-19 run6 审查决定）：
+    - preflight：保留结论，恢复路径补跑新增的 arXiv 探测；
+    - decompose：检索式保留作输入，coverage_protocol 缺失 → protocol 阶段补生成；
+    - recall：候选论文保留（富化字段只补缺失），screen 重跑终裁与 unknown 隔离；
+    - enrich/metrics：废弃重算（语料构成变化 + 可能已被 unknown 污染）；
+    - synthesize/report：产物保留为历史版本（result 不删），不作新流程输入；
+    - 预算：历史消耗入 legacy_usage 审计，不占 enforce 限额（baseline 抬高），
+      迁移后额度（post_migration_budget）只约束新增调用。
+    无法迁移（result 缺语料等）返回 migration_status=needs_restart，保留产物与导出。
+    """
+    checkpoint = dict(run.checkpoint or {})
+    if checkpoint.get("migration_status") in {"migrated", "needs_restart"}:
+        return checkpoint
+
+    result = dict(run.result or {})
+    completed_v1 = set(checkpoint.get("completed_stages") or [])
+    # 只迁移真正的 v1 检查点：含 v1 专有阶段名（decompose/enrich/metrics/persist）
+    # 或缺 v2 阶段名标记。新代码写的 v2 检查点（protocol/screen/select/extract）
+    # 不带旧阶段名，不进迁移路径。
+    _V1_ONLY_STAGES = {"decompose", "enrich", "metrics", "persist"}
+    if not (completed_v1 & _V1_ONLY_STAGES):
+        checkpoint.setdefault("checkpoint_schema_version", CHECKPOINT_SCHEMA_VERSION)
+        checkpoint.setdefault("workflow_revision", WORKFLOW_REVISION)
+        checkpoint.setdefault("migration_status", "migrated")
+        checkpoint["migration_source_version"] = "exploration_v8_native"
+        return checkpoint
+    reusable: list[str] = []
+    invalidated: list[str] = []
+
+    completed_v2: set[str] = set()
+    if "preflight" in completed_v1:
+        completed_v2.add("preflight")
+        reusable.append("preflight(补跑arXiv探测)")
+    # decompose → protocol：检索式复用，协议在 protocol 阶段补生成后落 decompose 列
+    if run.decompose and (run.decompose.get("en_queries") or []):
+        completed_v2.add("protocol")
+        reusable.append("decompose→protocol(检索式复用,协议补生成)")
+    if "recall" in completed_v1 and result.get("papers"):
+        completed_v2.add("recall")
+        reusable.append("recall(候选池复用,screen重跑终裁)")
+    else:
+        invalidated.append("recall")
+    # 旧 enrich/metrics/synthesize/report 产物不再作为输入
+    for stage in ("enrich", "metrics", "synthesize", "report"):
+        if stage in completed_v1:
+            invalidated.append(stage)
+    # 旧 report 的逐篇提取缓存是否可复用：checkpoint.report 存在即保留（不要求
+    # 旧 "report" 阶段标记完成——v1 在 report 进行中暂停的 run 同样有已提取篇目），
+    # 作为新 extract 阶段的 resume 输入（examined 篇目不重提取）
+    legacy_report_cache = {}
+    if isinstance(checkpoint.get("report"), dict) and checkpoint["report"]:
+        legacy_report_cache = dict(checkpoint["report"])
+        reusable.append("report逐篇提取缓存(选材冻结复用)")
+
+    legacy_budget = dict(checkpoint.get("budget") or {})
+    legacy_usage = {
+        name: row.get("used") or 0.0
+        for name, row in (legacy_budget.get("resources") or {}).items()
+    } if legacy_budget else {}
+
+    migrated = {
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "workflow_revision": WORKFLOW_REVISION,
+        "migration_source_version": "legacy_v1",
+        "migration_status": "migrated",
+        "reusable_artifacts": reusable,
+        "invalidated_artifacts": invalidated,
+        "legacy_usage": legacy_usage,
+        "post_migration_budget": {"note": "enforce 只约束迁移后新增消耗（baseline=legacy_usage）"},
+        "completed_stages": sorted(completed_v2),
+        "report": legacy_report_cache,
+        "budget": legacy_budget,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if "recall" in completed_v1 and not result.get("papers"):
+        migrated["migration_status"] = "needs_restart"
+        migrated["migration_reason"] = (
+            "旧召回阶段标记完成但 result 缺语料快照，无法恢复候选池；"
+            "旧产物与导出保留，请新建研究重跑。")
+    return migrated
+
+
+async def ensure_coverage_protocol(decompose: dict, question: str, llm_cfg) -> dict:
+    """确保 decompose 含六类覆盖协议；缺失（旧 run 迁移/无 Key 回退拆解）时补生成。
+
+    LLM 不可用或失败时使用程序默认六类（frontier 用 core_query 约束），保证
+    协议维度永远存在——召回覆盖检查、分层选材与报告章节组织都依赖它。
+    """
+    protocol = decompose.get("coverage_protocol")
+    if isinstance(protocol, dict) and protocol.get("dimensions"):
+        return decompose
+    core_query = str(decompose.get("core_query") or "")
+    if llm_cfg and llm_cfg.get("api_key"):
+        try:
+            from .domain_synthesizer import _llm_json
+            data = await _llm_json(
+                llm_cfg, _DECOMPOSE_SYSTEM,
+                json.dumps({"research_question": question,
+                            "existing_queries": decompose.get("en_queries") or [],
+                            "task": "只为该研究问题生成 coverage_protocol（六类维度，"
+                                    "history/methods/datasets/metrics/deployment/frontier，"
+                                    "可按问题增加领域特有维度）；不要输出 en_queries。"},
+                           ensure_ascii=False),
+                max_tokens=2000)
+            raw = data.get("coverage_protocol") if isinstance(data, dict) else None
+            decompose["coverage_protocol"] = _normalize_coverage_protocol(
+                raw.get("dimensions") if isinstance(raw, dict) else raw, core_query)
+            return decompose
+        except Exception as e:
+            logger.warning("coverage protocol generation failed, using defaults: %s", e)
+    decompose["coverage_protocol"] = _normalize_coverage_protocol(None, core_query)
+    return decompose
+
+
+def _protocol_dimensions_for_recall(protocol: dict) -> list[dict]:
+    """覆盖协议 → 召回引擎的补搜维度（probes 取各维度检索词）。"""
+    dimensions = []
+    for dim in ((protocol or {}).get("dimensions") or []):
+        if not isinstance(dim, dict):
+            continue
+        probes = [str(q) for q in dim.get("queries") or [] if str(q).strip()]
+        if probes:
+            dimensions.append({"dimension": f"协议:{dim.get('title') or dim.get('name')}",
+                               "probes": probes[:4]})
+    return dimensions
+
+
+def _partition_rescreened(unknown_pool: list[dict], kept: list[dict]) -> tuple[int, list[dict]]:
+    """Only an explicit second-pass acceptance may leave the quarantine pool."""
+    confirmed_keys = {p["key"] for p in kept
+                      if p.get("relevance_status") in ("confirmed", "title_confirmed")}
+    quarantined = []
+    recovered = 0
+    for paper in unknown_pool:
+        if paper["key"] in confirmed_keys:
+            paper["relevance_status"] = "confirmed"
+            recovered += 1
+        else:
+            quarantined.append(paper)
+    return recovered, quarantined
+
+
+def _clean_ambiguous_keywords(papers: list[dict]) -> int:
+    """跨域歧义概念词兜底清洗（provider 层已过滤，这里覆盖历史数据与其他来源）。"""
+    from .providers.openalex import _keyword_suffix_allowed
+    removed = 0
+    for p in papers:
+        keywords = p.get("keywords") or []
+        if not keywords:
+            continue
+        kept = [str(k) for k in keywords if _keyword_suffix_allowed(str(k))]
+        removed += len(keywords) - len(kept)
+        if len(kept) != len(keywords):
+            p["keywords"] = kept
+    return removed
+
+
+def _evidence_digest(tables: dict, papers: list[dict]) -> list[dict]:
+    """extract 阶段证据表 → 每篇一行浓缩（证据驱动综合的输入）。"""
+    row_formats = {
+        "experimental_comparisons": lambda r: (
+            f"{r.get('method') or '?'}"
+            + (f" vs {r['baseline_method']}" if r.get("baseline_method") else "")
+            + (f" @{r['dataset']}" if r.get("dataset") else "")
+            + f": {r.get('metric') or '?'}={r.get('value') or '?'}"),
+        "taxonomy": lambda r: f"类别 {r.get('category') or '?'}",
+        "metrics": lambda r: f"{r.get('aspect') or '?'}→{r.get('metric') or '?'}",
+        "tasks": lambda r: f"{r.get('task') or '?'}@{r.get('dataset') or '?'}",
+        "frameworks": lambda r: f"{r.get('name') or '?'}({r.get('kind') or '?'})",
+    }
+    by_key: dict[str, list[str]] = {}
+    for name, rows in (tables or {}).items():
+        fmt = row_formats.get(name)
+        if fmt is None:
+            continue
+        for row in rows or []:
+            for e in row.get("evidence") or []:
+                key = e.get("paper_key")
+                if key:
+                    by_key.setdefault(key, []).append(_clip(fmt(row), 160))
+    titles = {p["key"]: p.get("title") or "" for p in papers}
+    return [{"paper_key": key, "title": titles.get(key, ""), "rows": rows[:6]}
+            for key, rows in sorted(by_key.items())]
+
+
 # ── Stage 1: decompose ────────────────────────────────────────────────────────
 
 _INTENT_VALUES = ("novelty", "maturity", "landscape")
@@ -307,9 +564,59 @@ def _sanitize_query(q: str) -> str:
     return " ".join(toks)
 
 _DECOMPOSE_SYSTEM = (
-    "你是学术检索专家。把学者的口语化研究问题拆解成英文学术数据库检索式。"
-    "只输出 JSON，不要输出任何其他文字。"
+    "你是学术检索专家。把学者的口语化研究问题拆解成英文学术数据库检索式，"
+    "并制定综述研究的覆盖协议。只输出 JSON，不要输出任何其他文字。"
 )
+
+
+# 六类覆盖协议（v8）：综述问题不能只按相关性堆论文——历史演进/方法谱系/
+# 数据集基准/评估指标/部署效率/前沿趋势是科研综述的结构性覆盖目标（run6
+# 审查：缺了这些维度的召回，报告只能产出分类体系摘要）。
+COVERAGE_DIMENSION_DEFAULTS: list[dict] = [
+    {"name": "history", "title": "历史演进", "must_cover": "奠基工作与阶段划分",
+     "queries": ["survey review"]},
+    {"name": "methods", "title": "方法谱系", "must_cover": "技术类别与代表方法",
+     "queries": ["method approach"]},
+    {"name": "datasets", "title": "数据集与基准", "must_cover": "公开基准与数据集",
+     "queries": ["benchmark dataset"]},
+    {"name": "metrics", "title": "评估指标", "must_cover": "评估维度与度量",
+     "queries": ["evaluation metric"]},
+    {"name": "deployment", "title": "部署与效率", "must_cover": "推理效率与实际部署",
+     "queries": ["efficiency latency deployment"]},
+    {"name": "frontier", "title": "前沿趋势", "must_cover": "近两年新方向",
+     "queries": []},
+]
+
+
+def _normalize_coverage_protocol(raw, core_query: str) -> dict:
+    """归一 LLM 产出的覆盖协议；缺维度补程序默认值。"""
+    by_name: dict[str, dict] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        queries = [str(q).strip() for q in item.get("queries") or [] if str(q).strip()][:4]
+        by_name[name] = {
+            "name": name,
+            "title": str(item.get("title") or name).strip()[:40],
+            "must_cover": str(item.get("must_cover") or "").strip()[:200],
+            "queries": queries,
+        }
+    dimensions = []
+    for default in COVERAGE_DIMENSION_DEFAULTS:
+        merged = dict(default)
+        override = by_name.pop(default["name"], None)
+        if override:
+            merged.update({k: v for k, v in override.items() if v})
+        # frontier 维度默认用核心领域词约束近两年检索
+        if not merged.get("queries"):
+            merged["queries"] = [core_query] if core_query else []
+        dimensions.append(merged)
+    # 模型给出的协议外维度不丢弃（领域特有的覆盖目标可能有效）
+    dimensions.extend(by_name.values())
+    return {"dimensions": dimensions}
 
 
 def _decompose_user(question: str, max_queries: int) -> str:
@@ -322,10 +629,16 @@ def _decompose_user(question: str, max_queries: int) -> str:
         f' "en_queries": ["英文检索式1", "英文检索式2", ...]（{max_queries} 条左右，覆盖领域词+任务词+方法词+同义词，'
         "每条是空格分隔的关键词串，不要引号和布尔算符),",
         ' "focus_terms": ["中文关键术语1", "中文关键术语2"],',
-        ' "core_query": "2至4个词的核心领域名称，不包含年份、LLM等额外限定词，除非它们就是研究对象"}',
+        ' "core_query": "2至4个词的核心领域名称，不包含年份、LLM等额外限定词，除非它们就是研究对象",',
+        ' "coverage_protocol": {"dimensions": ['
+        '{"name": "history|methods|datasets|metrics|deployment|frontier 或领域特有维度", '
+        '"title": "维度中文名", "must_cover": "该维度必须覆盖的内容", '
+        '"queries": ["为该维度补充的英文检索词"]}, ...]}',
         "```",
         "要求：检索式面向 Scopus/OpenAlex 的 TITLE-ABS-KEY 语义；问题里的中文概念必须译成学界通用英文术语"
         "（如「识别肿瘤」→ tumor detection / cancer diagnosis）；同义词多给几条提高查全。",
+        "coverage_protocol 六类维度都要给出（可按问题调整 must_cover 与 queries）：综述报告按这些维度"
+        "检查覆盖并组织章节，遗漏维度会让报告退化为分类清单。",
     ])
 
 
@@ -341,8 +654,15 @@ def _normalize_decompose(data: dict, question: str, max_queries: int) -> dict:
     if intent not in _INTENT_VALUES:
         intent = "landscape"
     focus = [str(t).strip() for t in (data.get("focus_terms") or []) if str(t).strip()][:6]
-    return {"intent": intent, "en_queries": queries[:max_queries], "focus_terms": focus, "fallback": False,
-            "core_query": " ".join(_sanitize_query(data.get("core_query") or queries[0]).split()[:4])}
+    core_query = " ".join(_sanitize_query(data.get("core_query") or queries[0]).split()[:4])
+    normalized = {"intent": intent, "en_queries": queries[:max_queries], "focus_terms": focus,
+                  "fallback": False, "core_query": core_query}
+    protocol_raw = data.get("coverage_protocol")
+    normalized["coverage_protocol"] = _normalize_coverage_protocol(
+        protocol_raw.get("dimensions") if isinstance(protocol_raw, dict) else protocol_raw,
+        core_query,
+    )
+    return normalized
 
 
 def _build_fallback_queries(question: str, max_queries: int) -> list[str]:
@@ -430,6 +750,56 @@ async def decompose_question(question: str, llm_cfg: Optional[dict], *, max_quer
             "core_query": " ".join(fb_queries[0].split()[:4]) if fb_queries else ""}
 
 
+async def _fast_preview_search(queries: list[str], *, limit: int, cap: int,
+                               now_year: int, search_audit: dict | None = None,
+                               preflight_dead: set[str] | None = None) -> tuple[list[dict], str]:
+    """预览检索走 arXiv + OpenAlex 免费源，不过 Scopus。
+
+    预览只回答「命中/零命中 + 样本标题」这一个信号，OpenAlex 的学术覆盖足够；
+    Scopus 预览每轮都要过 AdaptiveThrottle，校内 IP 失效时整轮 429 退避把拆解
+    阶段拖到 10+ 分钟（v7.4.1 实测），而正式召回不受影响仍三源并行。
+    """
+    from .recall_engine import _default_search_one
+
+    usable = list(dict.fromkeys(q.strip() for q in queries if q.strip()))[:5]
+    if not usable:
+        return [], "preview:arxiv+openalex"
+    sources = ("openalex", "arxiv")
+    channels = [(q, src) for q in usable for src in sources]
+    # 共享 provider 状态：同一源多通道复用一个客户端，结束时统一关闭
+    provider_state: dict = {}
+    try:
+        results = await asyncio.gather(
+            *(_default_search_one(src, q, limit, "relevance",
+                                  preflight_dead=preflight_dead,
+                                  _state=provider_state) for q, src in channels),
+            return_exceptions=True)
+    finally:
+        for provider in provider_state.values():
+            aclose = getattr(provider, "aclose", None)
+            if aclose:
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+    batches: list[list] = []
+    audit_channels = []
+    for (q, src), res in zip(channels, results):
+        if isinstance(res, BaseException):
+            logger.warning("preview %s failed for '%s': %s", src, q, res)
+            batches.append([])
+        else:
+            batches.append(res)
+        audit_channels.append({"query": q, "order": "relevance", "limit": limit,
+                               "hits": 0 if isinstance(res, BaseException) else len(res)})
+    if search_audit is not None:
+        search_audit.update(method="fast_preview_free_sources_v1",
+                            channels=audit_channels)
+    papers = _dedupe_candidates([cand for batch in batches for cand in batch])
+    papers = _cap_papers(papers, cap=cap, now_year=now_year)
+    return papers, "preview:arxiv+openalex"
+
+
 async def refine_decomposition_with_tools(
     question: str,
     decompose: dict,
@@ -500,16 +870,13 @@ async def refine_decomposition_with_tools(
         if signature in loop_state["searched_queries"]:
             return {"searched": False, "duplicate": True, "detail": "该组检索式已经预览过"}
         audit: dict = {}
-        papers, provider = await recall_papers(
+        papers, provider = await _fast_preview_search(
             queries,
-            per_query=limits["preview_limit"],
+            limit=limits["preview_limit"],
             cap=max(12, limits["preview_limit"] * len(queries)),
             now_year=now_year,
-            progress=progress,
-            preflight_dead=preflight_dead,
-            supplement_arxiv=False,
             search_audit=audit,
-            core_query=loop_state["decompose"].get("core_query", ""),
+            preflight_dead=preflight_dead,
         )
         round_row = {
             "round": len(loop_state["preview_rounds"]) + 1,
@@ -1130,8 +1497,14 @@ def _clip(text: str | None, limit: int) -> str:
     return t[:limit] + ("…" if len(t) > limit else "")
 
 
-def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dict, *, max_papers: int) -> tuple[str, list[dict]]:
-    """材料装配。返回 (user prompt, 送入的论文子集)——子集编号 E1..En 供证据引用。"""
+def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dict, *,
+                max_papers: int, evidence_digest: list[dict] | None = None) -> tuple[str, list[dict]]:
+    """材料装配。返回 (user prompt, 送入的论文子集)——子集编号 E1..En 供证据引用。
+
+    evidence_digest（v8）：extract 阶段的逐篇证据行浓缩——综合发生在证据提取
+    之后，材料不再只有标题+摘要（run6 审查：浅层语料综合无法支撑方法/数据集/
+    指标层面的结论）。
+    """
     subset = papers[:max_papers]
     by_key = {p["key"]: p for p in papers}
 
@@ -1195,6 +1568,11 @@ def _synth_user(question: str, decompose: dict, papers: list[dict], metrics: dic
         lines.append(" ".join(bits))
         if p.get("abstract"):
             lines.append(f'  摘要: {_clip(p["abstract"], _ABSTRACT_CLIP)}')
+    if evidence_digest:
+        lines += ["", "## 逐篇证据行（extract 阶段已提取的结构化证据；结论优先引用这些行）", ""]
+        for d in evidence_digest[:24]:
+            lines.append(f'- [{d.get("paper_key")}] {_clip(str(d.get("title") or ""), 90)}: '
+                         + "；".join(d.get("rows") or []))
     lines += [
         "",
         "## 输出格式",
@@ -1253,14 +1631,16 @@ def _normalize_synthesis(data: dict, subset: list[dict], *, retrieval_fallback: 
         )
 
     def _lst(x, n: int) -> list[str]:
+        # 360 字保存完整正文：卡片展示缩略由前端渲染时做，不修改存储的原正文
+        # （旧版 90 字裁剪曾把被截断的 hotspots 直接当作报告 findings 交付）
         if isinstance(x, list):
-            return [_clip(str(s), 90) for s in x if str(s).strip()][:n]
-        return [_clip(str(x), 90)] if x and str(x).strip() else []
+            return [_clip(str(s), 360) for s in x if str(s).strip()][:n]
+        return [_clip(str(x), 360)] if x and str(x).strip() else []
 
     return ExplorationSynthesis(
         verdict=verdict,
-        maturity=_clip(str(data.get("maturity") or ""), 400),
-        landscape_summary=_clip(str(data.get("landscape_summary") or ""), 600),
+        maturity=_clip(str(data.get("maturity") or ""), 800),
+        landscape_summary=_clip(str(data.get("landscape_summary") or ""), 1200),
         hotspots=_lst(data.get("hotspots"), 6),
         gaps=_lst(data.get("gaps"), 6),
         follow_ups=_lst(data.get("follow_ups"), 5),
@@ -1306,7 +1686,7 @@ async def _task_paradigms(cfg: dict, papers: list[dict]) -> list[ParadigmInfo]:
 async def synthesize_exploration(
     question: str, decompose: dict, papers: list[dict], metrics: dict,
     llm_cfg: Optional[dict], *, max_papers: int, depth: str = "standard", on_iteration=None,
-    should_pause=None,
+    should_pause=None, evidence_digest: list[dict] | None = None,
 ) -> Optional[ExplorationSynthesis]:
     """用有界 ReAct 循环完成跨文献综合；无 Key / 证据不足时跳过。"""
     if not llm_cfg or not llm_cfg.get("api_key"):
@@ -1328,7 +1708,8 @@ async def synthesize_exploration(
     try:
         selected, retrieval = await retrieve_materials(
             papers, question + "\n" + " ".join(decompose.get("en_queries") or []), limit=max_papers)
-        user, subset = _synth_user(question, decompose, selected, metrics, max_papers=max_papers)
+        user, subset = _synth_user(question, decompose, selected, metrics, max_papers=max_papers,
+                                   evidence_digest=evidence_digest)
         evidence_by_no = {p["_evidence_no"]: p for p in subset}
         state = {"draft": None, "evidence_inspections": 0, "metrics_inspections": 0}
 
@@ -1425,7 +1806,7 @@ async def synthesize_exploration(
                 "submit_synthesis": submit_synthesis,
             },
             validator=validate_synthesis,
-            max_iterations={"quick": 4, "standard": 6, "deep": 8}.get(depth, 6),
+            max_iterations={"lite": 4, "quick": 4, "standard": 6, "deep": 8}.get(depth, 6),
             no_progress_limit=2, turn_timeout=150,
             progress_marker=lambda current: (
                 current["evidence_inspections"], current["metrics_inspections"],
@@ -1440,21 +1821,29 @@ async def synthesize_exploration(
             raise ValueError("synthesis loop ended without a submitted draft")
         synth = _normalize_synthesis(data, subset, retrieval_fallback=bool(decompose.get("fallback")))
         synth.partial = loop.status != "completed"
-        audit = await audit_answer(synth.markdown_report, [
-            {"id": p["_evidence_no"], "title": p.get("title") or "", "abstract": p.get("abstract") or ""}
-            for p in subset
-        ], llm_cfg)
+        # 综合产物只作为主笔输入，不再追加真实性核验轮次；流派具象化仍是
+        # 报告写作前的材料整理步骤。
+        paradigms_result = (await asyncio.gather(
+            asyncio.wait_for(_task_paradigms(llm_cfg, papers), timeout=90),
+            return_exceptions=True,
+        ))[0]
+        if isinstance(paradigms_result, Exception):
+            synth.partial = True
+            logger.warning(f"explorer synthesize paradigms failed (non-fatal): {paradigms_result}")
+        else:
+            synth.paradigms = paradigms_result
+        audit = {"status": "not_requested", "reason": "report_generation_ends_after_writing"}
     except StagePausedError:
         raise
     except Exception as e:
         logger.warning(f"explorer synthesize main task failed (non-fatal): {e}")
         synth = ExplorationSynthesis(partial=True)
-
-    try:
-        synth.paradigms = await asyncio.wait_for(_task_paradigms(llm_cfg, papers), timeout=90)
-    except Exception as e:
-        synth.partial = True
-        logger.warning(f"explorer synthesize paradigms failed (non-fatal): {e}")
+        # 主任务失败时流派任务仍单独执行（与原行为一致）
+        try:
+            synth.paradigms = await asyncio.wait_for(_task_paradigms(llm_cfg, papers), timeout=90)
+        except Exception as pe:
+            synth.partial = True
+            logger.warning(f"explorer synthesize paradigms failed (non-fatal): {pe}")
 
     if synth.partial and not (
         synth.verdict or synth.maturity or synth.landscape_summary
@@ -1499,6 +1888,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
     报告阶段复用逐篇提取缓存（checkpoint.report.extractions），只补缺的篇目。
     """
     from ..ai_config import get_analysis_config
+    from ..llm import set_llm_budget, set_llm_deadline
 
     bus = get_exploration_bus(run_id)
     exclusion_token = active_exclusions.set({})
@@ -1506,6 +1896,9 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
     _pause_requests.discard(run_id)
 
     async def emit(event: str, **data):
+        # 统一注入服务端时间戳（epoch 秒）：前端计时器据此还原各阶段耗时，
+        # 刷新/重连后的历史回放事件也携带原始时刻，不会把计时重置。
+        data.setdefault("ts", time.time())
         await bus.publish(StreamEvent(event=event, data=data))
 
     try:
@@ -1524,14 +1917,31 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         # ── 可追溯性：阶段时间线 + token 台账；阶段结束即落库 ─────────────────
         # 失败的 run 也保留已发生的关键记录（检索审计/循环轨迹/耗时/用量），
         # 供事后复盘与流水线优化，不再依赖跑到 persist 才写 result。
-        from ..llm import set_llm_stage, start_token_ledger, token_ledger_report
+        from ..llm import set_llm_scope, set_llm_stage, start_token_ledger, token_ledger_report
 
         token_ledger = start_token_ledger()
+        # 实例/操作归属（§16.5）：run_instance_id 随 run 行创建冻结，数字 id
+        # 复用不串账；operation=research 覆盖首次与续跑（同一逻辑操作）。
+        set_llm_scope("exploration", run_id=str(run_id),
+                      run_instance_id=run.run_instance_id, operation="research")
         stage_timeline: list[dict] = []
         _stage_clock: dict[str, float] = {}
 
         def _stage_begin(stage: str) -> None:
             set_llm_stage(stage)
+            # extract / synthesize / report 是独立交付域：不继承检索阶段的 token、
+            # 调用次数或总时长硬预算。仍保留各调用自身 timeout、有限重试、暂停、
+            # 取消与全局用量记录。进入其他阶段时恢复 run 预算，避免 ContextVar
+            # 在断点续跑或异常路径中串域。
+            if stage in ("extract", "synthesize", "report"):
+                budget.pause()
+                set_llm_budget(None)
+                set_llm_deadline(None)
+            else:
+                budget.resume()
+                set_llm_budget(budget)
+                if budget_enforce:
+                    set_llm_deadline(budget.deadline_after(budget.research_seconds_left()))
             _stage_clock[stage] = time.monotonic()
             stage_timeline.append({"stage": stage,
                                    "started_at": datetime.now(timezone.utc).isoformat(),
@@ -1545,6 +1955,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     row["status"] = status
                     row.update(counts)
                     break
+            # 阶段边界落预算快照：崩溃/暂停后续跑恢复剩余额度，不重置（§16.6）
+            try:
+                _budget_checkpoint()
+            except Exception:
+                logger.debug("budget checkpoint merge failed (non-fatal)", exc_info=True)
 
         neighbors: list = []
         seed_recall: dict = {}
@@ -1563,8 +1978,99 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
 
         checkpoint: dict = dict(run.checkpoint or {}) if (resume and run) else {}
         completed: set[str] = set(checkpoint.get("completed_stages") or [])
+
+        # ── 统一预算（§16.6 P2 + v8）：默认记账模式（额度只累计不阻断）；
+        # depth=lite 自 v8 起默认强制（run6 无约束实测 65 调用/29.8 万 token，
+        # 预设已按该校准上调，配合分级降级跑完 lite 全流程）；其余档位仍可经
+        # options.budget_enforce 显式开启。时间 deadline 钳制全部重试退避、
+        # 模型尝试/输入额度耗尽抛 BUDGET_*（v7.5 起 output_tokens 为软限制：
+        # 不再硬停调用，超限仅记账，由 LLM Core 在消息末尾追加催促提示词，
+        # 见 run_budget.llm_output_hint），阶段失败走既有失败路径，检查点保留
+        # 成果、续跑恢复剩余额度不重置。
+        from .run_budget import DEPTH_BUDGET_PRESETS, RunBudget
+        budget_enforce = bool(options.get("budget_enforce")) or depth == "lite"
+        budget_preset = DEPTH_BUDGET_PRESETS.get(depth) or DEPTH_BUDGET_PRESETS["standard"]
+        migrated_baseline: dict[str, float] = {}
+        if not resume:
+            # 新 run 显式落 schema 标记：续跑据此跳过迁移路径
+            _merge_checkpoint(run_id,
+                              checkpoint_schema_version=CHECKPOINT_SCHEMA_VERSION,
+                              workflow_revision=WORKFLOW_REVISION)
+        if resume and run is not None:
+            raw_checkpoint = dict(run.checkpoint or {})
+            if (raw_checkpoint.get("completed_stages")
+                    and raw_checkpoint.get("checkpoint_schema_version") != CHECKPOINT_SCHEMA_VERSION
+                    and (set(raw_checkpoint.get("completed_stages") or [])
+                         & {"decompose", "enrich", "metrics", "persist"})):
+                # 旧八阶段检查点 → v2 分层迁移（幂等；结果即时落库防半迁移）
+                checkpoint = _migrate_checkpoint_v1_to_v2(run)
+                completed = set(checkpoint.get("completed_stages") or [])
+                _merge_checkpoint(run_id, **checkpoint)
+                if checkpoint.get("migration_status") == "needs_restart":
+                    _set_stage(run_id, run.current_stage or "recall", "needs_restart",
+                               error_message=str(checkpoint.get("migration_reason") or
+                                                 "旧检查点无法迁移，需重新创建研究"))
+                    await emit("error", stage=run.current_stage or "",
+                               message=str(checkpoint.get("migration_reason")
+                                           or "旧检查点无法迁移，需重新创建研究"),
+                               code="CHECKPOINT_MIGRATION_FAILED")
+                    return
+            migrated_baseline = {
+                str(k): float(v or 0.0) for k, v in (checkpoint.get("legacy_usage") or {}).items()}
+        if resume and dict(checkpoint.get("budget") or {}).get("resources"):
+            budget = RunBudget.restore(budget_preset, enforce=budget_enforce,
+                                       state=dict(checkpoint.get("budget") or {}),
+                                       baseline_used=migrated_baseline or None)
+        else:
+            budget = RunBudget(budget_preset, enforce=budget_enforce)
+        set_llm_budget(budget)
+        if budget_enforce:
+            # 总 deadline（含交付预留）传给所有子调用、队列与退避（§16.6）
+            set_llm_deadline(budget.deadline_after(budget.delivery_seconds_left()))
+
+        # lite 分级降级（P7）：预算余量比例决定增强类调用的取舍——先跳过复核/
+        # 复筛/重排等增强调用，再压缩上下文，研究侧耗尽才冻结进入交付（run_budget
+        # 既有语义）。硬限额是最后防线，降级让 lite 在预算内完整跑完而不是中途炸。
+        def _budget_ratio(resource: str = "model_attempts") -> float:
+            try:
+                row = budget.snapshot()["resources"].get(resource) or {}
+                limit = float(row.get("limit") or 0.0)
+                return 1.0 if limit <= 0 else max(0.0, float(row.get("remaining") or 0.0) / limit)
+            except Exception:
+                return 1.0
+
+        def _skip_enhancement_calls() -> bool:
+            return budget_enforce and _budget_ratio() < 0.30
+
+        # v8 交付预留接线（run6 审查 P0-3）：research_time_exceeded 的编排消费点。
+        # 研究侧时间耗尽（enforce 档）后，剩余研究阶段整体跳过/降级，用已有材料
+        # 直接进入报告生成，不再出现「研究烧光总 deadline、报告 0 秒可用」。
+        # 伴随 deadline 相位切换（_stage_begin）双保险。
+        _research_frozen_logged = False
+
+        def _research_frozen() -> bool:
+            nonlocal _research_frozen_logged
+            if not (budget_enforce and budget.research_time_exceeded()):
+                return False
+            if not _research_frozen_logged:
+                _research_frozen_logged = True
+                budget.exhaustion_log.append({
+                    "resource": "research_time",
+                    "limit": round(float(budget_preset.get("total_active_seconds", 0.0))
+                                   - float(budget_preset.get("delivery_reserve_seconds", 0.0)), 1),
+                    "used": round(budget.active_seconds(), 1),
+                    "reserved": 0.0, "baseline": 0.0,
+                    "at_active_seconds": round(budget.active_seconds(), 1),
+                })
+                source_warnings.append(
+                    "研究侧时间预算已耗尽：未开始的研究步骤已跳过，报告生成继续。")
+            return True
+
+        def _budget_checkpoint() -> None:
+            _merge_checkpoint(run_id, budget=budget.snapshot())
+
         if resume:
-            # ── 断点恢复：已完成阶段的状态全部来自落库快照 ───────────────────
+            # ── 断点恢复：已完成阶段的状态全部来自落库快照（v2 阶段名）────
             result = dict(run.result or {}) if run else {}
             restored = dict(result.get("sources") or {})
             preflight_healths = [dict(h) for h in restored.get("preflight") or []]
@@ -1576,15 +2082,27 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             search_audit = dict(restored.get("recall") or {})
             exclusion_stats = dict(restored.get("excluded") or {"count": 0})
             agent_loops.update(dict(restored.get("agent_loops") or {}))
+            # 续跑沿用已落库的阶段时间线：本 worker 只追加自己执行的新段，
+            # 暂停前各阶段的耗时不得被空时间线覆盖丢失。同一阶段暂停前后
+            # 会产生多行（status=paused 的闭合段 + 重入后的新段），前端按
+            # 阶段求和展示，暂停间隔不计入任何阶段。
+            # duration_s 为 None 的行来自崩溃而非暂停收尾（正常暂停会闭合），
+            # 其单调时钟已随旧进程丢失、无法补算，恢复时丢弃。旧阶段名
+            # （enrich/metrics/persist）的时间线行原样保留，前端按阶段求和。
+            stage_timeline.extend(
+                dict(row) for row in restored.get("stage_timeline") or []
+                if isinstance(row, dict) and row.get("stage")
+                and row.get("duration_s") is not None
+            )
             decompose = dict(run.decompose) if (run and run.decompose) else None
-            if decompose is None:
-                completed.discard("decompose")
+            if decompose is None or not (decompose.get("en_queries") or []):
+                completed.discard("protocol")
             else:
                 result.setdefault("decompose", decompose)
-            if "recall" in completed or "metrics" in completed:
+            if "recall" in completed or "screen" in completed:
                 papers = [dict(p) for p in result.get("papers") or []]
                 provider_name = str(result.get("provider") or "")
-            if "metrics" in completed:
+            if "screen" in completed:
                 metrics = dict(result.get("metrics") or {})
                 graph = dict(result.get("graph") or {})
             if "synthesize" in completed:
@@ -1602,8 +2120,15 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     run = s.get(ExplorationRun, run_id)
                     if run is None:
                         return
-                    partial = dict(run.result or {})
+                    # 整个内存 result 随阶段边界落库（不是只写 sources）：select 的
+                    # 全文快照、report_plan/report_extract/draft 只存在于内存 result
+                    # 里，persist_sources 若只合并 sources，暂停/崩溃后这些产物既
+                    # 无法从 result 恢复、续跑还会重复下载与提取（run 审查 P0）。
+                    partial = dict(result)
                     partial["sources"] = _snapshot_sources()
+                    # 正常完成、暂停、取消和失败都在 result 留一份可读预算快照；
+                    # checkpoint 负责恢复，result 负责页面/导出审计。
+                    partial["budget"] = budget.snapshot()
                     run.result = partial
                     s.add(run)
                     s.commit()
@@ -1617,17 +2142,19 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
 
         async def _finalize_pause(stage: str) -> None:
             """协作式暂停收尾：闭合时间线 → 落审计 → 状态置 paused → SSE 通知。"""
+            budget.pause()
             for row in stage_timeline:
                 if row.get("duration_s") is None:
                     row["status"] = "paused"
                     started = _stage_clock.pop(row.get("stage"), None)
                     if started is not None:
                         row["duration_s"] = round(time.monotonic() - started, 2)
+            _budget_checkpoint()
             persist_sources()
             _set_stage(run_id, stage, "paused")
             _pause_requests.discard(run_id)
             await emit("paused", stage=stage, completed_stages=sorted(completed),
-                       checkpoint=_checkpoint_public())
+                       checkpoint=_checkpoint_public(), budget=budget.snapshot())
 
         def _snapshot_sources() -> dict:
             return {
@@ -1636,6 +2163,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 "preflight": preflight_healths, "agent_loops": agent_loops,
                 "stage_timeline": [dict(row) for row in stage_timeline],
                 "token_usage": token_ledger_report(token_ledger),
+                "execution_policy": {
+                    "budgeted_stages": ["preflight", "protocol", "recall", "screen", "select"],
+                    "unbounded_stages": ["extract", "synthesize", "report"],
+                    "unbounded_guards": ["request_timeout", "bounded_retry", "pause", "cancel"],
+                },
                 **({"recall": search_audit} if search_audit else {}),
             }
 
@@ -1661,11 +2193,13 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             await emit("stage_done", stage="preflight", summary={
                 "sources": preflight_healths, "dead": sorted(preflight_dead),
             })
-            if not any(h.get("status") in {"ok", "rate_limited"} for h in preflight_healths):
+            from .preflight import any_primary_source_alive
+            if not any_primary_source_alive(preflight_healths):
                 raise RuntimeError(
                     "数据源预检未通过：" + "；".join(
                         f"{h['name']} {h.get('detail') or h.get('status')}"
                         for h in preflight_healths
+                        if h.get("role") != "supplement"
                     ) + "。请在设置页检查检索源 Key 与网络（Scopus Key 通常要求校园网机构出口）后重试。"
                 )
             agent_loops["preflight"] = {
@@ -1684,6 +2218,22 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 "iterations": 0, "trace": [],
             }
             _set_stage(run_id, "preflight")
+            # v1 迁移检查点没有 arXiv 探测（v1 预检只覆盖 Scopus/OpenAlex）：
+            # 旧结论复用，但为缺失的补充源补跑一次探测（幂等——补齐后不再请求）
+            if not any(str(h.get("name")) == "arxiv" for h in preflight_healths):
+                from .preflight import _probe_arxiv
+                try:
+                    arxiv_health = await _probe_arxiv()
+                except Exception:
+                    arxiv_health = {"name": "arxiv", "role": "supplement", "status": "network_error",
+                                    "detail": "arXiv 探测失败（非致命）", "latency_ms": None,
+                                    "http_status": None}
+                preflight_healths = [*preflight_healths, arxiv_health]
+                # 熔断集合同步重算：补测失败（如 network_error）时召回阶段要按
+                # preflight_dead 跳过 arXiv，不能继续尝试已知判死的源
+                from .preflight import dead_source_names
+                preflight_dead = dead_source_names(preflight_healths)
+                persist_sources()
             await emit("stage_start", stage="preflight")
             await emit("stage_done", stage="preflight", summary={
                 "sources": preflight_healths, "dead": sorted(preflight_dead), "resumed": True,
@@ -1697,11 +2247,12 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             await _finalize_pause("preflight")
             return
 
-        # 1) decompose
-        if "decompose" not in completed:
-            _set_stage(run_id, "decompose")
-            _stage_begin("decompose")
-            await emit("stage_start", stage="decompose")
+        # 1) protocol —— 研究协议：检索式拆解 + 六类覆盖协议（v8 由 decompose 升级：
+        #    综述问题必须带结构性覆盖目标进召回/选材/报告，见 COVERAGE_DIMENSION_DEFAULTS）
+        if "protocol" not in completed:
+            _set_stage(run_id, "protocol")
+            _stage_begin("protocol")
+            await emit("stage_start", stage="protocol")
             decomposition_question = question
             if seeds:
                 decomposition_question += "\n母论文（用于限定研究范围）：\n" + "\n".join(p["title"] for p in seeds[:12])
@@ -1712,7 +2263,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
 
             if options.get("search_online", True) and llm_cfg and llm_cfg.get("api_key"):
                 try:
-                    decompose, agent_loops["decompose"] = await refine_decomposition_with_tools(
+                    decompose, agent_loops["protocol"] = await refine_decomposition_with_tools(
                         decomposition_question,
                         decompose,
                         llm_cfg,
@@ -1726,8 +2277,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 except StagePausedError:
                     raise
                 except Exception as exc:
-                    logger.warning("decompose agent loop incomplete: %s", type(exc).__name__)
-                    agent_loops["decompose"] = {
+                    logger.warning("protocol agent loop incomplete: %s", type(exc).__name__)
+                    agent_loops["protocol"] = {
                         "status": "partial",
                         "stop_reason": type(exc).__name__,
                         "iterations": 0,
@@ -1737,7 +2288,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     }
                     raise DecompositionUnavailableError(str(exc)) from exc
             else:
-                agent_loops["decompose"] = {
+                agent_loops["protocol"] = {
                     "status": "skipped",
                     "stop_reason": "offline_or_unconfigured_llm",
                     "iterations": 0,
@@ -1745,6 +2296,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     "preview_rounds": [],
                     "preview_hit_count": 0,
                 }
+            # 协议补齐：无 Key 回退拆解 / 旧 run 迁移的 decompose 缺六类覆盖协议
+            decompose = await ensure_coverage_protocol(decompose, decomposition_question, llm_cfg)
             with Session(get_engine()) as s:
                 run = s.get(ExplorationRun, run_id)
                 if run is not None:
@@ -1752,34 +2305,49 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     s.add(run)
                     s.commit()
             result["decompose"] = decompose
-            await emit("stage_done", stage="decompose", summary={
+            await emit("stage_done", stage="protocol", summary={
                 "intent": decompose["intent"],
                 "queries": decompose["en_queries"],
                 "fallback": decompose["fallback"],
-                "iterations": agent_loops["decompose"].get("iterations", 0),
-                "loop_status": agent_loops["decompose"].get("status"),
+                "dimensions": [d.get("name") for d in
+                               (decompose.get("coverage_protocol") or {}).get("dimensions") or []],
+                "iterations": agent_loops["protocol"].get("iterations", 0),
+                "loop_status": agent_loops["protocol"].get("status"),
             })
-            _stage_end("decompose", queries=len(decompose["en_queries"]),
+            _stage_end("protocol", queries=len(decompose["en_queries"]),
                        fallback=bool(decompose.get("fallback")))
             persist_sources()
-            completed.add("decompose")
+            completed.add("protocol")
             _merge_checkpoint(run_id, completed_stages=sorted(completed))
         else:
             # 断点恢复：检索式直接复用 run.decompose，不重复拆解与预览检索
-            _set_stage(run_id, "decompose")
-            agent_loops.setdefault("decompose", {
+            _set_stage(run_id, "protocol")
+            agent_loops.setdefault("protocol", {
                 "status": "completed", "stop_reason": "restored_from_checkpoint",
                 "iterations": 0, "trace": [], "preview_rounds": [], "preview_hit_count": 0,
             })
-            await emit("stage_start", stage="decompose")
-            await emit("stage_done", stage="decompose", summary={
+            # 迁移来的旧 decompose 缺覆盖协议：恢复路径同样补生成（幂等）；
+            # 补生成后写回 run.decompose——不写回的话，协议生成后立即暂停的
+            # 恢复会再生成一次（重复的 LLM 调用）
+            if decompose is not None and not decompose.get("coverage_protocol"):
+                decompose = await ensure_coverage_protocol(decompose, question, llm_cfg)
+                if decompose.get("coverage_protocol"):
+                    with Session(get_engine()) as s:
+                        row = s.get(ExplorationRun, run_id)
+                        if row is not None:
+                            row.decompose = decompose
+                            s.add(row)
+                            s.commit()
+                    result["decompose"] = decompose
+            await emit("stage_start", stage="protocol")
+            await emit("stage_done", stage="protocol", summary={
                 "intent": decompose["intent"],
                 "queries": decompose["en_queries"],
                 "fallback": decompose.get("fallback"),
                 "resumed": True,
             })
         if _paused():
-            await _finalize_pause("decompose")
+            await _finalize_pause("protocol")
             return
 
         # 2) recall
@@ -1794,7 +2362,16 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             neighbors = []
             search_audit = {}
             corpus_cap = max(preset["cap"], RECALL_TARGETS.get(depth, 500))
-            if options.get("search_online", True):
+            if budget_enforce:
+                # candidate_papers 消费点：语料目标按剩余额度收缩，召回完成后按
+                # 实际语料量入账（超限记入 exhaustion_log）
+                corpus_cap = min(corpus_cap, max(1, int(budget.remaining("candidate_papers"))))
+            if _research_frozen():
+                # 研究侧时间耗尽（enforce 档）：不再发起新检索，语料空转 no_results
+                # 审计报告路径；母论文种子仍随 merge_corpus 进入语料
+                papers, provider_name = [], "budget_frozen"
+                search_audit["research_time_frozen"] = True
+            elif options.get("search_online", True):
                 await emit("stage_iteration", stage="recall", iteration=1, phase="tool", tool="query_search")
                 engine_used = False
                 if llm_cfg and llm_cfg.get("api_key"):
@@ -1809,6 +2386,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                             llm_cfg=llm_cfg, progress=_recall_progress,
                             on_event=_engine_event, preflight_dead=preflight_dead,
                             should_pause=_paused,
+                            protocol_dimensions=_protocol_dimensions_for_recall(
+                                decompose.get("coverage_protocol")),
                         )
                         search_audit.update(engine_audit)
                         provider_name = "multi:arxiv+scopus+openalex"
@@ -1842,6 +2421,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             # 盲测排除：问句检索与母论文引文扩展召回之后统一过滤，计量/综合/报告不再接触
             papers, exclusion_stats = apply_exclusions(papers, options)
             exclusion_stats["count"] += (search_audit.get("excluded") or {}).get("count", 0)
+            if budget_enforce:
+                budget.settle("candidate_papers", 0.0, float(len(papers)))
         else:
             # 断点恢复：语料直接复用落库快照（已含母论文合并与盲测排除）
             papers = [dict(p) for p in result.get("papers") or []]
@@ -1894,15 +2475,73 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             await _finalize_pause("recall")
             return
 
-        # 3) enrich（指标富化：逐年引用 / 摘要 / 关键词 / 期刊 SJR——全部非致命）
-        _set_stage(run_id, "enrich")
-        _stage_begin("enrich")
-        await emit("stage_start", stage="enrich")
+        # 3) screen —— 相关性裁决与计量清洗（v8 吸收旧 enrich+metrics 两个阶段）
+        #    fail-open 的 unknown 论文在此重试裁决；仍未决的进隔离区（保留审计可见，
+        #    不进计量/聚类/综合/选材——run6 教训：6 篇 unknown 综述凭高被引污染了
+        #    top_cited、聚类与关键词趋势）。指标富化与计量只对裁决后的正式语料执行。
+        _set_stage(run_id, "screen")
+        _stage_begin("screen")
+        await emit("stage_start", stage="screen")
+        screen_audit: dict = {}
+        if "screen" not in completed:
+            await emit("stage_iteration", stage="screen", iteration=1, phase="tool",
+                       tool="rescreen_and_clean")
+            # a) unknown 复筛：缩小批次给 fail-open 批次第二次机会（预算降级时跳过）
+            unknown_pool = [p for p in papers if p.get("relevance_status") == "unknown"]
+            quarantined: list[dict] = []
+            recovered = 0
+            if unknown_pool and llm_cfg and llm_cfg.get("api_key") and not _skip_enhancement_calls():
+                try:
+                    from .recall_engine import _filter_pool as _rescreen_pool
+                    from .domain_synthesizer import _llm_json as _dj_json
 
-        if "enrich" not in completed:
-            await emit("stage_iteration", stage="enrich", iteration=1, phase="tool", tool="enrich_sources")
+                    _rescreen_cfg = dict(llm_cfg)
 
+                    async def _rescreen_json(system: str, user: str) -> dict:
+                        return await _dj_json(_rescreen_cfg, system, user, max_tokens=1500)
+
+                    kept, rescreen_audit = await _rescreen_pool(
+                        unknown_pool, question, batch_size=5, llm_json=_rescreen_json,
+                        verdict_cache={}, should_pause=_paused)
+                    recovered, quarantined = _partition_rescreened(unknown_pool, kept)
+                    screen_audit["rescreen"] = {
+                        "unknown_in": len(unknown_pool), "recovered": recovered,
+                        "quarantined": len(quarantined), **{
+                            k: v for k, v in rescreen_audit.items() if k != "rejections"}}
+                except StagePausedError:
+                    raise
+                except Exception as exc:
+                    logger.warning("rescreen failed (non-fatal): %s", exc)
+                    quarantined = unknown_pool
+                    screen_audit["rescreen"] = {"unknown_in": len(unknown_pool),
+                                                "recovered": 0, "quarantined": len(quarantined),
+                                                "error": type(exc).__name__}
+            elif unknown_pool:
+                # 无 LLM/预算降级：unknown 全部隔离（宁可语料小于目标量也不放行未决论文）
+                quarantined = unknown_pool
+                screen_audit["rescreen"] = {"unknown_in": len(unknown_pool), "recovered": 0,
+                                            "quarantined": len(quarantined), "skipped": True}
+            quarantined_keys = {p["key"] for p in quarantined}
+            papers = [p for p in papers if p["key"] not in quarantined_keys]
+            # b) 概念词兜底清洗（provider 层已过滤；覆盖历史数据与其他来源）
+            keywords_removed = _clean_ambiguous_keywords(papers)
+            screen_audit["keywords_cleaned"] = keywords_removed
+            if quarantined:
+                screen_audit["quarantined"] = [{
+                    "key": p.get("key"), "title": _clip(p.get("title"), 90),
+                    "citation_count": p.get("citation_count") or 0,
+                    "reason": "相关性未决（筛选批次失败且复筛未通过）",
+                } for p in quarantined]
+                source_warnings.append(
+                    f"相关性裁决：{len(quarantined)} 篇候选论文未通过/未完成裁决，已隔离出"
+                    f"正式语料（不进入计量与选材；其中复筛挽回 {recovered} 篇）。")
+
+            # c) 指标富化（仅正式语料；全部非致命；研究侧时间耗尽时整体跳过——
+            #    计量/聚类是纯算法不受影响）
+            await emit("stage_iteration", stage="screen", iteration=2, phase="tool",
+                       tool="enrich_sources")
             _enrich_pool = papers  # history 请求预算内敛到 enrich_papers 子步，期刊富化覆盖全部论文
+            _enrich_online = options.get("search_online", True) and not _research_frozen()
 
             async def _enrich_progress(done: int):
                 await emit("enrich_progress", done=done, total=len(_enrich_pool))
@@ -1910,47 +2549,16 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             try:
                 enrich_stats = await enrich_papers(
                     _enrich_pool, progress=_enrich_progress, history_cap=_ENRICH_PAPER_CAP,
-                ) if options.get("search_online", True) else {}
+                ) if _enrich_online else {}
             except Exception as ee:
                 logger.warning(f"explorer enrich failed (non-fatal): {ee}")
                 enrich_stats = {"error": f"{type(ee).__name__}"}
             papers, enriched_exclusions = apply_exclusions(papers, options)
             exclusion_stats["count"] += enriched_exclusions["count"]
-            await emit("stage_done", stage="enrich", summary=enrich_stats)
-            agent_loops["enrich"] = {
-                "status": "completed", "stop_reason": "best_effort_enrichment_finished", "iterations": 1,
-                "trace": [{"iteration": 1, "action": "enrich_sources",
-                           "observation": {"pool": len(_enrich_pool), "cap": _ENRICH_PAPER_CAP,
-                                           "corpus": len(papers)},
-                           "validation": {"passed": True, "feedback": "富化结果与缺失均已记录"}}],
-            }
-            _stage_end("enrich", corpus=len(papers), history_budget=_ENRICH_PAPER_CAP, **enrich_stats)
-            # 富化后的语料快照落库：续传不重烧 OpenAlex/Scopus 富化请求
-            result["papers"] = [{k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
-            result["decompose"] = decompose
-            result["provider"] = provider_name
-            _set_stage(run_id, "enrich", result=result)
-            persist_sources()
-            completed.add("enrich")
-            _merge_checkpoint(run_id, completed_stages=sorted(completed))
-        else:
-            # 断点恢复：富化结果复用落库快照
-            papers = [dict(p) for p in result.get("papers") or []]
-            agent_loops.setdefault("enrich", {
-                "status": "completed", "stop_reason": "restored_from_checkpoint",
-                "iterations": 0, "trace": [],
-            })
-            await emit("stage_done", stage="enrich", summary={"resumed": True})
-        if _paused():
-            await _finalize_pause("enrich")
-            return
 
-        # 4) metrics + cluster（纯算法）
-        _set_stage(run_id, "metrics")
-        _stage_begin("metrics")
-        await emit("stage_start", stage="metrics")
-        if "metrics" not in completed:
-            await emit("stage_iteration", stage="metrics", iteration=1, phase="tool", tool="compute_metrics_and_graph")
+            # d) 计量 + 聚类（纯算法；输入已清洗）
+            await emit("stage_iteration", stage="screen", iteration=3, phase="tool",
+                       tool="compute_metrics_and_graph")
             metrics = compute_metrics(papers, now_year=now_year)
             similarities, representation = await paper_similarity(papers)
             _, edges, modularity = cluster_papers(papers, similarities=similarities)
@@ -1958,61 +2566,241 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             metrics["clusters"] = len({p.get("cluster") for p in papers if p.get("cluster", -1) >= 0})
             metrics["modularity"] = modularity
             graph = build_graph_payload(papers, edges, modularity=modularity)
-            await emit("stage_done", stage="metrics", summary={
-                "total": metrics["total"], "clusters": metrics["clusters"],
-            })
-            agent_loops["metrics"] = {
-                "status": "completed", "stop_reason": "deterministic_metrics_validated", "iterations": 1,
-                "trace": [{"iteration": 1, "action": "compute_metrics_and_graph",
+            screen_audit["corpus_after_screen"] = len(papers)
+            agent_loops["screen"] = {
+                "status": "completed", "stop_reason": "rescreen_clean_metrics_validated", "iterations": 3,
+                "trace": [{"iteration": 1, "action": "rescreen_and_clean",
+                           "observation": {"unknown": len(unknown_pool), "recovered": recovered,
+                                           "quarantined": len(quarantined),
+                                           "keywords_cleaned": keywords_removed}},
+                          {"iteration": 2, "action": "enrich_sources",
+                           "observation": {"pool": len(_enrich_pool), "cap": _ENRICH_PAPER_CAP,
+                                           **(enrich_stats if isinstance(enrich_stats, dict) else {})}},
+                          {"iteration": 3, "action": "compute_metrics_and_graph",
                            "observation": {"corpus": len(papers), "year_span": metrics.get("year_span"),
-                                           "representation": representation.get("representation")},
-                           "validation": {"passed": True, "feedback": "计量与图谱结构已生成"}}],
+                                           "representation": representation.get("representation")}}],
+                "validation": {"passed": True, "feedback": "unknown 隔离与计量清洗已完成"},
             }
-            _stage_end("metrics", corpus=len(papers), year_span=metrics.get("year_span"))
+            await emit("stage_done", stage="screen", summary={
+                "total": metrics["total"], "clusters": metrics["clusters"],
+                "quarantined": len(quarantined), "recovered": recovered,
+                **(enrich_stats if isinstance(enrich_stats, dict) else {}),
+            })
+            _stage_end("screen", corpus=len(papers), year_span=metrics.get("year_span"),
+                       quarantined=len(quarantined), recovered=recovered)
         else:
-            # 断点恢复：计量/聚类/图谱都是纯算法产物，直接复用落库快照
+            # 断点恢复：计量/聚类/图谱都是清洗后的产物，直接复用落库快照
             metrics = dict(result.get("metrics") or {})
             graph = dict(result.get("graph") or {})
             papers = [dict(p) for p in result.get("papers") or []]
-            agent_loops.setdefault("metrics", {
+            screen_audit = dict(result.get("screen") or {})
+            agent_loops.setdefault("screen", {
                 "status": "completed", "stop_reason": "restored_from_checkpoint",
                 "iterations": 0, "trace": [],
             })
-            _stage_end("metrics", corpus=len(papers), year_span=metrics.get("year_span"))
-            await emit("stage_done", stage="metrics", summary={
+            _stage_end("screen", corpus=len(papers), year_span=metrics.get("year_span"))
+            await emit("stage_done", stage="screen", summary={
                 "total": metrics.get("total"), "clusters": metrics.get("clusters"), "resumed": True,
             })
 
-        result = {
-            "decompose": decompose,
-            "provider": provider_name,
-            "papers": [
+        # 只更新 screen 拥有的键，不整体重建：续跑恢复出的 report_plan/
+        # report_extract/draft/synthesis/survey_report 必须原样保留（run 审查
+        # P0-1——整体重建会让 extract 后暂停的续跑丢证据表、synthesize 后暂停
+        # 的续跑丢冻结草稿、v1 迁移声称保留的旧报告被覆盖）
+        result.update(
+            decompose=decompose,
+            provider=provider_name,
+            papers=[
                 {k: v for k, v in p.items() if not k.startswith("_")}
                 for p in papers
             ],
-            "metrics": metrics,
-            "graph": graph,
-            "sources": _snapshot_sources(),
-        }
-        _set_stage(run_id, "metrics", result=result)
+            metrics=metrics,
+            graph=graph,
+            screen=screen_audit,
+            sources=_snapshot_sources(),
+        )
+        _set_stage(run_id, "screen", result=result)
         await emit("metrics_ready", **result)
         persist_sources()
-        if "metrics" not in completed:
-            completed.add("metrics")
+        if "screen" not in completed:
+            completed.add("screen")
             _merge_checkpoint(run_id, completed_stages=sorted(completed))
         if _paused():
-            await _finalize_pause("metrics")
+            await _finalize_pause("screen")
             return
 
-        # 5) synthesize（无 Key / 证据不足自动跳过）
+        # 4) select —— 分层选材与全文获取（v8 从 report 阶段前移独立：选材决策、
+        #    全文下载与 LLM 提取分属不同断点边界；分层配额见 survey_report.STRATUM_QUOTAS）
+        _set_stage(run_id, "select")
+        _stage_begin("select")
+        await emit("stage_start", stage="select")
+
+        async def report_progress(done: int, total: int):
+            await emit("report_progress", done=done, total=total)
+
+        def _fresh_resume_state() -> dict | None:
+            """从 DB 读最新检查点组装 resume_state——前序阶段（select/extract）
+            落库的选材与逐篇提取缓存必须实时可见，不能吃编排顶部的旧快照。"""
+            try:
+                with Session(get_engine()) as s:
+                    row = s.get(ExplorationRun, run_id)
+                    cp_report = (row.checkpoint or {}).get("report") if row else None
+            except Exception:
+                cp_report = None
+            if not cp_report:
+                return None
+            return {
+                "selected_keys": list(cp_report.get("selected_keys") or []),
+                "backfill_keys": list(cp_report.get("backfill_keys") or []),
+                "extractions": dict(cp_report.get("extractions") or {}),
+                "evidence_store": dict(cp_report.get("evidence_store") or {}),
+            }
+
+        async def _on_selected(keys: list[str], backfill_keys: list[str] | None = None):
+            _save_report_plan(run_id, keys, backfill_keys)
+
+        async def _on_extraction(entry: dict):
+            async with _checkpoint_lock:
+                _save_report_extraction(run_id, entry)
+
+        async def _on_evidence(store: dict):
+            async with _checkpoint_lock:
+                _save_report_evidence(run_id, store)
+
+        search_context = {
+            "decompose": decompose,
+            "provider": provider_name,
+            "preflight": preflight_healths,
+            "recall": search_audit,
+            "agent_loops": agent_loops,
+        }
+        # 选材数量仍由档位决定；证据提取本身进入独立无硬预算执行域，不再按
+        # 检索预算的 read_papers 余额缩小或结算。这样前序检索消耗不会导致已经
+        # 选中的论文在 extract 阶段被跳过。
+        from .survey_report import LIMITS as _REPORT_LIMITS
+        read_cap: int | None = max(0, int(_REPORT_LIMITS.get(depth, 24)))
+        if _research_frozen() and "select" not in completed:
+            # 研究侧时间耗尽：跳过选材与全文下载（report 阶段 research_frozen
+            # 只复用冻结选材与已缓存提取，不再发起研究侧工作）
+            agent_loops["select"] = {
+                "status": "skipped", "stop_reason": "research_time_budget_exhausted",
+                "iterations": 0, "trace": [],
+            }
+            await emit("stage_done", stage="select", summary={"skipped": "research_time_frozen"})
+            _stage_end("select", status="skipped", frozen=True)
+            persist_sources()
+        elif "select" not in completed:
+            result.pop("report_error", None)  # 上次尝试的失败标记失效，按本次结果重写
+            try:
+                plan = await build_survey_report(
+                    question, papers, metrics, synthesis_dict, llm_cfg, depth=depth,
+                    progress=report_progress,
+                    fetch_full_text=options.get("search_online", True),
+                    search_context=search_context,
+                    resume_state=_fresh_resume_state(), on_selected=_on_selected,
+                    should_pause=_paused, stop_after="select", paper_limit=read_cap,
+                )
+                result["report_plan"] = plan
+                # 全文获取结果已就地写入 papers（source_text），快照随阶段落库
+                result["papers"] = [
+                    {k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
+                await emit("stage_done", stage="select", summary={
+                    "selected": len(plan.get("selected_keys") or []),
+                    "full_text": plan.get("full_text_hits"),
+                    "backfill_pool": len(plan.get("backfill_keys") or []),
+                })
+            except StagePausedError:
+                raise
+            except Exception as exc:
+                logger.exception("selection failed; existing research artifacts retained")
+                result["report_error"] = f"选材与全文获取未完成（{type(exc).__name__}）。"
+                await emit("stage_done", stage="select", summary={"error": str(exc)})
+            _stage_end("select",
+                       status="partial" if result.get("report_error") else "completed",
+                       selected=len((result.get("report_plan") or {}).get("selected_keys") or []))
+            persist_sources()
+            if not result.get("report_error"):
+                completed.add("select")
+                _merge_checkpoint(run_id, completed_stages=sorted(completed))
+        else:
+            agent_loops.setdefault("select", {
+                "status": "completed", "stop_reason": "restored_from_checkpoint",
+                "iterations": 0, "trace": [],
+            })
+            # 闭合本会话的恢复段（_stage_begin 已开行）：不闭合会残留
+            # duration_s=None/status=running 的时间线行污染前端计时
+            _stage_end("select", status="completed", resumed=True)
+            await emit("stage_done", stage="select", summary={"resumed": True})
+        if _paused():
+            await _finalize_pause("select")
+            return
+
+        # 5) extract —— 并行证据提取（v8 独立阶段；失败缩小上下文重试与关键层
+        #    补位由 build_survey_report 内部执行；逐篇提取经 on_extraction 增量落
+        #    检查点，暂停/崩溃后只补缺的篇目）
+        _set_stage(run_id, "extract")
+        _stage_begin("extract")
+        await emit("stage_start", stage="extract")
+        if "extract" not in completed:
+            result.pop("report_error", None)  # 上次尝试的失败标记失效，按本次结果重写
+            try:
+                extract_out = await build_survey_report(
+                    question, papers, metrics, synthesis_dict, llm_cfg, depth=depth,
+                    progress=report_progress,
+                    fetch_full_text=options.get("search_online", True),
+                    search_context=search_context,
+                    iteration_progress=_loop_event,
+                    resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
+                    on_evidence=_on_evidence, should_pause=_paused,
+                    stop_after="extract", paper_limit=read_cap,
+                )
+                result["report_extract"] = extract_out
+                result["papers"] = [
+                    {k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
+                await emit("stage_done", stage="extract", summary={
+                    "examined": (extract_out.get("coverage") or {}).get("examined"),
+                    "failed": (extract_out.get("coverage") or {}).get("failed"),
+                    "full_text": (extract_out.get("coverage") or {}).get("full_text"),
+                })
+            except StagePausedError:
+                raise
+            except Exception as exc:
+                logger.exception("extraction failed; existing research artifacts retained")
+                result["report_error"] = f"证据提取未完成（{type(exc).__name__}），可从检查点续跑。"
+                await emit("stage_done", stage="extract", summary={"error": str(exc)})
+            _stage_end("extract",
+                       status="partial" if result.get("report_error") else "completed",
+                       examined=((result.get("report_extract") or {}).get("coverage") or {}).get("examined"))
+            persist_sources()
+            if not result.get("report_error"):
+                completed.add("extract")
+                _merge_checkpoint(run_id, completed_stages=sorted(completed))
+        else:
+            agent_loops.setdefault("extract", {
+                "status": "completed", "stop_reason": "restored_from_checkpoint",
+                "iterations": 0, "trace": [],
+            })
+            # 同 select：闭合恢复段的时间线行
+            _stage_end("extract", status="completed", resumed=True)
+            await emit("stage_done", stage="extract", summary={"resumed": True})
+        if _paused():
+            await _finalize_pause("extract")
+            return
+
+        # 6) synthesize —— 证据驱动综合与初稿写作（v8 挪到证据提取之后：综合材料
+        #    不再只有标题+摘要，而是逐篇证据行；写作草稿冻结后由 report 阶段落盘）
         _set_stage(run_id, "synthesize")
         _stage_begin("synthesize")
         await emit("stage_start", stage="synthesize")
+        draft_out: dict | None = None
         if "synthesize" not in completed:
+            extract_tables = (result.get("report_extract") or {}).get("tables") or {}
+            evidence_digest = _evidence_digest(extract_tables, papers)
             try:
                 synthesis = await synthesize_exploration(
                     question, decompose, papers, metrics, llm_cfg, max_papers=preset["llm_papers"],
                     depth=depth, on_iteration=_loop_event, should_pause=_paused,
+                    evidence_digest=evidence_digest,
                 )
                 if synthesis is not None:
                     synthesis_dict = synthesis.model_dump()
@@ -2021,15 +2809,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     }
                     result["synthesis"] = synthesis_dict
                     await emit("synthesis_ready", **synthesis_dict)
-                    await emit("stage_done", stage="synthesize", summary={"partial": synthesis.partial})
                 else:
                     agent_loops["synthesize"] = {
                         "status": "skipped", "stop_reason": "unconfigured_llm_or_thin_evidence",
                         "iterations": 0, "trace": [],
                     }
-                    await emit("stage_done", stage="synthesize", summary={
-                        "skipped": "未配置解读 API Key 或召回证据不足",
-                    })
             except StagePausedError:
                 raise
             except Exception as se:
@@ -2037,9 +2821,40 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 agent_loops["synthesize"] = {
                     "status": "partial", "stop_reason": type(se).__name__, "iterations": 0, "trace": [],
                 }
-                await emit("stage_done", stage="synthesize", summary={"error": str(se)})
+            # 初稿写作（证据驱动）：draft 冻结后落 result["draft"]，report 阶段
+            # 只做规范投影、渲染与落盘，不再发起真实性核验调用。
+            extract_out = result.get("report_extract") or {}
+            if llm_cfg and llm_cfg.get("api_key") and (
+                    extract_out.get("evidence_store") or {}).get("records"):
+                try:
+                    from .report_delivery import draft_report as _draft_report
+                    from .report_evidence import ReportEvidenceStore as _Store
+                    draft_out = await _draft_report(
+                        question=question,
+                        subquestions=extract_out.get("subquestions")
+                        or (result.get("report_plan") or {}).get("subquestions") or [],
+                        evidence_store=_Store.from_dict(extract_out.get("evidence_store")),
+                        papers=papers,
+                        refs={p["key"]: i + 1 for i, p in enumerate(papers)},
+                        tables=extract_out.get("tables") or {},
+                        synthesis=synthesis_dict, cfg=llm_cfg,
+                        iteration_progress=_loop_event, should_pause=_paused,
+                        protocol=decompose.get("coverage_protocol") if decompose else None,
+                    )
+                    if draft_out.get("ok"):
+                        result["draft"] = draft_out["state"]
+                    else:
+                        result["draft_failed"] = True
+                except StagePausedError:
+                    raise
+                except Exception as de:
+                    logger.warning(f"draft stage failed (non-fatal, report will re-draft): {de}")
+                    result["draft_failed"] = True
+            await emit("stage_done", stage="synthesize", summary={
+                "partial": bool((synthesis_dict or {}).get("partial")),
+                "draft_ready": bool(result.get("draft")),
+            })
         else:
-            # 断点恢复：综合结论复用落库快照并重放给前端
             synthesis_dict = result.get("synthesis")
             agent_loops.setdefault("synthesize", {
                 "status": "completed", "stop_reason": "restored_from_checkpoint",
@@ -2053,7 +2868,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         _stage_end("synthesize",
                    status="partial" if agent_loops["synthesize"].get("status") == "partial" else "completed",
                    partial=bool((synthesis_dict or {}).get("partial")),
-                   verdict=((synthesis_dict or {}).get("verdict") or {}).get("status"))
+                   verdict=((synthesis_dict or {}).get("verdict") or {}).get("status"),
+                   draft_ready=bool(result.get("draft")))
         persist_sources()
         if "synthesize" not in completed:
             completed.add("synthesize")
@@ -2062,72 +2878,49 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             await _finalize_pause("synthesize")
             return
 
-        # 6) Evidence tables are shared by cold-start and seeded research.
+        # 7) report —— 冻结并落盘（吃 synthesize 阶段冻结的 draft；不执行
+        #    真实性核验或核验后修订，完成规范投影、渲染与 revision 落库）
         _set_stage(run_id, "report")
         _stage_begin("report")
         await emit("stage_start", stage="report")
-
-        async def report_progress(done: int, total: int):
-            await emit("report_progress", done=done, total=total)
-
         if "report" not in completed:
-            # 断点续传：上次会话冻结的选材清单与已提取篇目原样复用，只补缺的篇目
-            cp_report = checkpoint.get("report") or {}
-            resume_state = (
-                {
-                    "selected_keys": list(cp_report.get("selected_keys") or []),
-                    "extractions": dict(cp_report.get("extractions") or {}),
-                    "evidence_store": dict(cp_report.get("evidence_store") or {}),
-                }
-                if cp_report else None
-            )
-
-            async def _on_selected(keys: list[str]):
-                _save_report_plan(run_id, keys)
-
-            async def _on_extraction(entry: dict):
-                async with _checkpoint_lock:
-                    _save_report_extraction(run_id, entry)
-
-            async def _on_evidence(store: dict):
-                async with _checkpoint_lock:
-                    _save_report_evidence(run_id, store)
-
+            result.pop("report_error", None)  # 上次尝试的失败标记失效，按本次结果重写
             try:
+                # 迁移/重生成场景：result 里的旧报告先作为父 revision 保留再覆盖
+                # （「旧 synthesis/report 保留为历史版本」的迁移契约）
+                previous_report = result.get("survey_report") or None
                 result["survey_report"] = await build_survey_report(
-                    question, papers, metrics, synthesis_dict, llm_cfg, depth=depth, progress=report_progress,
-                    fetch_full_text=options.get("search_online", True),
-                    search_context={
-                        "decompose": decompose,
-                        "provider": provider_name,
-                        "preflight": preflight_healths,
-                        "recall": search_audit,
-                        "agent_loops": agent_loops,
-                    },
+                    question, papers, metrics, synthesis_dict, llm_cfg, depth=depth,
+                    progress=report_progress,
+                    # 研究侧时间耗尽：报告阶段不再下载全文（提取回退摘要）。
+                    fetch_full_text=options.get("search_online", True) and not _research_frozen(),
+                    search_context=search_context,
                     iteration_progress=_loop_event,
-                    resume_state=resume_state, on_extraction=_on_extraction,
+                    resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
                     on_selected=_on_selected, on_evidence=_on_evidence, should_pause=_paused,
+                    draft_state=result.get("draft"),
+                    protocol=decompose.get("coverage_protocol") if decompose else None,
+                    research_frozen=_research_frozen(),
+                    paper_limit=read_cap,
                 )
-                _persist_legacy_report_revision(run_id, result["survey_report"])
+                _persist_legacy_report_revision(run_id, result["survey_report"],
+                                                previous_report=previous_report)
                 agent_loops["report"] = ((result["survey_report"].get("method") or {}).get("agent_loop") or {
                     "status": "completed" if result["survey_report"].get("status") == "no_results" else "skipped",
                     "stop_reason": "search_audit_report" if result["survey_report"].get("status") == "no_results"
                     else "no_report_agent_loop",
                     "iterations": 0, "trace": [],
                 })
-                result["papers"] = [{k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
+                result["papers"] = [
+                    {k: v for k, v in p.items() if not k.startswith("_")} for p in papers]
                 await emit("report_ready", **result["survey_report"])
             except StagePausedError:
-                # 逐篇提取检查点已随每篇落库；这里只负责把暂停状态落盘并通知前端
-                _stage_end("report", status="paused")
-                await _finalize_pause("report")
-                return
+                raise
             except Exception as exc:
-                logger.exception("Survey tables failed; existing research artifacts retained")
-                result["report_error"] = f"报告表格未完成（{type(exc).__name__}），可从已有材料重新生成。"
+                logger.exception("Survey report failed; existing research artifacts retained")
+                result["report_error"] = f"报告未完成（{type(exc).__name__}），可从已有材料重新生成。"
             await emit("stage_done", stage="report", summary={})
         else:
-            # 断点恢复：报告成品复用落库快照
             agent_loops.setdefault("report", {
                 "status": "completed", "stop_reason": "restored_from_checkpoint",
                 "iterations": 0, "trace": [],
@@ -2140,46 +2933,34 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                    report_status=(result.get("survey_report") or {}).get("status"),
                    examined=((result.get("survey_report") or {}).get("coverage") or {}).get("examined"),
                    report_error=bool(result.get("report_error")))
-        # 报告成品落库：persist 阶段失败时报告不必重做
-        _set_stage(run_id, "report", result=result)
-        persist_sources()
-        if "report" not in completed:
-            completed.add("report")
-            _merge_checkpoint(run_id, completed_stages=sorted(completed))
-        if _paused():
-            await _finalize_pause("report")
-            return
 
-        # 7) persist
-        _set_stage(run_id, "persist")
-        _stage_begin("persist")
-        await emit("stage_start", stage="persist")
-        await emit("stage_iteration", stage="persist", iteration=1, phase="tool", tool="persist_result")
+        # 落盘收尾（旧 persist 阶段职责）：最终审计快照随 result 落库、清空检查点、done
         agent_loops["persist"] = {
             "status": "completed", "stop_reason": "database_commit_validated", "iterations": 1,
             "trace": [{"iteration": 1, "action": "persist_result",
                        "validation": {"passed": True, "feedback": "提交失败会使整个阶段失败"}}],
         }
-        result["sources"] = _snapshot_sources()  # 此时 persist 仍为 running
+        result["sources"] = _snapshot_sources()
+        result["budget"] = budget.snapshot()  # 最终预算审计随 result 落库（§16.6）
+        result.pop("draft", None)  # draft 中间态已完成使命，不随终稿落库膨胀 result
+        result.pop("draft_failed", None)
         with Session(get_engine()) as s:
             run = s.get(ExplorationRun, run_id)
             if run is not None:
                 run.result = result
                 s.add(run)
                 s.commit()
-        # 提交成功后才闭合 persist 时间线，并做第二次小写入更新审计
-        _stage_end("persist")
         persist_sources()
-        await emit("stage_done", stage="persist", summary={})
         await emit("metrics_ready", **result)
 
-        _set_stage(run_id, "persist", "done", checkpoint=None)
-        await emit("done", run_id=run_id, total=metrics["total"])
+        _set_stage(run_id, "report", "done", checkpoint=None)
+        await emit("done", run_id=run_id, total=metrics.get("total", 0))
 
     except StagePausedError as e:
         # agent 循环/召回轮内部冒出的暂停信号：安全点检查点已落库，这里统一收尾
         logger.info("Exploration run %s paused at safe point: %s", run_id, e)
         try:
+            budget.pause()  # 活动时钟停走：恢复沿用剩余额度，不重置（§16.6）
             stage_now = ""
             with Session(get_engine()) as s:
                 paused_row = s.get(ExplorationRun, run_id)
@@ -2190,13 +2971,42 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     started = _stage_clock.pop(tl_row.get("stage"), None)
                     if started is not None:
                         tl_row["duration_s"] = round(time.monotonic() - started, 2)
+            _budget_checkpoint()
             persist_sources()
             _set_stage(run_id, stage_now, "paused")
             _pause_requests.discard(run_id)
             await emit("paused", stage=stage_now, completed_stages=sorted(completed),
-                       checkpoint=_checkpoint_public())
+                       checkpoint=_checkpoint_public(),
+                       budget=budget.snapshot())
         except Exception:
             logger.exception("Failed to persist paused-state for exploration run %s", run_id)
+    except asyncio.CancelledError:
+        # 暂停看门狗升级：worker 卡死在不可中断的调用里、安全点无法到达时，路由层
+        # cancel_worker 强制取消。这里按协作式暂停同等语义收尾（断点已随阶段边界
+        # 落库），随后重新抛出让 finally 闭合总线。收尾内不再吞 CancelledError。
+        logger.warning("Exploration run %s worker cancelled with pause pending; finalizing as paused", run_id)
+        try:
+            budget.pause()  # 与协作式暂停同语义：活动时钟停走、额度保留（§16.6）
+            stage_now = ""
+            with Session(get_engine()) as s:
+                paused_row = s.get(ExplorationRun, run_id)
+                stage_now = (paused_row.current_stage or "") if paused_row else ""
+            for tl_row in stage_timeline:
+                if tl_row.get("duration_s") is None:
+                    tl_row["status"] = "paused"
+                    started = _stage_clock.pop(tl_row.get("stage"), None)
+                    if started is not None:
+                        tl_row["duration_s"] = round(time.monotonic() - started, 2)
+            _budget_checkpoint()
+            persist_sources()
+            _set_stage(run_id, stage_now, "paused")
+            _pause_requests.discard(run_id)
+            await emit("paused", stage=stage_now, completed_stages=sorted(completed),
+                       checkpoint=_checkpoint_public(),
+                       budget=budget.snapshot())
+        except Exception:
+            logger.exception("Failed to persist cancelled-pause state for exploration run %s", run_id)
+        raise
     except Exception as e:
         logger.exception(f"Exploration run {run_id} failed")
         err_msg = str(e)
@@ -2211,6 +3021,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     started = _stage_clock.pop(row.get("stage"), None)
                     if started is not None:
                         row["duration_s"] = round(time.monotonic() - started, 2)
+            # 预算类失败（BUDGET_*）同样落快照：续跑从剩余额度继续，不重置
+            code = getattr(e, "code", "")
+            if code in {"BUDGET_DEADLINE", "BUDGET_EXHAUSTED"}:
+                err_msg = f"运行预算已到限（{code}）；已完成的阶段保留在检查点，可续跑。"
+            _budget_checkpoint()
             persist_sources()
         except Exception:
             logger.debug("stage timeline unavailable before stage init", exc_info=True)
@@ -2231,6 +3046,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
             logger.exception("Failed to emit error event for exploration run %s", run_id)
     finally:
         active_exclusions.reset(exclusion_token)
+        # 正常完成/失败也清残留旗标：避免看门狗对着已结束的 run 触发强制取消
+        _pause_requests.discard(run_id)
+        # 预算上下文随 run 结束卸载：不泄漏到同 worker 的其他任务（§16.6）
+        set_llm_budget(None)
+        set_llm_deadline(None)
         await bus.close()
         drop_exploration_bus(run_id)
 
@@ -2238,8 +3058,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
 async def rebuild_survey_report(run_id: int) -> None:
     """Regenerate a report from a saved corpus, without repeating online recall."""
     from ..ai_config import get_analysis_config
-    from ..llm import set_llm_stage
-    set_llm_stage("report_regen")
+    from ..llm import set_llm_budget, set_llm_deadline, set_llm_scope, set_llm_stage
     bus = get_exploration_bus(run_id)
     exclusion_token = active_exclusions.set({})
     _pause_requests.discard(run_id)
@@ -2251,6 +3070,13 @@ async def rebuild_survey_report(run_id: int) -> None:
             options = dict(run.options or {})
             checkpoint = dict(run.checkpoint or {})
             previous_report = dict(result.get("survey_report") or {}) or None
+        # 操作归属（§16.5）：重生成是独立操作，不与首次研究混成同一性能样本
+        set_llm_scope("exploration", run_id=str(run_id),
+                      run_instance_id=run.run_instance_id, operation="report_regenerate")
+        set_llm_stage("report_regen")
+        # 报告重生成同属独立交付域，不继承发起请求上下文里的任何运行预算。
+        set_llm_budget(None)
+        set_llm_deadline(None)
         active_exclusions.set(options)
         result["papers"], _ = apply_exclusions(result.get("papers", []), options)
         _set_stage(run_id, "report")
@@ -2268,14 +3094,15 @@ async def rebuild_survey_report(run_id: int) -> None:
         resume_state = (
             {
                 "selected_keys": list(cp_report.get("selected_keys") or []),
+                "backfill_keys": list(cp_report.get("backfill_keys") or []),
                 "extractions": dict(cp_report.get("extractions") or {}),
                 "evidence_store": dict(cp_report.get("evidence_store") or {}),
             }
             if cp_report else None
         )
 
-        async def _on_selected(keys):
-            _save_report_plan(run_id, keys)
+        async def _on_selected(keys, backfill_keys=None):
+            _save_report_plan(run_id, keys, backfill_keys)
 
         async def _on_extraction(entry):
             async with _checkpoint_lock:
@@ -2285,23 +3112,51 @@ async def rebuild_survey_report(run_id: int) -> None:
             async with _checkpoint_lock:
                 _save_report_evidence(run_id, store)
 
-        report = await build_survey_report(question, result.get("papers", []), result.get("metrics", {}),
-                                           result.get("synthesis"), get_analysis_config(), depth=depth, progress=progress,
-                                           fetch_full_text=options.get("search_online", True),
-                                           search_context={
-                                               "decompose": result.get("decompose") or {},
-                                               "provider": result.get("provider") or "",
-                                               "preflight": (result.get("sources") or {}).get("preflight") or [],
-                                               "recall": (result.get("sources") or {}).get("recall") or {},
-                                               "agent_loops": (result.get("sources") or {}).get("agent_loops") or {},
-                                           }, iteration_progress=iteration_progress,
-                                           resume_state=resume_state, on_extraction=_on_extraction,
-                                           on_selected=_on_selected, on_evidence=_on_evidence,
-                                           should_pause=lambda: run_id in _pause_requests)
+        frozen_evidence = ((previous_report or {}).get("evidence_store") or {}).get("records") or []
+        if frozen_evidence:
+            report = await redeliver_survey_report(
+                previous_report, question, result.get("papers", []),
+                result.get("synthesis"), get_analysis_config(),
+                iteration_progress=iteration_progress,
+                should_pause=lambda: run_id in _pause_requests,
+            )
+        else:
+            report = await build_survey_report(
+                question, result.get("papers", []), result.get("metrics", {}),
+                result.get("synthesis"), get_analysis_config(), depth=depth,
+                progress=progress, fetch_full_text=options.get("search_online", True),
+                search_context={
+                    "decompose": result.get("decompose") or {},
+                    "provider": result.get("provider") or "",
+                    "preflight": (result.get("sources") or {}).get("preflight") or [],
+                    "recall": (result.get("sources") or {}).get("recall") or {},
+                    "agent_loops": (result.get("sources") or {}).get("agent_loops") or {},
+                }, iteration_progress=iteration_progress,
+                resume_state=resume_state, on_extraction=_on_extraction,
+                on_selected=_on_selected, on_evidence=_on_evidence,
+                should_pause=lambda: run_id in _pause_requests)
+        delivery = report.get("delivery") or {}
+        previous_final = bool(previous_report) and (
+            (previous_report.get("delivery") or {}).get("narrative_source") == "final_draft"
+            or previous_report.get("quality_status") == "internally_checked")
+        # 新草稿完全失败但存在旧成功 revision：旧版保持选定，新尝试保存为未选中
+        # revision 并清楚展示失败原因，不覆写原报告。
+        if previous_final and delivery.get("narrative_source") != "final_draft":
+            _persist_legacy_report_revision(run_id, report, previous_report=previous_report,
+                                            select=False)
+            error_code = delivery.get("error_code") or "DELIVERY_FAILED"
+            result["report_error"] = (
+                f"本次重新生成未产出有效终稿（{error_code}），已保留上一版本报告；"
+                "新尝试已保存为未选中的历史版本，可在版本列表查看。")
+            _set_stage(run_id, "report", "done", result=result, error_message=None)
+            await bus.publish(StreamEvent(event="metrics_ready", data=result))
+            await bus.publish(StreamEvent(event="report_ready", data=result.get("survey_report")))
+            await bus.publish(StreamEvent(event="done", data={"run_id": run_id}))
+            return
         _persist_legacy_report_revision(run_id, report, previous_report=previous_report)
         result["survey_report"] = report
         result.pop("report_error", None)
-        _set_stage(run_id, "persist", "done", result=result, error_message=None, checkpoint=None)
+        _set_stage(run_id, "report", "done", result=result, error_message=None, checkpoint=None)
         await bus.publish(StreamEvent(event="metrics_ready", data=result))
         await bus.publish(StreamEvent(event="report_ready", data=report))
         await bus.publish(StreamEvent(event="done", data={"run_id": run_id}))
@@ -2313,11 +3168,25 @@ async def rebuild_survey_report(run_id: int) -> None:
             row = session.get(ExplorationRun, run_id)
             summary = _checkpoint_summary(row.checkpoint if row else None) or {}
         await bus.publish(StreamEvent(event="paused", data={"stage": "report", "checkpoint": summary}))
+    except asyncio.CancelledError:
+        # 暂停看门狗升级：报告重建卡死在不可中断调用时强制取消，同样按暂停收尾
+        logger.warning("Report regeneration for run %s cancelled with pause pending; finalizing as paused", run_id)
+        _set_stage(run_id, "report", "paused")
+        _pause_requests.discard(run_id)
+        with Session(get_engine()) as session:
+            row = session.get(ExplorationRun, run_id)
+            summary = _checkpoint_summary(row.checkpoint if row else None) or {}
+        await bus.publish(StreamEvent(event="paused", data={"stage": "report", "checkpoint": summary}))
+        raise
     except Exception as exc:
         logger.exception("Report regeneration failed")
         _set_stage(run_id, "report", "failed", error_message=f"报告生成失败（{type(exc).__name__}）")
         await bus.publish(StreamEvent(event="error", data={"message": "报告生成失败，原材料已保留"}))
     finally:
         active_exclusions.reset(exclusion_token)
+        set_llm_budget(None)
+        set_llm_deadline(None)
+        # 正常完成/失败也清残留旗标：避免看门狗对着已结束的 run 触发强制取消
+        _pause_requests.discard(run_id)
         await bus.close()
         drop_exploration_bus(run_id)

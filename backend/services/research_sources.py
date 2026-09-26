@@ -110,7 +110,7 @@ async def recall_seed_neighbors(rows: list[Paper], depth: str) -> tuple[list[dic
     from .deep_research.explorer import _dedupe_candidates
     from .deep_research.fusion_ranker import fuse_candidates
 
-    limit = {"quick": 3, "standard": 6, "deep": 10}.get(depth, 6)
+    limit = {"lite": 2, "quick": 3, "standard": 6, "deep": 10}.get(depth, 6)
     selected = rows[:limit]
     pools, stats = await asyncio.wait_for(collect_online_recall(selected, {"recall_candidate_limit": 40}), timeout=120)
     candidates = [item.representative for item in fuse_candidates(pools)]

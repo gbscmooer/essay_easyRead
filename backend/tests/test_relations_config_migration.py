@@ -76,7 +76,12 @@ def test_config_api_retains_custom_weights_and_method_on_partial_update(monkeypa
         "research": {"recall": {"weights": {"pdf_ref": 0.3}},
                      "hybrid_retrieval": {"weights": {"dense": 0.2}}},
     })
-    asyncio.run(update_config(request))
+    from starlette.requests import Request
+    local_request = Request({
+        "type": "http", "scheme": "http", "server": ("localhost", 8000),
+        "client": ("127.0.0.1", 12345), "headers": [(b"host", b"localhost:8000")],
+    })
+    asyncio.run(update_config(request, local_request))
     saved = writer.call_args.args[0]
     assert saved["relations"]["weights"] == {**LEGACY_WEIGHTS, "topic": 0.7}
     assert saved["relations"]["method"] == "weighted_rrf_v1"

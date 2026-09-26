@@ -45,7 +45,7 @@ function PaperRow({ paper }: { paper: WorkspaceInsightPaper }) {
             {paper.cluster_label && <span>{paper.cluster_label}</span>}
           </div>
           {paper.reason && (
-            <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            <div className="mt-1 text-[11px] leading-relaxed break-words" style={{ color: 'var(--text-secondary)' }}>
               {paper.reason}
             </div>
           )}
@@ -138,8 +138,8 @@ export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps)
         </div>
       )}
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div>
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+        <div className="min-w-0">
           <div className="text-[12px] font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>建议优先阅读</div>
           <div className="space-y-2">
             {insights.next_reads.length > 0 ? insights.next_reads.map(paper => (
@@ -152,7 +152,7 @@ export function WorkspaceInsights({ insights, loading }: WorkspaceInsightsProps)
           </div>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <div className="text-[12px] font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
             {insights.graph_available ? '桥梁论文' : '关键论文'}
           </div>

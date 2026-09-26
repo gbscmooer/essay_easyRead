@@ -261,6 +261,253 @@ HTTP 接口（仅 GET/POST）：
 
 现有 HTTP 路径和方法不变：`GET/POST /api/analysis/config` 的 `llm`、LLM 配置档案请求/响应、`POST /api/analysis/test-connection` 均接受 `proxy.enabled:boolean` 与 `proxy.base_url:string`。设置页在每个档案编辑器中提供“通过自托管代理转发”开关和代理 Base URL；连接测试使用当前档案的真实密钥与代理设置。CORS、`{detail,code}`、密钥脱敏及 `config_key` 单独存储规则不变。
 
+### 2.16 PDF 下载结构化失败归因与 DNS 阻断环境修复（2026-09-18）
+
+背景：代理 TUN + fake-IP 模式（198.18.0.0/15）使论文域名解析到保留网段，`validate_public_http_url` 在 HTTP 请求前失败关闭，run1 的 35 次全文下载全部被拦且原因不可见。环境修复不在业务代码放宽校验，而在 Clash Verge 的 `dns_config.yaml`（`enable_dns_settings: true` 时的持久 DNS 覆盖源）`fake-ip-filter` 黑名单中加入 `+.arxiv.org`、`+.mdpi.com`、`+.doi.org`、`+.plos.org`（后两个按实际观察到的下载链路逐个纳入，不预设全网通配）；这些域名返回真实公网 IP，其余域名行为不变。修改前配置备份为同目录 `dns_config.yaml.bak-20260918-pdf-fix` 与 `clash-verge.yaml.bak-20260918-pdf-fix`，回滚即恢复备份并重载。
+
+`url_security.py` 的校验失败统一抛 `URLSecurityError(ValueError)`，字段 `error_code`（`INVALID_URL`/`DNS_RESOLUTION_FAILED`/`NON_PUBLIC_ADDRESS_BLOCKED`）、`stage`（`resolve`/`validate`）与脱敏 `detail`（仅主机名与解析出的 IP 列表）；错误码只表示原因，不自动转义为其他归因。安全语义不变：逐跳校验、全部解析地址检查、混合公网+非公网解析整体拒绝、字面量 198.18 地址仍拒绝。
+
+`deep_research/pdf_downloader.py` 新增 `download_pdf_detailed(...) -> DownloadResult`（`status: available|unavailable`、`path`、`attempts[]`），每跳记录 `host/stage/error_code/http_status/retryable/elapsed_ms`；`stage` 为 `resolve/validate/connect/response/content`，`error_code` 含 `NETWORK_TIMEOUT`、`NETWORK_ERROR`、`HTTP_ACCESS_DENIED`、`HTTP_NOT_FOUND`、`HTTP_RATE_LIMITED`、`HTTP_ERROR`、`NON_PDF_CONTENT`、`IDENTITY_EXCLUDED`。确定性阻断（非公网、DNS、排除身份）不发送 HTTP 请求也不重试同一地址；超时/网络错误保留既有有界重试语义。`download_pdf(...) -> Optional[str]` 保留为兼容包装器，`paper_download.py` 等旧调用方行为不变；排除身份在首跳仍抛 `EXCLUDED`。
+
+报告下载审计改用详细入口：`method.downloads[].attempt_log` 每条为 `{url(截断), result=error_code, stage, http_status?}`，替换原先不可归因的 `rejected_or_http_error`；PDF 下载成功但正文为空仍由解析消费层记 `empty_text`，不冒充网络失败；`asyncio` 截止超时记 `NETWORK_TIMEOUT`。历史运行数据不迁移、不改写。
+
+验证（2026-09-18，不调用 LLM）：arXiv（1706.03762，2.2MB，正文 39,756 字符，1.1s）与 PLOS ONE（10.1371/journal.pone.0272519，1.4MB，正文 83,869 字符，1.7s）全链路下载并解析非空正文；MDPI 站点可达但返回 403，结构化归类为 `HTTP_ACCESS_DENIED`（站点独立反爬，非 DNS 故障，该源未验证下载）。后端测试 986 项全过，ruff 通过。
+
+### 2.17 报告交付契约 v3：直接写作、引用归一与分批核验（2026-09-18）
+
+背景（2026-09-18 run1，07:33:25Z）：第 14 轮 `submit_report` 提交 8 条对象型 findings（`{content, role, subquestion_id}` + 内联 `[ev_*]`），旧 handler 只保留字符串——`finding_count=0` 却回执"已受理"；第 15/16 轮终稿核验连续 60 秒超时；16 轮预算耗尽后页面与导出仍展示前置综合旧摘要（hotspots 被 `_normalize_synthesis` 裁成 90 字进入 findings）。冻结材料见 `backend/tests/fixtures/run1_report_baseline.json`（`fixture_sha256` 锚定，含 8 条原始 findings、74 条证据、309 个引用键与两轮审计超时记录）。
+
+新链路（`deep_research/report_delivery.py`，报告 `version=3`）：已有证据 → 程序组装证据包 → 直接生成草稿（一次）→ 契约/引用归一 → 程序检查引用存在性 → 分批核验 → 最多一次修复/修订（结构与事实共享额度）→ 冻结交付版本 → 页面与导出读取同一版本。旧的报告 ReAct 循环（inspect/read/submit/audit 工具与 read/report 轮次分账、固定双视角草稿提案）从最终报告路径移除；逐篇提取循环与表格构建不变；前置综合只作为 `preliminary` 预览兜底，不再静默回填最终报告。
+
+草稿契约：每条叙述项 `{text, evidence_ids, subquestion_id?, role?, statement_kind}`，`statement_kind ∈ {fact, synthesis_inference, process_note}`；summary 由 1-4 个段落条目组成。兼容规则：字符串条目转 text 并保留原有数字引用；已知对象形式（`content/text/claim/finding/statement/summary`）映射到 text 并保留 `role/subquestion_id`；未知对象、空正文、非法类型、超长字段返回 `DRAFT_SCHEMA_INVALID` 与字段路径（超长要求缩写重交，不静默截断）；回执含 `received/accepted/rejected` 计数。内部引用统一 evidence_id；程序经冻结 `citation_map`（evidence→paper_key→参考文献编号，`citation_map_version` 为其哈希）把内联 `[ev_*]` 映射为 `[n]`；未知 ev_*、越界数字编号返回 `UNKNOWN_EVIDENCE_REFERENCE`，条目保留但 `citation_status=unknown`，不得删除后冒充合法引用。缺引用的事实条目标 `citation_status=missing`（待修复，不获得可引用资格）；`process_note`（如"本次未获取全文"）不强制论文引用。
+
+证据包（§3.1 语义）：程序按现有子问题整理共享证据库，去重后有界提供（默认 42k 字符，每子问题最多 12 条）；先按子问题查询匹配、复核状态和论文来源多样性排序，再按子问题轮转装入，记录 `omitted_count`；长摘录按真实位置分片并保留"片段 i/n"续读标识。不重新搜索、不改变选材名单。无事实证据时输出确定性材料/失败说明（`delivery_status=unavailable`，`narrative_source=none`），不凭记忆写领域结论；有前置综合时保留为明确标注的 `preliminary` 预览。
+
+分批核验（`evidence_audit.audit_report_text`）：交付正文按段分批（一批约 3-5 条短断言/3500 字符），单批 ≤30s、并发 ≤2、每轮核验全局 ≤180s（`batch_audit_v1`）；失败批只允许一次对半拆分的缩小重试，不原样重跑全文；每批完成即回调 `on_batch`（不等全部 gather，重试替换后同批再次回调），交付层把逐批进度记入 `diagnostics.delivery.audit_progress`；`coverage` 清单记录每个正文段（叙述段与实验比较断言分块）的 `audited/partial/failed` 状态；覆盖不完整时 `support_rate=null`、状态 `partial`，不把 `unsupported_count=0` 当通过。绑定项为规范交付文本 hash、`evidence_version`、`citation_map_version`、审计配置版本与范围；`audit_binding_valid` 扩展可选 `citation_map_version` 检查，旧调用不传时行为不变。修订后的复用规则见 §2.22：改写段与先前未成功核验段必须重审，只有"文本逐字相同 + 版本绑定有效 + 先前 coverage=audited"的段复用旧 claims，合并后从全稿段落清单重算覆盖。写作单次调用上限经实测校准为 420s（mimo-v2.5-pro ~8 tok/s，42k 预算证据包实际 payload ~26k 字符、草稿生成 389.8s；早期 120s/240s 会在供应商期限前截断）；`audit_answer` 自身 60s 内部上限不变（追问等旧业务共用），慢模型批次按设计降级 partial。
+
+新报告字段：`delivery = {delivery_status: ready|partial|unavailable, narrative_source: final_draft|preliminary|none, evidence_version, citation_map_version, failure_stage?, error_code?, attempts}`；`narrative` 保留结构化条目；`summary: str / findings: str[]` 等为兼容投影（完整文本，不截断）；`method.text_version` 增加 `citation_map_version`。渲染契约：`ready` ⇒ `quality_status=internally_checked`（同模型复核，非人工验证）；其余 final_draft 状态为 `partial/needs_review`；preliminary/none 在页面与 Markdown/HTML 导出中明确标注"预览（非终稿）/无叙述"，来源未知的历史报告显示"未知来源"且不自动升级质量状态。`_normalize_synthesis` 的 hotspots/gaps 裁剪从 90 字放宽到 360 字（maturity 800、landscape 1200），前端 ChipList 渲染级三行截断+点击展开，不改存储正文。
+
+重生成失败保护：`rebuild_survey_report` 中新报告 `narrative_source != final_draft` 且旧成功 revision 存在时，新快照保存为**未选中** revision（`_persist_legacy_report_revision(select=False)`），`result.survey_report` 保持旧版选定并写入 `report_error` 说明失败原因；页面与导出继续读取旧版。`GET /runs/{id}/revisions` 的条目新增可选 `delivery_status/narrative_source` 投影（从版本快照载荷读取，旧 revision 为 null）。默认不新增 HTTP 路由、不新建任务系统或数据库表。
+
+验证（2026-09-18）：后端 1010 项测试全过（含冻结基线回归：8 条对象 findings 全量保存与元数据保留、未知引用显式报错、旧字符串兼容、审计超时保留已完成批次且 support_rate=null、重生成失败保留旧选定版本、历史报告缺新字段可导出）；ruff、前端 typecheck/152 项测试/生产构建通过。固定材料对照（同 run1 冻结证据包 74 条 + 同模型 mimo-v2.5-pro，记录于 `data/eval/run1-delivery-comparison-20260918.json`）：墙钟 838.5s，首次写作 420s 超时后共享额度内修复调用成功——8 条 findings 全量保留且内联 ev_* 由程序映射为 `[n]`（如 [80]/[191]），真实终稿摘要替代旧综合回填（`narrative_source=final_draft`）；17 个正文段核验全部撞 30s 批预算（该模型小审计实测 >60s，受 `audit_answer` 60s 内部上限约束），诚实降级 `delivery=partial/needs_review`、`support_rate=null`、逐段 coverage 记 AUDIT_TIMEOUT。与旧基线对照（0/8 findings 保留、90 字截断旧摘要冒充终稿、iteration_budget_exhausted）：交付缺陷消除；语义核验通过率受当前模型速度限制，换更快模型或后续调大核验预算才能达到 ready。本轮不宣称修复选材质量。
+
+### 2.18 阶段 TPS 统计、前缀缓存布局与提取轮次去重（2026-09-18）
+
+run3 用量诊断（问题：`/explorer/3` 用量面板缓存命中仅 ~30%、报告阶段轮次疑似失控）的三项修复。
+
+**TPS 计量**：LLM Core 在 `complete()` 单次成功请求与 `stream_text()` 全流消费处计墙钟耗时（不含重试等待），随既有 usage 分发链路传给全局记录器；`llm_usage_records` 新增 `elapsed_ms INTEGER NOT NULL DEFAULT 0` 列（启动迁移自动加列，旧记录 0 表示未计时）。`run_usage`（`GET /api/exploration/runs/{id}/token-usage`）与 `usage_summary`/`usage_records` 按阶段/类目/逐次聚合 `elapsed_ms` 与 `tps = output_tokens/elapsed`；未计时不虚构（`tps=null`），合计 TPS 只计入有计时调用的输出 token。`created_at` 是缓冲落库时间（10s 量化、并发同毫秒），不能当调用耗时用——TPS 必须来自 elapsed_ms。前端 `RunTokenUsageCard` 总览与阶段明细表增加"平均 TPS"列（未计时显示 —）；设置页明细表维持无用时列的既有契约。
+
+**前缀缓存布局**：OpenAI 兼容网关的前缀缓存按最长相同前缀命中，而 stage agent 旧 view 把 `iteration` 排在载荷第二位——每轮第一个变化字节就把缓存前缀斩断，run3 report_extract 166 次调用 102 次 0 命中（整体 30.7%）。修复原则：**逐轮不变的内容在前，逐轮变化的内容殿后**。`stage_agent` view 顺序改为 `stage → available_tools → state → last_observation → recent_trace → iteration/max_iterations`；report_extract 的每轮载荷改为全 run 恒定项（`research_question`/`subquestions`，跨论文共享）→ 论文恒定项（`paper_title`/`source_kind`/`initial_material`）→ view（旧顺序 `paper_title` 排第二，跨论文共享前缀只有问题一句）；提取循环 state 键序改为恒定（budget/subquestions）→ 仅追加列表 → 计数器 → 整体替换的 draft/rows；召回规划器把逐轮变化的"未覆盖维度"从 system 尾部移入 user 载荷末尾，system 保持逐字节恒定。注意：网关多后端路由仍可能限制实际命中率，该项只保证请求侧前缀最大化复用。
+
+**提取轮次去重**：run3 报告阶段轮次上限**未失效**——13 篇完成论文全部 `validator_passed`（其中 2 篇恰在第 10 轮由预算耗尽补验收兜底），上限 8/10/12（quick/standard/deep）严格执行；"轮次多"的实感来自结构：ReAct 每个动作（含 finish）各耗一轮模型调用，最小路径 5 轮/篇，平均 7.4 轮/篇，且暂停时在途论文的已耗轮次（约 70 次调用）不落 checkpoint、续跑整篇重来。真浪费点是 `verify_relations` 无去重：复核通过后模型原样重调（单篇实测最多连调 3 次），每次都触发一次嵌套核验 LLM 调用。修复：草稿指纹未变化时直接复用上次复核结果（`duplicate=true`），不重打核验器；`submit_extraction` 的既有幂等语义不变。后续可选优化（未实施）：合并 submit+verify 为单工具可再省约 1.6 轮/篇、在途论文部分状态落 checkpoint。
+
+验证：后端 1015 项测试全过（新增 view 前缀顺序/提取载荷顺序/重复复核去重/elapsed 计量/阶段 TPS 聚合 5 项）、ruff、前端 typecheck/152 项测试/构建通过；`elapsed_ms` 迁移在真实库副本上验证（2526 行保留、checkpoint 完好）。
+
+### 2.19 lite 轻量档位（2026-09-18）
+
+探索深度新增第四档 `lite`（比快览更轻，目标召回 50 篇），schema pattern 改为 `^(lite|quick|standard|deep)$`。各旋钮取值：
+
+| 旋钮 | lite | quick（对照） |
+|---|---|---|
+| `RECALL_TARGETS`（确认相关论文目标量，同时是累计语料硬顶） | 50 | 200 |
+| `PER_SOURCE_LIMIT`（单源单检索式取回上限） | 15 | 25 |
+| `FILTER_BATCH`（摘要筛选每批篇数） | 10 | 10 |
+| `DEPTH_PRESETS`（检索式数/单式上限/回退 cap/送 LLM 论文数） | 2 式 / 15 / 50 / 12 | 3 式 / 25 / 80 / 20 |
+| `AGENT_LOOP_PRESETS`（拆解轮次/零命中补搜轮/预览 limit） | 3 / 1 / 4 | 4 / 1 / 5 |
+| 报告阶段 `LIMITS`（精读论文数） | 8 | 12 |
+| 逐篇补读预算（search/context_read） | 2 / 3 | 3 / 4 |
+| 提取 ReAct 轮次上限 | 8（与 quick 同下限：轮次过少走不完检视→提交→复核→finish 最小路径） | 8 |
+| 综合 ReAct 轮次上限 | 4 | 4 |
+| 母论文种子扩展 `research_sources` limit | 2 | 3 |
+
+前端 `ExplorationDepth` 类型与 `/explore` 档位选择器新增"轻量 · 2 式 · 上限 50 篇"。回归守卫：`test_survey_workflow.py` 断言 schema 接受 lite/拒绝未知档，且六张按档位分支的旋钮表（RECALL_TARGETS/FILTER_BATCH/PER_SOURCE_LIMIT/DEPTH_PRESETS/AGENT_LOOP_PRESETS/LIMITS）必须覆盖全部合法档位——后续再加档漏配会直接测试失败，不再静默落默认值。召回引擎 lite 复用既有"轮中达标即停"硬顶语义（单测：单关键词三源 90 篇已超 50 → 后续词不再发射、语料收口 50）。
+
+验证：后端 1017 项测试全过（+lite 目标量与档位覆盖守卫 2 项）、ruff、前端 typecheck/152 项测试/构建通过。
+
+### 2.20 暂停→续跑的阶段计时保持（2026-09-18）
+
+用户报（run 暂停约 2 小时后续跑）：计时面板 ⓪–⑤ 各阶段显示 0 秒、全部研究时间落在当前阶段⑥上。三处叠加缺陷：
+
+1. **后端**：续跑 worker 的 `stage_timeline` 从空列表重建，`_snapshot_sources` 落库时覆盖旧时间线——暂停前各阶段的耗时行被销毁。修复：resume 时把落库时间线恢复进本 worker 列表（只追加新段），`duration_s=None` 的崩溃残留行（单调时钟已随旧进程丢失、无法补算）丢弃。
+2. **前端事件**：`useExplorationStream` 的 `stage_start` 只记第一次开始时刻——续跑后当前阶段仍从暂停前起点走秒，暂停间隔全算进该阶段。修复：`stage_start` 重入覆盖 `startTs` 并清 `endTs`（新计时段语义），旧段由落库时间线补回。
+3. **前端合并**：`mergeRunTiming` 按阶段名 Map.set 后段覆盖前段。修复：落库行按阶段**求和**（同阶段多段：paused 闭合段 + 重入新段），最新一段状态决定展示状态；`duration_s=null` 的进行中行不计秒但保留状态判定。实时段与落库**最新段**按 `started_at`（±2s）匹配：匹配则该段让位实时值（防双计），不匹配（落库未写或本段是暂停后新段）则在已闭合段之和上叠加。暂停间隔不计入任何阶段；总耗时墙钟含暂停间隔的既有语义不变。
+
+验证：后端 1018 项全过（+续跑时间线保持集成测试：暂停时各阶段闭合、续跑后不缩水、report 双段保留）、ruff、前端 typecheck/155 项测试（+分段求和/防双计/实时叠加/重入覆盖 4 例）/构建通过。
+
+### 2.21 用户审查批次：交付崩溃修复、用量口径、lite 一次化提取、下载链路（2026-09-18）
+
+对 run3 轻量研究（22:38—22:49，83 次调用）正式审查的四项修复：
+
+**① 同步暂停回调崩溃（P1）**：explorer 编排传入的 `should_pause=_paused` 是同步函数返回布尔，`report_delivery._maybe_pause` 旧实现无条件 `await` → 组装证据包前 `TypeError`，终稿写作 0 次、交付降级 `partial/narrative_source=none`。修复：与 `stage_agent`/`survey_report` 一致的双态解析（`inspect.isawaitable` 后按需 await）。回归测试走 `build_survey_report` 真实编排入口并传同步回调（此前只直接调 `deliver_report` 且传协程的测试漏掉了该形态）。
+
+**② 用量隔离与 TPS 口径（P2）**：`run_id` 是字符串外键且 SQLite 行 id 删除后可复用，同 id 旧 run 残留记录混入面板（run3 面板 684 次里 601 次是历史）。修复：`GET /runs/{id}/token-usage` 以当前 run 行 `created_at` 为下限传 `run_usage(since=...)`。TPS 分子改为 SQL `SUM(CASE WHEN elapsed_ms>0 THEN output_tokens)`（每阶段行与合计一致，新增 `timed_output_tokens` 字段透传）：未计时旧记录的输出不再虚高 TPS（审查实测 94.9 tok/s 被高估）。该口径仍是请求耗时口径，不代表整体并发吞吐。
+
+**③ lite 提取一次化（P3）**：轻量档逐篇提取不再走多轮 ReAct（run3 实测每篇固定五步，提取+复核 55 次调用、12 次复核的思考 token 占输出 99%）。`extract_paper_with_agent` 在 `depth=="lite"` 时改走 `_extract_paper_once`：程序组装材料（question/subquestions/论文材料）与验收，模型一次结构化提取（`_SYSTEM` 单次输出指令），仅当提取出非空行时再做一次关系复核；审计形状与 agent 路径一致（checkpoint/前端无感），每篇最多 2 次调用。未改全局 thinking 配置——如需为简单判定降推理开销，可在设置页档案级 `thinking_effort` 调整。
+
+**④ 下载链路第二批 fake-ip 修复（环境）**：run3 的 7 项 `NON_PUBLIC_ADDRESS_BLOCKED` 全部是 doi.org（已修，真实 IP）**跳转目标域**仍 fake-IP：sciencedirect/springeropen/biomedcentral/jamanetwork/benthamscience/link.springer。按"被拦域名逐个补"惯例加入 `dns_config.yaml` 的 `fake-ip-filter`（第二批备份 `dns_config.yaml.bak-20260918-pdf-fix-2`），重启 Clash Verge 重新生成内核配置后全部解析为真实公网 IP，BMC→link.springer 链路实测 200 `application/pdf`。非 PDF 一项（NON_PDF_CONTENT）为站点返回 HTML，属正常结构化归类。
+
+验证：后端 1022 项全过（+同步暂停回调真实入口回归、用量隔离与 TPS 分子、lite 一次化/空表免复核 4 项）、ruff、前端 typecheck/155 项测试/构建通过；run3 用量 API 实测与审查交叉核对一致（83 次 / 220,466 入 / 101,960 出 / 94.9 tok/s）。
+
+### 2.22 计划 §16.4 阶段 P0：恢复交付与核验正确性（2026-09-18）
+
+执行 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md` §16.4 的首批任务（同步暂停回调已在 §2.21① 修复，本批完成其余五项）。
+
+**核验复用修正与整稿覆盖重算**：修订合并旧逻辑只按"文本是否改动"分区，从不检查该段先前的核验结果——先前超时/未覆盖的段（coverage=failed/partial）即使一字未改也会被当成"已核验"，合并审计的 coverage 只含重审段，全稿可能出现"旧超时段 + 新成功段 = ready"的假通过（run1 离线复现）。`report_delivery.merge_revision_audit` 重写分区规则：复用必须同时满足**文本逐字相同、旧绑定有效（text_hash/evidence_version/citation_map_version）、旧 coverage=audited**；不满足的未改动段与改写段一起重新进入待核验集合。合并后从全稿段落清单重算 coverage（重审段取新状态、复用段标 `status=reused` 且按 `answer_quote` 归属 claims、缺失段防御性标 pending），任一段未达 `audited/reused` → 整体 `partial`、`support_rate=null`；绑定 `audit_config.reuse=unchanged_verified_segments` 区分新旧语义。未完成时的 `error.code` 继承底层超时/失败原因（如 AUDIT_TIMEOUT），不笼统 AUDIT_INCOMPLETE。
+
+**共享修复额度**：旧代码在调用成功后才递增 `repair_calls`，修复调用**超时不计数** → "修复超时 + 审计后修订"可变相花两次额度。`attempts.repair_quota_used` 改为**发起前占用**（初稿失败修复与审计后修订共享 1 次），超时/异常同样算已尝试；`*_calls` 计数器只反映成功调用，额度判断一律看 quota 标志。底层 SDK 重试的显式记账归 P2 预算 Core。
+
+**批次即时回调与草稿保全**：`audit_report_text` 的 `on_batch` 改为每批完成即回调（原先要等全部 gather 返回），重试替换后同批再次回调；交付层把逐批 `{batch,status,claim_count,error}` 追加进 `diagnostics.delivery.audit_progress`，`attempts.audit_batches` 按批次号去重计数。草稿接受即记 `diagnostics.delivery.draft_accepted`（计数+全文 hash）；首轮核验编排异常与修订后重审异常都不再向上抛——交付层就地落 `status=error` 审计并保留已接受草稿（`narrative_source=final_draft`、`delivery_status=partial`），`build_survey_report` 的兜底 except 只覆盖写作前失败。
+
+**页面状态分列（历史）**：本节当时增加了执行、答案、核验三枚状态芯片；§2.31 已删除核验芯片，当前只显示执行状态与答案生成状态。
+
+验证：后端 1028 项全过（+旧超时段重审后 ready、旧超时段仍失败不得 ready、修复超时占用共享额度、核验编排崩溃保全草稿、批次完成即回调时序、同步 true 安全点暂停零模型调用 6 项；异步 true 由 resume 套件既有用例覆盖）、ruff、前端 typecheck/156 项测试/构建通过。计划 P0 退出标准中"跨进程的批次/草稿检查点持久化"仍属 §16.10 P6 范围，本轮只交付进程内保全与 diagnostics 留痕。
+
+### 2.23 计划 §16.5 阶段 P1 剩余项：运行实例身份与失败尝试可见（2026-09-18）
+
+执行 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md` §16.5 的身份落库部分，取代 §2.21② 的 `since=created_at` 时间下限过渡方案。
+
+**运行实例身份**：`exploration_runs` 新增 `run_instance_id`（创建时由 ORM 生成 uuid4().hex 并随行冻结；数字 id 仍仅作路由定位）。启动迁移对旧行一次性回填 `legacy-<id>-<hex>`（幂等，历史归因不重写）。`llm_usage_records` 新增 `run_instance_id / operation / status / error_code` 四列（旧记录 instance=''、status='ok'）。`set_llm_scope(category, run_id, *, run_instance_id, operation)` 扩展归因链，三个操作入口分别落 `operation=research`（run_exploration，覆盖首次与续跑）| `report_regenerate`（rebuild_survey_report，加载 run 行后设置，修复原先沿用陈旧 scope 的问题）| `chat`（exploration_chat）。
+
+**用量归属优先级**：`run_usage(run_id, since, run_instance_id)` 先按实例 ID 精确匹配，无实例 ID 的旧记录（身份列启用前落库）按 `since` 时间下限兜底——旧 run 的记录必然早于新 run 的 created_at，两层叠加后：同数字 id 重建的新实例记录（晚于 created_at，纯时间下限挡不住）被实例过滤排除；run3 等旧数据仍完整复现（实测 API 83 次 / 220,466 入 / 101,960 出 / TPS 94.9，与 §2.21 审查交叉核对一致）。`GET /runs/{id}/token-usage` 由路由传入 `run.run_instance_id`。
+
+**失败尝试记账**：`complete()` 重试循环中每次失败各记一行 `status=error`（`error_code` 只存异常类名——异常文本可能携带 URL/密钥，不落库；token 全 0、不计耗时、不进 TPS 分子分母）；`stream_text()` 异常中断同样记账。`complete_json` 的供应商失败经由内层 `complete(max_retries=0)` 记账，无重复计数；JSON 解析失败发生在成功请求之后，只记成功行。`failed_calls` 进入 `usage_summary`/`run_usage` 的逐行与合计（`calls` = 成功+失败尝试数）；`usage_records` 明细逐行含 `status/error_code/run_instance_id/operation`。前端 `RunTokenUsageCard` 总览"调用次数"附失败数、阶段表新增"失败"列（旧快照无数据显示 —）。
+
+未做（属后续阶段）：逐次请求的排队/发送/结束时间戳与模型配置指纹、`usage_unknown` 标记、attempt_id 与 S0 任务/revision 的绑定（等 v2 执行器接入）、按 operation 的独立聚合视图（列已落库可查）。
+
+验证：后端 1034 项全过（+scope 扩展、失败逐次记账、实例隔离胜过时间下限、failed_calls 聚合、实例 ID 唯一性、回填幂等 6 项）、ruff、前端 typecheck/156 项测试/构建通过；真实开发库经热重载自动迁移验证（4 run 全部回填唯一实例 ID、3115 条用量记录保留、run3 API 精确复现）。
+
+### 2.24 计划 §16.6 阶段 P2：统一预算 Core 与有限并发（2026-09-19）
+
+新增 `deep_research/run_budget.py` + LLM Core 并发/deadline/预算钩子；legacy 流程默认记账模式（enforce 关），新 lite 实验路径（P3）按 `options.budget_enforce` 显式开启强制。
+
+**预算账本（RunBudget）**：§16.6 预设表逐档落库（lite 按 run6 实测校准为 15min 活动时间/240s 交付预留/50 候选/8 阅读/40 尝试/80 来源请求/160k+30k token/0 补充/1 修复；quick/standard/deep 8/20/45min 等）。模型尝试、估算输入和最大输出在发送前一次性原子预占（并发不双花最后余额），成功按供应商实际 usage 结算退差额；已发送但超时/取消/缺 usage 时按输入输出估算上界结算并累计 `usage_unknown_attempts`，未发送的排队取消则全额退款。记账模式 reserve 永远成功但超限记耗尽事件。时间用**活动时钟**（暂停区间不计）："不把暂停算计算"；`research_seconds_left = 总时间 − 交付预留 − 已活动`（到 0 停止新研究），`delivery_seconds_left` 供交付继续；`deadline_after` 把剩余时间转成子调用 deadline。暂停/恢复不重置任何计数；进程重启经 `checkpoint.budget` 快照 `RunBudget.restore` 恢复已用量与活动时钟，快照中的未决预占按结果未知转为已用，防止恢复后再次花费（limit 取当前预设）。
+
+**LLM Core 强制点（enforce 时）**：`set_llm_budget(budget)` 注入上述预占/结算钩子；额度尽抛不可重试 `BUDGET_EXHAUSTED`。输入估算按 system+user UTF-8 字节作保守近似，真实 usage 返回后结算。`set_llm_deadline(at)` 设置单调总 deadline：循环、模型并发排队、普通 provider 请求、流式逐块消费与重试退避均受同一截止约束，超时取消本地等待并抛不可重试 `BUDGET_DEADLINE`；取消不保证供应商停止计费，已发送请求因此按未知 usage 保守落账。OpenAI/Anthropic SDK 客户端统一 `max_retries=0`，重试只由 Core 发起并逐次计预算；`complete_json` 的解析重试同样受约束。
+
+**全局模型并发**：`set_model_concurrency`（默认 2、上限 4，`LLM_MODEL_CONCURRENCY` 环境变量可调）；信号量按事件循环缓存，套在每次 provider 请求外——逐篇提取/批次核验/关系复核各自的结构性 Semaphore 不再叠加放大实际在途请求数；**重试退避在信号量外等待**，不占并发额度。
+
+**explorer 接入**：run 启动建预算（resume 先从 checkpoint.budget 恢复），记账模式注入钩子开始逐尝试/逐 token 记账；enforce 时另设总 deadline。阶段边界、协作式暂停、看门狗强制取消均将预算写入 checkpoint；正常、暂停、取消与失败路径同时更新 `result.budget` 供页面/导出审计。协作暂停先停活动时钟再持久化；预算类失败（BUDGET_*）走既有失败路径并把错误改写为"可续跑"提示。run 结束 finally 卸载预算/deadline 上下文，不泄漏到同 worker 其他任务。
+
+**边界（诚实声明）**：输出 token 预占按 max_tokens 全额估算——单次大 max_tokens 调用会保守占住大块输出额度（结算退差额，仅并发预占期间可能过严）；「剩余时间降至交付预留即停止新研究、冻结成果」的阶段级跳转**已随 v8 八阶段重排接入**（`_stage_begin` 相位化 deadline + `_research_frozen` 阶段冻结门，见 2.28），来源 HTTP 尝试（resilient_get / OpenAlex / Scopus 请求路径的 source_requests）与补搜批次（supplement_batches）同样接入消费点；候选/阅读篇数分别经 candidate_papers（召回目标收缩）与 read_papers（选材上限收缩 `paper_limit`，**显式 0 合法**）在编排层消费。
+
+验证：后端 1055 项全过，ruff 通过；前端 typecheck、156 项测试与生产构建通过。预算专项 `test_run_budget.py` 19 项覆盖预设表、并发不双花、暂停/恢复、未决预占恢复、输入/输出预占、未知 usage 保守结算、排队退款、排队与在途/流式 deadline、429 退避、全局并发、嵌套 JSON 重试及 explorer 暂停快照；adapter 回归另固定 OpenAI/Anthropic SDK 隐式重试关闭。HTTP 状态分类测试固定公网 DNS 桩，避免宿主 VPN fake-IP 抢先触发 URL 安全分支；URL 安全仍由独立阻断测试覆盖。
+
+### 2.25 legacy_v1 终稿写作与冻结证据重生成（2026-09-19）
+
+- run5 的首次修复将 `report_delivery` 严格 JSON 草稿写作从 4200 临时提升到 8192 输出 token；该固定值随后已由 2.26 的自适应写作计划取代。严格 JSON 仍以 `thinking_effort=off` 执行，报告层保持一次初稿 + 最多一次共享修复/修订，底层 `complete_json` 的解析重试关闭。一次逻辑写作对应一次供应商请求，避免截断 JSON 被相同提示暗中重试 5 次。
+- OpenAI-compatible DeepSeek 模型别名（含 `deepseek-flash`、`deepseek-chat` 与供应商前缀名称）统一识别思考开关；报告阶段的 off 下发 `thinking.type=disabled`，不会静默继承全局 medium。
+- `POST /api/exploration/runs/{id}/report` 优先读取当前报告已冻结的 `tables/subquestions/evidence_store`，只重做角色化写作与结构收口；仅当旧报告没有冻结证据时才回退到选材与逐篇提取。重生成报告写入 `method.regeneration=delivery_only_from_frozen_evidence`。
+- 重生成仍创建不可变 revision；产出 `final_draft` 时替换当前选择，完全失败且已有成功终稿时保留旧选择。核验超时保留已生成正文，并以 `partial/needs_review` 与 `AUDIT_*` 原因交付。
+- run5 实测：旧路径 2 个逻辑调用膨胀为 12 个底层请求、每次 4200 输出且 JSON 截断；修复后复用 17 条冻结证据，首稿 1 次请求（3909 输入/3934 输出/0 reasoning，31.5s）成功，最终保存 8 条 findings 与 `final_draft`。核验在当前模型下超时，状态保持 `partial/needs_review`，不冒充已核验完成。
+
+### 2.26 终稿长度自适应与分节恢复（2026-09-19）
+
+**终止原因契约**：统一 LLM 响应新增可选 `finish_reason`。OpenAI-compatible 适配器读取 `choices[0].finish_reason`，Anthropic 适配器读取 `stop_reason`；`complete_json(..., metadata_out=...)` 在解析 JSON 前写入 `finish_reason`、`request_id` 和归一化 `usage`，所以即使响应因长度截断而无法解析，报告编排仍能记录真实终止原因。旧调用方和不返回该字段的供应商保持兼容，字段为空不改变原有行为。
+
+**自适应写作计划**：`adaptive_draft_plan` 根据冻结证据数量选择 `compact`（≤20）、`standard`（21–60）或 `extended`（>60）密度，并为概览、主要发现、局限、研究空白和新颖性判断分别计算目标条目数与分节额度。整稿初始额度由目标正文字符量、JSON 结构开销和证据映射开销估算，按 512 token 取整；最终同时受当前模型配置 `max_tokens`、程序硬上限 32768、运行 token/时间预算约束。这里的“自适应”表示证据少时主动收短、证据多时允许展开，不表示无上限输出；模型负责在该计划上限内决定实际篇幅，证据不足时可以少写。
+
+**降级与合并**：首次整稿成功时直接进入既有规范化和核验。若整稿 JSON 截断、结构无效、没有可接受条目，或仅缺少部分顶层章节，报告层在唯一一次共享修复额度内改为分节生成：失败整稿恢复全部章节，部分成功整稿只恢复缺失、引用非法或结构无效的章节。各章节独立验收后由程序合并，已通过章节保持原文；分节请求可以并发发起，但仍受 LLM Core 全局并发上限控制。分节未恢复完整时保留已接受内容，并以 `partial/needs_review` 和对应错误码交付，不把缺失章节伪装成完整终稿。
+
+**诊断字段**：`delivery.attempts.generation` 逐请求记录 `purpose`、`strategy`（`whole`/`section`）、`section`、`max_tokens`、`finish_reason`、`duration_s`、`output_tokens` 与状态；`delivery.attempts.section_calls` 记录成功分节数，`delivery.diagnostics.writing_plan` 保存本次密度、章节目标和 token 额度，`delivery.diagnostics.incomplete_sections` 保存最终仍缺失的章节。底层 JSON 解析仍为零隐藏重试，因此上述记录与实际供应商请求一一对应。
+
+验证：新增 OpenAI/Anthropic 终止原因归一化、截断 JSON 元数据、自适应档位/配置上限、仅恢复缺失章节及整稿失败分节重建回归；相关定向测试 84 项、后端全量 1061 项通过，ruff 通过。本次未重新调用真实模型，也未改写 run5 已选定的成功 revision。
+
+### 2.27 完成态研究计时终点（2026-09-19）
+
+探索详情页的“总耗时”仍表示从 run 创建到研究工作流结束的墙钟跨度，暂停间隔保留在该跨度内；阶段条表示各阶段活动耗时之和。完成、失败或暂停后，页面优先用持久化 `result.sources.stage_timeline` 中最后一个闭合阶段的 `started_at + duration_s`（以及更晚的实时 `stage_done`）作为工作流结束时刻。只有旧 run 没有可用闭合阶段时，才回退 `ExplorationRun.updated_at`。
+
+`updated_at` 是记录更新时间，不是工作流完成时间：报告重新生成、revision 选择和其他后续写操作都会推进它。不得用更新后的 `updated_at - created_at` 计算已完成研究耗时，否则会把研究结束后的空闲间隔误计入总耗时。run6 基线中研究在 07:55:34 完成、阶段合计 19 分 12 秒，报告重生成把 `updated_at` 推进到 09:06:33；修复后总耗时恢复为 19 分 12 秒，不再显示 1 时 30 分 11 秒。
+
+验证：`runTiming` 新增时间线终点和无闭合阶段回退测试，`ExplorePage` 新增 run6 形状的报告重生成回归；定向 27 项、前端全量 160 项、typecheck 与生产构建通过。本次没有修改后端数据或 run6 报告内容。
+
+### 2.28 探索流水线 v8：八阶段重排与 run6 审查六项修复（2026-09-19）
+
+对 run6 lite 研究（50 篇语料 / 65 调用 / 29.8 万 token / 21 段核验全超时）正式审查后的整体重构。八阶段由 `preflight/decompose/recall/enrich/metrics/synthesize/report/persist` 重排为：
+
+| # | stage | 职责 | 来源 |
+|---|---|---|---|
+| 0 | `preflight` | provider 组合探测 + **arXiv health check**（supplement 角色，不参与主源全死判定） | 扩展 |
+| 1 | `protocol` | 检索式拆解 + **六类覆盖协议**（历史演进/方法谱系/数据集基准/评估指标/部署效率/前沿趋势，`COVERAGE_DIMENSION_DEFAULTS`；LLM 失败回退程序默认） | decompose 升级 |
+| 2 | `recall` | 三源检索只扩大**候选池**；终裁 confirmed 优先占满 target，unknown 不再补位、只随行 ≤max(10, target×20%) 供 screen 复筛 | 语义收紧 |
+| 3 | `screen` | unknown 缩批（5/批）复筛裁决 → 仍未决**隔离**（`result.screen.quarantined`，不进计量/聚类/综合/选材）→ 概念词兜底清洗 → 指标富化（仅正式语料）→ 计量+聚类 | 新增（吸收 enrich+metrics） |
+| 4 | `select` | 分层选材（`STRATUM_QUOTAS`：foundation/recent/survey/dataset/method 按档配额）+ 候补池（关键层×2）+ 全文批量下载 | report 前半拆出 |
+| 5 | `extract` | 逐篇提取；超时/非法 JSON **缩小上下文重试**（18k→8k 全文截断再试）；dataset/survey 关键层无 examined 成员时从候补**递补** | report 中段拆出 |
+| 6 | `synthesize` | 综合材料升级为**逐篇证据行浓缩**（`_evidence_digest`）+ 计量；随后 `draft_report` 生成并冻结初稿（`result["draft"]`） | synthesize 挪后 |
+| 7 | `report` | 吃 synthesize 冻结的 draft，做程序规范投影、渲染与 revision 落库（旧 persist 并入）；不追加真实性核验 | report 后半 |
+
+**终稿核验修复（run6 21 段全超时根因）**：核验调用从未关闭思考模型（reasoning 与输出共享 max_tokens，8 tok/s 吞吐下必超 30s 批预算）——`audit_answer` 现默认 `thinking_effort="off"`；每批 sources 由段级 `evidence_ids` 裁剪（`ReportEvidenceStore.audit_sources_for`，替代全量 ≤60k 载荷）；单批预算 30s→90s 且随模型配置自适应、全局预算按批数/并发自适应；**超时段不进入修订触发条件**（只有 contradicted/insufficient 触发）；初稿分节修复（repair_quota）与核验后修订（revision_quota）额度分离；修订为**定向段级**（只重写问题段落，未改动且已核验段复用 claims）。
+
+**checkpoint v2 与分层迁移**：新字段 `checkpoint_schema_version/workflow_revision/migration_source_version/migration_status/reusable_artifacts/invalidated_artifacts/legacy_usage/post_migration_budget`。v1 迁移幂等（判据：completed_stages 含 v1 专有名）；按产物可信度分层复用——preflight 保留（补跑 arXiv 探测）、decompose 检索式保留但协议补生成、recall 候选池保留（screen 重跑终裁）、enrich/metrics/synthesize/report 废弃重跑、逐篇提取缓存保留；旧预算消耗入 `legacy_usage`（RunBudget baseline，enforce 只约束迁移后新增消耗）；`recall` 完成但 result 缺语料 → `status=needs_restart`（保留产物与导出，resume 返回 `CHECKPOINT_MIGRATION_FAILED`）。
+
+**lite 预算强制**：`depth=lite` 默认 `budget_enforce=True`（预设按 run6 无约束实测校准：40 次尝试/160k 输入/30k 输出/900s 活动时间）；分级降级——余量<30% 跳过增强类调用（screen 复筛等），研究侧耗尽冻结进入交付（既有语义）。其余档位默认记账。
+
+**交付预留编排接线与续跑产物完整性（2026-09-19 二次审查修复）**：
+
+- **预算消费点**：`research_time_exceeded()` 接入编排——LLM deadline 按阶段相位切换（`_stage_begin`：研究阶段钳到「总时间−交付预留」线，越线后检索/富化/提取类调用快速失败；synthesize/report 恢复总剩余时间）；研究侧时间耗尽时 recall 不再发新检索、screen 跳过富化（纯算法计量不受影响）、select/extract 整体跳过（`agent_loops` 记 `research_time_budget_exhausted`，时间线行 status=skipped），report 传入 `research_frozen=True`——**只复用冻结选材与已缓存提取，未提取篇目按 `skipped_frozen` 入 coverage、不下载不补位**（二次审查 P0：冻结后不得把提取算进报告阶段吃交付预留），无任何缓存时产出带确定性说明的受限报告；`candidate_papers`（语料目标收缩+实际量入账）与 `read_papers`（选材上限收缩 `paper_limit=`，**显式 0 合法=跳过选材提取**；按 coverage.examined 入账）在编排层消费；`source_requests` 逐次 HTTP 尝试入账（`resilient_get` / OpenAlex `_get` / Scopus `_get`，enforce 耗尽按源失败处理），`supplement_batches` 每个补搜批次预占（lite 预设 0=不做覆盖缺口补搜，停止原因记 `supplement_budget_stop`）。
+- **续跑产物完整性**：screen 阶段只更新自己拥有的 result 键（不再整体重建），恢复出的 `report_plan/report_extract/draft/synthesis/survey_report` 原样保留；`persist_sources` 落库整个内存 result（select 的全文快照与 report_plan/report_extract 不再只存在于内存——暂停/崩溃后续跑不重复下载、不重复提取）；synthesize 冻结的草稿续跑后 report 直接进入核验不重写。
+- **错误与历史版本**：select/extract/report 重试入口清除上次尝试的 `report_error`（成功路径不再残留旧错误阻断阶段完成标记）；迁移/续跑覆盖 result 旧报告前先经 `_persist_legacy_report_revision(previous_report=…)` 保存为未选中 revision。
+- **v1 迁移补跑 arXiv**：迁移保留 preflight 完成标记，恢复路径检测落库健康快照缺 arXiv 条目时补跑一次 `_probe_arxiv()`（幂等，补齐落库后不再请求）；**补测后同步重算 `preflight_dead`**——补测判死（如 network_error）时召回阶段按熔断集合跳过 arXiv，不再尝试已知判死的源。
+- **报告重生成**落库阶段名 persist→report（新八阶段一致）；**定向修订载荷**携带证据正文（每源 `evidence[].quote` 截断 1200 字符，不再只有标题+证据 ID）；**核验全局预算按真实分批数**计算（分批器按字符预算可能产出远多于 段数/3 的批次）。
+- **续跑时间线闭合与协议写回**：select/extract 恢复分支同样闭合 `_stage_begin` 打开的时间线行（不再残留 duration_s=null/status=running）；恢复路径补生成的 `coverage_protocol` 写回 `run.decompose`（暂停后恢复不重复生成）。
+
+**报告结构**：分层选材配额随 depth；`coverage_protocol` 注入写作载荷（`base_payload.coverage_protocol`），findings 按协议维度组织小节；引用渲染相邻同号折叠（`[20][20]`→`[20]`，表格行同论文去重）；参考文献分区——正文/证据表实际引用的论文在前，其余语料标"未在正文引用"。阶段事件名/顺序与前端 `TIMING_STAGE_ORDER`/`STAGE_DEFAULT_MESSAGES`/进度百分比同步，旧 run 时间线（decompose/enrich/metrics/persist）标签兼容展示。
+
+验证：后端 1071 项全过（新增 v1→v2 迁移分层/幂等/needs_restart、分层选材 unknown 隔离、终裁随行上限、段级核验裁剪、额度分离、select/extract/synthesize 三阶段边界续跑产物完整性（变异验证可捕获重建/丢失产物回归）、研究时间冻结跳过、核验预算真实批数等契约测试）、ruff、前端 typecheck/160 项测试/构建通过。
+
+### 2.29 output_tokens 软限制与预算 ×10（2026-09-20）
+
+背景（run4，lite 档）：思考型模型 deepseek-flash 的 reasoning 占输出 84%（28,949 输出 token 中 24,448 为推理），30k 硬额度在 ⑤ 提取阶段即被击穿，⑥ 综合写作调用被预算守卫以 `BUDGET_EXHAUSTED: output_tokens（剩余 1051）` 拒绝，agent 循环 `model_error:LLMError` 终止 → 报告阶段 `DRAFT_WRITE_FAILED`，页面显示"流程已完成 · 报告未完成"。
+
+- **硬限制放开**：`RunBudget.before_model_attempt` 中 `output_tokens` 改为软限制——enforce 下超限不再抛 `BudgetExhausted`，仅照常预占/结算、记一次耗尽事件（观测口径不变），实际用量可越过 limit（保守落账、remaining 钳 0）。其余资源（model_attempts / input_tokens / supplement_batches / 总时长 deadline）仍硬停，防止输出失控。`reserve()` 通用语义不变。
+- **软限制提示词**：新增 `RunBudget.llm_output_hint()`——仅 enforce 生效（记账模式行为不变），按 output_tokens 已用比例分两档返回催促文案（≥60% 提醒"精简思考与输出"、≥85% 警告"跳过冗余推理只输出必需内容"），未达阈值返回 None。LLM Core（`complete`/`stream_text`，`complete_json` 经 `complete` 透传）以 duck-typing 读取，命中时把文案**拼接到 user 消息末尾**——system 与正文前缀不变，供应商前缀缓存不失效；提示词计入输入估算。
+- **预算 ×10**：`DEPTH_BUDGET_PRESETS` 各档 output_tokens 放大 10 倍兜底（lite 30k→300k、quick 25k→250k、standard 60k→600k、deep 120k→1.2M），其余额度不变；checkpoint 恢复的 limit 取当前预设，旧 run 续跑即享新额度（已用量随快照延续）。
+
+验证：`tests/test_run_budget.py` 新增软限制三态（仅 output 超限不阻断+耗尽事件恰一次）、提示词分档与记账模式恒 None、`complete()` 全链路末尾追加与未达阈值透传；预设表断言同步 ×10。
+
+### 2.30 证据提取与角色化写作独立执行域（2026-09-20）
+
+`extract`、`synthesize`、`report` 三阶段不再继承检索阶段的运行级硬预算：进入这些阶段时暂停研究预算活动时钟，并清除 LLM Core 的 run budget 与总 deadline。它们不受 `model_attempts`、`input_tokens`、`output_tokens`、`read_papers` 或研究总时长余额阻断；仍保留单次请求 timeout、有限重试、全局模型并发、用户暂停/取消和逐次 token 用量落库。页面审计通过 `sources.execution_policy` 区分 `budgeted_stages` 与 `unbounded_stages`；`result.budget` 只表示检索侧预算，实际完整消耗以 token usage 记录为准。本节取代 §2.28 中“extract 属研究预算、read_papers 余额可跳过提取、交付只使用时间预留”的旧语义。
+
+报告生成采用 `writer_roles_v1` 固定顺序：
+
+1. `statistics_compiler` 由程序计算本次语料年份、证据篇数/类型、表格行数和子问题覆盖，禁止把本次材料覆盖率外推为全领域覆盖率。
+2. `statistics_writer` 只转述程序统计，不重新计算或推断因果。
+3. `evidence_overview_writer` 按覆盖协议整理固定领域概论和证据缺口，每条领域事实保留原始 `evidence_id`。
+4. `question_answer_writer` 同时读取固定统计、固定概论和原始证据，针对用户问题撰写个性化终稿；中间产物不构成新证据，引用必须回到原始 `evidence_id`。
+各角色产物保存在 `survey_report.method.writer_roles`，包括程序统计、统计短句、固定概论、覆盖缺口和执行顺序；辅助角色失败时记录诊断并允许主笔直接使用原始证据继续，避免单个辅助调用清空已冻结证据。主笔草稿仍按 `draft_state` 跨 `synthesize → report` 保存。
+
+### 2.31 报告写完即结束，取消终稿真实性核验（2026-09-20）
+
+本节取代 §2.17、§2.22、§2.28、§2.30 中“主笔完成后继续执行终稿核验、核验后定向修订”的生产流程。报告主链路固定为：程序统计 → 统计编辑 → 固定证据概论 → 个性化主笔 → 程序规范化/渲染/revision 落盘。`question_answer_writer` 完成后不再调用 `evidence_auditor`、`audit_report_text` 或修订代理，前置综合也不再追加 `audit_answer` 真实性复核轮次。
+
+生成期仍保留程序检查和一次结构恢复：JSON 无效、章节缺失、未知 `evidence_id`、越界参考编号或事实条目缺引用时，可在生成过程中按章节恢复；这是同一份报告的结构收口，不是事实真实性核验。逐篇证据提取阶段的原文定位、引用存在性和关系复核继续运行，因为它们发生在写作之前并决定哪些材料能够进入证据库。
+
+新报告保存 `method.final_audit.status=not_requested`、`quality_status=unchecked`、`delivery.attempts.audit_batches=0`、`revision_calls=0`，`delivery_status=ready` 只表示报告正文已经生成且结构/引用契约可保存，不表示内容经过模型或人工真实性验证。结构或引用契约仍不完整时为 `partial/needs_review`。页面只展示执行状态和答案生成状态；Markdown/HTML 不再生成“终稿核验与交付状态”章节。旧报告中的 `final_audit` 与 `internally_checked` 字段继续只读兼容，不参与新报告生成。
+
+### 2.32 召回、选材与写作证据保留修复（2026-09-25）
+
+- `recall_engine` 的摘要级与标题级筛选要求模型逐篇显式返回 `accepted`/`rejected`/`uncertain`；未明确接受或响应缺少 `accepted` 的候选留在 `unknown`，不计入确认量，下游 `screen` 复筛后也只提升显式接受项，其余隔离。筛选前、确认量终裁及待定随行池按问题与检索式的 BM25 主题匹配选取，分别保留约 10% 来源原始排序与 10% 双轨高引/近年材料作为多样性配额；不再仅凭引用量裁掉低引关键论文。覆盖维度以单篇标题/摘要同时命中足量探针为准，避免跨论文拼接造成虚假覆盖。
+- `survey_report.select_stratified_materials` 接收原始研究问题。问题要求进展、演进或趋势时，选材保留近期方法与新基准名额；同一数据集层优先同时读相关性第一篇与近两年的新工作。语义检索只使用用户问题，不追加所有问题通用的评测关键词。选中的全文初始阅读材料按子问题轮转取多个片段，在字符预算内保留完整文本块；缩小上下文重试保留相关片段，不回退到全文开头。
+- `report_delivery.build_evidence_pack` 对全部已提取证据按子问题查询相关性、复核状态和论文来源排序，再轮转装入 42k 字符预算；原始证据、引用 ID 与报告 revision 契约不变。接口、参数、返回值及状态码未改变。
+
+### 2.33 整体检查点的设置、下载与进度边界（2026-09-26）
+
+**设置接口**：敏感设置读写共用 `analysis._trusted_local_config_request`。它要求直连 peer（或受信任代理追加的全部 `X-Forwarded-For` 地址）为回环地址、`Host` 为回环名称/IP，且请求带 `Origin` 时与配置的前端 origin 或当前本机请求 origin 一致。Vite `/api` 代理启用 `xfwd` 追加浏览器连接地址；现有 CORS 仍只允许配置的前端 origin。此边界用于本机部署；若把端口经不保留真实来源的隧道暴露给外部，必须在暴露入口另加认证，不能把回环 peer 视为最终用户身份。
+
+| 方法 | 路径 | 参数/请求 | 返回 | 状态码 |
+|---|---|---|---|---|
+| GET | `/api/analysis/llm-profiles/{id}/key` | 档案 ID；本机来源 | `{api_key}`，`Cache-Control: no-store` | 200/403/404 |
+| GET | `/api/analysis/config/export` | `format=yaml/yml/toml/json`、`include_secrets=false`（默认） | 附件；`X-Config-Masked=true/false`、`Cache-Control: no-store`；非本机来源即使请求含密钥也强制脱敏 | 200/422 |
+| POST | `/api/analysis/config`、`/api/analysis/config/import`、`/api/analysis/llm-profiles`、`/api/analysis/llm-profiles/{id}/activate`、`/api/analysis/test-connection`、`/api/analysis/grobid/pull`、`/api/analysis/findpapers/test-databases` | 原有请求体；本机来源 | 原有响应结构；非本机返回 `{detail,code:LOCAL_ACCESS_REQUIRED}` | 原有成功/业务错误码、403 |
+
+现有档案更新/删除仍为历史 `PUT`/`DELETE` 路径，同样要求本机来源；本轮未新增这些方法。设置页导出默认不勾选密钥，先读取并检查 HTTP 响应，再下载 Blob；请求含密钥但被强制脱敏时按响应头提示。远端对 Key 查看、配置写入、GROBID 拉取等敏感操作返回 403；导出走 200 脱敏附件。
+
+**论文下载与用量**：Elsevier Key 仅自动附加到精确的 HTTPS `api.elsevier.com`，不向相似域名、跨源 HTML PDF 链接或 HTTPS→HTTP 重定向传递敏感头。LLM 用量的 `input_tokens` 统一表示完整输入：OpenAI 的 `prompt_tokens` 已含缓存，不重复加；Anthropic 的 `input_tokens` 加缓存读取与写入。缓存命中率按 `cached_input_tokens/input_tokens` 显示；原有逐次记录、聚合接口的字段和状态码不变，已落库的历史用量不自动重算。
+
+**SSE 与前端字体**：`useExplorationStream` 区分 EventSource 原生网络 `error` 与服务端 `event:error`；短暂断线保留浏览器重连，业务错误才置 `failed` 并关闭连接。阶段提示的报告步骤不再称“终稿核验”。实际字族及首页样式边界见 §6.3、§6.5。
+
+**依赖与已知限制**：`backend/requirements.txt` 为 `python-multipart`、`pydantic-settings`、`pypdf` 及直接补充的 `starlette`、`anyio`、`aiohttp` 设修复版下限；前端锁文件更新兼容补丁版本，本机 npm 全量审计为 0 告警。本机 Python 审计仍报 `chromadb 1.5.9`（上游暂无修复版）、`torch 2.12.0`（升级涉及深度学习环境迁移）和受当前 Torch `<82` 约束的 `setuptools 81.0.0`；这些依赖未在本检查点强行升级。PDF URL 的公网 DNS 校验与实际 HTTP 连接尚未绑定同一解析 IP，受攻击者控制的域名存在 DNS rebinding 竞态；需在后续安全专项采用并验证连接 IP 固定传输。研究运行等业务 API 仍按本机单用户应用设计，远程暴露整个服务须由入口完成认证与权限控制。
+
 ## 3. 统一约定
 
 ### 3.1 响应格式
@@ -532,14 +779,14 @@ MCP 工具：
 
 ### 6.3 视觉呈现分层
 
-- `main.tsx` 按 `globals.css -> experience.css -> pages.css` 的顺序加载全局样式；`HomePage` 在路由模块内单独加载 `home.css`，版本信息、Toast、快捷键帮助和 Tooltip 共享按组件加载的 `overlays.css`。
+- `main.tsx` 按 `globals.css -> typography.css -> experience.css -> surfaces.css -> pages.css -> controls.css` 的顺序加载全局样式；版本信息、Toast、快捷键帮助和 Tooltip 共享按组件加载的 `overlays.css`。
 - `globals.css` 定义基础令牌、元素基线、旧业务组件继续使用的语义变量和通用 reduced-motion 降级规则。
 - `experience.css` 定义应用壳层、主导航、上下文导航、路由登记信息、对话框、加载状态、场景几何和全局响应式网格。
-- `pages.css` 以 `er-page--*` 路由根类重排 `LibraryPage`、`WorkspacePage`、`WorkspaceDetailPage`、`SettingsPage`、`ReaderPage`、`CodePage`、`ResearchPage` 和 `NotFoundPage` 的生产页面表面，不改变页面组件的业务属性和事件契约。
-- `home.css` 只负责 `HomePage` 与 `UploadZone` 的 Origin 输入面、统计登记带、最近论文、快捷入口和最近工作区布局。
+- `pages.css` 为采用 `er-page--*` 根类的路由提供页面表面样式；各页面继续保留自身 CSS/Tailwind 样式与业务属性、事件契约。
+- 当前 `HomePage` 使用组件内 Tailwind 类布局与 `UploadZone`，未导入 `home.css`，也未渲染该文件的 `origin-home` 类；`home.css` 属未接入的历史样式，不计入当前首页渲染契约。
 - `overlays.css` 只负责版本登记平面、系统通知登记条、快捷键登记表和 Portal Tooltip；对应组件继续独立处理焦点捕获、Escape、延时和关闭行为。
-- 呈现层使用暖纸、墨黑、钴蓝、信号红、赭黄、硬边界与登记线；应用壳层统一移除圆角、阴影、玻璃模糊、发光和文字渐变。装饰几何使用 `aria-hidden`，主要内容、导航和操作继续使用语义 DOM。
-- 宽度大于 `1000px` 时使用 12 栏；`<=1000px` 使用 8 栏；`<=700px` 使用 6 栏。壳层、首页和路由页面在同一组断点分别处理栏位、边距、导航密度及 Reader/Code/Research 工作面。
+- 应用壳层使用暖纸、墨黑、钴蓝、信号红、赭黄和登记线；首页及部分业务面板仍使用圆角 Tailwind 样式。装饰几何使用 `aria-hidden`，主要内容、导航和操作继续使用语义 DOM。
+- `experience.css` 为壳层提供 `1000px`、`700px` 响应式断点；首页和业务页面另由各自样式控制栏位与间距，不保证统一的 12/8/6 栏布局。
 
 ### 6.4 路由视觉状态
 
@@ -581,7 +828,8 @@ location.pathname
 ```
 
 - 主题以 `bg/fg/surface/accent/muted/radius` 六个 seed token 为输入，派生原有背景、边界、文字、状态和代码区变量，同时输出 `--paper`、`--ink`、`--blue`、`--signal`、`--ochre` 等迁移后的结构色别名；`ThemeColors` 继续作为旧消费方的兼容契约。
-- 内置主题为 `light`（构成纸面，默认）和 `dark`；两个内置主题的 `radius` 均为 `0`。自定义主题仍通过 `custom:<id>` 解析，字体仍由 UI 配置注入。
+- 内置主题为 `light`（默认）和 `dark`；两个内置主题的 `radius` seed 均为 `0`，业务组件自带圆角类仍可生效。自定义主题仍通过 `custom:<id>` 解析，字体仍由 UI 配置注入。
+- 字族分工：标题 `--font-display` 使用本地打包的 Archivo Variable，界面 `--font-ui` 默认 Inter Variable，登记信息 `--font-register` 使用 JetBrains Mono Variable；中文使用系统 PingFang SC/Hiragino Sans GB/Microsoft YaHei/Noto Sans CJK SC 回退。字体列表在泛用字族前放入中文字体，不用覆盖 100–900 字重的单字面 `@font-face`，以免粗体汉字误落常规字重。
 - Motion 默认跟随系统偏好，用户操作在当前 `Layout` 生命周期内设置覆盖状态。`data-motion="reduced"` 与 `prefers-reduced-motion: reduce` 都会停止或压缩主要动画并隐藏路由切场与指针孔径；系统媒体查询保留最终 CSS 降级。
 - 细指针且 Motion 有效时，`pointermove` 由单个 `requestAnimationFrame` 合并，按 12/8/6 栏和 8 行吸附后直接写入 `--er-pointer-x/y`，不逐帧触发 React state；resize 会重新量化，卸载会取消 RAF 和监听。粗指针设备隐藏该装饰层。
 

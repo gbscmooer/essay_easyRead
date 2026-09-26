@@ -365,7 +365,10 @@ def test_v1_run_control_and_retry_unsupported(client, engine, v1_env, monkeypatc
         session.commit()
         bare_id = bare.id
     started = []
-    monkeypatch.setattr("backend.routers.exploration._start", lambda coro: (started.append(coro), coro.close()))
+    monkeypatch.setattr(
+        "backend.routers.exploration.start_worker",
+        lambda run_id, coro: (started.append(coro), coro.close()),
+    )
     response = client.post(f"/api/exploration/runs/{bare_id}/report")
     assert response.status_code == 200
     assert response.json()["status"] == "pending"

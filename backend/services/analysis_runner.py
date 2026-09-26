@@ -189,6 +189,9 @@ def ensure_job(paper_id: int, pdf_path: str) -> AnalysisJob:
 
 async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
     """后台执行完整分析流程，向 job 发射 SSE 事件。"""
+    from .llm import set_llm_scope
+
+    set_llm_scope("paper_analysis", run_id=str(job.paper_id))
     paper_id = job.paper_id
     engine = get_engine()
 

@@ -187,10 +187,10 @@ export function Layout({ children }: LayoutProps) {
         <a className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-blue-600 focus:text-white focus:rounded-md" href="#er-main-content">跳到主要内容</a>
 
         {/* 现代化顶部导航栏 */}
-        <header className="h-14 shrink-0 px-4 sm:px-6 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center justify-between z-30 select-none">
+        <header className="er-app-header h-14 shrink-0 px-4 sm:px-6 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center justify-between z-30 select-none">
           {/* 左侧：Logo 与主导航 */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
+          <div className="er-app-header__left flex items-center gap-6">
+            <div className="er-app-header__brand flex items-center gap-2">
               <Link to="/" className="flex items-center gap-2.5 group">
                 <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs group-hover:scale-105 transition-transform">
                   论
@@ -211,7 +211,7 @@ export function Layout({ children }: LayoutProps) {
             </div>
 
             {/* 主要导航 */}
-            <nav className="flex items-center gap-1" aria-label="主要导航">
+            <nav className="er-app-header__nav flex items-center gap-1" aria-label="主要导航">
               {primaryNav.map(item => {
                 const active = isNavActive(item.path, location.pathname)
                 return (
@@ -234,14 +234,14 @@ export function Layout({ children }: LayoutProps) {
           </div>
 
           {/* 右侧：上下文导航与操作按钮 */}
-          <div className="flex items-center gap-3">
+          <div className="er-app-header__actions flex items-center gap-3">
             {contextItems.length > 0 && (
-              <nav className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]" aria-label="当前内容导航">
+              <nav className="er-app-header__context flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]" aria-label="当前内容导航">
                 {contextItems}
               </nav>
             )}
 
-            <div className="flex items-center gap-1 border-l border-[var(--border)] pl-2 sm:pl-3">
+            <div className="er-app-header__tools flex items-center gap-1 border-l border-[var(--border)] pl-2 sm:pl-3">
               {/* 主题切换 */}
               <button
                 type="button"

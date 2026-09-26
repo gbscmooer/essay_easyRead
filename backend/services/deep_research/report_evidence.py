@@ -41,20 +41,48 @@ def _content_payload(record: dict) -> dict:
             if key not in {"evidence_id", "identity_hash", "content_hash"}}
 
 
-def _subquestions(table: str, fact: dict) -> list[str]:
+# 子问题的语义信号词（小写子串匹配 fact+quote 文本）：表格类型只是主归类，
+# 不能决定研究覆盖——"下一代视觉基础模型候选"在 taxonomy 表里就永远进不了
+# 趋势/查新（v7.4.1 研究 5 实测效率/局限/趋势三个子问题 0 条证据）。
+# 信号词保持保守：宁可少关联，也不把无关证据灌进子问题污染覆盖统计。
+_SUBQUESTION_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("runtime_efficiency", ("throughput", "latency", "speed", "memory", "flop", "img/s",
+                            "fps", "efficien", "faster", "slower", "compute", "params",
+                            "gpu hour", "inference time", "training time", "cost")),
+    ("limitations", ("limitation", "challenge", "drawback", "bottleneck", "fail", "struggl",
+                     "difficulty", "restrict", "open problem", "cannot", "bias", "overfit",
+                     "issue")),
+    ("novelty_scope", ("future", "next-generation", "next generation", "direction", "trend",
+                       "emerging", "outlook", "roadmap", "open question", "candidate",
+                       "paradigm", "frontier", "toward", "unexplored")),
+    ("method_mechanism", ("architecture", "mechanism", "attention", "module", "encoder",
+                          "hierarch", "token", "variant", "component", "self-supervised",
+                          "pretrain", "fine-tun")),
+    ("effect_comparison", ("benchmark", "accuracy", "performance", "comparison", "baseline",
+                           "state-of-the-art", "sota", "evaluation", "outperform", "score")),
+)
+
+
+def _subquestions(table: str, fact: dict, quote: str = "") -> list[str]:
+    """表格类型给主归类，语义信号补充次归类（一条证据可关联多个子问题）。"""
+    joined = " ".join(normalize_text(value) for value in (*fact.values(), quote)).casefold()
     if table == "experimental_comparisons":
-        joined = " ".join(normalize_text(fact.get(key)) for key in EXPERIMENT_FIELDS).casefold()
         result = ["effect_comparison"]
-        if any(word in joined for word in ("throughput", "latency", "speed", "memory", "flop", "img/s", "fps")):
+        if any(word in joined for word in ("throughput", "latency", "speed", "memory",
+                                           "flop", "img/s", "fps")):
             result.append("runtime_efficiency")
         if fact.get("hardware") or fact.get("batch_size") or fact.get("input_size") or fact.get("precision"):
             result.append("runtime_efficiency")
-        return result
-    if table == "taxonomy":
-        return ["method_mechanism"]
-    if table in {"frameworks", "metrics", "tasks"}:
-        return ["effect_comparison"]
-    return ["novelty_scope"]
+    elif table == "taxonomy":
+        result = ["method_mechanism"]
+    elif table in {"frameworks", "metrics", "tasks"}:
+        result = ["effect_comparison"]
+    else:
+        result = ["novelty_scope"]
+    for subquestion_id, signals in _SUBQUESTION_SIGNALS:
+        if subquestion_id not in result and any(signal in joined for signal in signals):
+            result.append(subquestion_id)
+    return result
 
 
 class ReportEvidenceStore:
@@ -116,7 +144,7 @@ class ReportEvidenceStore:
             "spans": [{"quote": normalize_text(quote), **location}],
             "missing_fields": missing_fields,
             "comparability": comparability,
-            "subquestion_ids": subquestion_ids or _subquestions(evidence_type, cleaned_fact),
+            "subquestion_ids": subquestion_ids or _subquestions(evidence_type, cleaned_fact, quote),
             "verification": {"status": verification_status, "note": verification_note},
         }
         identity_hash = _hash(_identity_payload(content))
@@ -248,6 +276,53 @@ class ReportEvidenceStore:
                 quote_key = normalize_text(quote).casefold()
                 if paper_key and quote and quote_key not in seen_quotes[paper_key]:
                     seen_quotes[paper_key].add(quote_key)
+                    by_paper[paper_key].append({"evidence_id": record["evidence_id"],
+                                                "quote": quote})
+        sources = []
+        for number, paper in enumerate(paper_order, 1):
+            spans = by_paper.get(paper.get("key"), [])
+            if not spans:
+                continue
+            sources.append({
+                "id": f"P{number}", "title": paper.get("title") or "", "abstract": "",
+                "text": "\n\n".join(span["quote"] for span in spans),
+                "evidence_spans": spans,
+            })
+        return sources
+
+    def audit_sources_for(
+        self,
+        evidence_ids: list[str],
+        paper_order: list[dict],
+        *,
+        fallback_paper_keys: list[str] | None = None,
+    ) -> list[dict]:
+        """段级证据裁剪：只携带指定证据（及其论文身份）的核验 sources。
+
+        P 编号规则与 audit_sources 完全一致（论文在 paper_order 中的序号），
+        只是过滤到被引用的证据条目——终稿核验每批发送全量 sources 是 run6
+        21 段全部 AUDIT_TIMEOUT 的载荷根因（≤48 源 × 8k 字符 ≈ 60k 字符/批）。
+        evidence_ids 为空时退用 fallback_paper_keys 的全证据；两者皆空返回 []
+        （纯 process_note 段无可核验来源，audit_answer 会按 NO_SOURCE_TEXT 跳过）。
+        """
+        wanted = {str(e) for e in evidence_ids if str(e)}
+        by_paper: dict[str, list[dict]] = defaultdict(list)
+        if wanted:
+            records = [self._records[e] for e in sorted(wanted) if e in self._records]
+        elif fallback_paper_keys:
+            keys = set(fallback_paper_keys)
+            records = [row for row in self._records.values()
+                       if (row.get("source") or {}).get("paper_key") in keys]
+        else:
+            return []
+        seen: set[tuple[str, str]] = set()
+        for record in records:
+            paper_key = (record.get("source") or {}).get("paper_key")
+            for span in record.get("spans") or []:
+                quote = span.get("quote")
+                dedupe = (str(paper_key), normalize_text(quote).casefold())
+                if paper_key and quote and dedupe not in seen:
+                    seen.add(dedupe)
                     by_paper[paper_key].append({"evidence_id": record["evidence_id"],
                                                 "quote": quote})
         sources = []

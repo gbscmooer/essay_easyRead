@@ -20,6 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlmodel import Session, select
+from sqlalchemy import text
 
 from ..services.database import get_engine
 from ..models.exploration import ExplorationRun, ExplorationMessage
@@ -55,6 +56,7 @@ from ..utils.streaming import format_sse
 from ..services.deep_research.explorer import (
     get_exploration_bus, has_exploration_bus, run_exploration, rebuild_survey_report,
     request_pause, cancel_pause_request, drop_exploration_bus, _checkpoint_summary,
+    start_worker, has_live_worker, cancel_worker, pause_pending,
 )
 from ..routers.research import _stream_bus_with_heartbeat
 
@@ -71,6 +73,54 @@ def _start(coro):
     task = asyncio.create_task(coro)
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+# 暂停升级看门狗：协作式暂停假设 worker 迟早到达安全点，但 worker 可能卡死在
+# 不可中断的调用里（历史案例：429 Retry-After 巨值导致 asyncio.sleep 数小时），
+# 旗标永远无人观察，用户会停在「暂停中…」。宽限期过后强制取消 worker；
+# worker 的 CancelledError 收尾负责落库 paused 并推 SSE，看门狗只做兜底落库。
+PAUSE_ESCALATION_SECONDS = 90.0
+PAUSE_FINALIZE_GRACE_SECONDS = 15.0
+
+
+def _schedule_pause_escalation(run_id: int) -> None:
+    async def _escalate() -> None:
+        await asyncio.sleep(PAUSE_ESCALATION_SECONDS)
+        if not pause_pending(run_id) or not has_live_worker(run_id):
+            return  # 安全点已消费 / worker 已自然结束
+        logger.warning(
+            "exploration run %s: 暂停请求 %.0fs 未被安全点消费，强制取消 worker",
+            run_id, PAUSE_ESCALATION_SECONDS,
+        )
+        cancel_worker(run_id)
+        await asyncio.sleep(PAUSE_FINALIZE_GRACE_SECONDS)
+        if not pause_pending(run_id):
+            return  # worker 收尾已完成（落库 paused + SSE 通知）
+        # 兜底：worker 取消后仍未完成收尾（极端：收尾路径再次卡死/被取消）
+        logger.error("exploration run %s: 强制取消后仍未收尾，直接落库置 paused", run_id)
+        cancel_pause_request(run_id)
+        from sqlalchemy import update as sa_update
+        try:
+            with Session(get_engine()) as session:
+                stmt = (
+                    sa_update(ExplorationRun)
+                    .where(ExplorationRun.id == run_id,
+                           ExplorationRun.status.in_(("running", "pending")))
+                    .values(status="paused", updated_at=datetime.now(timezone.utc))
+                )
+                if session.exec(stmt).rowcount == 1:  # type: ignore[attr-defined]
+                    session.commit()
+        except Exception:
+            logger.exception("exploration run %s: 看门狗兜底落库失败", run_id)
+        try:
+            bus = get_exploration_bus(run_id)
+            await bus.publish(StreamEvent(event="paused",
+                                          data={"run_id": run_id, "stage": "", "forced": True}))
+            drop_exploration_bus(run_id)
+        except Exception:
+            logger.exception("exploration run %s: 看门狗兜底 SSE 通知失败", run_id)
+
+    _start(_escalate())
 
 
 @router.get("/preflight", response_model=PreflightResponse)
@@ -188,7 +238,7 @@ async def regenerate_report(run_id: int):
         session.refresh(run)
         response = ExplorationRunResponse.model_validate(run, from_attributes=True)
     get_exploration_bus(run_id)
-    _start(rebuild_survey_report(run_id))
+    start_worker(run_id, rebuild_survey_report(run_id))
     return response
 
 
@@ -275,7 +325,7 @@ async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunRespons
 
     # 提前建总线：前端在后台任务获得调度前订阅也不至于拿到「无 bus」
     get_exploration_bus(run_id)
-    _start(run_exploration(run_id))
+    start_worker(run_id, run_exploration(run_id))
 
     with Session(engine) as session:
         run = session.get(ExplorationRun, run_id)
@@ -291,12 +341,23 @@ async def list_explorations(limit: int = Query(20, ge=1, le=100)) -> list[Explor
         runs = session.exec(
             select(ExplorationRun).order_by(ExplorationRun.created_at.desc()).limit(limit)
         ).all()
+        # 报告状态用 json_extract 在库内提取：不把 MB 级 result 列物化进 Python
+        report_status_rows = session.execute(text(
+            "SELECT id, "
+            "json_extract(result, '$.survey_report.status') AS rs, "
+            "json_extract(result, '$.survey_report.quality_status') AS qs "
+            "FROM exploration_runs ORDER BY created_at DESC LIMIT :lim"
+        ), {"lim": limit}).all()
+        report_status_map = {row.id: (row.rs or "", row.qs or "")
+                             for row in report_status_rows}
     return [
         ExplorationRunSummary(
             id=r.id, question=r.question, depth=r.depth, status=r.status,
             provider=r.provider, created_at=r.created_at, options=r.options or {},
             workflow_version=r.workflow_version or WORKFLOW_LEGACY_V1,
             state_version=r.state_version or 0,
+            report_status=report_status_map.get(r.id, ("", ""))[0],
+            quality_status=report_status_map.get(r.id, ("", ""))[1],
         )
         for r in runs
     ]
@@ -695,6 +756,30 @@ def get_run_budget(run_id: int) -> RunBudgetResponse:
         )
 
 
+@router.get("/runs/{run_id}/token-usage")
+def get_run_token_usage(run_id: int) -> dict:
+    """单次探索 run 的 LLM token 用量：优先读持久用量记录，旧 run 回退 result 内的台账快照。
+
+    归属（计划 §16.5）：优先按 run.run_instance_id（创建时落库的不可复用 UUID）
+    精确匹配——数字 run_id 删除后可被 SQLite 复用，实例 ID 保证不串账；身份列
+    启用前的旧记录无实例 ID，以当前 run 行 created_at 为下限兜底过滤。
+    """
+    from ..services import token_usage as usage_service
+
+    with Session(get_engine()) as session:
+        run = _get_run_or_404(session, run_id)
+        legacy_report = dict((run.result or {}).get("token_usage") or {})
+
+    data = usage_service.run_usage(
+        str(run_id), since=run.created_at,
+        run_instance_id=run.run_instance_id or None,
+    )
+    if not data["recorded"] and legacy_report:
+        data = usage_service.legacy_run_usage(legacy_report)
+    data["run_id"] = run_id
+    return data
+
+
 def _control_run(run_id: int, req: RunControlRequest, target: str, allowed_from: tuple[str, ...],
                  event_type: str, detail: str) -> RunControlResponse:
     with Session(get_engine()) as session:
@@ -714,7 +799,7 @@ def _control_run(run_id: int, req: RunControlRequest, target: str, allowed_from:
 
 
 @router.post("/runs/{run_id}/pause", response_model=RunControlResponse)
-def pause_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
+async def pause_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
     """safe-point 暂停请求：v2 走 CAS 契约；v1 置协作旗标，worker 在安全点
     （阶段/召回轮/agent 迭代/报告逐篇提取边界）观察后停止并持久化断点。
     本进程无活跃 worker 的僵尸 run（如服务重启遗留）直接落库置 paused。"""
@@ -745,6 +830,7 @@ def pause_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
             raise HTTPException(
                 409, detail={"detail": f"当前状态 {run.status} 不可暂停", "code": "INVALID_STATE"})
         if request_pause(run_id):
+            _schedule_pause_escalation(run_id)
             return RunControlResponse(
                 run_id=run_id, status=run.status, state_version=run.state_version,
                 detail="已请求暂停，将在最近的安全点（阶段/轮次/篇目边界）停止并保留断点",
@@ -782,6 +868,13 @@ async def resume_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
                 },
             )
         else:
+            if run.status == "needs_restart":
+                # v8 检查点迁移失败：旧产物与导出保留，续跑无意义，需新建研究
+                raise HTTPException(
+                    409,
+                    detail={"detail": "旧检查点无法迁移到当前流程（候选语料缺失），"
+                                      "请新建研究重跑；旧产物与报告导出已保留。",
+                            "code": "CHECKPOINT_MIGRATION_FAILED"})
             has_live_worker = has_exploration_bus(run_id)
             if run.status in ("running", "pending") and has_live_worker:
                 raise HTTPException(
@@ -813,7 +906,7 @@ async def resume_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
             state_version = run.state_version
 
     get_exploration_bus(run_id)
-    _start(run_exploration(run_id, resume=True))
+    start_worker(run_id, run_exploration(run_id, resume=True))
     return RunControlResponse(
         run_id=run_id, status="running", state_version=state_version, detail=detail,
     )
@@ -939,16 +1032,30 @@ def list_run_revisions(
             rows = session.exec(statement.order_by(ResearchReportRevision.id.desc()).limit(limit + 1)).all()  # type: ignore[arg-type]
             has_more = len(rows) > limit
             rows = rows[:limit]
+            # 交付状态/叙述来源从版本快照载荷投影；旧 revision 载荷缺失时保持 None
+            payloads: dict[str, dict] = {}
+            if rows:
+                asset_rows = session.exec(select(ResearchAsset).where(
+                    ResearchAsset.asset_id.in_([row.report_asset_id for row in rows]),  # type: ignore[attr-defined]
+                )).all()
+                payloads = {asset.asset_id: asset.inline_payload or {} for asset in asset_rows}
             items = [ReportRevisionEntry(
                 revision_id=row.revision_id, parent_revision=row.parent_revision,
                 protocol_hash=row.protocol_hash, quality_status=row.quality_status,
                 stop_reason=row.stop_reason, is_selected=row.is_selected,
                 legacy=True, created_at=row.created_at,
+                delivery_status=(payloads.get(row.report_asset_id) or {}).get(
+                    "delivery", {}).get("delivery_status"),
+                narrative_source=(payloads.get(row.report_asset_id) or {}).get(
+                    "delivery", {}).get("narrative_source"),
             ) for row in rows]
             if not items and (run.result or {}).get("survey_report"):
+                fallback_delivery = ((run.result or {}).get("survey_report") or {}).get("delivery") or {}
                 items = [ReportRevisionEntry(
                     revision_id="legacy", quality_status="unchecked",
                     is_selected=True, legacy=True, created_at=run.updated_at,
+                    delivery_status=fallback_delivery.get("delivery_status"),
+                    narrative_source=fallback_delivery.get("narrative_source"),
                 )]
             return ReportRevisionListResponse(
                 run_id=run_id, workflow_version=workflow, legacy=True,

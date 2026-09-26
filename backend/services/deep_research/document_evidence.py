@@ -165,17 +165,34 @@ class DocumentEvidenceReader:
             "location_status": "resolved" if block.page is not None else "partial",
         }
 
-    def initial_material(self, queries: list[str], *, limit: int = 6) -> str:
+    def initial_material(self, queries: list[str], *, limit: int = 6,
+                         max_chars: int | None = None) -> str:
         chosen: dict[str, TextBlock] = {}
-        for query in queries:
-            for item in self.search(query, limit=1)["items"]:
-                block = self._by_id[item["location_id"]]
-                chosen.setdefault(block.location_id, block)
+        ranked = [self.search(query, limit=3)["items"] for query in queries]
+        for rank in range(3):
+            for matches in ranked:
+                if len(chosen) >= limit:
+                    break
+                if rank < len(matches):
+                    block = self._by_id[matches[rank]["location_id"]]
+                    chosen.setdefault(block.location_id, block)
         for block in self.blocks:
             if len(chosen) >= limit:
                 break
             chosen.setdefault(block.location_id, block)
-        return "\n\n".join(block.text for block in sorted(chosen.values(), key=lambda row: row.ordinal)[:limit])
+        selected = list(chosen.values())[:limit]
+        if max_chars is not None:
+            bounded: list[TextBlock] = []
+            used = 0
+            for block in selected:
+                cost = len(block.text) + (2 if bounded else 0)
+                if used + cost <= max_chars:
+                    bounded.append(block)
+                    used += cost
+            if not bounded and selected:
+                return selected[0].text[:max_chars]
+            selected = bounded
+        return "\n\n".join(block.text for block in sorted(selected, key=lambda row: row.ordinal))
 
     def locate_quote(self, quote: str) -> dict:
         needle = normalize_text(quote)

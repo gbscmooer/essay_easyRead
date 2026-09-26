@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 # 默认全局学术 User-Agent
 DEFAULT_USER_AGENT = "AcademicPaperReader/1.0 (personal research use)"
 
+# Retry-After 上限：学术 API（Scopus/OpenAlex）的限速响应可能把重试时间指到配额
+# 重置窗口（数小时甚至次日）。真睡满会令整个研究运行挂死在 sleep 上——暂停安全点
+# 同样到不了，用户点「暂停」后永远停在「暂停中」。封顶后超出的部分视为本请求放弃。
+RETRY_AFTER_CAP_SECONDS = 60.0
+
 
 class DomainRateLimiter:
     """按域名隔离的限速与并发控制器。"""
@@ -137,8 +142,9 @@ class AdaptiveThrottle:
         self.interval = max(self.floor, self.interval * self.shrink)
 
     def on_rate_limited(self, retry_after: float = 0.0) -> None:
-        self.interval = min(self.cap, max(float(retry_after or 0.0), self.interval * self.grow))
-        self._next_slot = max(self._next_slot, time.monotonic() + float(retry_after or 0))
+        wait = min(float(retry_after or 0.0), RETRY_AFTER_CAP_SECONDS)
+        self.interval = min(self.cap, max(wait, self.interval * self.grow))
+        self._next_slot = max(self._next_slot, time.monotonic() + wait)
 
     async def acquire(self) -> None:
         """占一个并发位 + 分配一个不早于当前 interval 间隔的发射槽。"""
@@ -177,23 +183,45 @@ def get_shared_client(timeout: float = 30.0) -> httpx.AsyncClient:
 
 
 def parse_retry_after(headers: Mapping[str, str], default_wait: float = 2.0) -> float:
-    """解析 HTTP 响应头中的 Retry-After（支持秒数或 HTTP 日期）。"""
+    """解析 HTTP 响应头中的 Retry-After（支持秒数或 HTTP 日期），上限 RETRY_AFTER_CAP_SECONDS。
+
+    学术 API 的配额窗口可能到次日（如 Scopus 机构配额按日重置），真睡满这个窗口
+    等于把整个运行挂死在 asyncio.sleep 里（协作式暂停的安全点永远到不了）。
+    超过上限按「本请求放弃」处理：让该源本轮缺席，由其他源与下一轮覆盖。
+    """
     raw = headers.get("retry-after", "").strip()
     if not raw:
-        return default_wait
+        return max(0.0, min(default_wait, RETRY_AFTER_CAP_SECONDS))
     # 纯数字秒数
     if raw.isdigit():
-        return max(1.0, float(raw))
+        return min(max(1.0, float(raw)), RETRY_AFTER_CAP_SECONDS)
     # RFC 2822 / RFC 1123 日期
     try:
         parsed_tuple = email.utils.parsedate_tz(raw)
         if parsed_tuple:
             target_ts = email.utils.mktime_tz(parsed_tuple)
             wait_sec = target_ts - time.time()
-            return max(1.0, wait_sec)
+            return min(max(1.0, wait_sec), RETRY_AFTER_CAP_SECONDS)
     except Exception:
         pass
-    return default_wait
+    return max(0.0, min(default_wait, RETRY_AFTER_CAP_SECONDS))
+
+
+def account_source_request() -> None:
+    """研究 run 内的来源 HTTP 尝试入账（source_requests 消费点）。
+
+    预算上下文只在探索运行期间存在（set_llm_budget 注入，run 结束卸载），
+    非研究调用零开销。记账模式永远放行只累计用量；enforce 档额度耗尽时抛
+    不可重试的 BudgetExhausted——调用方按「该源请求失败」既有路径处理。
+    """
+    from .llm import llm_budget
+    budget = llm_budget()
+    if budget is None or not hasattr(budget, "reserve"):
+        return
+    if not budget.reserve("source_requests", 1.0):
+        from .deep_research.run_budget import BudgetExhausted
+        raise BudgetExhausted("source_requests", 0.0)
+    budget.settle("source_requests", 1.0, 1.0)
 
 
 async def resilient_get(
@@ -228,6 +256,7 @@ async def resilient_get(
 
     for attempt in range(max_retries):
         async with sem:
+            account_source_request()
             await global_rate_limiter.throttle(url)
             try:
                 resp = await cli.get(url, params=params, headers=merged_headers, timeout=timeout,
@@ -237,9 +266,13 @@ async def resilient_get(
                     check_download_url(target)
                     if redirect_limit <= 0:
                         raise ValueError("Too many research download redirects")
-                    if urllib.parse.urlparse(target).netloc != urllib.parse.urlparse(url).netloc:
+                    source_origin = urllib.parse.urlsplit(url)
+                    target_origin = urllib.parse.urlsplit(target)
+                    if (source_origin.scheme, source_origin.hostname, source_origin.port) != (
+                        target_origin.scheme, target_origin.hostname, target_origin.port,
+                    ):
                         merged_headers = {k: v for k, v in merged_headers.items()
-                                          if k.lower() not in {"authorization", "x-els-apikey", "cookie"}}
+                                          if k.lower() not in {"authorization", "x-els-apikey", "cookie", "proxy-authorization"}}
                     # Release this host's semaphore before following a same-host redirect.
                     break
                 if resp.status_code == 429:

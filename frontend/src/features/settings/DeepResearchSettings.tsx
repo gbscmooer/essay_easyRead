@@ -1198,7 +1198,8 @@ export function FindpapersSection({ config, setConfig }: SectionProps) {
             </div>
 
             <p className="text-[11px] mt-2" style={LABEL}>
-              「测试」会真的用 findpapers 搜该库并尝试下载一篇 PDF：🟢 可搜+可下载　🟡 可搜但下不了　🔴 搜不到
+              「测试」会真的用 findpapers 搜该库并验证下载：免费库流式校验 PDF 头；付费库（IEEE/Scopus/WoS）会真实下载一篇完整论文、验证后删除临时文件，下载成功才算通过。
+              🟢 可搜+可下载　🟡 可搜但下载失败　🔴 搜不到
             </p>
             {fpInstalled === false && (
               <p className="text-[11px] mt-1" style={{ color: 'var(--warning, #eab308)' }}>

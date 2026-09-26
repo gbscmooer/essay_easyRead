@@ -1,5 +1,5 @@
 import { get, post, del } from './client'
-import type { ExplorationDepth, ExplorationRun, ExplorationRunSummary, ExplorationMessage, PreflightResponse, SurveyEvidenceDetail, SurveyEvidenceIndex } from '@/types'
+import type { ExplorationDepth, ExplorationRun, ExplorationRunSummary, ExplorationMessage, PreflightResponse, RunTokenUsage, SurveyEvidenceDetail, SurveyEvidenceIndex } from '@/types'
 
 // 领域探索（问句驱动免读领域认知，见 GOAL.md）
 export async function createExploration(question: string, depth: ExplorationDepth = 'standard', options: import('@/types').ResearchSourceOptions = {}): Promise<ExplorationRun> {
@@ -55,4 +55,9 @@ export function askExploration(runId: number, question: string, searchMore: bool
 
 export async function deleteExploration(runId: number): Promise<void> {
   await del(`/exploration/runs/${runId}`)
+}
+
+/** 单次探索 run 的 LLM token 用量（含追问/报告重生成；旧 run 回退 result 台账快照） */
+export function getRunTokenUsage(runId: number, signal?: AbortSignal): Promise<RunTokenUsage> {
+  return get<RunTokenUsage>(`/exploration/runs/${runId}/token-usage`, signal)
 }

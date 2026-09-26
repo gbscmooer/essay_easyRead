@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, ChevronLeft, ChevronRight, Download, FileText, FlaskConical, Grid3X3, Layers, ListTree, RefreshCw, Table2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileText, FlaskConical, Grid3X3, Layers, ListTree, RefreshCw, Table2 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { CoverageMatrix, SurveyEvidence, SurveyReport, SurveyRow } from '@/types/survey'
 import { PaperTitle, EvidenceMarkdown } from './paperLinks'
@@ -76,6 +76,55 @@ export function SurveyHeatmap({ matrix, title, references }: { matrix: CoverageM
   </div>
 }
 
+function ReferencesSection({ references }: { references: Ref[] }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!references.length) return null
+
+  const limit = 5
+  const hasMore = references.length > limit
+  const visible = expanded ? references : references.slice(0, limit)
+
+  const toggle = () => {
+    if (expanded) {
+      setExpanded(false)
+      document.getElementById('survey-references')?.scrollIntoView?.({ behavior: 'smooth' })
+    } else {
+      setExpanded(true)
+    }
+  }
+
+  return (
+    <section id="survey-references" className="survey-section">
+      <div className="survey-references-header">
+        <h3>
+          <BookOpen size={18} />参考文献
+          <span className="survey-ref-count">（共 {references.length} 篇）</span>
+        </h3>
+        {hasMore && expanded && (
+          <button type="button" className="survey-text-button" onClick={toggle}>
+            <span>收起</span>
+            <ChevronUp size={14} />
+          </button>
+        )}
+      </div>
+      <ol className="survey-references">
+        {visible.map(p => (
+          <li key={p.key}>
+            <PaperTitle paper={p} />
+            <span>{p.year ?? '年份未记录'}</span>
+          </li>
+        ))}
+      </ol>
+      {hasMore && (
+        <button type="button" className="survey-text-button" onClick={toggle}>
+          <span>{expanded ? '收起' : `展开全部 ${references.length} 篇`}</span>
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      )}
+    </section>
+  )
+}
+
 export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
   report?: SurveyReport; runId: number; busy: boolean; onGenerate: () => void; error?: string
 }) {
@@ -83,8 +132,28 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
   const citations = useMemo(() => Object.fromEntries((report?.references ?? []).map((p, i) => [String(i + 1), p.key])), [report])
   const years = useMemo(() => Object.entries(report?.bibliometrics.by_year ?? {}).sort(([a], [b]) => Number(a) - Number(b)).map(([year, count]) => ({ year, count })), [report])
   const noResults = report?.status === 'no_results'
+  const delivery = report?.delivery
+  const isPreliminary = delivery?.narrative_source === 'preliminary'
+  const isUnavailable = delivery?.narrative_source === 'none'
+  // 执行与答案生成分列显示；报告生成后即结束，不再展示核验状态。
+  const execChip = !report ? '' : noResults ? '执行完成 · 检索未命中'
+    : report.status === 'completed' ? '执行完成'
+    : report.status === 'partial' ? '执行部分完成'
+    : report.status === 'unavailable' ? '执行未完成' : '执行状态未知'
+  const answerChip = !report ? '' : noResults ? '答案未生成 · 检索审计'
+    : !delivery ? '旧版报告 · 生成状态未记录'
+    : delivery?.narrative_source === 'final_draft' ? '答案已生成'
+    : isPreliminary ? '答案未生成 · 仅前置预览' : '答案未生成'
+  const statusBadge = !report ? '' : noResults ? '检索未命中 · 报告已生成'
+    : isUnavailable ? '未生成终稿 · 保留证据表'
+    : isPreliminary ? '前置综合预览 · 终稿未生成'
+    : delivery?.delivery_status === 'ready' || report.quality_status === 'internally_checked' ? '报告已生成'
+    : delivery?.delivery_status === 'partial' ? '报告部分生成'
+    : report.status === 'completed' ? '报告已生成'
+    : report.status === 'partial' ? '报告部分生成'
+    : '证据表待生成'
   return <article className="survey-report" aria-label="研究报告">
-    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span>{noResults ? '检索未命中 · 报告已生成' : report.quality_status === 'internally_checked' ? '已生成 · 终稿核验通过' : report.status === 'completed' ? '已生成 · 终稿待核验' : report.status === 'partial' ? '部分完成 · 终稿待核验' : '证据表待生成'}</span>}</div>
+    <div className="survey-toolbar"><div><BookOpen size={20} /><h2>研究报告</h2>{report && <span className="survey-status-chips" title={statusBadge}><b>{execChip}</b><b>{answerChip}</b></span>}</div>
       <div>
         {report && <><a href={`/api/exploration/runs/${runId}/report?format=html`} title="下载含图表的 HTML 报告" aria-label="下载 HTML 报告"><Download size={16} /><span>HTML</span></a>
           <a href={`/api/exploration/runs/${runId}/report?format=markdown`} title="下载 Markdown 报告" aria-label="下载 Markdown 报告"><FileText size={16} /><span>Markdown</span></a></>}
@@ -92,6 +161,8 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
       </div>
     </div>
     {error && <p role="alert" className="survey-error">{error}</p>}
+    {report && isPreliminary && <p role="status" className="survey-note">本报告未生成最终草稿，以下叙述为前置综合的<b>预览</b>（preliminary），不是最终报告{delivery?.error_code ? `（失败原因：${delivery.error_code}）` : ''}。</p>}
+    {report && isUnavailable && <p role="status" className="survey-note">本次运行未产出终稿叙述{delivery?.error_code ? `（失败原因：${delivery.error_code}）` : ''}；报告保留证据表与材料入口，不包含领域结论。</p>}
     {!report ? <p className="survey-empty">{busy ? '报告生成中，已取得的资料与统计可在其他视图查看。' : '这条研究尚未生成结构化报告。已有资料可以继续使用。'}</p> : noResults ? <>
       <nav className="survey-toc" aria-label="报告目录"><a href="#survey-search">已执行的搜索</a><a href="#survey-directions">建议补搜方向</a><a href="#survey-limits">结论边界</a></nav>
       <section id="survey-search" className="survey-section"><h3><FileText size={18} />已执行的搜索</h3>
@@ -126,9 +197,9 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
       <section id="survey-limits" className="survey-section"><h3><Layers size={18} />局限与未解决问题</h3>
         <ul>{[...(report.limitations ?? report.gaps), ...report.warnings].map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul>
         {(report.coverage.failed > 0 || report.coverage.rejected_rows > 0) && <p className="survey-note">提取失败 {report.coverage.failed} 篇；原文、字段或关系复核未通过 {report.coverage.rejected_rows} 条。</p>}
-        <p className="survey-note">终稿核验：{String((report.method?.final_audit as { status?: string } | undefined)?.status ?? 'not_started')}。核验只绑定当前文本与证据版本；未完成不表示通过。</p>
+        <p className="survey-note">报告生成后流程结束，未进行额外真实性核验。</p>
       </section>
-      <section id="survey-references" className="survey-section"><h3><BookOpen size={18} />参考文献</h3><ol className="survey-references">{report.references.map(p => <li key={p.key}><PaperTitle paper={p} /><span>{p.year ?? '年份未记录'}</span></li>)}</ol></section>
+      <ReferencesSection references={report.references} />
     </>}
   </article>
 }

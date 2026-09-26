@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Note } from '@/types'
 import { listNotes, createNote, updateNote, deleteNote } from '@/api/notes'
+import { parseServerDate } from '@/utils/datetime'
 import { toast } from '@/hooks/useToast'
 
 interface NotesPanelProps {
@@ -135,7 +136,7 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
               <p className="text-[13px] whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-primary)' }}>{note.content}</p>
               <div className="flex items-center justify-between mt-2.5">
                 <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                  {new Date(note.created_at).toLocaleString('zh-CN')}
+                  {parseServerDate(note.created_at).toLocaleString('zh-CN')}
                 </span>
                 <div className="flex gap-3">
                   <button

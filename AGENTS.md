@@ -57,6 +57,7 @@ backend/
 │   ├── exploration.py    # ExplorationRun 模型（问句驱动的领域探索，见 GOAL.md；含 v2 workflow 列）
 │   ├── research_core.py  # academic_survey_v2 契约（S0 冻结）：状态常量、Core Pydantic 契约、research_* 十张表
 │   ├── workspace.py      # Workspace + WorkspacePaper 模型（多对多）
+│   ├── token_usage.py    # LLMUsageRecord：逐次 LLM 调用的归一化用量（按业务类目/阶段/run 归因）
 │   └── schemas.py        # API Schema（PaperResponse, AnalysisResponse 等）
 ├── routers/         # API 路由
 │   ├── papers.py         # /api/papers/*（上传、列表、删除、导出、PDF）
@@ -79,11 +80,12 @@ backend/
 │   ├── pdf_parser.py     # PDF 提取（PyMuPDF 主路径 + pypdf 后备）
 │   ├── semantic_scholar.py # Semantic Scholar 相关论文搜索
 │   ├── terminal.py       # WebSocket PTY 终端
+│   ├── token_usage.py    # LLM token 用量统计（recorder 内存缓冲+后台落库；全局/按类目/按 run 聚合）
 │   ├── research_event_log.py # v2 持久化事件/预算聚合/运行状态 CAS/live-bus 注册缝（S0；worker 由 S3 接入）
 │   └── deep_research/    # 深度研究子模块
 │       ├── pipeline.py        # 研究流水线编排（collect→expand→chunk→embed→digest→graph→synthesize→persist）
 │       ├── explorer.py        # 统一研究（问题+可选母论文→召回→计量→综合→报告）
-│       ├── survey_report.py   # 报告证据循环、实验比较表、终稿核验、HTML/Markdown导出
+│       ├── survey_report.py   # 报告证据提取、实验比较表、角色化写作、HTML/Markdown导出
 │       ├── document_evidence.py # 已获取全文的章节/页码/表格索引与定向补读（不负责下载）
 │       ├── report_evidence.py # 稳定证据 ID、去重、分页索引、详情与核验版本
 │       ├── stage_agent.py     # 阶段级有界 ReAct（白名单工具、程序验收、预算/无进展终止）
@@ -150,8 +152,9 @@ frontend/src/
 4. **文本操作**: PDF 选中文本 → SelectionPopup → `/api/analysis/text-action`（翻译/总结）
 5. **深度研究**: 工作区论文集合 → collect（下载 PDF）→ expand（GROBID 引用解析 + arXiv/CrossRef 扩展）→ chunk + embed（向量化）→ digest（图谱速读）→ graph（引文图谱）→ synthesize（领域认知综合：节点角色/引用因果/流派/全景简报）→ persist → 前端图谱可视化（角色徽章 + 因果边 + 📜 领域全景面板）+ RAG 问答。扩展源默认 auto：有 Elsevier Key 首选 Scopus（全学科），鉴权失败自动回退 OpenAlex
 6. **论文关联度**（`graphkit/relatedness.py`）: 八通道逐端排名的对称 RRF（k=60、默认等权）→ mutual-kNN（k=10）→ Leiden 与关系 PageRank。原始 Disparity Filter（alpha=.05）独立标记，不控制选边；展示桥不参与统计；自定义权重仅表示偏好，不做引文弱监督拟合。实际方法与解释随图谱保存。
-7. **统一研究**：`research_sources.py`适配可选工作区母论文，复用深度研究关联召回；多检索式 RRF → 预训练向量/mutual-kNN/Leiden → Poisson + BH → BM25/向量/RRF/重排 → 综合及证据核验 → 结构化调查报告（框架、指标、任务/数据集、实验比较、热力图）。报告侧由 `document_evidence.py` 对已获取文本建立页/节/表索引，`report_evidence.py` 持久保存稳定证据 ID 和完整原文；agent 可按子问题分页读索引、读取详情、定向补读已有论文，并对实际终稿逐断言核验。外层阶段单向推进，拆解/综合/逐篇证据/报告节点由 `stage_agent.py` 执行有界 ReAct，程序验收后才能完成；零召回仍产出带搜索审计与补搜方向的 `no_results` 报告，不宣称领域空白。`ExplorationRun.options`保存输入快照；历史材料或搜索记录可单独补生成报告。阶段边界落检查点（`ExplorationRun.checkpoint`：已完成阶段游标 + 报告逐篇提取与共享证据缓存），语料/计量/综合产物随 `result` 列逐阶段持久化；失败/暂停的 run 经 `POST /runs/{id}/resume` 从断点续跑（跳过已完成阶段与已提取篇目），`POST /runs/{id}/pause` 在安全点（阶段/召回轮/agent 迭代/篇目边界）协作式暂停；进程重启遗留的僵尸 run 启动自愈置 failed 后同样可续传。契约见 `document.md` 2.9–2.14。
+7. **统一研究（v8 八阶段）**：preflight（provider 探测 + arXiv）→ protocol（检索式 + 六类覆盖协议：演进/方法谱系/数据集/指标/部署/趋势）→ recall（三源召回候选池，confirmed 优先、unknown 只随行不补位）→ screen（unknown 复筛隔离 + 概念词清洗 + 富化 + 计量聚类，`result.screen.quarantined` 保留隔离审计）→ select（分层选材 foundation/recent/survey/dataset/method + 候补池 + 全文下载）→ extract（逐篇证据提取，失败缩小上下文重试、关键层候补递补）→ synthesize（程序统计 → 统计编辑 → 固定证据概论 → 个性化主笔，`draft_report` 冻结初稿）→ report（规范投影 + 渲染 + revision 落盘）。主笔写完即结束，不执行终稿真实性核验或核验后定向修订；只保留 JSON 截断、缺章节和引用格式问题的生成期结构恢复。extract/synthesize/report 为独立无硬预算执行域，仍有单次超时、有限重试、暂停/取消和用量记录。报告侧 `document_evidence.py`/`report_evidence.py` 不变；零召回仍产出 `no_results` 检索记录报告。`ExplorationRun.checkpoint` 为 v2 schema（`checkpoint_schema_version` 等 8 字段，见 `document.md` 2.28）：v1 旧检查点 resume 时按产物可信度分层迁移（召回候选池与提取缓存保留、计量/综合废弃重跑、legacy_usage 不占 enforce 限额），无法迁移置 `needs_restart`。lite 档默认 `budget_enforce=True`（只约束检索侧，余量<30% 跳过增强调用）。暂停/续跑安全点与僵尸自愈语义不变；阶段事件名与前端 `TIMING_STAGE_ORDER` 同步。契约见 `document.md` 2.9–2.14、2.28–2.31。
 8. **academic_survey_v2（契约层，实验性）**：`models/research_core.py` 冻结任务账本/资产/证据/关系/claim/报告 revision/预算/事件/身份判定十张表与状态常量；`research_event_log.py` 提供持久化事件回放、运行状态 CAS（数据库条件更新为并发权威，守卫 UPDATE 校验受影响行数）与 live-bus 注册缝；`/api/exploration` 新增 protocol/tasks/coverage/budget/pause/resume/cancel/retry/revisions/evidence/stream 扩展（v1 运行走 legacy 投影，行为不变）；任务幂等键以 (run_id, idempotency_key) 唯一；默认报告入口对 v2 解析当前选定 revision（隔离资产 403 拒绝导出）。执行器（S3–S6）接入前，显式 `workflow_version=academic_survey_v2` 创建返回 `WORKFLOW_NOT_IMPLEMENTED`。契约见 `document.md` 2.12 与 `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md`。
+9. **LLM token 用量统计**：LLM Core 在每次成功调用后归一化 usage（输入/输出/缓存命中/缓存写入/思考 token，兼容 OpenAI `prompt_tokens_details.cached_tokens` 与 Anthropic `cache_read/creation_input_tokens`），经 `set_llm_scope(category, run_id)` 业务归因（精读/翻译总结/文献研究/代码分析/工作区研究/连接测试），由 `services/token_usage.py` 内存缓冲+后台线程落 `llm_usage_records` 表（统计失败不影响业务）；流式路径 OpenAI 走 `stream_options.include_usage`（网关 400/422 自动退化重试）、Anthropic 读 `get_final_message()`。`GET /api/analysis/token-usage` 供设置页消耗面板（卡片+类目占比饼图+按日趋势），`GET /api/exploration/runs/{id}/token-usage` 供探索详情页按 run/阶段查看（旧 run 回退 `result.token_usage` 台账快照）。
 
 ### 路由
 

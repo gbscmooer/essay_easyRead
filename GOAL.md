@@ -69,12 +69,17 @@ LLM 综合纪律（无 Key 跳过、partial 容错、批量上限防成本失控
 |------|------|
 | `GOAL.md`（本文） | 总目标与原则，一切取舍的锚 |
 | `AGENTS.md` | 架构概览与开发约定（对 agent 的操作说明） |
+| `agent_rule.md` / `draft` | Agent 工作边界 / 当前任务计划与执行记录 |
+| `document.md` | 接口、数据流、架构及模块契约 |
+| `README.md` | 依赖安装与启动命令 |
 | `docs/毕设立项范围定义.md` | 立项/开题素材（题目、范围、答辩口径） |
 | `docs/DOMAIN_ONBOARDING_AI_WORKFLOW_PLAN.md` | 领域认知线的设计与实施记录（v1.x 演进史） |
 | `docs/DEEP_RESEARCH_DESIGN.md` | 深度研究模块技术蓝图（流水线/关联度/RAG） |
 | `docs/DEEP_RESEARCH_EVAL.md` | 发现与 RAG 的离线评测门禁 |
 | `docs/RESEARCH_AGENT_EVAL_PROTOCOL.md` | 毕设对照实验协议（harness vs 通用 agent） |
 | `docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md` | 学术综述自主研究重设计计划：隔离开发标杆、基线差距、sub分工与验收（待实施） |
+| `docs/PDF_DOWNLOAD_DNS_FIX_PLAN_2026-09-18.md` | 论文 PDF 下载的地址校验与重定向修复记录 |
+| `docs/REPORT_DELIVERY_FIX_PLAN_2026-09-18.md` | 报告交付、证据恢复与生成修复记录 |
 | `docs/INNOVATION_DEV_PLAN.md` | 后备创新点清单（阅读路径、对比矩阵等） |
 | `docs/commit_regular.md` | 提交流程规范（必须遵守） |
 

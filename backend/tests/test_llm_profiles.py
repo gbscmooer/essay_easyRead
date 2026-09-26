@@ -212,6 +212,74 @@ def test_profile_key_reveal_endpoint(profile_env):
     assert denied.json()["code"] == "LOCAL_ACCESS_REQUIRED"
 
 
+def test_profile_key_reveal_rejects_remote_forwarded_through_loopback(profile_env):
+    pid = _make_profile("A", "https://a.example/v1", "m1", "sk-aaa-111")["id"]
+    proxy_peer = TestClient(app, client=("127.0.0.1", 55173))
+    response = proxy_peer.get(
+        f"/api/analysis/llm-profiles/{pid}/key",
+        headers={"x-forwarded-for": "203.0.113.8"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "LOCAL_ACCESS_REQUIRED"
+
+
+def test_remote_forwarded_client_cannot_manage_config_or_retarget_stored_key(profile_env, monkeypatch):
+    import backend.routers.analysis as analysis_router
+
+    pid = _make_profile("A", "https://a.example/v1", "m1", "sk-aaa-111")["id"]
+    invoked = []
+
+    async def fake_connection(*args, **kwargs):
+        invoked.append(True)
+        raise AssertionError("remote request must stop before using a stored key")
+
+    monkeypatch.setattr(analysis_router, "_test_llm_connection", fake_connection)
+    local = TestClient(app)
+    proxy_peer = TestClient(app, client=("127.0.0.1", 55173))
+    headers = {"x-forwarded-for": "203.0.113.8"}
+    config_payload = local.get("/api/analysis/config").json()
+    requests = [
+        proxy_peer.post("/api/analysis/llm-profiles", headers=headers, json={
+            "name": "Remote", "base_url": "https://attacker.example/v1", "model": "m",
+        }),
+        proxy_peer.put(f"/api/analysis/llm-profiles/{pid}", headers=headers, json={
+            "base_url": "https://attacker.example/v1",
+        }),
+        proxy_peer.delete(f"/api/analysis/llm-profiles/{pid}", headers=headers),
+        proxy_peer.post(f"/api/analysis/llm-profiles/{pid}/activate", headers=headers),
+        proxy_peer.post("/api/analysis/config", headers=headers, json=config_payload),
+        proxy_peer.post("/api/analysis/test-connection", headers=headers, json={
+            "type": "llm", "profile_id": pid, "base_url": "https://attacker.example/v1",
+        }),
+        proxy_peer.post("/api/analysis/grobid/pull", headers=headers),
+        proxy_peer.post("/api/analysis/findpapers/test-databases", headers=headers, json={
+            "databases": ["arxiv"],
+        }),
+    ]
+    assert all(response.status_code == 403 for response in requests)
+    assert all(response.json()["code"] == "LOCAL_ACCESS_REQUIRED" for response in requests)
+    assert ai_config.get_llm_profiles()["profiles"][0]["base_url"] == "https://a.example/v1"
+    assert not invoked
+
+
+def test_local_config_guard_rejects_cross_site_origin_and_rebound_host(profile_env):
+    pid = _make_profile("A", "https://a.example/v1", "m1", "sk-aaa-111")["id"]
+    local_peer = TestClient(app, client=("127.0.0.1", 55173))
+    cross_site = local_peer.post(
+        "/api/analysis/grobid/pull",
+        headers={"Host": "localhost:8000", "Origin": "https://attacker.example"},
+    )
+    assert cross_site.status_code == 403
+    assert cross_site.json()["code"] == "LOCAL_ACCESS_REQUIRED"
+
+    rebound = local_peer.get(
+        f"/api/analysis/llm-profiles/{pid}/key",
+        headers={"Host": "attacker.example"},
+    )
+    assert rebound.status_code == 403
+    assert rebound.json()["code"] == "LOCAL_ACCESS_REQUIRED"
+
+
 def test_profile_test_connection_uses_profile_key(profile_env, monkeypatch):
     import backend.services.llm as llm_core
 

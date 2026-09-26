@@ -3,7 +3,7 @@
  *
  * 学者提一个自然语言问句（「用 AI 识别肿瘤有没有人做，做得怎样」），系统自动：
  * 拆解检索式 → 多源检索（Scopus 首选 / OpenAlex 回退）→ 计量与聚类（纯算法）→
- * LLM 跨文献综合。全程免读单篇论文，结论挂真实证据，可回溯核验。
+ * LLM 跨文献综合。全程免读单篇论文，结论挂到本轮证据材料。
  *
  * 数据流：POST /api/exploration/runs → SSE（stage_* / recall_progress / metrics_ready /
  * synthesis_ready / done）。历史 run 通过 SSE 回放（后端 done 状态会重发产物事件）。
@@ -16,12 +16,14 @@ import { ArrowLeft, ChevronDown, Download, FileText, History, MessageSquare } fr
 import { PaperTitle, paperLink, EvidenceMarkdown } from '@/features/research/paperLinks'
 import { ChartView } from '@/features/research/ChartView'
 import { ExplorationConversation } from '@/features/research/ExplorationConversation'
-import { EvidenceAuditPanel } from '@/features/research/EvidenceAuditPanel'
 import { SurveyReportView } from '@/features/research/SurveyReportView'
+import { RunTokenUsageCard } from '@/features/research/RunTokenUsageCard'
 import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
+import { formatDuration, mergeRunTiming, resolveTimelineEndMs, TIMING_STAGE_ORDER } from '@/features/research/runTiming'
+import { parseServerDate } from '@/utils/datetime'
 import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport, pauseExploration, resumeExploration } from '@/api/exploration'
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
@@ -38,9 +40,10 @@ const EXAMPLES = [
 ]
 
 const DEPTHS: { value: ExplorationDepth; label: string; hint: string }[] = [
-  { value: 'quick', label: '快览', hint: '3 式 · 上限 80 篇' },
-  { value: 'standard', label: '标准', hint: '4 式 · 上限 160 篇' },
-  { value: 'deep', label: '深挖', hint: '5 式 · 上限 240 篇' },
+  { value: 'lite', label: '轻量', hint: '2 式 · 上限 50 篇' },
+  { value: 'quick', label: '快览', hint: '3 式 · 上限 200 篇' },
+  { value: 'standard', label: '标准', hint: '4 式 · 上限 500 篇' },
+  { value: 'deep', label: '深挖', hint: '5 式 · 上限 1000 篇' },
 ]
 
 const STAGE_META: { key: string; label: string; hint: string }[] = [
@@ -382,9 +385,25 @@ export default function ExplorePage() {
       </header>
       {detail && savedRun && (
         <div className="er-page-head__readouts ex-detail-readouts">
-          <span className="er-readout">{new Date(savedRun.created_at).toLocaleString()}</span>
+          <span className="er-readout">{parseServerDate(savedRun.created_at).toLocaleString()}</span>
           <span className="er-readout">研究 <b>#{runId}</b></span>
           <span className="er-readout"><b>{allPapers.length}</b> 篇资料</span>
+          <span className="er-readout">
+            {(() => {
+              // 流程状态与报告生成状态分开展示：流程 done 不代表正文已经生成。
+              const flow = savedRun.status === 'done' ? '流程已完成'
+                : savedRun.status === 'failed' ? '流程失败'
+                : savedRun.status === 'paused' ? '流程已暂停' : '流程运行中'
+              const report = savedRun.result?.survey_report
+              const reportLabel = !report ? ''
+                : report.status === 'no_results' ? ' · 检索未命中，无报告正文'
+                : report.status === 'partial' ? ' · 报告部分生成'
+                : report.status === 'unavailable' ? ' · 报告未生成'
+                : report.quality_status === 'needs_review' ? ' · 报告已生成（结构待处理）'
+                : ' · 报告已生成'
+              return flow + reportLabel
+            })()}
+          </span>
           <span className="er-readout">
             {savedRun.options?.workspace_name || '无母论文'}
             {savedRun.options?.seed_paper_ids?.length ? ` · ${savedRun.options.seed_paper_ids.length} 篇母论文` : ''}
@@ -396,6 +415,7 @@ export default function ExplorePage() {
           )}
         </div>
       )}
+      {detail && savedRun && <RunTimingPanel run={savedRun} stream={stream} />}
       {detail && savedRun && allPapers.length === 0 && !running && !paused && stream.status !== 'failed' && (
         <div className="ex-empty-warning" role="alert">
           <div className="ex-empty-warning__header">
@@ -633,7 +653,10 @@ export default function ExplorePage() {
                     <span className="ex-drawer__meta">
                       {h.status === 'failed' ? '⚠ 失败 · ' : ''}
                       {h.status === 'paused' ? '⏸ 已暂停 · ' : ''}
-                      {new Date(h.created_at).toLocaleString()}
+                      {h.status === 'done' && h.report_status === 'partial' ? '◌ 报告部分生成 · ' : ''}
+                      {h.status === 'done' && h.report_status === 'no_results' ? '◌ 检索未命中 · ' : ''}
+                      {h.status === 'done' && h.report_status === 'completed' ? '✓ 报告已生成 · ' : ''}
+                      {parseServerDate(h.created_at).toLocaleString()}
                     </span>
                   </Link>
                   <button
@@ -690,6 +713,10 @@ export default function ExplorePage() {
             <button key={t.key} id={`tab-${t.key}`} type="button" role="tab" aria-selected={tab === t.key} aria-controls={`panel-${t.key}`} onClick={() => setTab(t.key)}>{t.label}</button>)}
         </div>
         <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden={tab !== 'report'}>
+          <RunTokenUsageCard
+            runId={runId!}
+            refreshKey={`${stream.status}-${revision}-${savedRun.updated_at ?? ''}`}
+          />
           <SurveyReportView report={result?.survey_report} runId={runId!} busy={busy} onGenerate={generateReport} error={result?.report_error} />
         </div>
         <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={tab !== 'chat'}>
@@ -940,7 +967,6 @@ export default function ExplorePage() {
               </div>
             </section>
           )}
-          <EvidenceAuditPanel audit={synthesis?.stats?.evidence_audit} />
         </div>
       )}
 
@@ -955,6 +981,90 @@ export default function ExplorePage() {
 }
 
 // ── 子组件 ────────────────────────────────────────────────────────────────
+
+/** 阶段配色（与 STAGE_META 顺序对应） */
+const TIMING_COLORS = ['#3969a8', '#2f7d78', '#d3a52f', '#d94a38', '#7c5cbf', '#0e7490', '#b45309', '#6b7079']
+
+/**
+ * 研究计时面板：总耗时（墙钟，运行中走秒）+ 各阶段耗时分配堆叠条。
+ * 数据 = 落库 stage_timeline（完成/暂停/失败阶段）⊕ 实时事件时间戳
+ * （运行中阶段走秒；刷新后靠历史回放携带的原始 ts 复原）。
+ */
+function RunTimingPanel({ run, stream }: {
+  run: ExplorationRun
+  stream: ReturnType<typeof useExplorationStream>
+}) {
+  const active = stream.status === 'running'
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [active])
+
+  const endedAtMs = useMemo(() => {
+    if (active) return null
+    const streamEnded = stream.status === 'done' || stream.status === 'failed' || stream.status === 'paused'
+    const runEnded = run.status === 'done' || run.status === 'failed' || run.status === 'paused'
+    if (!streamEnded && !runEnded) return null
+    // updated_at 会在报告重生成/选择 revision 时继续变化，不能代表研究结束。
+    // 完成态优先取最后一个闭合阶段的结束时刻；旧 run 无时间线才回退。
+    return resolveTimelineEndMs(run.result?.sources?.stage_timeline, stream.stageTimings)
+      ?? parseServerDate(run.updated_at).getTime()
+  }, [active, stream.status, stream.stageTimings, run.status, run.updated_at, run.result])
+
+  const timing = useMemo(() => mergeRunTiming({
+    createdAtMs: parseServerDate(run.created_at).getTime(),
+    endedAtMs,
+    nowMs,
+    persisted: run.result?.sources?.stage_timeline,
+    live: stream.stageTimings,
+  }), [run.created_at, run.result, endedAtMs, nowMs, stream.stageTimings])
+
+  const total = timing.stages.length
+  const colorFor = (stage: string) =>
+    TIMING_COLORS[Math.max(0, TIMING_STAGE_ORDER.indexOf(stage)) % TIMING_COLORS.length]
+
+  return (
+    <section className="ex-timing" aria-label="研究耗时">
+      <div className="ex-timing__head">
+        <span className="ex-timing__label">总耗时</span>
+        <strong className="ex-timing__total tabular-nums">{formatDuration(timing.wallSeconds)}</strong>
+        {active && <span className="ex-timing__live">计时中</span>}
+        {total > 0 && (
+          <span className="ex-timing__sum">各阶段合计 {formatDuration(timing.stageSeconds)}</span>
+        )}
+      </div>
+      {total > 0 && (
+        <>
+          <div className="ex-timing__bar" role="img" aria-label="各阶段耗时占比">
+            {timing.stages.map(s => (
+              <i
+                key={s.stage}
+                title={`${s.label} ${formatDuration(s.seconds)}`}
+                style={{ flexGrow: Math.max(s.seconds, 0.01), background: colorFor(s.stage) }}
+              />
+            ))}
+          </div>
+          <ul className="ex-timing__stages">
+            {timing.stages.map(s => (
+              <li key={s.stage} className={`is-${s.status}`} title={s.status === 'failed' ? '该阶段失败' : undefined}>
+                <i className="ex-timing__dot" style={{ background: colorFor(s.stage) }} aria-hidden="true" />
+                <span className="ex-timing__stage-label">{s.label}</span>
+                <span className="ex-timing__stage-time tabular-nums">
+                  {formatDuration(s.seconds)}
+                  {s.status === 'running' && ' · 进行中'}
+                  {s.status === 'paused' && ' · 已暂停'}
+                  {s.status === 'failed' && ' · 失败'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  )
+}
 
 function isAfterStage(stage: string | null, key: string, result?: { metrics?: unknown }, synthesis?: unknown): boolean {
   if (!stage) return false
@@ -1049,10 +1159,24 @@ function ChipList({ title, items, ink, papers }: { title: string; items: string[
       <div className="ex-chips__head" style={{ color: ink }}>{title}</div>
       {items.length === 0 && <p className="ex-chips__empty">—</p>}
       <ul>
-        {items.map((t, i) => (
-          <li key={i} style={{ borderColor: inkWash(ink, 45), background: inkWash(ink, 8) }}><EvidenceMarkdown text={t} papers={papers} /></li>
-        ))}
+        {items.map((t, i) => <ChipItem key={i} text={t} ink={ink} papers={papers} />)}
       </ul>
     </div>
+  )
+}
+
+/** 卡片摘要：渲染级截断 + 点击展开；不修改存储的完整正文 */
+function ChipItem({ text, ink, papers }: { text: string; ink: string; papers: ExplorationPaper[] }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > 90
+  return (
+    <li
+      style={{ borderColor: inkWash(ink, 45), background: inkWash(ink, 8) }}
+    >
+      <div className={long && !open ? 'ex-chip-clamped' : undefined}>
+        <EvidenceMarkdown text={text} papers={papers} />
+      </div>
+      {long && <button type="button" className="ex-chip-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)}>{open ? '收起' : '展开全文'}</button>}
+    </li>
   )
 }

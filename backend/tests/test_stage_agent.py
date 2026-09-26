@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from backend.services.deep_research.stage_agent import StageValidation, run_stage_agent
 
@@ -109,3 +110,91 @@ def test_repeated_read_without_new_state_stops_as_no_progress():
     assert result.status == "partial"
     assert result.stop_reason == "no_progress"
     assert result.iterations == 2
+
+
+# ── 上下文压缩：保结构（v7.4.1 研究 5 索引坍缩回归） ────────────────────────
+
+def test_compact_keeps_every_evidence_id_structured():
+    """12 条证据索引压缩后仍是结构化列表：每条 evidence_id 完整可见。
+
+    旧实现在超限时把整个对象坍缩成 {"__truncated__": "..."}，模型看不到
+    有效编号就会凭空生成不存在的 evidence_id。
+    """
+    from backend.services.deep_research.stage_agent import _compact
+
+    index = {
+        "evidence_version": "es_" + "a" * 24,
+        "subquestion_id": "effect_comparison",
+        "cursor": 0, "limit": 12, "total": 12, "next_cursor": None,
+        "coverage": {f"subq{i}": {"evidence_count": 3, "verified_count": 2} for i in range(5)},
+        "items": [{
+            "evidence_id": f"ev_{i:024d}",
+            "evidence_type": "taxonomy",
+            "subquestion_ids": ["method_mechanism"],
+            "paper_key": f"doi:10.1000/paper{i}",
+            "fact_summary": "视觉基础模型 " + "细节描述" * 120,
+            "missing_fields": ["hardware", "batch_size"],
+            "comparability_status": "not_applicable",
+            "verification_status": "relation_verified",
+            "location_status": "resolved",
+        } for i in range(12)],
+    }
+    # 模型视图的实际观察预算 6000：一整页 12 条的编号全部可见
+    compacted = _compact(index, max_chars=6000)
+    assert isinstance(compacted, dict)
+    assert "__truncated__" not in compacted
+    items = compacted.get("items")
+    assert isinstance(items, list)
+    ids = [row.get("evidence_id") for row in items if isinstance(row, dict)]
+    assert f"ev_{0:024d}" in ids and f"ev_{11:024d}" in ids
+    # 更紧的预算下也不坍缩：保留结构完整的前几条 + __dropped__ 计数，
+    # 模型配合 next_cursor 分页仍能拿到全部编号
+    tighter = _compact(index, max_chars=4000)
+    assert isinstance(tighter.get("items"), list)
+    kept_ids = [row.get("evidence_id") for row in tighter["items"]
+                if isinstance(row, dict) and "evidence_id" in row]
+    assert kept_ids and f"ev_{0:024d}" == kept_ids[0]
+    assert any(isinstance(row, dict) and "__dropped__" in row for row in tighter["items"])
+
+
+def test_compact_trims_list_tail_instead_of_collapsing_structure():
+    """极端超限时裁列表尾部（带 __dropped__ 计数）而不是丢掉全部结构。"""
+    from backend.services.deep_research.stage_agent import _compact
+
+    payload = {"rows": [{"id": f"r{i}", "text": "x" * 500} for i in range(60)]}
+    compacted = _compact(payload, max_chars=2000)
+    assert isinstance(compacted, dict) and isinstance(compacted.get("rows"), list)
+    kept = [row for row in compacted["rows"] if isinstance(row, dict) and "id" in row]
+    assert len(kept) >= 1
+    dropped = [row for row in compacted["rows"] if isinstance(row, dict) and "__dropped__" in row]
+    assert dropped and dropped[0]["__dropped__"] >= 1
+
+
+def test_view_orders_volatile_fields_last_for_prefix_cache():
+    """网关前缀缓存按最长相同前缀命中：逐轮不变的键在前、轮次号殿后，
+    否则 iteration 出现在载荷开头会让每一轮的前缀在第一个字节处断掉。"""
+    views = []
+
+    async def model(view):
+        views.append(view)
+        return {"action": "ping", "arguments": {}}
+
+    async def ping(_args, state):
+        state["calls"] = state.get("calls", 0) + 1
+        return {"pong": True}
+
+    asyncio.run(run_stage_agent(
+        stage="test", state={"calls": 0}, model_step=model, tools={"ping": ping},
+        validator=lambda _state: StageValidation(False),
+        max_iterations=2, no_progress_limit=1,
+        progress_marker=lambda state: state["calls"],
+    ))
+
+    keys = list(views[0])
+    assert keys[0] == "stage"
+    assert keys.index("available_tools") < keys.index("state")
+    assert keys[-2:] == ["iteration", "max_iterations"]
+    # 逐轮 view 前缀（iteration 之前的部分）字节稳定：state/工具表不随轮次重排
+    first_prefix = json.dumps({k: views[0][k] for k in keys[:-2]}, ensure_ascii=False)
+    second_prefix = json.dumps({k: views[1][k] for k in keys[:-2]}, ensure_ascii=False)
+    assert first_prefix[:64] == second_prefix[:64]

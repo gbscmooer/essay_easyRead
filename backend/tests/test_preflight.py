@@ -105,9 +105,17 @@ def test_dead_source_names_spares_rate_limited():
     assert any_source_ok(healths[:1] + healths[3:]) is False
 
 
-def test_preflight_local_mode_is_always_ok():
+async def _arxiv_ok():
+    return {"name": "arxiv", "role": "supplement", "status": "ok",
+            "detail": "stub", "latency_ms": 1, "http_status": 200}
+
+
+def test_preflight_local_mode_is_always_ok(monkeypatch):
+    from backend.services.deep_research import preflight as pf
+    monkeypatch.setattr(pf, "_probe_arxiv", _arxiv_ok)
     healths = asyncio.run(preflight_research_sources({"provider": "local"}, use_cache=False))
-    assert [(h["name"], h["role"], h["status"]) for h in healths] == [("local", "primary", "ok")]
+    assert [(h["name"], h["role"], h["status"]) for h in healths] == [
+        ("local", "primary", "ok"), ("arxiv", "supplement", "ok")]
 
 
 def test_preflight_auto_with_key_probes_scopus_primary_and_openalex_fallback(monkeypatch):
@@ -125,6 +133,8 @@ def test_preflight_auto_with_key_probes_scopus_primary_and_openalex_fallback(mon
 
     monkeypatch.setattr(ScopusProvider, "health_check", scopus_health)
     monkeypatch.setattr(OpenAlexProvider, "health_check", oa_health)
+    from backend.services.deep_research import preflight as pf
+    monkeypatch.setattr(pf, "_probe_arxiv", _arxiv_ok)
     healths = asyncio.run(preflight_research_sources(
         {"provider": "auto", "elsevier_api_key": "k"}, use_cache=False))
     assert set(calls) == {"scopus", "openalex"}
@@ -143,8 +153,10 @@ def test_preflight_auto_without_key_skips_scopus(monkeypatch):
     async def oa_health(self, **kwargs):
         return {"name": "openalex", "status": "ok", "detail": "", "latency_ms": 1, "http_status": 200}
     monkeypatch.setattr(OpenAlexProvider, "health_check", oa_health)
+    from backend.services.deep_research import preflight as pf
+    monkeypatch.setattr(pf, "_probe_arxiv", _arxiv_ok)
     healths = asyncio.run(preflight_research_sources({"provider": "auto"}, use_cache=False))
-    assert [h["name"] for h in healths] == ["openalex"]
+    assert [h["name"] for h in healths] == ["openalex", "arxiv"]
     assert healths[0]["role"] == "primary"
 
 
