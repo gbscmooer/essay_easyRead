@@ -3,12 +3,13 @@ Exploration 路由 — 问句驱动的领域探索（GOAL.md 核心命题）
 
 创建/查询探索任务、SSE 进度流。产物结构见 models/exploration.py。
 
-academic_survey_v2（S0 冻结接口边界，见 docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §7.2）：
-- 现有接口默认保留 v1 行为；只有显式 workflow_version=academic_survey_v2 使用新链路。
-- 新端点仅 GET/POST；v2 执行器接入前创建返回 WORKFLOW_NOT_IMPLEMENTED（S3 替换该门禁）。
+academic_survey_v2 契约边界见 document.md §2.7、§5.9：
+- 新创建默认 academic_survey_v2 / question_loop_v20；显式 legacy_v1 保留 exploration_v8。
+- 新端点仅 GET/POST；旧契约 v2 行或关闭实验开关时拒绝启动执行器。
+- 实施差异与验证边界见 docs/workflow_refactor/STATUS.md。
 
 断点续传（legacy v1）：pause 在安全点协作式停止并保留 checkpoint；resume 从
-checkpoint/result 快照恢复，跳过已完成阶段与已提取篇目；v2 worker 接入前拒绝 resume。
+checkpoint/result 快照恢复；v2 按持久化任务/产物/额度与租约接续。
 """
 
 import asyncio
@@ -35,12 +36,13 @@ from ..models.research_core import (
     ResearchEvidence,
     ResearchReportRevision,
     ResearchTask,
+    ResearchQuestion, ResearchAnswerRevision, ResearchDossierRevision,
 )
 from ..services import exploration_chat, research_event_log as event_log
 from ..services.research_sources import SourceError, seed_options
 from ..models.schemas import (
     StreamEvent,
-    ExplorationRunCreate, ExplorationRunResponse, ExplorationRunSummary,
+    ExplorationRunCreate, ExplorationRunResponse, ExplorationRunSummary, ResearchRevisionCreate,
     ExplorationMessageCreate, ExplorationMessageResponse,
     PreflightResponse, SourceHealth,
     ProtocolSummaryResponse, ProtocolChangeEntry, RunProtocolResponse,
@@ -51,6 +53,8 @@ from ..models.schemas import (
     RunRetryRequest, RunRetryResponse,
     ReportRevisionEntry, ReportRevisionListResponse,
     EvidenceSpanEntry, EvidenceDetailResponse, EvidenceIndexItem, EvidenceIndexResponse,
+    ResearchQuestionsResponse, ResearchAnswersResponse, ResearchDossiersResponse,
+    ResearchDossierResponse,
 )
 from ..utils.streaming import format_sse
 from ..services.deep_research.explorer import (
@@ -59,6 +63,12 @@ from ..services.deep_research.explorer import (
     start_worker, has_live_worker, cancel_worker, pause_pending,
 )
 from ..routers.research import _stream_bus_with_heartbeat
+from ..services.deep_research.research_loop import worker as loop_worker
+from ..services.deep_research.research_loop.contracts import LOOP_VERSION, SUPPORTED_LOOP_VERSIONS
+from ..services.deep_research.research_loop.questions import initial_questions
+from ..services.deep_research.research_loop.resources import limits_for
+from ..services.deep_research.research_loop import access as loop_access
+from ..services.deep_research.research_loop import revisions as loop_revisions
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +163,8 @@ def _render_report_response(report: dict, run_id: int, revision_label: str, form
                         headers=headers)
     from ..services.deep_research.survey_report import render_html
 
+    if report.get("workflow_revision") in SUPPORTED_LOOP_VERSIONS:
+        from ..services.deep_research.research_loop.writer import render_html
     content = render_html(report) if format == "html" else report.get("markdown", "")
     suffix, mime = ("html", "text/html") if format == "html" else ("md", "text/markdown")
     headers["Content-Disposition"] = f'attachment; filename="research-{run_id}-{revision_label}.{suffix}"'
@@ -182,6 +194,10 @@ def _load_exposable_report(session: Session, run_id: int, asset_id: str) -> dict
         )
     if asset.status not in _REPORT_READABLE_ASSET_STATUSES or not asset.inline_payload:
         raise HTTPException(404, detail={"detail": "报告内容缺失", "code": "REPORT_NOT_FOUND"})
+    try:
+        loop_access.require_report(session, run_id, asset.inline_payload)
+    except event_log.RunStateError as exc:
+        raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
     return asset.inline_payload
 
 
@@ -220,12 +236,22 @@ async def regenerate_report(run_id: int):
         if not run:
             raise HTTPException(404, detail={"detail": "研究记录不存在", "code": "NOT_FOUND"})
         if run.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2:
-            # v2 报告重建=创建新 revision（计划 §7.2），由 S6 接入；旧路径不得覆盖 v2 产物
-            raise HTTPException(
-                400,
-                detail={"detail": "academic_survey_v2 报告以不可变 revision 重建，待 S6 接入",
-                        "code": "WORKFLOW_NOT_IMPLEMENTED"},
-            )
+            if not loop_worker.supported(run):
+                raise HTTPException(400, detail={"detail": "旧契约版本不可重生成", "code": "WORKFLOW_NOT_IMPLEMENTED"})
+            if run.status not in ("completed", "partial") or loop_worker.leased(run):
+                raise HTTPException(409, detail={"detail": "请等待研究执行者退出", "code": "RESEARCH_RUNNING"})
+            other = session.exec(select(ExplorationRun).where(ExplorationRun.id != run_id,
+                ExplorationRun.status.in_(("pending", "running", "paused")))).first()
+            if other:
+                raise HTTPException(409, detail={"detail": "已有其他研究任务", "code": "EXPLORATION_RUNNING"})
+            chat = session.exec(select(ExplorationMessage).where(
+                ExplorationMessage.run_id == run_id, ExplorationMessage.status.in_(("pending", "running")),
+            )).first()
+            if chat:
+                raise HTTPException(409, detail={"detail": "请等待当前追问完成", "code": "CHAT_RUNNING"})
+            event_log.cas_run_state(session, run_id=run_id, new_status="pending", allowed_from=("completed", "partial"))
+            loop_worker.start(run_id, report_only=True)
+            return ExplorationRunResponse.model_validate(run, from_attributes=True)
         active = session.exec(select(ExplorationRun).where(ExplorationRun.status.in_(["pending", "running", "paused"]))).first()
         chat = session.exec(select(ExplorationMessage).where(
             ExplorationMessage.run_id == run_id, ExplorationMessage.status.in_(["pending", "running"]),
@@ -268,7 +294,7 @@ def _replay_payload(result: dict | None) -> dict:
 
 
 def _v2_options_snapshot(req: ExplorationRunCreate, options: dict) -> dict:
-    """v2 输入随 options["workflow"] 快照落盘（S0 冻结；沿用 options 保存输入快照的约定）。"""
+    """v2 输入随 options["workflow"] 快照落盘，显式绑定执行器修订。"""
     if req.workflow_version != WORKFLOW_ACADEMIC_SURVEY_V2:
         return options
     snapshot = dict(options)
@@ -278,12 +304,15 @@ def _v2_options_snapshot(req: ExplorationRunCreate, options: dict) -> dict:
         "budget": req.budget or {},
         "content_cutoff": req.content_cutoff.isoformat() if req.content_cutoff else None,
         "policy_id": req.policy_id,
+        "loop_revision": LOOP_VERSION,
     }
     return snapshot
 
 
 @router.post("/runs", response_model=ExplorationRunResponse)
 async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunResponse:
+    # Resolve only new requests. Persisted legacy defaults remain unchanged.
+    req = req.model_copy(update={"workflow_version": req.workflow_version or WORKFLOW_ACADEMIC_SURVEY_V2})
     engine = get_engine()
     with Session(engine) as session:
         # 同一时刻只允许一个探索任务（检索配额与 LLM 成本控制）；暂停的研究同样占位
@@ -304,12 +333,18 @@ async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunRespons
         except SourceError as exc:
             raise HTTPException(exc.status, detail={"detail": str(exc), "code": "INVALID_SOURCES"}) from exc
         if req.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2:
-            # S0 冻结的 v2 门禁：输入校验契约已生效，执行器接入由 S3/S5 替换此分支
-            raise HTTPException(
-                400,
-                detail={"detail": "academic_survey_v2 执行器尚未接入（等待 S3/S5），当前请使用默认工作流",
-                        "code": "WORKFLOW_NOT_IMPLEMENTED"},
-            )
+            if not loop_worker.enabled():
+                raise HTTPException(400, detail={"detail": "实验研究执行器已关闭", "code": "WORKFLOW_NOT_IMPLEMENTED"})
+            if req.policy_id:
+                raise HTTPException(422, detail={"detail": "策略引用尚不支持，请使用显式排除项", "code": "UNSUPPORTED_POLICY"})
+            unknown = set(req.protocol_options or {}) - {"questions", "answer_criteria", "expected_evidence"}
+            if unknown:
+                raise HTTPException(422, detail={"detail": "存在不支持的协议选项", "code": "INVALID_PROTOCOL"})
+            try:
+                initial_questions(req.question.strip(), req.protocol_options)
+                limits_for(req.depth, req.budget, revision=LOOP_VERSION)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(422, detail={"detail": str(exc), "code": "INVALID_PROTOCOL"}) from exc
         run = ExplorationRun(
             question=req.question.strip(), depth=req.depth, status="pending",
             options=_v2_options_snapshot(req, options),
@@ -317,21 +352,61 @@ async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunRespons
             state_version=1 if req.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2 else 0,
         )
         session.add(run)
-        session.commit()
+        try:
+            session.commit()
+        except Exception as exc:
+            from sqlalchemy.exc import IntegrityError
+            session.rollback()
+            if isinstance(exc, IntegrityError) and "EXPLORATION_RUNNING" in str(exc.orig):
+                raise HTTPException(409, detail={"detail": "已有运行中的探索任务", "code": "EXPLORATION_RUNNING"}) from exc
+            raise
         session.refresh(run)
         run_id = run.id
         if run_id is None:
             raise HTTPException(500, detail={"detail": "探索任务创建失败", "code": "INTERNAL_ERROR"})
 
-    # 提前建总线：前端在后台任务获得调度前订阅也不至于拿到「无 bus」
-    get_exploration_bus(run_id)
-    start_worker(run_id, run_exploration(run_id))
+    if req.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2:
+        with Session(engine) as session:
+            event_log.append_event(session, run_id=run_id, type="run_created", payload={"status": "pending", "loop_revision": LOOP_VERSION})
+            session.commit()
+        loop_worker.start(run_id)
+    else:
+        get_exploration_bus(run_id)
+        start_worker(run_id, run_exploration(run_id))
 
     with Session(engine) as session:
         run = session.get(ExplorationRun, run_id)
         if not run:
             raise HTTPException(404, detail={"detail": "Run not found", "code": "NOT_FOUND"})
         return ExplorationRunResponse.model_validate(run, from_attributes=True)
+
+
+@router.post("/runs/{run_id}/revise", response_model=ExplorationRunResponse)
+async def revise_research(run_id: int, req: ResearchRevisionCreate):
+    if not loop_worker.enabled():
+        raise HTTPException(400, detail={"detail": "实验研究执行器已关闭", "code": "WORKFLOW_NOT_IMPLEMENTED"})
+    with Session(get_engine()) as session:
+        try:
+            child = loop_revisions.create_revision(session, run_id, req, worker_active=loop_worker.active(run_id))
+        except event_log.RunStateError as exc:
+            session.rollback()
+            raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
+        except (ValueError, TypeError) as exc:
+            session.rollback()
+            raise HTTPException(422, detail={"detail": str(exc), "code": "INVALID_REVISION"}) from exc
+        response = ExplorationRunResponse.model_validate(child, from_attributes=True)
+    loop_worker.start(child.id)
+    return response
+
+
+@router.get("/runs/{run_id}/versions")
+def research_versions(run_id: int):
+    with Session(get_engine()) as session:
+        try:
+            run = _get_run_or_404(session, run_id)
+            return loop_revisions.version_view(session, run_id, worker_active=loop_worker.active(run_id) or loop_worker.leased(run))
+        except event_log.RunStateError as exc:
+            raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
 
 
 @router.get("/runs", response_model=list[ExplorationRunSummary])
@@ -407,6 +482,11 @@ async def get_exploration(run_id: int) -> ExplorationRunResponse:
         run = session.get(ExplorationRun, run_id)
         if not run:
             raise HTTPException(404, detail={"detail": "Run not found", "code": "NOT_FOUND"})
+        if run.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2:
+            try:
+                loop_access.require_report(session, run_id, (run.result or {}).get("survey_report") or {})
+            except event_log.RunStateError as exc:
+                raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
         response = ExplorationRunResponse.model_validate(run, from_attributes=True)
         response.checkpoint_summary = _checkpoint_summary(run.checkpoint)
         for key, value in _v2_summary_fields(session, run).items():
@@ -422,6 +502,12 @@ async def delete_exploration(run_id: int) -> dict:
         if not run:
             raise HTTPException(404, detail={"detail": "Run not found", "code": "NOT_FOUND"})
         if run.workflow_version == WORKFLOW_ACADEMIC_SURVEY_V2:
+            if ((run.options or {}).get("workflow") or {}).get("loop_revision") in SUPPORTED_LOOP_VERSIONS:
+                from ..services.deep_research.research_loop.cleanup import remove
+                try:
+                    return remove(engine, run_id)
+                except event_log.RunStateError as exc:
+                    raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
             # v2 删除需级联清理任务/账本/资产与磁盘文件（S3 接入）；先只读保护
             raise HTTPException(
                 400,
@@ -442,6 +528,11 @@ async def delete_exploration(run_id: int) -> dict:
     cancel_pause_request(run_id)
     drop_exploration_bus(run_id)
     return {"message": "已删除"}
+
+
+@router.post("/runs/{run_id}/remove")
+async def remove_exploration(run_id: int) -> dict:
+    return await delete_exploration(run_id)
 
 
 def _format_persisted_event(row) -> str:
@@ -468,38 +559,57 @@ async def stream_exploration(
         run_workflow = run.workflow_version or WORKFLOW_LEGACY_V1
 
     if run_workflow == WORKFLOW_ACADEMIC_SURVEY_V2:
-        # v2：先回放持久化事件（research_events 是唯一状态来源之一），
-        # 活动运行再接 live-bus（S3 通过 research_event_log.register_live_bus 注册）。
         cursor = request.headers.get("last-event-id") or after
         try:
             with Session(engine) as session:
-                replayed = event_log.replay_events(session, run_id, after_event_id=cursor)
-                frames = [_format_persisted_event(row) for row in replayed]
+                event_log.replay_events(session, run_id, after_event_id=cursor, limit=1)
         except ValueError:
             raise HTTPException(422, detail={"detail": "未知的续订游标", "code": "INVALID_CURSOR"})
-        live_bus = event_log.get_live_bus(run_id) if run_status in RUN_ACTIVE_STATES_V2 else None
 
         async def gen_v2():
-            for frame in frames:
-                yield frame
-            yield format_sse(StreamEvent(event="run_status", data={
-                "run_id": run_id, "status": run_status,
-            }))
-            if run_status in RUN_ACTIVE_STATES_V2:
-                if live_bus is None:
-                    yield format_sse(StreamEvent(event="error", data={
-                        "message": "v2 worker 未接入实时事件（等待 S3）", "stage": "stream",
-                    }))
+            current_cursor = cursor
+            while not await request.is_disconnected():
+                # State and event snapshot share a read transaction; no replay-to-subscription gap.
+                with Session(engine) as session:
+                    current = session.get(ExplorationRun, run_id)
+                    if current is None:
+                        return
+                    state = current.status
+                    result = current.result
+                    error = current.error_message
+                    if result:
+                        try:
+                            loop_access.require_report(session, run_id, result.get("survey_report") or {})
+                        except event_log.RunStateError:
+                            result = None
+                            state, error = "failed", "报告依据当前不可读"
+                    replayed = event_log.replay_events(session, run_id, after_event_id=current_cursor, limit=100)
+                for row in replayed:
+                    current_cursor = row.event_id
+                    yield _format_persisted_event(row)
+                yield format_sse(StreamEvent(event="run_status", data={"run_id": run_id, "status": state,
+                                                                      "active_seconds": current.active_seconds}))
+                if len(replayed) == 100:
+                    continue
+                if state in ("pending", "running") and not loop_worker.active(run_id) and not loop_worker.leased(current):
+                    yield format_sse(StreamEvent(event="error", data={"message": "研究进程已中断，可从断点继续研究"}))
                     return
-                stream_iter = live_bus.subscribe()
-                async for chunk in _stream_bus_with_heartbeat(stream_iter, timeout=15.0):
-                    yield chunk
-
-        return StreamingResponse(
-            gen_v2(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
+                if state not in ("pending", "running"):
+                    if result:
+                        yield format_sse(StreamEvent(event="metrics_ready", data=_replay_payload(result)))
+                    if state == "paused":
+                        yield format_sse(StreamEvent(event="paused", data={"run_id": run_id}))
+                    elif state == "failed":
+                        yield format_sse(StreamEvent(event="error", data={"message": error or "研究执行失败"}))
+                    elif state == "cancelled":
+                        yield format_sse(StreamEvent(event="cancelled", data={"run_id": run_id}))
+                    else:
+                        yield format_sse(StreamEvent(event="done", data={"run_id": run_id, "status": state}))
+                    return
+                yield ": heartbeat\n\n"
+                await asyncio.sleep(1)
+        return StreamingResponse(gen_v2(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     async def gen():
         # 1. 历史已结束的 run：回放产物事件后关闭
@@ -540,7 +650,7 @@ async def stream_exploration(
 
 
 # ============================================================
-# academic_survey_v2 端点（S0 冻结；业务写入方为 S1–S6）
+# academic_survey_v2 查询/控制端点；业务写入方为 research_loop 事务仓库
 # v1 运行走 legacy 投影：protocol/tasks/budget 给 legacy 标记与空集合，
 # 控制类操作对 v1 一律 400 UNSUPPORTED_WORKFLOW（不改变 v1 行为）。
 # ============================================================
@@ -698,6 +808,13 @@ def get_run_coverage(run_id: int) -> RunCoverageResponse:
                 for idx, s in enumerate(proto.get("subquestions") or [])
             ]
         gaps = [CoverageGapEntry.model_validate(d) for d in payload.get("gaps") or []]
+        questions = session.exec(select(ResearchQuestion).where(ResearchQuestion.run_id == run_id)).all()
+        if questions:
+            subquestions = [CoverageSubquestionEntry(subquestion_id=q.question_id, question=q.text,
+                status=q.status, open_gaps=len(q.gaps)) for q in questions]
+            gaps = [CoverageGapEntry(gap_id=f"{q.question_id}:{idx}", subquestion_id=q.question_id,
+                missing_evidence_kind=gap, next_action="按缺口补搜或补读", status="open")
+                for q in questions for idx, gap in enumerate(q.gaps)]
         recent = [
             {
                 "task_id": row.task_id,
@@ -728,15 +845,26 @@ def get_run_budget(run_id: int) -> RunBudgetResponse:
                 run_id=run_id, workflow_version=workflow, legacy=True,
                 resources=[], stop_reason=None,
             )
-        protocol = None
+        protocol = {}
         if run.protocol_asset_id:
             asset = session.exec(
                 select(ResearchAsset).where(ResearchAsset.asset_id == run.protocol_asset_id)
             ).first()
             protocol = (asset.inline_payload if asset else None) or {}
-        limits = {k: v for k, v in (protocol.get("budget") or {}).items() if isinstance(v, int)}
+        if not protocol and ((run.options or {}).get("workflow") or {}).get("loop_revision") in SUPPORTED_LOOP_VERSIONS:
+            workflow_options = ((run.options or {}).get("workflow") or {})
+            protocol = {"budget": limits_for(run.depth, workflow_options.get("budget"), revision=workflow_options.get("loop_revision"))}
+        limits = {k: v for k, v in (protocol.get("budget") or {}).items() if isinstance(v, int)
+                  and k not in ("writing_tokens", "writing_calls")}
+        limits.update({f"writing:{kind}": value for kind, value in (
+            ("llm_tokens", (protocol.get("budget") or {}).get("writing_tokens")),
+            ("llm_calls", (protocol.get("budget") or {}).get("writing_calls"))) if isinstance(value, int)})
         resources = [BudgetResourceEntry.model_validate(entry)
                      for entry in event_log.budget_snapshot(session, run_id, limits)]
+        if ((run.options or {}).get("workflow") or {}).get("loop_revision") in SUPPORTED_LOOP_VERSIONS:
+            resources = [entry for entry in resources if entry.resource != "wall_clock_minutes"]
+            resources.append(BudgetResourceEntry(resource="active_seconds", unit="second",
+                used=int(run.active_seconds), limit=int((protocol.get("budget") or {}).get("wall_clock_minutes", 0)) * 60))
         revision = session.exec(
             select(ResearchReportRevision)
             .where(ResearchReportRevision.run_id == run_id)
@@ -860,13 +988,22 @@ async def resume_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
     with Session(engine) as session:
         run = _get_run_or_404(session, run_id)
         if (run.workflow_version or WORKFLOW_LEGACY_V1) == WORKFLOW_ACADEMIC_SURVEY_V2:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "detail": "academic_survey_v2 执行器尚未接入，不能恢复运行",
-                    "code": "WORKFLOW_NOT_IMPLEMENTED",
-                },
-            )
+            if not loop_worker.supported(run):
+                raise HTTPException(400, detail={"detail": "旧契约运行没有可执行的研究版本，请新建研究", "code": "WORKFLOW_NOT_IMPLEMENTED"})
+            if loop_worker.active(run_id) or loop_worker.leased(run):
+                raise HTTPException(409, detail={"detail": "执行者尚未退出，请稍后继续", "code": "WORKER_ACTIVE"})
+            other = session.exec(select(ExplorationRun).where(ExplorationRun.id != run_id,
+                ExplorationRun.status.in_(("pending", "running", "paused")))).first()
+            if other:
+                raise HTTPException(409, detail={"detail": "已有其他研究任务", "code": "EXPLORATION_RUNNING"})
+            try:
+                run, replay = event_log.cas_run_state(session, run_id=run_id, new_status="pending",
+                    expected_state=req.expected_state, expected_state_version=req.expected_state_version,
+                    allowed_from=("paused", "failed", "pending", "running"), event_type="run_resumed")
+            except event_log.RunStateError as exc:
+                raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
+            loop_worker.start(run_id)
+            return RunControlResponse(run_id=run_id, status=run.status, state_version=run.state_version, idempotent_replay=replay)
         else:
             if run.status == "needs_restart":
                 # v8 检查点迁移失败：旧产物与导出保留，续跑无意义，需新建研究
@@ -919,11 +1056,11 @@ def cancel_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
 
 
 @router.post("/runs/{run_id}/retry", response_model=RunRetryResponse)
-def retry_run(run_id: int, req: RunRetryRequest) -> RunRetryResponse:
+async def retry_run(run_id: int, req: RunRetryRequest) -> RunRetryResponse:
     """只重做失败/失效任务：重新入队 pending 并记录 run_retry 事件；不重做已成功任务。
 
-    幂等：相同 idempotency_key 的重复请求返回原结果。下游失效重算（revision 失效）
-    由 S3/S6 根据依赖图处理，本端点不隐式扩大范围。
+    幂等：相同 idempotency_key 的重复请求返回原结果。当前 loop 复用冻结任务
+    输入，不扩大预算；无可执行修订的旧契约运行拒绝重试。
     """
     from datetime import datetime, timezone
 
@@ -944,6 +1081,16 @@ def retry_run(run_id: int, req: RunRetryRequest) -> RunRetryResponse:
                 detail={"detail": f"当前状态 {run.status} 不允许重试（允许：{'/'.join(RUN_RETRYABLE_STATES_V2)}）",
                         "code": "INVALID_STATE"},
             )
+        if not loop_worker.supported(run):
+            raise HTTPException(400, detail={"detail": "旧契约运行没有可执行的研究版本或执行器已关闭", "code": "WORKFLOW_NOT_IMPLEMENTED"})
+        if loop_worker.supported(run):
+            if loop_worker.active(run_id) or loop_worker.leased(run):
+                raise HTTPException(409, detail={"detail": "执行者尚未退出，请稍后重试", "code": "WORKER_ACTIVE"})
+            other = session.exec(select(ExplorationRun).where(
+                ExplorationRun.id != run_id, ExplorationRun.status.in_(("pending", "running", "paused")),
+            )).first()
+            if other:
+                raise HTTPException(409, detail={"detail": "已有其他研究任务", "code": "EXPLORATION_RUNNING"})
         retry_states = ("failed",) if req.failed_only else ("failed", "skipped", "cancelled")
         if req.task_ids:
             tasks = session.exec(
@@ -961,6 +1108,8 @@ def retry_run(run_id: int, req: RunRetryRequest) -> RunRetryResponse:
                     ResearchTask.run_id == run_id, ResearchTask.state.in_(retry_states)
                 )
             ).all()
+        if not targets:
+            raise HTTPException(409, detail={"detail": "没有可重试的失败任务", "code": "NO_RETRYABLE_TASKS"})
         now = datetime.now(timezone.utc)
         # 与 cas_run_state 相同的原子守卫：并发状态变更时整体回滚，不重排任务。
         # 注意 ORM-enabled UPDATE 会把新值同步回内存实例，版本推进一律用本地
@@ -1000,6 +1149,8 @@ def retry_run(run_id: int, req: RunRetryRequest) -> RunRetryResponse:
         )
         session.commit()
         session.refresh(run)
+        if loop_worker.supported(run):
+            loop_worker.start(run_id)
         return RunRetryResponse(
             run_id=run_id, status=run.status, state_version=run.state_version,
             retried_tasks=len(targets), idempotent_replay=False,
@@ -1160,12 +1311,18 @@ def list_evidence(
         ).all()
         items = []
         for row in rows:
-            relation = row.relation or ""
-            if subquestion_id and subquestion_id not in relation:
+            relation = row.fact or row.relation or ""
+            if subquestion_id and subquestion_id not in row.question_ids:
+                continue
+            asset = session.exec(select(ResearchAsset).where(ResearchAsset.asset_id == row.asset_id,
+                ResearchAsset.run_id == run_id, ResearchAsset.content_kind == "document",
+                ResearchAsset.status.in_(("active", "superseded")))).first()
+            if not asset:
                 continue
             items.append(EvidenceIndexItem(
-                evidence_id=row.evidence_id, evidence_type="relation", paper_key=None,
-                fact_summary=relation[:360], verification_status="unverified",
+                evidence_id=row.evidence_id, evidence_type=row.evidence_kind, subquestion_ids=row.question_ids,
+                paper_key=asset.family_key, missing_fields=row.missing_fields,
+                fact_summary=relation[:360], verification_status=row.verification.get("status", "unverified"),
                 location_status=((row.spans or [{}])[0]).get("location_status"),
             ))
         selected = items[cursor:cursor + limit]
@@ -1222,6 +1379,8 @@ def get_evidence(run_id: int, evidence_id: str) -> EvidenceDetailResponse:
                 403,
                 detail={"detail": "证据所属文档已被隔离，不对外暴露内容", "code": "EVIDENCE_NOT_EXPOSED"},
             )
+        if asset is None or asset.run_id != run_id or asset.content_kind != "document" or asset.status not in ("active", "superseded"):
+            raise HTTPException(404, detail={"detail": "证据文档不可读", "code": "EVIDENCE_NOT_FOUND"})
         document = {}
         if asset is not None:
             document = {
@@ -1238,5 +1397,42 @@ def get_evidence(run_id: int, evidence_id: str) -> EvidenceDetailResponse:
         return EvidenceDetailResponse(
             evidence_id=evidence.evidence_id, run_id=evidence.run_id, asset_id=evidence.asset_id,
             spans=spans, relation=evidence.relation, document=document,
+            evidence_type=evidence.evidence_kind, fact={"text": evidence.fact, **evidence.conditions},
+            subquestion_ids=evidence.question_ids, missing_fields=evidence.missing_fields,
+            verification=evidence.verification,
             created_at=evidence.created_at,
         )
+@router.get("/runs/{run_id}/questions", response_model=ResearchQuestionsResponse)
+def get_questions(run_id: int):
+    from ..services.deep_research.research_loop import queries
+    with Session(get_engine()) as session:
+        run = _get_run_or_404(session, run_id)
+        return ResearchQuestionsResponse(run_id=run_id, legacy=run.workflow_version != WORKFLOW_ACADEMIC_SURVEY_V2,
+                                         items=queries.questions(session, run_id))
+
+
+@router.get("/runs/{run_id}/answers", response_model=ResearchAnswersResponse)
+def get_answers(run_id: int, cursor: Optional[int] = Query(None, ge=1), limit: int = Query(20, ge=1, le=50)):
+    from ..services.deep_research.research_loop import queries
+    with Session(get_engine()) as session:
+        _get_run_or_404(session, run_id)
+        rows, next_cursor = queries.revisions(session, ResearchAnswerRevision, run_id, cursor, limit)
+        try:
+            for row in rows:
+                loop_access.require_answer(session, run_id, row)
+        except event_log.RunStateError as exc:
+            raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
+        return ResearchAnswersResponse(run_id=run_id, items=[r.model_dump() for r in rows], next_cursor=next_cursor)
+
+
+@router.get("/runs/{run_id}/dossiers", response_model=ResearchDossiersResponse)
+def get_dossiers(run_id: int, cursor: Optional[int] = Query(None, ge=1), limit: int = Query(20, ge=1, le=50)):
+    from ..services.deep_research.research_loop import queries
+    with Session(get_engine()) as session:
+        _get_run_or_404(session, run_id)
+        rows, next_cursor = queries.revisions(session, ResearchDossierRevision, run_id, cursor, limit)
+        return ResearchDossiersResponse(run_id=run_id, items=[ResearchDossierResponse(
+            revision_id=r.revision_id, protocol_asset_id=r.protocol_asset_id, content_hash=r.content_hash,
+            stop_reason=r.stop_reason, created_at=r.created_at, evidence_count=len(r.manifest.get("evidence", {})),
+            answer_revision_ids=[a["revision_id"] for a in r.manifest.get("answers", []) if a.get("revision_id")]) for r in rows],
+            next_cursor=next_cursor)

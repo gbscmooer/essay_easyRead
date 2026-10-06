@@ -18,17 +18,19 @@ import { ChartView } from '@/features/research/ChartView'
 import { ExplorationConversation } from '@/features/research/ExplorationConversation'
 import { SurveyReportView } from '@/features/research/SurveyReportView'
 import { RunTokenUsageCard } from '@/features/research/RunTokenUsageCard'
+import { ResearchQuestions } from '@/features/research/ResearchQuestions'
+import { ResearchRevision } from '@/features/research/ResearchRevision'
 import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
 import { formatDuration, mergeRunTiming, resolveTimelineEndMs, TIMING_STAGE_ORDER } from '@/features/research/runTiming'
 import { parseServerDate } from '@/utils/datetime'
-import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport, pauseExploration, resumeExploration } from '@/api/exploration'
+import { createExploration, deleteExploration, listExplorations, getExploration, getExplorationMessages, preflightExploration, regenerateReport, pauseExploration, resumeExploration, cancelExploration, retryExploration } from '@/api/exploration'
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
-  ExplorationRun, ExplorationMessage, CitationMethod, PreflightResponse,
+  ExplorationRun, ExplorationResult, ExplorationMessage, CitationMethod, PreflightResponse,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
 import { ConfirmDialog } from '@/ds-entry'
@@ -39,22 +41,22 @@ const EXAMPLES = [
   '状态空间模型（Mamba 一类）会取代 Transformer 吗？',
 ]
 
-const DEPTHS: { value: ExplorationDepth; label: string; hint: string }[] = [
-  { value: 'lite', label: '轻量', hint: '2 式 · 上限 50 篇' },
-  { value: 'quick', label: '快览', hint: '3 式 · 上限 200 篇' },
-  { value: 'standard', label: '标准', hint: '4 式 · 上限 500 篇' },
-  { value: 'deep', label: '深挖', hint: '5 式 · 上限 1000 篇' },
+const DEPTHS: { value: ExplorationDepth; label: string; hint: string; loopHint: string }[] = [
+  { value: 'lite', label: '轻量', hint: '2 式 · 上限 50 篇', loopHint: '优先核心材料，提供简要回答与证据缺口' },
+  { value: 'quick', label: '快览', hint: '3 式 · 上限 200 篇', loopHint: '围绕问题检索、阅读并补充关键依据' },
+  { value: 'standard', label: '标准', hint: '4 式 · 上限 500 篇', loopHint: '为补充检索与原文分析提供更多研究空间' },
+  { value: 'deep', label: '深挖', hint: '5 式 · 上限 1000 篇', loopHint: '提供更充分的研究空间，仍以实际材料为依据' },
 ]
 
 const STAGE_META: { key: string; label: string; hint: string }[] = [
-  { key: 'preflight', label: '⓪ 数据源预检', hint: '带 Key 的最小真实检索探测权限：401/403/断网提前暴露，主源失效自动回退' },
-  { key: 'decompose', label: '① 拆解检索式', hint: 'LLM 把口语问题译成学术检索式' },
-  { key: 'recall', label: '② 多源检索', hint: 'Scopus 首选 / OpenAlex 回退' },
-  { key: 'enrich', label: '③ 指标富化', hint: '逐年引用 · 摘要 · 关键词 · 期刊 SJR/SNIP（OpenAlex 补查 + Scopus Serial Title）' },
-  { key: 'metrics', label: '④ 计量与聚类', hint: '样本内同年百分位 · 完整年份引用率 · 子方向' },
-  { key: 'synthesize', label: '⑤ 跨文献综合', hint: 'LLM 只基于召回材料作答' },
-  { key: 'report', label: '⑥ 报告', hint: '提取框架、指标、任务与数据集证据' },
-  { key: 'persist', label: '⑦ 落盘', hint: '产物持久化' },
+  { key: 'preflight', label: '⓪ 数据源预检', hint: '探测检索权限与来源可用性' },
+  { key: 'protocol', label: '① 问题协议', hint: '冻结研究问题、检索范围与预算' },
+  { key: 'recall', label: '② 多源检索', hint: '召回材料并保留来源审计' },
+  { key: 'screen', label: '③ 材料筛选', hint: '筛选相关候选并计算样本指标' },
+  { key: 'select', label: '④ 代表选材', hint: '选择互补的研究材料' },
+  { key: 'extract', label: '⑤ 证据提取', hint: '阅读原文并保存结构化证据' },
+  { key: 'synthesize', label: '⑥ 跨文献综合', hint: '基于已提取材料形成报告草稿' },
+  { key: 'report', label: '⑦ 报告交付', hint: '冻结报告并保存版本' },
 ]
 
 const VERDICT_META: Record<NoveltyStatus, { label: string; ink: string; note: string }> = {
@@ -74,6 +76,7 @@ const INTENT_LABEL: Record<string, string> = {
 const SOURCE_LABELS: Record<string, string> = {
   scopus: 'Scopus',
   openalex: 'OpenAlex',
+  arxiv: 'arXiv',
   semantic_scholar: 'Semantic Scholar',
   local: '本地',
 }
@@ -112,6 +115,7 @@ export default function ExplorePage() {
   const detail = id !== undefined
   const [question, setQuestion] = useState('')
   const [depth, setDepth] = useState<ExplorationDepth>('standard')
+  const [useQuestionLoop, setUseQuestionLoop] = useState(true)
   const [savedRun, setSavedRun] = useState<ExplorationRun | null>(null)
   const [loadError, setLoadError] = useState('')
   const [tab, setTab] = useState<'report' | 'analysis' | 'papers' | 'chat'>('report')
@@ -138,9 +142,12 @@ export default function ExplorePage() {
   // 运行中/失败的 run 其 result 可能只写了检索审计（persist_sources 中途落盘），
   // 缺 papers/metrics 等字段；不完整的产物一律按"尚无结果"处理，避免渲染期崩溃。
   const rawResult = stream.result ?? savedRun?.result ?? null
+  const planningFailed = savedRun?.workflow_version === 'academic_survey_v2' && rawResult?.survey_report?.method?.stop_reason === 'planning_failed'
+  const selectionFailed = rawResult?.survey_report?.method?.stop_reason === 'material_selection_failed'
+  const selectionEmpty = rawResult?.survey_report?.method?.stop_reason === 'material_selection_empty'
   const result = rawResult && Array.isArray(rawResult.papers)
     && rawResult.metrics && rawResult.decompose && rawResult.graph
-    ? rawResult
+    ? rawResult as ExplorationResult
     : null
   const synthesis = stream.synthesis ?? result?.synthesis ?? null
   const running = stream.status === 'running' || submitting
@@ -191,10 +198,10 @@ export default function ExplorePage() {
 
   const allPapers = useMemo(() => {
     const map = new Map<string, ExplorationPaper>()
-    result?.papers.forEach(p => map.set(p.key, p))
+    rawResult?.papers?.forEach(p => map.set(p.key, p))
     messages.forEach(m => m.papers?.forEach(p => map.set(p.key, { ...map.get(p.key), ...p })))
     return [...map.values()]
-  }, [result, messages])
+  }, [rawResult, messages])
 
   const refreshHistory = useCallback(async () => {
     try { setHistory(await listExplorations(20)) } catch { /* 历史加载失败不打断主流程 */ }
@@ -202,6 +209,11 @@ export default function ExplorePage() {
 
   useEffect(() => { void refreshHistory() }, [refreshHistory])
   useEffect(() => { if (stream.status === 'done') void refreshHistory() }, [stream.status, refreshHistory])
+  useEffect(() => {
+    if (runId && ['done', 'paused', 'failed'].includes(stream.status)) {
+      void getExploration(runId).then(setSavedRun).catch(() => {})
+    }
+  }, [runId, stream.status])
   useEffect(() => { setSelected(null) }, [runId])
   // 路由离开列表视图时收起抽屉
   useEffect(() => { setHistoryOpen(false) }, [detail, runId])
@@ -223,7 +235,8 @@ export default function ExplorePage() {
     setSubmitting(true)
     try {
       if (workspaceId && !seedIds.length) throw new Error('请至少选择一篇母论文')
-      const run = await createExploration(q, depth, { workspace_id: workspaceId, seed_paper_ids: workspaceId ? seedIds : null, search_online: searchOnline })
+      const run = await createExploration(q, depth, { workspace_id: workspaceId, seed_paper_ids: workspaceId ? seedIds : null, search_online: searchOnline,
+        workflow_version: useQuestionLoop ? 'academic_survey_v2' : 'legacy_v1' })
       navigate(`/explorer/${run.id}`)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '探索任务创建失败'
@@ -231,7 +244,7 @@ export default function ExplorePage() {
     } finally {
       setSubmitting(false)
     }
-  }, [question, depth, navigate, workspaceId, seedIds, searchOnline])
+  }, [question, depth, navigate, workspaceId, seedIds, searchOnline, useQuestionLoop])
 
   const generateReport = async () => {
     if (!runId) return
@@ -268,6 +281,17 @@ export default function ExplorePage() {
       void refreshHistory()
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : '继续研究失败' })
+    }
+  }, [runId, refreshHistory])
+
+  const retryFailedTasks = useCallback(async () => {
+    if (!runId) return
+    try {
+      await retryExploration(runId)
+      setRevision(value => value + 1)
+      void refreshHistory()
+    } catch (error) {
+      toast({ type: 'error', message: error instanceof Error ? error.message : '重试失败任务未完成' })
     }
   }, [runId, refreshHistory])
 
@@ -314,7 +338,7 @@ export default function ExplorePage() {
 
   const verdict = synthesis?.verdict
   const verdictMeta = verdict ? VERDICT_META[verdict.status] : null
-  const total = result?.metrics.total ?? 0
+  const total = result?.metrics.total ?? rawResult?.papers?.length ?? 0
   const citationMethod = result?.metrics.citation_method
   const exactCitations = isExactCitationMethod(citationMethod)
   const selectedMethod = selected?.citation_metrics ?? citationMethod
@@ -322,6 +346,8 @@ export default function ExplorePage() {
   const trendTitle = selectedExact
     ? `最近两个完整年份与此前两年比较：精确 Poisson 率检验，BH 校正，α = ${selectedMethod.alpha ?? '未记录'}。α 是显著性阈值，不是准确率。`
     : '旧版启发式指标，未按精确 Poisson 检验和 BH 校正重新计算。'
+
+  const isQuestionLoop = savedRun?.workflow_version === 'academic_survey_v2'
 
   const currentStageMeta = useMemo(() => {
     if (submitting) return STAGE_META[0]
@@ -391,15 +417,16 @@ export default function ExplorePage() {
           <span className="er-readout">
             {(() => {
               // 流程状态与报告生成状态分开展示：流程 done 不代表正文已经生成。
-              const flow = savedRun.status === 'done' ? '流程已完成'
+              const flow = selectionEmpty ? '未形成阅读组合' : selectionFailed ? '选材未完成' : planningFailed ? '规划失败' : ['done', 'completed', 'partial'].includes(savedRun.status) ? '流程已完成'
+                : savedRun.status === 'cancelled' ? '流程已取消'
                 : savedRun.status === 'failed' ? '流程失败'
                 : savedRun.status === 'paused' ? '流程已暂停' : '流程运行中'
               const report = savedRun.result?.survey_report
-              const reportLabel = !report ? ''
+              const reportLabel = selectionEmpty ? ' · 尚无研究答案，具体缺口已保留' : selectionFailed ? ' · 召回材料已保留，尚无完整答案' : planningFailed ? ' · 尚未执行文献检索' : !report ? ''
                 : report.status === 'no_results' ? ' · 检索未命中，无报告正文'
                 : report.status === 'partial' ? ' · 报告部分生成'
                 : report.status === 'unavailable' ? ' · 报告未生成'
-                : report.quality_status === 'needs_review' ? ' · 报告已生成（结构待处理）'
+                : report.quality_status === 'needs_review' ? (savedRun.workflow_version === 'academic_survey_v2' ? ' · 报告已生成（仍有证据缺口）' : ' · 报告已生成（结构待处理）')
                 : ' · 报告已生成'
               return flow + reportLabel
             })()}
@@ -419,10 +446,11 @@ export default function ExplorePage() {
       {detail && savedRun && allPapers.length === 0 && !running && !paused && stream.status !== 'failed' && (
         <div className="ex-empty-warning" role="alert">
           <div className="ex-empty-warning__header">
-            <span className="ex-empty-warning__badge">未检索到资料</span>
-            <strong>本次文献检索未在学术数据库中命中相关文献（0 篇资料）</strong>
+            <span className="ex-empty-warning__badge">{planningFailed ? '规划失败' : '未检索到资料'}</span>
+            <strong>{planningFailed ? '研究计划未通过校验，尚未执行文献检索' : '本次文献检索未在学术数据库中命中相关文献（0 篇资料）'}</strong>
           </div>
           <p className="ex-empty-warning__desc">
+            {planningFailed ? '本次没有形成研究结论，不能据此判断是否存在相关文献。已保留此次运行及失败状态，可修正研究问题后重新运行。' : <>
             {result?.decompose?.fallback && result.decompose.fallback_reason && result.decompose.fallback_reason !== 'UNCONFIGURED_KEY'
               ? `原因提示：LLM 检索拆解未完成（${result.decompose.fallback_reason}），原句回退检索未命中结果。`
               : result?.decompose?.fallback
@@ -430,6 +458,7 @@ export default function ExplorePage() {
               : '原因提示：所提问句关键词在当前数据源中未检索到匹配论文。'}
             {' '}系统仍已生成检索审计报告，列出实际搜索过的检索式、来源和建议补搜方向；
             零命中不等于该领域不存在相关工作。也可精简提问、使用标准学术英文术语，或在设置页检查数据源与模型配置。
+            </>}
           </p>
           <div className="ex-empty-warning__actions">
             <Link to="/explore" className="er-btn er-btn--primary er-btn--sm">
@@ -438,9 +467,9 @@ export default function ExplorePage() {
             <button
               type="button"
               className="er-btn er-btn--secondary er-btn--sm"
-              onClick={() => setTab('analysis')}
+              onClick={() => setTab(savedRun?.workflow_version === 'academic_survey_v2' ? 'report' : 'analysis')}
             >
-              查看检索透明度与数据源体检
+              {savedRun?.workflow_version === 'academic_survey_v2' ? '查看检索记录报告' : '查看检索透明度与数据源体检'}
             </button>
           </div>
         </div>
@@ -481,7 +510,7 @@ export default function ExplorePage() {
                 <span
                   key={s.name}
                   className={`ex-preflight__chip is-${s.status}`}
-                  title={`${sourceLabel(s.name)} · ${s.role === 'primary' ? '首选源' : '回退源'} · ${s.detail ?? ''}`}
+                  title={`${sourceLabel(s.name)} · ${s.role === 'primary' ? '首选源' : s.role === 'supplement' ? '补充源' : '回退源'} · ${s.detail ?? ''}`}
                 >
                   <i className="ex-preflight__dot" aria-hidden="true" />
                   {sourceLabel(s.name)}
@@ -519,12 +548,14 @@ export default function ExplorePage() {
                 className={depth === d.value ? 'is-active' : ''}
                 onClick={() => setDepth(d.value)}
                 disabled={running}
-                title={d.hint}
+                title={useQuestionLoop ? d.loopHint : d.hint}
               >
                 {d.label}
               </button>
             ))}
           </div>
+          <label><input type="checkbox" checked={useQuestionLoop} onChange={e => setUseQuestionLoop(e.target.checked)} /> 使用问题驱动研究（默认）</label>
+          {useQuestionLoop && <p className="survey-note">围绕问题补搜、补读并展示依据与缺口；尚未完成独立质量对照评测。</p>}
           <button type="button" className="ex-ask__run" onClick={() => void submit()} disabled={running || sourceLoading || !!workspaceId && (!workspace || !seedIds.length)}>
             {running ? '研究中…' : '开始研究'}
           </button>
@@ -548,7 +579,7 @@ export default function ExplorePage() {
                     ? '正在启动领域探索…'
                     : paused
                     ? '研究已在安全点暂停'
-                    : (currentStageMeta?.label ? `正在进行：${currentStageMeta.label}` : '领域探索分析中…')}
+                    : (savedRun?.workflow_version === 'academic_survey_v2' ? '正在补充问题所需依据' : (currentStageMeta?.label ? `正在进行：${currentStageMeta.label}` : '领域探索分析中…'))}
                 </div>
                 <div className="ex-progress__subtitle">
                   {paused
@@ -561,7 +592,7 @@ export default function ExplorePage() {
             </div>
             <div className="ex-progress__meta">
               <span className="ex-progress__percent tabular-nums font-mono font-semibold">
-                {displayProgress}%
+                {savedRun?.workflow_version === 'academic_survey_v2' ? '按问题推进' : `${displayProgress}%`}
               </span>
               {!submitting && stream.status === 'running' && (
                 <button
@@ -574,6 +605,10 @@ export default function ExplorePage() {
                   {pauseRequested ? '暂停中…' : '暂停'}
                 </button>
               )}
+              {savedRun?.workflow_version === 'academic_survey_v2' && (running || paused) && <button type="button"
+                className="er-btn er-btn--ghost er-btn--sm" onClick={() => {
+                  if (runId) void cancelExploration(runId).then(() => setRevision(v => v + 1)).catch(e => toast({ type: 'error', message: e instanceof Error ? e.message : '取消失败' }))
+                }}>取消研究</button>}
               {paused && (
                 <button
                   type="button"
@@ -602,7 +637,7 @@ export default function ExplorePage() {
           </div>
 
           {/* 阶段步骤指示器 */}
-          <ol className="ex-progress__stages">
+          {isQuestionLoop ? <p className="ex-progress__loop-note">按问题缺口安排检索、阅读与核查；补充依据后重新检查答案。</p> : <ol className="ex-progress__stages">
             {STAGE_META.map((s, idx) => {
               const done = (stream.stage ?? '').startsWith(`${s.key} 完成`) || isAfterStage(stream.stage, s.key, result ?? undefined, synthesis)
               const active = stream.stage === s.key || (idx === 0 && (submitting || !stream.stage))
@@ -615,7 +650,7 @@ export default function ExplorePage() {
                 </li>
               )
             })}
-          </ol>
+          </ol>}
         </section>
       )}
 
@@ -707,9 +742,19 @@ export default function ExplorePage() {
         </section>
       ) : null}
 
+      {savedRun?.workflow_version === 'academic_survey_v2' && ['partial', 'failed'].includes(savedRun.status) && (
+        <section className="ex-empty ex-empty--warning">
+          <p>继续研究保留失败任务的记录；如需重新执行失败步骤，请显式重试。重试复用原输入和剩余预算。</p>
+          <button type="button" className="er-btn er-btn--secondary er-btn--sm" onClick={() => void retryFailedTasks()}>重试失败任务</button>
+        </section>
+      )}
+
       {detail && savedRun && <>
+        {savedRun.workflow_version === 'academic_survey_v2' && <ResearchQuestions runId={runId!} refreshKey={`${stream.status}-${revision}`} />}
+        {savedRun.workflow_version === 'academic_survey_v2' && <ResearchRevision run={savedRun} onCreated={child => navigate(`/explorer/${child.id}`)} />}
         <div className="ex-detail-tabs" role="tablist" aria-label="探索视图">
-          {([{ key: 'report', label: '研究报告' }, { key: 'analysis', label: '分析结果' }, { key: 'papers', label: `全部资料 (${allPapers.length})` }, { key: 'chat', label: '连续追问' }] as const).map(t =>
+          {([{ key: 'report', label: '研究报告' }, { key: 'analysis', label: '分析结果' }, { key: 'papers', label: `全部资料 (${allPapers.length})` }, { key: 'chat', label: '连续追问' }] as const)
+            .filter(t => t.key !== 'analysis' || savedRun.workflow_version !== 'academic_survey_v2').map(t =>
             <button key={t.key} id={`tab-${t.key}`} type="button" role="tab" aria-selected={tab === t.key} aria-controls={`panel-${t.key}`} onClick={() => setTab(t.key)}>{t.label}</button>)}
         </div>
         <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden={tab !== 'report'}>
@@ -717,7 +762,7 @@ export default function ExplorePage() {
             runId={runId!}
             refreshKey={`${stream.status}-${revision}-${savedRun.updated_at ?? ''}`}
           />
-          <SurveyReportView report={result?.survey_report} runId={runId!} busy={busy} onGenerate={generateReport} error={result?.report_error} />
+          <SurveyReportView report={rawResult?.survey_report} runId={runId!} busy={busy} onGenerate={generateReport} error={rawResult?.report_error} />
         </div>
         <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={tab !== 'chat'}>
           <ExplorationConversation key={runId} runId={runId!} papers={allPapers} disabled={busy}
@@ -750,7 +795,7 @@ export default function ExplorePage() {
               {synthesis?.maturity && (
                 <div className="ex-verdict__maturity"><strong>实现程度：</strong><EvidenceMarkdown text={synthesis.maturity} papers={allPapers} /></div>
               )}
-              {verdict.evidence_keys.length > 0 && (
+              {(verdict.evidence_keys?.length ?? 0) > 0 && (
                 <div className="ex-verdict__evidence">
                   <span>支撑证据：</span>
                   {verdict.evidence_keys.map(k => {
@@ -770,13 +815,13 @@ export default function ExplorePage() {
             <div className="ex-transparency__row">
               <span className="ex-transparency__label">检索式（{INTENT_LABEL[result.decompose.intent] ?? result.decompose.intent}）</span>
               <div className="ex-transparency__queries">
-                {result.decompose.en_queries.map(q => <code key={q}>{q}</code>)}
+                {(result.decompose.en_queries ?? []).map(q => <code key={q}>{q}</code>)}
               </div>
             </div>
             <div className="ex-transparency__stats">
               <span>数据源 <strong>{result.provider === 'stub' ? '测试' : result.provider}</strong></span>
               <span>去重后 <strong>{total}</strong> 篇</span>
-              {result.metrics.year_span.length === 2 && (
+              {result.metrics.year_span?.length === 2 && (
                 <span>年份 <strong>{result.metrics.year_span[0]}–{result.metrics.year_span[1]}</strong></span>
               )}
               <span>近年发表占比 <strong>{Math.round(result.metrics.recent_share * 100)}%</strong></span>
@@ -852,7 +897,7 @@ export default function ExplorePage() {
                 {selected.cluster >= 0 && (
                   <span>
                     <i className="ex-cluster-dot" style={{ background: clusterInk(selected.cluster) }} />
-                    {selected.cluster_label || `子方向 ${selected.cluster}`}
+                    {selected.cluster_label || `子方向 ${selected.cluster + 1}`}
                   </span>
                 )}
                 {selected.authors && <span className="ex-evidence-card__authors">{selected.authors}</span>}
@@ -905,7 +950,7 @@ export default function ExplorePage() {
           )}
 
           {/* 关键词 × 年份热力图（GOAL 承诺的热力图，v1.4 兑现） */}
-          {result.metrics.keyword_trend && result.metrics.keyword_trend.rows.length > 0 && (
+          {result.metrics.keyword_trend && (result.metrics.keyword_trend.rows?.length ?? 0) > 0 && (
             <section className="ex-section" aria-label="关键词趋势热力图">
               <ChartView title="关键词 × 年份热力图">
               <KeywordHeatmap trend={result.metrics.keyword_trend} />
@@ -944,13 +989,13 @@ export default function ExplorePage() {
             <section className="ex-section" aria-label="热点与空白">
               <h2 className="ex-section__title">热点 · 空白 · 后续动作</h2>
               <div className="ex-evidence-cols">
-                <ChipList title="📈 近期热点" items={synthesis.hotspots} ink="#d94a38" papers={allPapers} />
-                <ChipList title="🧭 尚未解决的空白" items={synthesis.gaps} ink="#2f7d78" papers={allPapers} />
+                <ChipList title="📈 近期热点" items={synthesis.hotspots || []} ink="#d94a38" papers={allPapers} />
+                <ChipList title="🧭 尚未解决的空白" items={synthesis.gaps || []} ink="#2f7d78" papers={allPapers} />
               </div>
-              {synthesis.follow_ups.length > 0 && (
+              {(synthesis.follow_ups?.length ?? 0) > 0 && (
                 <div className="ex-followups">
                   <span>建议下一步：</span>
-                  {synthesis.follow_ups.map((f, i) => (
+                  {synthesis.follow_ups?.map((f, i) => (
                     <button key={i} type="button" onClick={() => { setQuestion(f); if (detail) setTab('chat') }}>{f}</button>
                   ))}
                 </div>
@@ -971,9 +1016,11 @@ export default function ExplorePage() {
       )}
 
       {/* 尚无结果时的引导 */}
-      {!result && stream.status !== 'running' && !submitting && stream.status !== 'failed' && (
+      {!result && !rawResult?.survey_report && stream.status !== 'running' && !submitting && stream.status !== 'failed' && (
         <section className="ex-empty">
-          {runId ? '该探索没有可展示的产物。' : '输入一个问题开始。系统会给出：查新结论 → 检索透明度 → 子方向×年份热力图 → 样本内被引与引用率变化 → 跨文献报告。'}
+          {runId ? '该探索没有可展示的产物。' : useQuestionLoop
+            ? '输入一个问题开始。系统会整理研究问题、检索和阅读相关文献，给出带来源的回答，并提示尚缺的依据。'
+            : '输入一个问题开始。系统会给出：查新结论 → 检索透明度 → 子方向×年份热力图 → 样本内被引与引用率变化 → 跨文献报告。'}
         </section>
       )}
     </div>
@@ -1005,7 +1052,7 @@ function RunTimingPanel({ run, stream }: {
   const endedAtMs = useMemo(() => {
     if (active) return null
     const streamEnded = stream.status === 'done' || stream.status === 'failed' || stream.status === 'paused'
-    const runEnded = run.status === 'done' || run.status === 'failed' || run.status === 'paused'
+    const runEnded = ['done', 'completed', 'partial', 'cancelled', 'failed', 'paused'].includes(run.status)
     if (!streamEnded && !runEnded) return null
     // updated_at 会在报告重生成/选择 revision 时继续变化，不能代表研究结束。
     // 完成态优先取最后一个闭合阶段的结束时刻；旧 run 无时间线才回退。
@@ -1028,8 +1075,8 @@ function RunTimingPanel({ run, stream }: {
   return (
     <section className="ex-timing" aria-label="研究耗时">
       <div className="ex-timing__head">
-        <span className="ex-timing__label">总耗时</span>
-        <strong className="ex-timing__total tabular-nums">{formatDuration(timing.wallSeconds)}</strong>
+        <span className="ex-timing__label">{run.workflow_version === 'academic_survey_v2' ? '有效工作时长（已记录）' : '总耗时'}</span>
+        <strong className="ex-timing__total tabular-nums">{formatDuration(run.workflow_version === 'academic_survey_v2' ? (stream.activeSeconds ?? run.active_seconds ?? 0) : timing.wallSeconds)}</strong>
         {active && <span className="ex-timing__live">计时中</span>}
         {total > 0 && (
           <span className="ex-timing__sum">各阶段合计 {formatDuration(timing.stageSeconds)}</span>

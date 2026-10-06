@@ -181,13 +181,9 @@ async def test_resilient_get_drops_credentials_on_https_to_http_redirect(monkeyp
 
 @pytest.mark.asyncio
 async def test_resilient_get_retries_on_429():
-    mock_429 = MagicMock(spec=httpx.Response)
-    mock_429.status_code = 429
-    mock_429.headers = {"retry-after": "1"}
-
-    mock_200 = MagicMock(spec=httpx.Response)
-    mock_200.status_code = 200
-    mock_200.raise_for_status = MagicMock()
+    req = httpx.Request("GET", "https://api.openalex.org/works")
+    mock_429 = httpx.Response(429, headers={"retry-after": "1"}, request=req)
+    mock_200 = httpx.Response(200, request=req)
 
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_client.get = AsyncMock(side_effect=[mock_429, mock_200])

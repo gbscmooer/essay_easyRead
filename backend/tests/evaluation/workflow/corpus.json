@@ -1,0 +1,15 @@
+{
+  "version": "synthetic_workflow_v1",
+  "purpose": "offline_engineering_only",
+  "papers": [
+    {"key":"fixture:a","title":"Synthetic Kernel A","publication_date":"2024-01-01","source_kind":"full_text","source_text":"--- Page 1 ---\n\nMethod\nKernel A stores a bounded queue and discards the oldest entry when the queue is full.\n\nExperiments\nOn Dataset X with batch size 1, metric latency is 12 ms on CPU Y.\n\nLimitations\nKernel A cannot preserve entries after a process restart."},
+    {"key":"fixture:b","title":"Synthetic Kernel B","publication_date":"2024-02-01","source_kind":"abstract","abstract":"Kernel B stores entries on disk and recovers them after a process restart. Its throughput depends on disk speed."}
+  ],
+  "tasks": [
+    {"id":"landscape","question":"这些材料中的队列方法有哪些不同？"},
+    {"id":"novelty","question":"这些材料是否实现了进程重启后的队列恢复？"},
+    {"id":"mechanism","question":"Kernel A 如何处理队列已满？"},
+    {"id":"comparison","question":"这些方法在相同条件下谁的延迟更低？"},
+    {"id":"deployment","question":"Kernel A 在进程重启时有哪些限制？"}
+  ]
+}

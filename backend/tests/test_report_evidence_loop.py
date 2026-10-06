@@ -695,7 +695,7 @@ def test_lite_extraction_skips_verify_when_no_rows(monkeypatch):
     assert audit["status"] == "completed"
 
 
-# ── P0 交付正确性（docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §16.4）──────────
+# ── P0 交付正确性（document.md §2.4；重构验收见 docs/workflow_refactor/VALIDATION.md）──────────
 
 
 def _delivery_store():

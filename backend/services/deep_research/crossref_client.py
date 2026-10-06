@@ -78,7 +78,7 @@ async def search_by_title(title: str) -> Optional[dict]:
         params = {
             "query.bibliographic": title.strip(),
             "rows": "3",
-            "select": "DOI,title,published-print,published-online,link,is-referenced-by-count",
+            "select": "DOI,title,author,published-print,published-online,link,is-referenced-by-count",
         }
         data = await _crossref_get(CROSSREF_API, params=params)
     except Exception as e:
@@ -117,6 +117,7 @@ async def search_by_title(title: str) -> Optional[dict]:
                 "doi": doi,
                 "pdf_url": pdf_url,
                 "title": cr_title,
+                "authors": ", ".join(" ".join(str(a.get(k) or "") for k in ("given", "family")).strip() for a in item.get("author") or []),
                 "year": year,
                 "score": score,
             }

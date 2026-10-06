@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, useEffect, useRef, type CSSProperties } from 'react'
 import type { GraphNode } from '@/types'
 import { Link } from 'react-router-dom'
 import { digestPaper } from '@/api/research'
@@ -19,28 +19,37 @@ const READ_LEVEL_LABEL: Record<string, { text: string; color: string }> = {
 export function NodeDetail({ node, onClose }: NodeDetailProps) {
   const [digesting, setDigesting] = useState(false)
   const [localSummary, setLocalSummary] = useState<string | null>(null)
+  const identity = node?.id
+  const currentIdentity = useRef(identity)
+  currentIdentity.current = identity
+  useEffect(() => {
+    setLocalSummary(null)
+    setDigesting(false)
+  }, [identity])
 
   if (!node) return null
 
-  const summary = localSummary ?? node.meta.summary ?? null
-  const readLevel = localSummary ? 'digest' : (node.meta.read_level ?? 'none')
+  const summary = localSummary ?? node.meta?.summary ?? null
+  const readLevel = localSummary ? 'digest' : (node.meta?.read_level ?? 'none')
   const badge = READ_LEVEL_LABEL[readLevel] ?? READ_LEVEL_LABEL.none
   const sem = node.semantic
   const roleMeta = sem && sem.role !== 'regular' ? ROLE_META[sem.role] : null
 
   const handleDigest = async () => {
-    if (!node.meta.paper_id) return
+    if (!node.meta?.paper_id) return
     setDigesting(true)
     try {
       const r = await digestPaper(node.meta.paper_id)
       const s = (r.digest as { summary?: string })?.summary ?? ''
+      if (currentIdentity.current !== identity) return
       setLocalSummary(s || '（已速读，无总结文本）')
       toast({ type: 'success', message: '速读完成。重建图谱后这篇会获得可解释关系' })
     } catch (e) {
+      if (currentIdentity.current !== identity) return
       const msg = (e as { detail?: string })?.detail || String(e)
       toast({ type: 'error', message: `速读失败：${msg}` })
     } finally {
-      setDigesting(false)
+      if (currentIdentity.current === identity) setDigesting(false)
     }
   }
 

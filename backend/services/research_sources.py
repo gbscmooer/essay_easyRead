@@ -86,7 +86,10 @@ def merge_corpus(seeds: list[dict], discovered: list[dict], cap: int) -> list[di
         identifiers = [str(paper.get("key") or "")]
         for name in ("doi", "arxiv_id"):
             if paper.get(name):
-                identifiers.append(name + ":" + str(paper[name]).lower().removeprefix("https://doi.org/"))
+                from .paper_identity import normalize_doi, normalize_arxiv_id
+                value = normalize_doi(paper[name]) if name == "doi" else normalize_arxiv_id(paper[name])
+                if value:
+                    identifiers.append(name + ":" + value)
         if paper.get("title"):
             identifiers.append("title:" + normalize_title(paper["title"]))
         current = next((aliases[k] for k in identifiers if k and k in aliases), None)

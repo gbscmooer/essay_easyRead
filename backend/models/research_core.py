@@ -1,21 +1,12 @@
-"""
-academic_survey_v2 研究核心契约（S0 冻结，见 docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §7）
+"""academic_survey_v2 数据契约，当前边界见 document.md §2.7。
 
-本模块只冻结数据形状，不含业务编排（S1–S8 负责）：
-- 契约常量：工作流版本、任务/运行/质量/身份/核验状态、预算资源口径。
-- Core 交换契约：ResearchProtocol / SearchRecord / IdentityDecision / ResolvedLocation /
-  EvidenceSpan / CoverageGap 等（Pydantic 形状，跨模块传递用）。
-- SQLModel 持久化表：research_tasks / research_task_attempts / research_assets /
-  research_evidence / research_relations / research_claims / research_report_revisions /
-  research_budget_events / research_events / research_identity_decisions。
+本模块定义交换形状、状态常量和十三张持久化表，执行器位于
+services/deep_research/research_loop；实施差异见 docs/workflow_refactor/STATUS.md。
 
-冻结约定：
-- 所有表用 int 自增主键 + 对外稳定字符串 ID（uuid hex），外部引用一律用字符串 ID。
-- 身份四层（WorkFamily/WorkVersion/SourceRecord/DocumentAsset）复用现有 Paper 身份数据，
-  本模块用 family_key/version_key 引用（"doi:10.x/x" / "arxiv:2312.10997" / "paper:{id}" 等），
-  桥接与传递归并由 S1 实现；同标题不同作者不得自动合并。
-- 表行由各业务 sub 写入；schema 变更必须经 S0（共享文件所有权）。
-- 外部字符串 ID 保留值 "legacy"（v1 兼容投影的伪 revision），业务侧不得占用。
+所有表采用内部整数主键和对外稳定字符串 ID。论文 family/version 引用复用
+现有身份数据，同题名不同作者不得自动合并。schema 变更需显式迁移并校验
+兼容性；不能把目标契约当作已经执行的门禁或后台流程。
+字符串 ID "legacy" 保留用于旧报告投影，业务 ID 不得占用。
 """
 
 from datetime import datetime, timezone
@@ -27,14 +18,14 @@ from sqlmodel import SQLModel, Field, Column
 
 
 # ============================================================
-# 契约常量（值即数据库存储值；变更需 S0 评审）
+# 契约常量（值即数据库存储值；变更需兼容性检查）
 # ============================================================
 
 WORKFLOW_LEGACY_V1 = "legacy_v1"
 WORKFLOW_ACADEMIC_SURVEY_V2 = "academic_survey_v2"
 WORKFLOW_VERSIONS = (WORKFLOW_LEGACY_V1, WORKFLOW_ACADEMIC_SURVEY_V2)
 
-# 任务状态（计划 §7.1）
+# 任务状态（契约见 document.md §2.7）
 TASK_STATES = ("pending", "ready", "running", "succeeded", "failed", "skipped", "cancelled")
 # v2 运行状态（在 v1 pending/running/done/failed 之外增加；与阶段分离）
 RUN_STATES_V2 = ("pending", "running", "paused", "completed", "partial", "failed", "cancelled")
@@ -46,10 +37,10 @@ RUN_RETRYABLE_STATES_V2 = ("failed", "partial", "cancelled")
 # 质量状态独立于运行状态；不能自动把内部模型检查提升为 human_reviewed
 QUALITY_STATUSES = ("unchecked", "internally_checked", "needs_review", "human_reviewed")
 
-# 身份判定（S1）：allow/deny/unresolved
+# 身份判定：allow/deny/unresolved
 IDENTITY_DECISIONS = ("allow", "deny", "unresolved")
 
-# 证据/关系核验状态（计划 §6.5）：摘要只能支撑摘要级陈述；
+# 证据/关系核验状态（契约见 document.md §2.7）：摘要只能支撑摘要级陈述；
 # 实验细节、性能比较、机制归因需要对应正文/表格证据
 VERIFICATION_STATES = (
     "abstract_supported", "fulltext_supported", "unverified", "contradicted", "insufficient",
@@ -58,20 +49,20 @@ VERIFICATION_STATES = (
 # claim 类别
 CLAIM_KINDS = ("fact", "inference", "hypothesis")
 
-# 预算资源口径（guideline，provider_scope 细分如 "http_requests:scopus" 由 S3 记账）
+# 预算资源口径（guideline，provider_scope 细分如 "http_requests:scopus" 由执行器记账）
 BUDGET_RESOURCES = ("llm_tokens", "llm_calls", "http_requests", "download_bytes", "wall_clock_minutes")
 
-# 搜索记录状态（计划 §6.1）：请求失败不得写成"该方向未发现研究"
+# 搜索记录状态（契约见 document.md §2.7）：请求失败不得写成"该方向未发现研究"
 SEARCH_STATUSES = ("ok_empty", "partial", "auth_error", "rate_limited", "quota_exhausted", "timeout", "error")
 
 # research_assets.content_kind 口径（资产均为不可变；重写=新行+旧行 superseded）
 ASSET_KINDS = (
-    "document",        # S2：下载/解析的文献文档（PDF/XML/HTML）
-    "protocol",        # S5：冻结协议版本（ResearchProtocol JSON）
-    "search_record",   # S5：检索审计记录（SearchRecord JSON）
-    "coverage_snapshot",  # S5：覆盖矩阵快照（subquestions + CoverageGap 列表）
-    "report",          # S6：报告 revision 内容
-    "manifest",        # S3/S6：资产清单（hash 汇总）
+    "document",        # 下载/解析的文献文档（PDF/XML/HTML）
+    "protocol",        # 冻结协议版本（ResearchProtocol JSON）
+    "search_record",   # 检索审计记录（SearchRecord JSON）
+    "coverage_snapshot",  # 覆盖矩阵快照（subquestions + CoverageGap 列表）
+    "report",          # 报告 revision 内容
+    "manifest",        # S3/资产清单（hash 汇总）
 )
 ASSET_STATUSES = ("active", "quarantined", "superseded", "orphaned")
 
@@ -104,7 +95,7 @@ class ProtocolSubquestion(SQLModel):
 
 
 class ResearchProtocol(SQLModel):
-    """冻结协议（计划 §7.1）。每次修改产生新版本（新 protocol 资产行），不丢历史。"""
+    """冻结协议（契约见 document.md §2.7）。每次修改产生新版本（新 protocol 资产行），不丢历史。"""
 
     protocol_id: Optional[str] = None
     version: int = 1
@@ -121,7 +112,7 @@ class ResearchProtocol(SQLModel):
 
 
 class SearchRecord(SQLModel):
-    """单次检索的审计记录（计划 §7.1/§6.1）。持久化为 content_kind=search_record 资产。"""
+    """单次检索的审计记录（契约见 document.md §2.7）。持久化为 content_kind=search_record 资产。"""
 
     search_id: str
     subquestion_id: Optional[str] = None
@@ -140,7 +131,7 @@ class SearchRecord(SQLModel):
 
 
 class IdentityDecision(SQLModel):
-    """身份判定（S1）：所有模型输入入口前校验，deny 只回通用状态给执行器。"""
+    """身份判定：所有模型输入入口前校验，deny 只回通用状态给执行器。"""
 
     decision_id: str
     family_key: Optional[str] = None
@@ -154,7 +145,7 @@ class IdentityDecision(SQLModel):
 
 
 class ResolvedLocation(SQLModel):
-    """内容位置解析结果（S2）。持久化于 DocumentAsset.source_record["locations"]。"""
+    """内容位置解析结果。持久化于 DocumentAsset.source_record["locations"]。"""
 
     family_key: Optional[str] = None
     version_key: Optional[str] = None
@@ -181,7 +172,7 @@ class EvidenceSpan(SQLModel):
 
 
 class CoverageGap(SQLModel):
-    """覆盖缺口（S5 Critic 输出；持久化于 coverage_snapshot 资产，不包含评分器缺失名单）。"""
+    """覆盖缺口（问题缺口评估契约；持久化于 coverage_snapshot 资产，不包含评分器缺失名单）。"""
 
     gap_id: str
     subquestion_id: Optional[str] = None
@@ -194,12 +185,12 @@ class CoverageGap(SQLModel):
 
 
 # ============================================================
-# SQLModel 持久化表（写入方：S1–S6；schema 变更经 S0）
+# SQLModel 持久化表（schema 变更需显式迁移）
 # ============================================================
 
 
 class ResearchTask(SQLModel, table=True):
-    """任务账本行（计划 §5.2：任务账本是执行真源，checkpoint 只存调度位置）。
+    """任务账本行（契约见 document.md §2.7）。
 
     幂等键唯一性以 (run_id, idempotency_key) 生效：同一 run 内防止重复调度；
     两个 run 对相同冻结输入（任务类型+协议hash+文档hash+子问题+模型/prompt版本）
@@ -226,7 +217,7 @@ class ResearchTask(SQLModel, table=True):
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON))           # 冻结的任务输入
     idempotency_key: Optional[str] = None      # run 内唯一；见类 docstring 的构成说明
     result_asset_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
-    lease_owner: Optional[str] = None          # worker 标识（S3）
+    lease_owner: Optional[str] = None          # worker 标识
     lease_expires_at: Optional[datetime] = None
     error_code: Optional[str] = None
     error_detail: Optional[str] = None
@@ -260,7 +251,7 @@ class ResearchAsset(SQLModel, table=True):
     """不可变资产（document/protocol/search_record/coverage_snapshot/report/manifest）。
 
     大文件先以 hash 写不可变临时资产再登记有效引用；重写内容 = 新行，
-    旧行置 superseded，由异步清理回收孤立文件（S3）。
+    旧行置 superseded，由异步清理回收孤立文件。
     """
 
     __tablename__ = "research_assets"
@@ -301,6 +292,13 @@ class ResearchEvidence(SQLModel, table=True):
     spans: list[dict] = Field(default_factory=list, sa_column=Column(JSON))  # EvidenceSpan 字典列表
     relation: Optional[str] = None             # bundle 内多 span 的语义关系说明
     context_note: Optional[str] = None
+    question_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    fact: str = ""
+    evidence_kind: str = "fact"
+    source_kind: str = "unknown"
+    conditions: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    missing_fields: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    verification: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -330,7 +328,7 @@ class ResearchRelation(SQLModel, table=True):
 
 
 class ResearchClaim(SQLModel, table=True):
-    """报告事实论断（S6）：验证绑定 text_hash + evidence 版本，正文改写即失效重跑。"""
+    """报告事实论断：验证绑定 text_hash + evidence 版本，正文改写即失效重跑。"""
 
     __tablename__ = "research_claims"
     __table_args__ = (Index("ix_research_claims_run", "run_id"),)
@@ -350,7 +348,7 @@ class ResearchClaim(SQLModel, table=True):
 
 
 class ResearchReportRevision(SQLModel, table=True):
-    """报告不可变版本（S6）。旧 GET /runs/{id}/report 返回当前选定 revision。"""
+    """报告不可变版本。旧 GET /runs/{id}/report 返回当前选定 revision。"""
 
     __tablename__ = "research_report_revisions"
     __table_args__ = (Index("ix_research_report_revisions_run", "run_id"),)
@@ -362,6 +360,7 @@ class ResearchReportRevision(SQLModel, table=True):
     report_asset_id: str = Field(foreign_key="research_assets.asset_id")
     protocol_hash: Optional[str] = None
     asset_manifest_hash: Optional[str] = None
+    dossier_revision_id: Optional[str] = None
     workflow_version: str = WORKFLOW_ACADEMIC_SURVEY_V2
     model_version: Optional[str] = None
     prompt_version: Optional[str] = None
@@ -372,9 +371,9 @@ class ResearchReportRevision(SQLModel, table=True):
 
 
 class ResearchBudgetEvent(SQLModel, table=True):
-    """预算账本事件（S3）：先原子 reserve、完成后 settle；失败/取消释放未用预留。
+    """预算账本事件：先原子 reserve、完成后 settle；失败/取消释放未用预留。
 
-    聚合口径（S0 冻结）：
+    聚合口径（当前契约）：
       used                 = Σ delta_used
       reserved_outstanding = Σ delta_reserved − Σ delta_used − Σ delta_refunded
     usage_unknown 窗口（响应丢失）按上界计入 delta_used 且 usage_known=false，不得归零。
@@ -400,7 +399,7 @@ class ResearchBudgetEvent(SQLModel, table=True):
 
 
 class ResearchEvent(SQLModel, table=True):
-    """持久化事件流（S0 冻结）：SSE 只是订阅持久化事件，不作为任务运行的唯一状态来源。
+    """持久化事件流（当前契约）：SSE 只是订阅持久化事件，不作为任务运行的唯一状态来源。
 
     断点续订按 event_id / 自增 id；payload 保持小型（文档、证据、报告放资产）。
     """
@@ -419,7 +418,7 @@ class ResearchEvent(SQLModel, table=True):
 
 
 class ResearchIdentityDecision(SQLModel, table=True):
-    """身份判定持久层（S1）：每个模型/下载入口前的门禁审计；deny 细节不回传执行器。"""
+    """身份判定持久层：每个模型/下载入口前的门禁审计；deny 细节不回传执行器。"""
 
     __tablename__ = "research_identity_decisions"
     __table_args__ = (Index("ix_research_identity_run_family", "run_id", "family_key"),)
@@ -435,4 +434,59 @@ class ResearchIdentityDecision(SQLModel, table=True):
     reason: str = ""
     attestation: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     expires_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ResearchQuestion(SQLModel, table=True):
+    """问题的协议版本不可变；状态、缺口和选定答案是运行投影。"""
+
+    __tablename__ = "research_questions"
+    __table_args__ = (Index("uq_research_question_version", "run_id", "question_id", "protocol_version", unique=True),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    question_id: str
+    run_id: int = Field(foreign_key="exploration_runs.id", index=True)
+    protocol_version: int = 1
+    text: str
+    required: bool = True
+    priority: int = 1
+    intent: str = "understand"
+    answer_criteria: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    expected_evidence: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    status: str = "unsearched"
+    gaps: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    answer_revision_id: Optional[str] = None
+
+
+class ResearchAnswerRevision(SQLModel, table=True):
+    """不可变答案：事实、条件、冲突和不足与证据版本一起冻结。"""
+
+    __tablename__ = "research_answer_revisions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    revision_id: str = Field(default_factory=_new_id, unique=True, index=True)
+    run_id: int = Field(foreign_key="exploration_runs.id", index=True)
+    question_id: str
+    protocol_version: int
+    content_hash: str
+    conclusion: str = ""
+    kind: str = "fact"
+    status: str = "insufficient"
+    evidence_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    conditions: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    conflicts: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    gaps: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    assessment: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ResearchDossierRevision(SQLModel, table=True):
+    """冻结的材料清单，不复制或改变上游产物。"""
+
+    __tablename__ = "research_dossier_revisions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    revision_id: str = Field(default_factory=_new_id, unique=True, index=True)
+    run_id: int = Field(foreign_key="exploration_runs.id", index=True)
+    protocol_asset_id: str
+    content_hash: str
+    manifest: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    stop_reason: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

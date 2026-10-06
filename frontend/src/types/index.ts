@@ -578,6 +578,19 @@ export interface ExplorationResult {
   synthesis?: ExplorationSynthesis
 }
 
+export interface QuestionLoopResult {
+  papers: ExplorationPaper[]
+  survey_report: import('./survey').SurveyReport
+  loop: { revision: string; stop_reason: string; dossier_revision_id: string }
+  sources?: ExplorationResult['sources']
+  report_error?: string
+  decompose?: never
+  provider?: never
+  metrics?: never
+  graph?: never
+  synthesis?: never
+}
+
 /** 阶段时间线行：started_at 为 UTC ISO；duration_s 为该阶段耗时秒数（运行中为 null） */
 export interface ExplorationStageTiming {
   stage: string
@@ -617,10 +630,11 @@ export interface ExplorationRun {
   provider: string
   options?: ResearchSourceOptions
   decompose?: ExplorationDecompose | null
-  result?: ExplorationResult | null
+  result?: ExplorationResult | QuestionLoopResult | null
   /** academic_survey_v2（S0 冻结）；legacy_v1 运行为默认值 */
   workflow_version?: WorkflowVersion
   state_version?: number
+  active_seconds?: number
   protocol?: { protocol_id: string | null; version: number; hash: string | null; question: string; subquestion_count: number } | null
   current_revision?: SurveyReportRevision | null
   /** 断点续传检查点摘要（legacy v1；不含逐篇提取正文） */
@@ -651,6 +665,7 @@ export interface ExplorationRunSummary {
 }
 
 export interface ResearchSourceOptions {
+  workflow_version?: WorkflowVersion
   workspace_id?: number | null
   workspace_name?: string
   seed_paper_ids?: number[] | null
@@ -659,6 +674,30 @@ export interface ResearchSourceOptions {
   exclude_dois?: string[] | null
   exclude_arxiv_ids?: string[] | null
   exclude_titles?: string[] | null
+}
+
+export interface ResearchQuestionState {
+  question_id: string
+  protocol_version: number
+  text: string
+  required: boolean
+  priority: number
+  intent: string
+  answer_criteria: string[]
+  expected_evidence: string[]
+  status: string
+  gaps: string[]
+  answer_revision_id: string | null
+  requirements?: { unit_id: string; requirement: string; subject: string; phase: string; mode: string; source_quote: string; source_origin: string }[]
+  planning_gaps?: string[]
+  scope_constraints?: string[]
+  reading_role?: string | null
+}
+
+export interface ResearchQuestionsResponse {
+  run_id: number
+  legacy: boolean
+  items: ResearchQuestionState[]
 }
 
 // ── LLM token 用量统计（与后端 services/token_usage.py 对应）──────────────────
@@ -1012,11 +1051,12 @@ export type SourceHealthStatus = 'ok' | 'auth_error' | 'rate_limited' | 'network
 /** 单个数据源的预检结果：带权限的真实最小请求探测，不是 ping 可达 */
 export interface SourceHealth {
   name: string
-  role: 'primary' | 'fallback'
+  role: 'primary' | 'fallback' | 'supplement'
   status: SourceHealthStatus
   detail?: string | null
   latency_ms?: number | null
   http_status?: number | null
+  http_attempts?: { attempt?: number; phase: string; http_status?: number | null; error_code?: string | null; retry_after_seconds?: number | null; backoff_seconds?: number | null; elapsed_ms: number }[]
 }
 
 export interface PreflightResponse {

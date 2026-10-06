@@ -1,15 +1,9 @@
-"""
-对比实验评估脚本
+"""单篇分析字段对照脚本，指标限制见本目录 README.md。
 
-用法：
-    python -m backend.tests.evaluation.evaluate --paper-id resnet --system-result result.json
-
-评估维度：
-1. 字段级准确率（exact match / coverage）
-2. 语义相似度（基于关键词重叠）
-3. 系统 vs ChatGPT baseline 对比
-
-输出格式化的评估表格，可直接用于论文。
+文本使用关键词 Jaccard 重叠，列表使用子串覆盖或集合命中，不能解释为事实
+准确率或完整语义评估。可比较 system/baseline 的实际输出，不预设系统优势。
+用法：python -m backend.tests.evaluation.evaluate --paper-id resnet
+      --system-result result.json [--baseline-result baseline.json]。
 """
 
 import json

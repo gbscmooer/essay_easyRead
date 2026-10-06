@@ -162,6 +162,8 @@ def test_preflight_auto_without_key_skips_scopus(monkeypatch):
 
 def test_preflight_caches_within_ttl(monkeypatch):
     count = {"n": 0}
+    from backend.services.deep_research import preflight as pf
+    monkeypatch.setattr(pf, "_probe_arxiv", _arxiv_ok)
 
     async def oa_health(self, **kwargs):
         count["n"] += 1

@@ -9,7 +9,7 @@ from typing import AsyncIterator
 from ..embedder import embed_texts
 from ..vector_store import (
     upsert_chunks, drop_workspace_collection, get_or_create,
-    get_existing_ids, collection_model,
+    get_existing_ids, collection_model, list_workspace_chunks,
 )
 from ...ai_config import get_embedding_config
 
@@ -34,6 +34,14 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
     if model_changed and not rebuild:
         logger.warning(f"embedding 模型由 {prev_model!r} 变为 {model!r}，自动重建向量库以避免新旧向量混用")
     if full_rebuild:
+        previous = list_workspace_chunks(ws_id, strict=True)
+        chunks = list({c["id"]: c for c in [*previous, *chunks]}.values())
+    # Finish all model calls before discarding the usable old collection.
+    rebuilt_batches = []
+    if full_rebuild:
+        for i in range(0, len(chunks), BATCH):
+            batch = chunks[i:i + BATCH]
+            rebuilt_batches.append(await embed_texts([c["text"] for c in batch]))
         drop_workspace_collection(ws_id)
 
     # 触发集合创建并写入模型指纹（集合已存在则保留原指纹）
@@ -50,13 +58,14 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
         yield done
     for i in range(0, len(todo), BATCH):
         batch = todo[i:i + BATCH]
-        vecs = await embed_texts([c["text"] for c in batch])
+        vecs = rebuilt_batches[i // BATCH] if full_rebuild else await embed_texts([c["text"] for c in batch])
         upsert_chunks(
             ws_id,
             ids=[c["id"] for c in batch],
             docs=[c["text"] for c in batch],
             embeddings=vecs,
             metas=[{
+                "chunk_id": c["id"],
                 "paper_id": c["paper_id"], "paper_title": c["paper_title"],
                 "section_name": c["section_name"], "chunk_index": c["chunk_index"],
                 "page_hint": c["page_hint"],
@@ -66,4 +75,7 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
             } for c in batch],
         )
         done += len(batch)
+        if not full_rebuild:
+            yield done
+    if full_rebuild:
         yield done

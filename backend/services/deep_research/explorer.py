@@ -1009,7 +1009,7 @@ def _dedupe_candidates(candidates: list) -> list[dict]:
             by_key[key] = cur
             continue
         # 合并：字段缺的那边补上；被引数取大（不同源统计口径略有差异）
-        for field in ("year", "doi", "arxiv_id", "authors", "abstract"):
+        for field in ("year", "doi", "arxiv_id", "authors", "abstract", "url", "pdf_url"):
             if not cur.get(field) and getattr(cand, field, None):
                 cur[field] = getattr(cand, field)
         for k, v in (getattr(cand, "extra", None) or {}).items():
@@ -1161,16 +1161,12 @@ async def recall_papers(
 
 # ── Stage 3: enrich（指标富化：逐年引用 / 摘要 / 关键词 / 期刊指标）──────────
 #
-# 设计依据（2026-09-02 权限实测，见 docs/DOMAIN_ONBOARDING_AI_WORKFLOW_PLAN.md v1.4）：
-# - Scopus Search 不带摘要/关键词（field 请求返回空），Abstract Retrieval 的摘要字段
-#   同样不给个人 Key → 摘要与关键词统一从 OpenAlex 按 DOI 补；
-# - Scopus Citation Overview / Count API 无权限（404）→ 逐年引用曲线用 OpenAlex
-#   counts_by_year（免费且引用计数含预印本，对 CS 前沿更灵敏）；
-# - Serial Title API 可用 → 期刊 SJR / SNIP / CiteScore 按 source-id 批量查。
-# 统计口径：总量（citation_count）用 Scopus，动态（counts_by_year）用 OpenAlex，
-# 两边基数略有差异属正常（同一篇 ResNet 实测 229184 vs 227875）。
+# 当前富化契约见 document.md §2.3、§2.9：
+# 按已有标识从 OpenAlex 补摘要/关键词/逐年引用，从可用来源补期刊指标。
+# 来源权限与字段可用性按响应判断，不能沿用某次个人 Key 的历史探测结果。
+# 总引用与年度曲线可能来自不同来源，保留来源与缺失说明，不默认可比。
 
-_ENRICH_CONCURRENCY = 8      # OpenAlex 匿名档 ~10 rps，8 并发留余量
+_ENRICH_CONCURRENCY = 8      # 富化并发上限；provider 另有限速/退避
 # 目标量召回后语料可达数百上千篇，逐篇富化会形成请求风暴：
 # 只富化缺 counts_by_year 的前 N 篇（按召回排序，排前面的更重要）
 _ENRICH_PAPER_CAP = 200
@@ -1203,17 +1199,17 @@ async def enrich_papers(papers: list[dict], *, progress=None, history_cap: int |
         doi = p.get("doi")
         if not doi or p.get("counts_by_year"):
             return
-        if history_budget[0] is not None and history_budget[0] <= 0:
-            return  # 引用历史预算耗尽：跳过请求，但保留在第 2 步期刊批量富化中
         async with sem:
+            # Reserve synchronously before the first await; failed requests also consume a slot.
+            if history_budget[0] is not None:
+                if history_budget[0] <= 0:
+                    return
+                history_budget[0] -= 1
             try:
                 hist = await oa.get_citation_history(doi)
             except Exception as e:
                 logger.debug(f"enrich history failed for {doi}: {e}")
                 return
-            finally:
-                if history_budget[0] is not None:
-                    history_budget[0] -= 1
         if not hist:
             return
         p["counts_by_year"] = hist.get("counts_by_year") or []
@@ -2942,8 +2938,9 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         }
         result["sources"] = _snapshot_sources()
         result["budget"] = budget.snapshot()  # 最终预算审计随 result 落库（§16.6）
-        result.pop("draft", None)  # draft 中间态已完成使命，不随终稿落库膨胀 result
-        result.pop("draft_failed", None)
+        if not result.get("report_error"):
+            result.pop("draft", None)  # 成功交付后才释放中间产物
+            result.pop("draft_failed", None)
         with Session(get_engine()) as s:
             run = s.get(ExplorationRun, run_id)
             if run is not None:
@@ -2953,8 +2950,12 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         persist_sources()
         await emit("metrics_ready", **result)
 
-        _set_stage(run_id, "report", "done", checkpoint=None)
-        await emit("done", run_id=run_id, total=metrics.get("total", 0))
+        if result.get("report_error"):
+            _set_stage(run_id, "report", "failed", result=result, error_message=result["report_error"])
+            await emit("error", message=result["report_error"], code="REPORT_FAILED")
+        else:
+            _set_stage(run_id, "report", "done", checkpoint=None)
+            await emit("done", run_id=run_id, total=metrics.get("total", 0))
 
     except StagePausedError as e:
         # agent 循环/召回轮内部冒出的暂停信号：安全点检查点已落库，这里统一收尾

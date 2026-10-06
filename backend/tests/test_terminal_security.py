@@ -175,6 +175,8 @@ async def test_terminal_handler_receives_ping_resize_text_and_bytes(monkeypatch)
         def __init__(self, cwd):
             self.cwd = cwd
             self.is_alive = True
+            self.eof = False
+            self.process = None
             self.writes = []
             self.resizes = []
             self.closed = False

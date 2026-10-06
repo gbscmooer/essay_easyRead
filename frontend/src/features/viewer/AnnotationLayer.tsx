@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useLayoutEffect, useRef, useEffect, useCallback } from 'react'
 import type { Annotation } from '@/types'
 
 interface AnnotationLayerProps {
@@ -42,13 +42,27 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
     if (!layerEl) return
 
     const layerRect = layerEl.getBoundingClientRect()
-    // Position popup at the click location relative to the layer
+    const rawX = e.clientX - layerRect.left
+    const rawY = e.clientY - layerRect.top
+    // 边界保护：防止点击边缘时删除弹窗水平被截断
+    const clampedX = Math.max(90, Math.min(Math.max(90, layerRect.width - 90), rawX))
     setPopupPos({
-      x: e.clientX - layerRect.left,
-      y: e.clientY - layerRect.top,
+      x: clampedX,
+      y: rawY,
     })
     setPendingId(ann.id)
   }, [])
+
+  useLayoutEffect(() => {
+    const popup = popupRef.current
+    const layer = layerRef.current
+    if (!popup || !layer || pendingId === null) return
+    const half = Math.min(popup.offsetWidth / 2 + 8, layer.clientWidth / 2)
+    setPopupPos(current => {
+      const x = Math.max(half, Math.min(layer.clientWidth - half, current.x))
+      return x === current.x ? current : { ...current, x }
+    })
+  }, [pendingId])
 
   const handleConfirm = useCallback(() => {
     if (pendingId !== null) {
@@ -137,52 +151,66 @@ export function AnnotationLayer({ annotations, pageNumber, onDelete }: Annotatio
       })}
 
       {/* Delete confirmation popup */}
-      {pendingId !== null && (
-        <div
-          ref={popupRef}
-          className="absolute pointer-events-auto z-[60]"
-          style={{
-            left: `${popupPos.x}px`,
-            top: `${popupPos.y}px`,
-            transform: 'translate(-50%, -120%)',
-          }}
-        >
+      {pendingId !== null && (() => {
+        const flipY = popupPos.y < 55
+        return (
           <div
-            className="px-3 py-2 flex items-center gap-2 whitespace-nowrap"
-            style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-light)' }}
+            ref={popupRef}
+            className="absolute pointer-events-auto z-[60] flex flex-col items-center"
+            style={{
+              left: `${popupPos.x}px`,
+              top: `${popupPos.y}px`,
+              maxWidth: 'calc(100% - 16px)',
+              transform: flipY ? 'translate(-50%, 8px)' : 'translate(-50%, calc(-100% - 8px))',
+            }}
           >
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              {groupCount > 1 ? `删除这 ${groupCount} 条标注？` : '删除此标注？'}
-            </span>
-            <button
-              onClick={handleConfirm}
-              className="px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90"
-              style={{ backgroundColor: 'var(--error)', color: 'var(--bg-base)' }}
-            >
-              确认
-            </button>
-            <button
-              onClick={handleCancel}
-              className="px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80"
-              style={{ backgroundColor: 'var(--border)', color: 'var(--text-secondary)' }}
-            >
-              取消
-            </button>
-          </div>
-          {/* Arrow */}
-          <div className="flex justify-center">
+            {/* Arrow when flipped down */}
+            {flipY && (
+              <div
+                className="w-2 h-2 transform rotate-45 shrink-0 -mb-1 z-10"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderLeft: '1px solid var(--border)',
+                  borderTop: '1px solid var(--border)',
+                }}
+              />
+            )}
             <div
-              className="w-2 h-2 transform rotate-45"
-              style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderRight: '1px solid var(--border)',
-                borderBottom: '1px solid var(--border)',
-                marginTop: '-4px',
-              }}
-            />
+              className="px-3 py-2 max-w-full flex flex-wrap items-center gap-2 rounded border shadow-lg"
+              style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)' }}
+            >
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {groupCount > 1 ? `删除这 ${groupCount} 条标注？` : '删除此标注？'}
+              </span>
+              <button
+                onClick={handleConfirm}
+                className="px-2.5 py-1 text-xs font-medium rounded transition-colors hover:opacity-90"
+                style={{ backgroundColor: 'var(--error)', color: 'var(--bg-base)' }}
+              >
+                确认
+              </button>
+              <button
+                onClick={handleCancel}
+                className="px-2.5 py-1 text-xs font-medium rounded transition-colors hover:opacity-80"
+                style={{ backgroundColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                取消
+              </button>
+            </div>
+            {/* Arrow when normal (pointing down) */}
+            {!flipY && (
+              <div
+                className="w-2 h-2 transform rotate-45 shrink-0 -mt-1 z-10"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderRight: '1px solid var(--border)',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              />
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

@@ -7,12 +7,8 @@ import re
 
 def _escape(value: object) -> str:
     text = str(value or "").strip()
-    return (
-        text.replace("\\", "\\textbackslash{}")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace("&", "\\&")
-    )
+    escapes = {"\\": "\\textbackslash{}", "{": "\\{", "}": "\\}", "&": "\\&"}
+    return "".join(escapes.get(char, char) for char in text)
 
 
 def _authors(authors: str) -> str:

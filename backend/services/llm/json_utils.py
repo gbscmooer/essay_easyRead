@@ -3,7 +3,28 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
+
+
+def final_content_after_thinking(text: str) -> str:
+    """Separate complete leading think blocks; never parse reasoning as output.
+
+    The adapter uses this only when its caller explicitly requests separate
+    reasoning. A tag inside an actual JSON string is left intact.
+    """
+    value = str(text or "").lstrip()
+    while value.startswith("<think>"):
+        depth, end = 0, None
+        for tag in re.finditer(r"</?think>", value):
+            depth += 1 if tag.group() == "<think>" else -1
+            if depth == 0:
+                end = tag.end()
+                break
+        if end is None:
+            return ""
+        value = value[end:].lstrip()
+    return value
 
 
 def strip_markdown_fence(text: str) -> str:

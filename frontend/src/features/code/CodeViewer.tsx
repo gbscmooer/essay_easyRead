@@ -42,6 +42,7 @@ interface CodeViewerProps {
   paperId: number
   filePath: string | null
   scrollToLine?: number | null
+  navigationId?: number
 }
 
 
@@ -239,7 +240,7 @@ const VIRTUALIZE_THRESHOLD = 2000
 const LINE_HEIGHT = 20 // matches leading-5
 const VIRTUAL_BUFFER = 50
 
-export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps) {
+export function CodeViewer({ paperId, filePath, scrollToLine, navigationId }: CodeViewerProps) {
   const [content, setContent] = useState<string | null>(null)
   const [apiCells, setApiCells] = useState<NotebookCellData[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -315,21 +316,22 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
   }, [content, filePath])
 
   useEffect(() => {
-    if (scrollToLine == null || !containerRef.current) return
-
-    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
-
-    const lineEl = containerRef.current.querySelector(`#line-${scrollToLine}`)
-    if (lineEl) {
-      lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setHighlightLine(scrollToLine)
+    if (scrollToLine == null || loading || content == null || !containerRef.current || error) return
+    const container = containerRef.current
+    const line = Math.min(content.split('\n').length, Math.max(1, scrollToLine))
+    const frame = requestAnimationFrame(() => {
+      const top = Math.max(0, (lineBoxRef.current?.offsetTop || 36) + (line - 1) * LINE_HEIGHT - container.clientHeight / 2)
+      container.scrollTo({ top, behavior: 'auto' })
+      setScrollTop(top)
+      setHighlightLine(line)
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       highlightTimerRef.current = setTimeout(() => setHighlightLine(null), 3000)
-    }
-
+    })
     return () => {
+      cancelAnimationFrame(frame)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
     }
-  }, [scrollToLine])
+  }, [scrollToLine, navigationId, paperId, filePath, loading, content, error])
 
   // Hooks must be called before any early returns
   const lines = (content || '').split('\n')
@@ -433,7 +435,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
         </div>
       ) : (
         /* 普通代码渲染 */
-        <div className="flex">
+        <div className="flex min-w-0">
           {/* 行号 */}
           <div ref={lineBoxRef} className="shrink-0 select-none text-right pr-4 pt-4 pb-4 border-r" style={{ borderColor: 'var(--border)' }}>
             {shouldVirtualize && startLine > 0 && (
@@ -446,7 +448,7 @@ export function CodeViewer({ paperId, filePath, scrollToLine }: CodeViewerProps)
           </div>
 
           {/* 代码 */}
-          <pre className="flex-1 p-4 overflow-x-auto">
+          <pre className="flex-1 min-w-0 p-4 overflow-x-auto">
             <code
               ref={codeRef}
               className={`language-${language} text-sm leading-5`}

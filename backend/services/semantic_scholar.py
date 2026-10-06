@@ -104,7 +104,7 @@ def _map_s2_paper(s2_paper: dict) -> dict:
 
     # 优先用 arXiv URL
     arxiv_id = external_ids.get("ArXiv")
-    if arxiv_id and not paper_url:
+    if arxiv_id:
         paper_url = f"https://arxiv.org/abs/{arxiv_id}"
 
     return {

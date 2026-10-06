@@ -25,6 +25,7 @@ def env(tmp_path, monkeypatch):
         s.commit()
     monkeypatch.setattr(router, "get_engine", lambda: engine)
     monkeypatch.setattr(router, "_start", lambda coro: coro.close())
+    monkeypatch.setattr(router.loop_worker, "start", lambda run_id: None)
     app = FastAPI()
     app.include_router(router.router)
     return engine, TestClient(app)

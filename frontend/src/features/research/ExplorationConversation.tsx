@@ -62,22 +62,22 @@ export function ExplorationConversation({ runId, papers, disabled, onMessages, q
         <header><strong>你</strong><time>{parseServerDate(m.created_at).toLocaleString()}</time></header>
         <p className="ex-chat-question">{m.question}</p>
         <strong>AI</strong>
-        {m.status === 'done' && <div className="ex-report"><EvidenceMarkdown text={m.answer} papers={papers} citations={m.context.citations} /></div>}
-        {m.status === 'done' && <EvidenceAuditPanel audit={m.context.evidence_audit} />}
+        {m.status === 'done' && <div className="ex-report"><EvidenceMarkdown text={m.answer} papers={papers} citations={m.context?.citations} /></div>}
+        {m.status === 'done' && <EvidenceAuditPanel audit={m.context?.evidence_audit} />}
         {['pending', 'running'].includes(m.status) && <p role="status">{m.search_more ? '正在检索资料并回答…' : '正在分析已有资料…'}</p>}
         {m.status === 'failed' && <div role="alert">{m.error_message}
           <button type="button" className="ex-icon" title="重试追问" aria-label="重试追问" disabled={active || sending || disabled}
             onClick={() => void send(m.question, m.search_more, m.selected_keys)}><RotateCcw size={17} /></button>
         </div>}
-        {!!m.evidence_keys.length && <ul className="ex-chat-sources">{m.evidence_keys.map(k => {
+        {!!m.evidence_keys?.length && <ul className="ex-chat-sources">{m.evidence_keys.map(k => {
           const p = papers.find(paper => paper.key === k)
           return p ? <li key={k}><FileText size={14} /><PaperTitle paper={p} /></li> : null
         })}</ul>}
-        {!!m.context.queries?.length && <details><summary>本轮检索资料（{m.papers?.length ?? 0} 篇）</summary>
+        {!!m.context?.queries?.length && <details><summary>本轮检索资料（{m.papers?.length ?? 0} 篇）</summary>
           {m.context.queries.map(q => <p key={q}><code>{q}</code></p>)}
           <ul>{(m.papers ?? []).map(p => <li key={p.key}><PaperTitle paper={p} /></li>)}</ul>
         </details>}
-        {m.context.warnings?.map(w => <p key={w} className="ex-transparency__warn">{w}</p>)}
+        {m.context?.warnings?.map(w => <p key={w} className="ex-transparency__warn">{w}</p>)}
       </article>)}
     </div>
     {error && <div role="alert" className="ex-empty--error">{error}<button type="button" className="ex-icon" title="重新加载对话" aria-label="重新加载对话" onClick={() => setRefresh(n => n + 1)}><RotateCcw size={17} /></button></div>}

@@ -35,8 +35,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h4 className="text-label mb-2" style={{ color: 'var(--text-muted)' }}>{children}</h4>
 }
 
-function Bullets({ items, ink }: { items: string[]; ink?: string }) {
-  if (!items.length) return null
+function Bullets({ items, ink }: { items?: string[]; ink?: string }) {
+  if (!items || !items.length) return null
   return (
     <ul className="space-y-1.5">
       {items.map((s, i) => (
@@ -67,20 +67,20 @@ function ParadigmCard({ p, labelById, onSelectNode }: {
         )}
       </div>
       <div className="grid grid-cols-2 gap-3">
-        {p.pros.length > 0 && (
+        {(p.pros?.length ?? 0) > 0 && (
           <div>
             <span className="text-label" style={{ color: 'var(--success)' }}>优势</span>
             <Bullets items={p.pros} ink="var(--success)" />
           </div>
         )}
-        {p.cons.length > 0 && (
+        {(p.cons?.length ?? 0) > 0 && (
           <div>
             <span className="text-label" style={{ color: 'var(--warning)' }}>软肋</span>
             <Bullets items={p.cons} ink="var(--warning)" />
           </div>
         )}
       </div>
-      {p.representative_node_ids.length > 0 && (
+      {(p.representative_node_ids?.length ?? 0) > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1" style={{ borderTop: '1px dashed var(--border)' }}>
           <span className="text-[10px] leading-5" style={{ color: 'var(--text-muted)' }}>代表作</span>
           {p.representative_node_ids.map(nid => (
@@ -162,7 +162,7 @@ export function BriefingPanel({ open, onClose, graph, synthesis, onSelectNode }:
               </section>
             )}
 
-            {briefing.milestone_timeline.length > 0 && (
+            {(briefing.milestone_timeline?.length ?? 0) > 0 && (
               <section>
                 <SectionTitle>技术演进时间轴</SectionTitle>
                 <div className="space-y-1.5">
@@ -185,21 +185,21 @@ export function BriefingPanel({ open, onClose, graph, synthesis, onSelectNode }:
               </section>
             )}
 
-            {briefing.benchmark_standards.length > 0 && (
+            {(briefing.benchmark_standards?.length ?? 0) > 0 && (
               <section>
                 <SectionTitle>标准评测体系</SectionTitle>
                 <Bullets items={briefing.benchmark_standards} />
               </section>
             )}
 
-            {briefing.recent_hotspots.length > 0 && (
+            {(briefing.recent_hotspots?.length ?? 0) > 0 && (
               <section>
                 <SectionTitle>近期爆发热点</SectionTitle>
                 <Bullets items={briefing.recent_hotspots} ink="#d94a38" />
               </section>
             )}
 
-            {briefing.open_challenges.length > 0 && (
+            {(briefing.open_challenges?.length ?? 0) > 0 && (
               <section>
                 <SectionTitle>未解决的公开挑战</SectionTitle>
                 <Bullets items={briefing.open_challenges} ink="#7d4a6d" />

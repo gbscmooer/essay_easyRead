@@ -31,7 +31,7 @@ export function useGlobalShortcuts(navigate: (path: string) => void) {
     }
 
     // mod+N to upload
-    if (e.key === 'n' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+    if (e.key === 'n' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !isInput && !target.closest('.xterm, [role="dialog"]')) {
       e.preventDefault()
       navRef.current('/')
       // Focus the upload zone after navigation

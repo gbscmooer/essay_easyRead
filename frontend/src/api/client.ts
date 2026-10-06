@@ -230,15 +230,16 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: numb
         let code = String(xhr.status)
         try {
           const body = JSON.parse(xhr.responseText)
-          detail = body.detail || detail
-          code = body.code || code
+          const normalized = normalizeErrorBody(body, detail, code)
+          detail = normalized.detail
+          code = normalized.code
         } catch {}
         const err = new Error(detail) as Error & { code: string }
         err.code = code
         reject(err)
       }
     }
-    xhr.onerror = () => reject(new Error('网络错误'))
+    xhr.onerror = () => reject(Object.assign(new Error('网络错误'), { code: 'NETWORK_ERROR' }))
     const formData = new FormData()
     formData.append('file', file)
     xhr.send(formData)
@@ -246,4 +247,4 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (pct: numb
 }
 
 
-export { get, getBinary, post, put, upload, del, uploadWithProgress }
+export { get, getBinary, post, put, upload, del, uploadWithProgress, parseError, safeFetch }

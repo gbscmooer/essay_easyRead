@@ -51,7 +51,8 @@ interface MarkdownNode { type: string; value?: string; url?: string; children?: 
 export function paperReferencesPlugin(options: { papers: PaperReference[]; citations?: Record<string, string> }) {
   const refs = new Map<string, string>()
   const aliases = new Map<string, Set<string>>()
-  for (const paper of options.papers) {
+  const papers = options.papers ?? []
+  for (const paper of papers) {
     const prefix = paper.title.split(/[:：]/)[0].trim()
     const url = paperLink(paper)
     if (url && prefix !== paper.title && prefix.length >= 4 && prefix.length <= 60) {
@@ -61,7 +62,7 @@ export function paperReferencesPlugin(options: { papers: PaperReference[]; citat
     }
   }
   for (const [label, urls] of aliases) if (urls.size === 1) refs.set(label, [...urls][0])
-  for (const paper of options.papers) {
+  for (const paper of papers) {
     const url = paperLink(paper)
     if (url && paper.title.length >= 4) refs.set(paper.title, url)
     if (url) for (const [id, key] of Object.entries(options.citations ?? {})) {
@@ -104,12 +105,12 @@ export function paperReferencesPlugin(options: { papers: PaperReference[]; citat
 }
 
 export function EvidenceMarkdown({ text, papers, citations }: {
-  text: string; papers: PaperReference[]; citations?: Record<string, string>
+  text?: string | null; papers?: PaperReference[]; citations?: Record<string, string>
 }) {
   return <ReactMarkdown
-    remarkPlugins={[remarkGfm, [paperReferencesPlugin, { papers, citations }]]}
+    remarkPlugins={[remarkGfm, [paperReferencesPlugin, { papers: papers ?? [], citations }]]}
     components={{ a: ({ children, href }) => safePaperUrl(href) || /^\/reader\/\d+$/.test(href ?? '')
       ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
       : <span>{children}</span> }}
-  >{text}</ReactMarkdown>
+  >{text ?? ''}</ReactMarkdown>
 }

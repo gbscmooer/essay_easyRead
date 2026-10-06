@@ -30,6 +30,8 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null)
   const [importResults, setImportResults] = useState<ImportPaperResult[] | null>(null)
 
+  const [importResultsByIndex, setImportResultsByIndex] = useState<Record<number, ImportPaperResult>>({})
+
   // Workspace selector state
   const [showWsSelector, setShowWsSelector] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
@@ -67,6 +69,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
     setImportMode(true)
     setSelectedIndices(new Set())
     setImportResults(null)
+    setImportResultsByIndex({})
     setImportProgress(null)
     // Load workspaces
     setWsLoading(true)
@@ -86,6 +89,7 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
     setImportMode(false)
     setSelectedIndices(new Set())
     setImportResults(null)
+    setImportResultsByIndex({})
     setImportProgress(null)
     setShowWsSelector(false)
   }, [])
@@ -119,7 +123,9 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
   const handleImportToWorkspace = useCallback(async (workspaceId: number) => {
     setShowWsSelector(false)
     setIsImporting(true)
-    const papersToImport = Array.from(selectedIndices).map(idx => relatedPapers[idx])
+    const requestIndices = Array.from(selectedIndices)
+    const papersToImport = requestIndices.map(idx => relatedPapers[idx])
+    setImportResultsByIndex({})
     setImportProgress({ done: 0, total: papersToImport.length })
 
     try {
@@ -132,15 +138,12 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
         })),
       )
       setImportResults(resp.results)
+      setImportResultsByIndex(Object.fromEntries(requestIndices.map((idx, order) => [idx, resp.results[order]])))
       setImportProgress({ done: papersToImport.length, total: papersToImport.length })
     } catch {
-      setImportResults(
-        papersToImport.map(p => ({
-          title: p.title,
-          status: 'failed' as const,
-          message: '导入请求失败',
-        })),
-      )
+      const failed = papersToImport.map(p => ({ title: p.title, status: 'failed' as const, message: '导入请求失败' }))
+      setImportResults(failed)
+      setImportResultsByIndex(Object.fromEntries(requestIndices.map((idx, order) => [idx, failed[order]])))
     } finally {
       setIsImporting(false)
     }
@@ -429,18 +432,20 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
                           </a>
                         )}
                         {/* Import result — subtle text tint, no filled badge */}
-                        {importResults && importResults[idx] && (
+                        {importResults && importResultsByIndex[idx] && (
                           <span
                             className="font-medium"
                             style={{
-                              color: importResults[idx].status === 'local'
+                              color: importResultsByIndex[idx].status === 'local'
                                 ? 'var(--success)'
-                                : importResults[idx].status === 'downloaded'
+                                : importResultsByIndex[idx].status === 'downloaded'
                                   ? 'var(--accent)'
-                                  : 'var(--error)',
+                                  : importResultsByIndex[idx].status === 'registered'
+                                    ? 'var(--text-muted)'
+                                    : 'var(--error)',
                             }}
                           >
-                            {importResults[idx].message}
+                            {importResultsByIndex[idx].message}
                           </span>
                         )}
                       </div>
@@ -530,6 +535,9 @@ export function OverviewTab({ result, paperId, analysisStatus, relatedStatus }: 
               </span>
               <span style={{ color: 'var(--accent)' }}>
                 新下载 {importResults.filter(r => r.status === 'downloaded').length}
+              </span>
+              <span style={{ color: 'var(--text-muted)' }}>
+                已登记 {importResults.filter(r => r.status === 'registered').length}
               </span>
               <span style={{ color: 'var(--error)' }}>
                 失败 {importResults.filter(r => r.status === 'failed').length}

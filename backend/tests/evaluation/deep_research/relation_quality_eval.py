@@ -1,22 +1,11 @@
-"""
-论文关联度 / 研究地图质量评测（真实数据，零 mock）
+"""历史关联度诊断脚本，入口与限制见 docs/DEEP_RESEARCH_EVAL.md §3。
 
-与 `real_graph_eval.py`（评图检索）互补：本脚本评的是**图本身的质量** —— 关联度打分
-准不准、权重该怎么定、骨架该留多密。全部指标建立在一个不需要人工标注的弱真值上：
+引用对作为结构性弱标签，不是论文语义相关性的人工真值；结构通道与标签
+可能重叠。旧权重校准和密度扫描不决定生产参数；当前默认等权 RRF、mutual-kNN。
+首跑生成通道可能调用 embedding API，缓存存在后可离线复跑。
 
-    工作区内的真实引用对 = "这两篇确实相关"
-
-四张表：
-  A 通道判别力      每个通道单独把引用对排到随机对前面的能力（AUC）
-  B 权重口径对比    先验权重 vs 自监督校准（引用对 50/50 切分，只在 FIT 半边拟合）
-  C 稀疏化方法对比  同一边预算下 全局阈值 / 互近邻 / 多尺度骨架 的精度与可导航性
-  D 密度工作点      target_degree 扫描，给"地图该多密"一个有数的答案
-
-用法（仓库根目录，需要 embedding API 可用于 purpose/method 通道；首跑会缓存通道矩阵，
-之后加 --cache 即可完全离线复跑）：
-
-    python -m backend.tests.evaluation.deep_research.relation_quality_eval --ws 1 \\
-        [--cache data/relation_eval_ws1.pkl] [--out report.json]
+用法：python -m backend.tests.evaluation.deep_research.relation_quality_eval
+      --ws 1 [--cache data/eval/relation-channels.pkl] [--out report.json]。
 """
 
 from __future__ import annotations

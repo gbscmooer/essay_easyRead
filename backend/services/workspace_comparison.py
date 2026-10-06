@@ -219,7 +219,7 @@ def _reading_order(profile_a, profile_b) -> WorkspaceComparisonOrder:
         first, second = profile_a, profile_b
         if profile_a.detail_level != profile_b.detail_level:
             reason = "先看信息更完整的论文，再看补充论文。"
-            if profile_a.detail_level != "full" and profile_b.detail_level == "full":
+            if {"metadata": 0, "digest": 1, "full": 2}.get(profile_a.detail_level, 0) < {"metadata": 0, "digest": 1, "full": 2}.get(profile_b.detail_level, 0):
                 first, second = profile_b, profile_a
         else:
             reason = "两篇年份接近，按当前排列顺序阅读即可。"

@@ -1,13 +1,13 @@
-"""academic_survey_v2 持久化事件、运行状态 CAS 与预算聚合（S0 契约层）
+"""academic_survey_v2 持久化事件、运行状态 CAS 与预算聚合
 
-分工边界（计划 §9.2）：
-- 本模块由 S0 冻结：事件追加/回放、run 状态 compare-and-swap、live-bus 注册缝、
+分工边界：
+- 本模块提供事件追加/回放、run 状态 compare-and-swap、live-bus 注册缝、
   预算账本聚合、重试幂等查询。
-- S3 worker 通过 register_live_bus 接入实时事件；任务/租约/预算的写入方是 S3。
+- question_loop_v1 通过事务仓库写任务/租约/预算；SSE 直接轮询持久化事件游标。
 - SSE 只是订阅持久化事件（research_events），不是任务运行的唯一状态来源。
 
 事务约定：append_event 只挂到 session，由调用方提交；cas_run_state 自带提交，
-状态变更与事件在同一个事务里落库（计划 §5.2）。
+状态变更与事件在同一个事务里落库。
 """
 
 from __future__ import annotations

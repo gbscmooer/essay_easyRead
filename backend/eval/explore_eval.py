@@ -1,22 +1,16 @@
-"""领域探索（/explore）评测 harness —— 把 GOAL.md 的「客观、系统、可核验」主张变成有数据的表。
+"""领域探索评测 harness；入口与口径见 docs/DEEP_RESEARCH_EVAL.md。
 
-两臂对照（同题同模型，唯一差异是「有没有真实检索」）：
-- **系统臂**：走完整 explorer 流水线（拆解→Scopus 检索→富化→计量→LLM 综合），
-  在独立临时 SQLite 上运行，不污染业务库；
-- **基线臂**：同一 LLM 仅凭参数记忆直接回答（模拟「网页上问 GPT」）。
+系统臂在临时 SQLite 上执行当前 explorer，基线臂使用相同模型仅凭参数记忆回答。
+两臂同时有检索、上下文组织、调用数量等差异，不能把分数差只归因于检索，
+也不能代替同工具 agent 对照。
 
-核心指标（口径对齐 docs/RESEARCH_AGENT_EVAL_PROTOCOL.md 的证据引用率/无依据句思想）：
-- 判定准确率与宏平均分类指标：verdict 是名义标签，只接受完全匹配；
-- DOI 解析率：结论引用的 DOI 能否在 OpenAlex 解析，不代表证据支持结论；
-- 时效性：语料/引用的中位年份（模型记忆冻结 vs 实时检索）。
+指标：verdict 名义标签 exact-match 与分类报告；DOI 可解析率；材料/引用年份。
+DOI 可解析不代表结论支持，年份不能单独证明答案质量。questions.expected
+是人工草案，正式出数前需校核。除 --list 外，运行可能调用真实来源与模型。
 
-使用：
-    python -m backend.eval.explore_eval --list
-    python -m backend.eval.explore_eval --only Q1,Q10          # 子集
-    python -m backend.eval.explore_eval --skip-baseline        # 只跑系统臂
-结果写 data/eval/（gitignore，不进仓库）；questions JSON 里的 expected 是人工草案，
-正式出数前须用户/导师确认。
-显式相关性/支持标注的离线评测见 python -m backend.eval.survey_metrics --help。
+使用：python -m backend.eval.explore_eval --list / --only Q1,Q10 / --skip-baseline。
+结果落 data/eval/。显式支持标注见 backend.eval.survey_metrics；新对照协议见
+ docs/workflow_refactor/VALIDATION.md。
 """
 
 from __future__ import annotations
@@ -156,7 +150,7 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
     return rec
 
 
-# ── 基线臂：同一 LLM 仅凭记忆回答（模拟网页问 GPT）─────────────────────────
+# ── 基线臂：同一 LLM 仅凭记忆回答；不代表 GPT 网页联网回答 ─────────────────
 
 _BASELINE_SYSTEM = (
     "你是学术研究顾问。仅凭你已有的参数知识回答（你无法联网检索，也不要假装检索过）。"

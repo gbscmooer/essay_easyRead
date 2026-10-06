@@ -36,6 +36,7 @@ class OpenAlexProvider:
         self._client: httpx.AsyncClient | None = None
         self._last_req = 0.0
         self._lock = asyncio.Lock()
+        self.last_request_status = "unknown"
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -57,16 +58,20 @@ class OpenAlexProvider:
             try:
                 r = await self._http().get(f"{OA_BASE}{path}", params=params)
                 if r.status_code == 429:
+                    self.last_request_status = "rate_limited"
                     from ...rate_limiter import parse_retry_after
                     wait = parse_retry_after(r.headers, default_wait=2.0 * (attempt + 1))
                     logger.warning(f"OpenAlex 429, retry {attempt+1}/4 in {wait:.1f}s")
                     await asyncio.sleep(wait)
                     continue
                 r.raise_for_status()
+                self.last_request_status = "ok"
                 return r.json()
             except httpx.HTTPError as e:
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+                    self.last_request_status = "ok"
                     return {}
+                self.last_request_status = "timeout" if isinstance(e, httpx.TimeoutException) else "error"
                 if attempt == 3:
                     raise
                 logger.warning(f"OpenAlex error (attempt {attempt+1}): {e}")

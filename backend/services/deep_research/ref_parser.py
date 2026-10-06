@@ -64,6 +64,13 @@ def _count_intext_citations(body: str) -> dict[int, int]:
     return freq
 
 
+def _clean_doi(value: str) -> str:
+    value = value.rstrip(".,;")
+    while value.endswith(")") and value.count(")") > value.count("("):
+        value = value[:-1].rstrip(".,;")
+    return value
+
+
 def extract_references(text: str) -> list[dict]:
     """从论文全文解析 [N] 引用块列表。
 
@@ -94,7 +101,7 @@ def extract_references(text: str) -> list[dict]:
             "index": idx,
             "raw_text": raw[:500],
             "arxiv_id": ax_m.group(1).split("v")[0] if ax_m else None,
-            "doi": doi_m.group(1) if doi_m else None,
+            "doi": _clean_doi(doi_m.group(1)) if doi_m else None,
             "freq": freq_map.get(idx, 0),
         })
     return results

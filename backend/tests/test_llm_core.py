@@ -207,3 +207,36 @@ async def test_complete_json_exposes_finish_reason_even_when_json_is_truncated(m
            metadata_out=metadata)
     assert metadata["finish_reason"] == "length"
     assert metadata["usage"]["completion_tokens"] == 100
+    diagnostic = metadata["structured_error"]
+    assert diagnostic["type"] == "JSONDecodeError"
+    assert diagnostic["line"] == 1 and diagnostic["column"] > 0
+    assert diagnostic["response_chars"] == len('{"unfinished": "value')
+    assert len(diagnostic["response_sha256"]) == 64
+    assert '"unfinished"' not in str(diagnostic) and "test" not in str(diagnostic)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,key,success", [
+    ('[{"clause_id":"C1"}]', "clauses", True),
+    ('[{"clause_id":"C1"}]', None, False),
+    ('explanation [{"clause_id":"C1"}]', "clauses", False),
+    ('"wrong root"', "clauses", False),
+])
+async def test_root_array_recovery_is_explicit_and_preserves_items(monkeypatch, text, key, success):
+    class Adapter:
+        async def complete_once(self, *_args, **_kwargs):
+            return LLMResponse(text=text, model="m", api_format="openai_chat", finish_reason="stop")
+    monkeypatch.setattr(llm_client, "get_adapter", lambda _format: Adapter())
+    metadata = {}
+    config = {"provider": "custom", "api_format": "openai_chat", "api_key": "test",
+              "base_url": "https://example.test/v1", "model": "m"}
+    if success:
+        result = await llm_client.complete_json(config, system="s", user="u", max_retries=0,
+                                               root_array_key=key, metadata_out=metadata)
+        assert result == {"clauses": [{"clause_id": "C1"}]}
+        assert metadata["structured_recovery"]["field"] == "clauses"
+    else:
+        with pytest.raises(ValueError):
+            await llm_client.complete_json(config, system="s", user="u", max_retries=0,
+                                          root_array_key=key, metadata_out=metadata)
+        assert "structured_recovery" not in metadata

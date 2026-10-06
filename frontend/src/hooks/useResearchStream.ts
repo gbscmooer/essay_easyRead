@@ -114,8 +114,12 @@ export function useResearchStream(runId: number | null) {
     es.addEventListener('done', () => { if (!shouldIgnore()) setStatus('done'); es.close() })
     es.addEventListener('error', (e: MessageEvent) => {
       if (shouldIgnore()) return
-      try { setError(JSON.parse(e.data).message || '失败') } catch { setError('连接错误') }
-      setStatus('failed'); es.close()
+      if (!('data' in e)) {
+        setMsg('连接中断，正在重新连接…')
+        return
+      }
+      try { setError(JSON.parse(e.data).message || '失败') } catch { setError('服务端错误事件格式无效') }
+      setStatus('failed'); closed = true; es.close()
     })
 
     return () => { closed = true; es.close(); esRef.current = null }

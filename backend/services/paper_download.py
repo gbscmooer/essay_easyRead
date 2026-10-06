@@ -344,7 +344,7 @@ async def resolve_candidate_pdf_urls(work: PaperWork) -> list[str]:
             if cr_result and cr_result.get("pdf_url") and _matches_title_candidate(
                 work,
                 title=cr_result.get("title"),
-                authors=work.authors,
+                authors=cr_result.get("authors"),
                 year=cr_result.get("year"),
             ):
                 _add_url(cr_result["pdf_url"])
@@ -408,48 +408,67 @@ async def download_for_paper(session: Session, paper_id: int) -> str | None:
     session.add(paper)
     session.commit()
 
-    work = paper_to_work(paper)
-    url = await resolve_pdf_url(work)
-    if not url:
-        paper.download_status = "unavailable"
+    try:
+        work = paper_to_work(paper)
+        url = await resolve_pdf_url(work)
+        if not url:
+            paper.download_status = "unavailable"
+            paper.updated_at = datetime.now(timezone.utc)
+            session.add(paper)
+            session.commit()
+            return None
+
+        from .deep_research.pdf_downloader import download_pdf
+
+        async def _safe_download(candidate_url):
+            try:
+                return await download_pdf(candidate_url)
+            except Exception:
+                logger.info("PDF candidate could not be downloaded for paper %s", paper_id)
+                return None
+
+        local_path = await _safe_download(url)
+        if local_path and Path(local_path).is_file():
+            paper.pdf_path = local_path
+            paper.file_size = os.path.getsize(local_path)
+            paper.download_status = "available"
+            paper.updated_at = datetime.now(timezone.utc)
+            session.add(paper)
+            session.commit()
+            return local_path
+
+        # 若初选 URL 下载失败且存在 DOI 备选，尝试其他级联源
+        if work.doi:
+            candidate_urls = await resolve_candidate_pdf_urls(work)
+            for cand_url in candidate_urls:
+                if cand_url == url:
+                    continue
+                local_path = await _safe_download(cand_url)
+                if local_path and Path(local_path).is_file():
+                    paper.pdf_path = local_path
+                    paper.file_size = os.path.getsize(local_path)
+                    paper.download_status = "available"
+                    paper.updated_at = datetime.now(timezone.utc)
+                    session.add(paper)
+                    session.commit()
+                    return local_path
+
+        paper.download_status = "failed"
         paper.updated_at = datetime.now(timezone.utc)
         session.add(paper)
         session.commit()
         return None
 
-    from .deep_research.pdf_downloader import download_pdf
-
-    local_path = await download_pdf(url)
-    if local_path and Path(local_path).is_file():
-        paper.pdf_path = local_path
-        paper.file_size = os.path.getsize(local_path)
-        paper.download_status = "available"
-        paper.updated_at = datetime.now(timezone.utc)
-        session.add(paper)
-        session.commit()
-        return local_path
-
-    # 若初选 URL 下载失败且存在 DOI 备选，尝试其他级联源
-    if work.doi:
-        candidate_urls = await resolve_candidate_pdf_urls(work)
-        for cand_url in candidate_urls:
-            if cand_url == url:
-                continue
-            local_path = await download_pdf(cand_url)
-            if local_path and Path(local_path).is_file():
-                paper.pdf_path = local_path
-                paper.file_size = os.path.getsize(local_path)
-                paper.download_status = "available"
-                paper.updated_at = datetime.now(timezone.utc)
-                session.add(paper)
-                session.commit()
-                return local_path
-
-    paper.download_status = "failed"
-    paper.updated_at = datetime.now(timezone.utc)
-    session.add(paper)
-    session.commit()
-    return None
+    except Exception:
+        logger.exception("PDF resolution failed for paper %s", paper_id)
+        session.rollback()
+        paper = session.get(Paper, paper_id)
+        if paper is not None:
+            paper.download_status = "failed"
+            paper.updated_at = datetime.now(timezone.utc)
+            session.add(paper)
+            session.commit()
+        return None
 
 
 async def download_papers_batch(

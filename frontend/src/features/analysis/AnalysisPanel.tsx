@@ -75,6 +75,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (target.closest('[role="dialog"], [role="tablist"], .rdr-panel, .xterm')) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const num = parseInt(e.key)
       if (num >= 1 && num <= tabs.length) {

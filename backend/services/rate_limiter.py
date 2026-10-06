@@ -216,6 +216,9 @@ def account_source_request() -> None:
     """
     from .llm import llm_budget
     budget = llm_budget()
+    if budget is not None and hasattr(budget, "consume_source_request"):
+        budget.consume_source_request()
+        return
     if budget is None or not hasattr(budget, "reserve"):
         return
     if not budget.reserve("source_requests", 1.0):
@@ -235,6 +238,7 @@ async def resilient_get(
     client: httpx.AsyncClient | None = None,
     redirect_limit: int = 5,
     validate_public_network: bool = False,
+    deadline: float | None = None,
 ) -> httpx.Response:
     """具备域名限速与 429/503 弹性重试的 HTTP GET 请求。"""
     cli = client or get_shared_client(timeout=timeout)
@@ -254,75 +258,93 @@ async def resilient_get(
     last_exc: Optional[Exception] = None
     target = None
 
-    for attempt in range(max_retries):
-        async with sem:
-            account_source_request()
-            await global_rate_limiter.throttle(url)
-            try:
-                resp = await cli.get(url, params=params, headers=merged_headers, timeout=timeout,
-                                     **({"follow_redirects": False} if guarded else {}))
-                if guarded and resp.is_redirect and resp.headers.get("location"):
-                    target = urllib.parse.urljoin(str(resp.url), resp.headers["location"])
-                    check_download_url(target)
-                    if redirect_limit <= 0:
-                        raise ValueError("Too many research download redirects")
-                    source_origin = urllib.parse.urlsplit(url)
-                    target_origin = urllib.parse.urlsplit(target)
-                    if (source_origin.scheme, source_origin.hostname, source_origin.port) != (
-                        target_origin.scheme, target_origin.hostname, target_origin.port,
-                    ):
-                        merged_headers = {k: v for k, v in merged_headers.items()
-                                          if k.lower() not in {"authorization", "x-els-apikey", "cookie", "proxy-authorization"}}
-                    # Release this host's semaphore before following a same-host redirect.
-                    break
-                if resp.status_code == 429:
-                    wait_sec = parse_retry_after(
-                        resp.headers,
-                        default_wait=base_backoff * (2 ** attempt) + random.uniform(0.1, 0.5),
-                    )
-                    logger.warning(
-                        f"HTTP 429 from {domain or url} (attempt {attempt + 1}/{max_retries}), waiting {wait_sec:.1f}s"
-                    )
-                    global_rate_limiter.cool_down(url, wait_sec)
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(wait_sec)
-                        continue
-                elif resp.status_code in (502, 503, 504):
-                    wait_sec = base_backoff * (2 ** attempt) + random.uniform(0.1, 0.3)
-                    logger.warning(
-                        f"HTTP {resp.status_code} from {domain or url} (attempt {attempt + 1}/{max_retries}), waiting {wait_sec:.1f}s"
-                    )
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(wait_sec)
-                        continue
+    from .http_diagnostics import record_http_attempt
 
-                resp.raise_for_status()
-                return resp
-            except (httpx.TimeoutException, httpx.NetworkError) as e:
-                last_exc = e
-                wait_sec = base_backoff * (2 ** attempt) + random.uniform(0.1, 0.3)
-                logger.warning(
-                    f"Network error requesting {url} (attempt {attempt + 1}/{max_retries}): {e}, waiting {wait_sec:.1f}s"
-                )
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(wait_sec)
-                    continue
-                raise
-            except httpx.HTTPStatusError as e:
-                last_exc = e
-                if e.response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                    wait_sec = parse_retry_after(
-                        e.response.headers,
-                        default_wait=base_backoff * (2 ** attempt) + random.uniform(0.1, 0.5),
-                    )
-                    await asyncio.sleep(wait_sec)
-                    continue
-                raise
+    def wait_fits(seconds):
+        return deadline is None or time.monotonic() + seconds < deadline
+
+    for attempt in range(max_retries):
+        if not wait_fits(0):
+            if last_exc is not None:
+                raise last_exc
+            raise TimeoutError("Source request deadline reached")
+        started = time.monotonic()
+        phase = "waiting"
+        response_status = None
+        retry_wait = None
+        retry_after = None
+        failure = None
+        # With an explicit operation deadline, semaphore/throttle waiting is bounded
+        # too. No fresh request is sent earlier than a server's Retry-After.
+        deadline_scope = asyncio.timeout(max(0, deadline - time.monotonic()) if deadline is not None else None)
+        try:
+            async with deadline_scope:
+                async with sem:
+                    await global_rate_limiter.throttle(url)
+                    account_source_request()
+                    phase = "request"
+                    try:
+                        request_timeout = timeout if deadline is None else min(timeout, max(0.001, deadline - time.monotonic()))
+                        request = cli.get(url, params=params, headers=merged_headers, timeout=request_timeout,
+                                          **({"follow_redirects": False} if guarded else {}))
+                        if deadline is None:
+                            resp = await request
+                        else:
+                            # httpx's timeout is per network phase, not the entire
+                            # attempt. Bound the whole attempt so a retry can fit.
+                            try:
+                                resp = await asyncio.wait_for(request, timeout=request_timeout)
+                            except TimeoutError as exc:
+                                raise httpx.ReadTimeout("Source HTTP attempt deadline reached") from exc
+                        response_status = resp.status_code
+                        if guarded and resp.is_redirect and resp.headers.get("location"):
+                            target = urllib.parse.urljoin(str(resp.url), resp.headers["location"])
+                            check_download_url(target)
+                            if redirect_limit <= 0:
+                                raise ValueError("Too many research download redirects")
+                            source_origin = urllib.parse.urlsplit(url)
+                            target_origin = urllib.parse.urlsplit(target)
+                            if (source_origin.scheme, source_origin.hostname, source_origin.port) != (
+                                target_origin.scheme, target_origin.hostname, target_origin.port,
+                            ):
+                                merged_headers = {k: v for k, v in merged_headers.items()
+                                                  if k.lower() not in {"authorization", "x-els-apikey", "cookie", "proxy-authorization"}}
+                            break
+                        resp.raise_for_status()
+                        return resp
+                    except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+                        last_exc = exc
+                        failure = type(exc).__name__
+                        if isinstance(exc, httpx.HTTPStatusError):
+                            if exc.response.status_code not in (429, 502, 503, 504):
+                                raise
+                            retry_wait = parse_retry_after(exc.response.headers,
+                                default_wait=base_backoff * (2 ** attempt) + random.uniform(0.1, 0.5))
+                            if exc.response.headers.get("retry-after"):
+                                retry_after = parse_retry_after(exc.response.headers)
+                            if exc.response.status_code == 429:
+                                global_rate_limiter.cool_down(url, retry_wait)
+                        else:
+                            retry_wait = base_backoff * (2 ** attempt) + random.uniform(0.1, 0.3)
+                        logger.warning("Source request %s from %s (attempt %s/%s)",
+                                       response_status or failure, domain, attempt + 1, max_retries)
+                        if attempt >= max_retries - 1 or not wait_fits(retry_wait):
+                            raise
+                        phase = "backoff"
+                        await asyncio.sleep(retry_wait)
+        except BaseException as exc:
+            failure = type(exc).__name__
+            raise
+        finally:
+            record_http_attempt({"attempt": attempt + 1, "phase": phase,
+                "http_status": response_status, "error_code": failure,
+                "retry_after_seconds": retry_after, "backoff_seconds": retry_wait,
+                "elapsed_ms": round((time.monotonic() - started) * 1000)})
 
     if target:
         return await resilient_get(target, headers=merged_headers, timeout=timeout, max_retries=max_retries,
                                    base_backoff=base_backoff, client=cli, redirect_limit=redirect_limit - 1,
-                                   validate_public_network=validate_public_network)
+                                   validate_public_network=validate_public_network, deadline=deadline)
     if last_exc:
         raise last_exc
     raise RuntimeError(f"resilient_get exhausted {max_retries} retries for {url}")

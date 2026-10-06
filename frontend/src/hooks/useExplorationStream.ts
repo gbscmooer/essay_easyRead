@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { ExplorationResult, ExplorationSynthesis } from '@/types'
+import type { ExplorationResult, QuestionLoopResult, ExplorationSynthesis } from '@/types'
 
 /**
  * 领域探索 SSE 进度流（/api/exploration/runs/{id}/stream）。
@@ -42,10 +42,11 @@ export function useExplorationStream(runId: number | null, revision = 0) {
   const [stage, setStage] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState<number>(0)
-  const [result, setResult] = useState<ExplorationResult | null>(null)
+  const [result, setResult] = useState<ExplorationResult | QuestionLoopResult | null>(null)
   const [synthesis, setSynthesis] = useState<ExplorationSynthesis | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stageTimings, setStageTimings] = useState<Record<string, StageTimingEntry>>({})
+  const [activeSeconds, setActiveSeconds] = useState<number | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const isUnmounted = useRef(false)
 
@@ -62,6 +63,7 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     setSynthesis(null)
     setError(null)
     setStageTimings({})
+    setActiveSeconds(null)
 
     if (runId === null) {
       setStreamRunId(null)
@@ -78,6 +80,30 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     setStatus('running')
     setProgress(8)
     setMessage('正在连接分析事件总线…')
+
+    es.addEventListener('run_status', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const data = JSON.parse(e.data) as { active_seconds?: unknown }
+        if (typeof data.active_seconds === 'number' && Number.isFinite(data.active_seconds) && data.active_seconds >= 0) {
+          setActiveSeconds(data.active_seconds)
+        }
+      } catch { /* invalid event is ignored */ }
+    })
+
+    es.addEventListener('task_state_changed', (e: MessageEvent) => {
+      if (shouldIgnore()) return
+      try {
+        const data = JSON.parse(e.data) as { state?: string; reason?: string; question_id?: string }
+        setStage('research')
+        setMessage(data.state === 'running' ? (data.reason || '正在补充问题所需依据…') : '已更新研究材料，正在评估缺口…')
+        setProgress(previous => Math.min(95, previous + 1))
+      } catch { /* invalid event is ignored */ }
+    })
+    es.addEventListener('cancelled', () => {
+      if (!shouldIgnore()) { setStatus('done'); setMessage('研究已取消，已获材料保留') }
+      es.close()
+    })
 
     // 服务端 epoch 秒 → 本地 ms；旧后端事件无 ts 时退回本地时钟
     const eventTs = (data: { ts?: unknown }) => (
@@ -200,7 +226,7 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     es.addEventListener('metrics_ready', (e: MessageEvent) => {
       if (shouldIgnore()) return
       try {
-        setResult(JSON.parse(e.data) as ExplorationResult)
+        setResult(JSON.parse(e.data) as ExplorationResult | QuestionLoopResult)
         setProgress(prev => Math.max(prev, 84))
       } catch { /* noop */ }
     })
@@ -278,5 +304,6 @@ export function useExplorationStream(runId: number | null, revision = 0) {
     synthesis: isCurrentRun ? synthesis : null,
     error: isCurrentRun ? error : null,
     stageTimings: isCurrentRun ? stageTimings : {},
+    ...(isCurrentRun && activeSeconds !== null ? { activeSeconds } : {}),
   }
 }

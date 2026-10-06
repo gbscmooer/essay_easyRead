@@ -142,27 +142,32 @@ def _try_parse_partial_json(text: str) -> dict | None:
         已解析的字段 dict，或 None（如果无法解析任何字段）
     """
     result = {}
-    for field in _TOP_LEVEL_FIELDS:
-        # 匹配 "field_name": 后面的内容
-        pattern = f'"{field}"\\s*:\\s*'
-        match = re.search(pattern, text)
-        if not match:
-            continue
-
-        start = match.end()
-        remaining = text[start:]
-
-        # 提取该字段的值（处理嵌套 {} 和 []）
-        value_str = _extract_json_value(remaining)
-        if value_str is None:
-            continue
-
+    start = text.find("{")
+    if start < 0:
+        return None
+    decoder = json.JSONDecoder()
+    pos = start + 1
+    while pos < len(text):
+        while pos < len(text) and text[pos] in " \t\r\n,":
+            pos += 1
         try:
-            result[field] = json.loads(value_str)
-        except json.JSONDecodeError:
-            continue
+            key, pos = decoder.raw_decode(text, pos)
+            if not isinstance(key, str):
+                break
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+            if pos >= len(text) or text[pos] != ":":
+                break
+            pos += 1
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+            value, pos = decoder.raw_decode(text, pos)
+        except (ValueError, TypeError):
+            break
+        if key in _TOP_LEVEL_FIELDS:
+            result[key] = value
+    return result or None
 
-    return result if result else None
 
 
 def _extract_json_value(text: str) -> str | None:
@@ -490,8 +495,6 @@ def extract_code_url(pdf_text: str) -> str:
     Returns:
         代码仓库 URL，未找到则返回空字符串
     """
-    import re
-
     # 匹配代码仓库 URL（支持有/无 https:// 前缀）
     # 有前缀: https://github.com/user/repo
     # 无前缀: github.com/user/repo（常见于论文脚注）

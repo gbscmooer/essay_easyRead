@@ -6,8 +6,8 @@ Pydantic 模型，用于 FastAPI 的请求验证和响应序列化。
 """
 
 from datetime import datetime
-from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from typing import Annotated, Optional, Literal
+from pydantic import BaseModel, ConfigDict, Field
 from .analysis import MethodModel, ExperimentModel, CodeMapping, InterviewQA, OutlineItem, RelatedPaper, FigureAnalysis
 
 
@@ -469,8 +469,9 @@ class ResearchGraphResponse(BaseModel):
 class ExplorationRunCreate(BaseModel):
     """创建领域探索任务的请求体（问句驱动，见 GOAL.md）
 
-    academic_survey_v2 字段（S0 冻结）：全部可选，默认走 legacy_v1 行为；
-    只有显式 workflow_version=academic_survey_v2 使用新链路。
+    academic_survey_v2 契约字段：全部可选，省略/null 版本创建 question_loop_v20；
+    显式 legacy_v1 保留旧流程；字段和未实现边界见
+    document.md 与 docs/workflow_refactor/STATUS.md。
     """
     question: str = Field(..., min_length=2, max_length=4000)
     depth: str = Field("standard", pattern=r"^(lite|quick|standard|deep)$")
@@ -483,22 +484,37 @@ class ExplorationRunCreate(BaseModel):
     exclude_arxiv_ids: Optional[list[str]] = Field(None, max_length=50)
     exclude_titles: Optional[list[str]] = Field(None, max_length=50)
     # ── academic_survey_v2 输入（随 options["workflow"] 快照落盘）──
-    workflow_version: Optional[str] = Field(None, pattern=r"^(legacy_v1|academic_survey_v2)$")
-    protocol_options: Optional[dict] = None   # 子问题/纳排/来源策略覆盖（S5 冻结语义）
+    workflow_version: Optional[str] = Field(None, pattern=r"^(legacy_v1|academic_survey_v2)$",
+        description="省略或 null 使用 academic_survey_v2；legacy_v1 显式选择旧流程")
+    protocol_options: Optional[dict] = None   # answer_criteria/expected_evidence/questions；路由验证
     budget: Optional[dict] = None             # resource -> limit 覆盖；不得由 agent 自行放宽
     content_cutoff: Optional[datetime] = None  # 内容时间门禁（含当日；历史轨道）
-    policy_id: Optional[str] = None           # 排除策略引用（S1）
+    policy_id: Optional[str] = None           # 尚无策略解析器；实验创建明确拒绝，使用显式排除项
+
+
+class ResearchRevisionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=2, max_length=4000, pattern=r"\S")
+    expected_state_version: int = Field(ge=0)
+    depth: Optional[str] = Field(None, pattern=r"^(lite|quick|standard|deep)$")
+    additional_questions: list[Annotated[str, Field(min_length=2, max_length=4000, pattern=r"\S")]] = Field(default_factory=list, max_length=7)
+    reuse_materials: bool = True
+    exclude_asset_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=240)
+    workspace_id: Optional[int] = Field(None, ge=1)
+    seed_paper_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list, max_length=240)
+    search_online: Optional[bool] = None
 
 
 class SourceHealth(BaseModel):
     """单个数据源的预检结果（带权限的真实最小请求探测，不是 ping 可达）"""
     name: str
-    role: str = Field("primary", pattern=r"^(primary|fallback)$")
+    role: str = Field("primary", pattern=r"^(primary|fallback|supplement)$")
     # ok | auth_error | rate_limited | network_error | error | unconfigured
     status: str = Field(..., pattern=r"^(ok|auth_error|rate_limited|network_error|error|unconfigured)$")
     detail: str = ""
     latency_ms: Optional[int] = None
     http_status: Optional[int] = None
+    http_attempts: list[dict] = Field(default_factory=list, max_length=12)
 
 
 class PreflightResponse(BaseModel):
@@ -522,6 +538,7 @@ class ExplorationRunResponse(BaseModel):
     # ── academic_survey_v2（S0 冻结；legacy_v1 运行为默认值/None）──
     workflow_version: str = "legacy_v1"
     state_version: int = 0
+    active_seconds: float = 0.0
     protocol: Optional["ProtocolSummaryResponse"] = None
     current_revision: Optional["ReportRevisionEntry"] = None
     # 断点续传检查点摘要（legacy v1；不含逐篇提取正文）
@@ -547,7 +564,7 @@ class ExplorationRunSummary(BaseModel):
 
 
 # ============================================================
-# academic_survey_v2 契约 Schema（S0 冻结；执行器由 S3/S5 接入）
+# academic_survey_v2 契约 Schema（实验执行器 question_loop_v1；见 document.md §2.7）
 # ============================================================
 
 
@@ -671,6 +688,79 @@ class RunControlRequest(BaseModel):
     """pause/resume/cancel 的条件状态（事务内 compare-and-swap；陈旧版本 409）"""
     expected_state: Optional[str] = None
     expected_state_version: Optional[int] = Field(None, ge=0)
+
+
+class ResearchRequirementResponse(BaseModel):
+    unit_id: str
+    requirement: str
+    subject: str
+    phase: str
+    mode: str
+    source_quote: str
+    source_origin: str
+    response_kind: str = "fact"
+
+
+class ResearchQuestionResponse(BaseModel):
+    question_id: str
+    protocol_version: int
+    text: str
+    required: bool
+    priority: int
+    intent: str
+    answer_criteria: list[str]
+    expected_evidence: list[str]
+    status: str
+    gaps: list[str]
+    answer_revision_id: Optional[str] = None
+    requirements: list[ResearchRequirementResponse] = Field(default_factory=list)
+    planning_gaps: list[str] = Field(default_factory=list)
+    scope_constraints: list[str] = Field(default_factory=list)
+    reading_role: Optional[str] = None
+
+
+class ResearchQuestionsResponse(BaseModel):
+    run_id: int
+    legacy: bool
+    items: list[ResearchQuestionResponse]
+
+
+class ResearchAnswerResponse(BaseModel):
+    revision_id: str
+    question_id: str
+    protocol_version: int
+    content_hash: str
+    conclusion: str
+    kind: str
+    status: str
+    evidence_ids: list[str]
+    conditions: list[str]
+    conflicts: list[str]
+    gaps: list[str]
+    assessment: dict
+    created_at: datetime
+
+
+class ResearchAnswersResponse(BaseModel):
+    run_id: int
+    items: list[ResearchAnswerResponse]
+    next_cursor: Optional[int] = None
+
+
+class ResearchDossierResponse(BaseModel):
+    revision_id: str
+    protocol_asset_id: str
+    content_hash: str
+    stop_reason: str
+    answer_revision_ids: list[str]
+    evidence_count: int
+    created_at: datetime
+
+
+class ResearchDossiersResponse(BaseModel):
+    run_id: int
+    items: list[ResearchDossierResponse]
+    next_cursor: Optional[int] = None
 
 
 class RunControlResponse(BaseModel):

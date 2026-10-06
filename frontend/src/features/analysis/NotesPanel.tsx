@@ -13,6 +13,8 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
   const [newContent, setNewContent] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
+  const currentPaper = useRef(paperId)
+  currentPaper.current = paperId
   const mountedRef = useRef(true)
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
@@ -20,20 +22,27 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
   const fetchNotes = useCallback(async () => {
     try {
       const result = await listNotes(paperId)
-      if (mountedRef.current) setNotes(result)
+      if (mountedRef.current && currentPaper.current === paperId) setNotes(result)
     } catch (e: unknown) {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || currentPaper.current !== paperId) return
       const message = e instanceof Error ? e.message : '加载笔记失败'
       toast({ type: 'error', message })
     }
   }, [paperId])
 
-  useEffect(() => { fetchNotes() }, [fetchNotes])
+  useEffect(() => {
+    setNotes([])
+    setNewContent('')
+    setEditingId(null)
+    setEditContent('')
+    fetchNotes()
+  }, [fetchNotes])
 
   const handleCreate = async () => {
     if (!newContent.trim()) return
     try {
       await createNote(paperId, newContent.trim())
+      if (currentPaper.current !== paperId) return
       setNewContent('')
       fetchNotes()
     } catch (e: unknown) {
@@ -46,6 +55,7 @@ export function NotesPanel({ paperId }: NotesPanelProps) {
     if (!editContent.trim()) return
     try {
       await updateNote(noteId, editContent.trim())
+      if (currentPaper.current !== paperId) return
       setEditingId(null)
       fetchNotes()
     } catch (e: unknown) {

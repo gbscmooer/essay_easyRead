@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { get } from '@/api/client'
+import { get, post } from '@/api/client'
 import { toast } from '@/hooks/useToast'
 import type { Theme } from '@/theme/themes'
 import { DEFAULT_THEME_ID } from '@/theme/themes'
@@ -44,6 +44,9 @@ const listeners = new Set<() => void>()
 
 // 预览配置（点击按钮立即生效，保存后才持久化）
 let previewOverrides: Partial<UIConfig> | null = null
+let savedThemeOverride: string | null = null
+let themeSaveQueue: Promise<void> = Promise.resolve()
+let themeSaveRevision = 0
 let settingsFormDirty = false
 let dirtyListeners = new Set<() => void>()
 
@@ -123,7 +126,7 @@ export function useUIConfig(): UIConfig {
       fetchConfig().then(cfg => {
         const saved = cfg.ui || DEFAULT_UI
         persistThemeToStorage(saved)
-        setUI({ ...saved, ...previewOverrides })
+        setUI({ ...saved, ...previewOverrides, ...(savedThemeOverride ? { theme: savedThemeOverride } : {}) })
       }).catch(() => {})
     }
     update()
@@ -158,6 +161,36 @@ export function setUIPreview(overrides: Partial<UIConfig>): void {
   previewOverrides = { ...previewOverrides, ...overrides }
   listeners.forEach(fn => fn())
   notifyDirtyListeners()
+}
+
+
+/** Persist only the theme; sequential writes prevent rapid toggles from racing. */
+export function saveTheme(theme: string): Promise<void> {
+  const revision = ++themeSaveRevision
+  savedThemeOverride = theme
+  if (previewOverrides?.theme) {
+    const { theme: _theme, ...remaining } = previewOverrides
+    previewOverrides = Object.keys(remaining).length ? remaining : null
+  }
+  listeners.forEach(fn => fn())
+  notifyDirtyListeners()
+  const save = themeSaveQueue.then(async () => {
+    await post('/analysis/config/theme', { theme })
+    if (cachedConfig) cachedConfig = { ...cachedConfig, ui: { ...cachedConfig.ui, theme } }
+    if (revision === themeSaveRevision) {
+      savedThemeOverride = null
+      persistThemeToStorage({ ...(cachedConfig?.ui || DEFAULT_UI), theme })
+      listeners.forEach(fn => fn())
+    }
+  })
+  themeSaveQueue = save.catch(() => {})
+  return save.catch(error => {
+    if (revision === themeSaveRevision) {
+      savedThemeOverride = null
+      listeners.forEach(fn => fn())
+    }
+    throw error
+  })
 }
 
 

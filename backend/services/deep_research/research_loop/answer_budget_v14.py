@@ -1,0 +1,148 @@
+"""Size-aware final answer envelopes; original run caps never increase."""
+
+import json
+
+
+def model_cost(system, data, schema, output):
+    if schema:
+        system += "\n严格遵守 JSON schema：" + json.dumps(
+            schema.model_json_schema(), ensure_ascii=False
+        )
+    encoded = len(system.encode()) + len(
+        json.dumps(data, ensure_ascii=False, default=str).encode()
+    )
+    return 16 + (encoded + 2) // 3 + output
+
+
+def envelope(tools, question_id, future_sources=0, future_assets=()):
+    from .answering_v14 import (
+        Answer,
+        Verdict,
+        ANSWER_SYSTEM,
+        CHECK_SYSTEM,
+        answer_output,
+        check_output,
+    )
+    from .source_refs_v14 import wire_context, source_payload
+    from ....models.research_core import ResearchQuestion
+
+    question = next(
+        q for q in tools.repo.rows(ResearchQuestion) if q.question_id == question_id
+    )
+    plan = tools.plan() or {}
+    units = plan.get("requirement_ledger", {}).get(question_id, [])
+    evidence = tools.evidence(question_id)
+    known = {e["evidence_id"]: e for e in evidence}
+    papers = {
+        eid: (tools.repo.asset(e["asset_id"]).inline_payload or {}).get("paper", {})
+        for eid, e in known.items()
+    }
+    context = wire_context(units, known, papers)
+    facts = context["facts"]
+    passages = source_payload(context["sources"])
+    # Pending reading may accept at most four 500-char facts with four 1400-char
+    # source windows per paper. No predicted fact is passed to generation.
+    for i in range(future_sources):
+        source_windows = []
+        if i < len(future_assets):
+            from .material_v11 import passages as sample
+
+            chunks = sample(tools.repo.asset(future_assets[i]), question.text, plan)
+            source_windows = sorted(
+                (c["text"] for c in chunks), key=lambda t: len(t.encode()), reverse=True
+            )[:4]
+        for j in range(4):
+            eid = f"future_{i}_{j}"
+            facts.append(
+                {
+                    "evidence_id": eid,
+                    "asset_id": f"future_{i}",
+                    "fact": "材" * 500,
+                    "conditions": {"scope": "材" * 100},
+                    "source_kind": "full_text",
+                    "missing_fields": [],
+                    "title": "材" * 100,
+                    "primary_targets": [],
+                }
+            )
+            passages.append(
+                {
+                    "source_id": eid,
+                    "evidence_ref": eid,
+                    "asset_id": f"future_{i}",
+                    "quote": source_windows[j]
+                    if j < len(source_windows)
+                    else "材" * 2150,
+                    "source_kind": "full_text",
+                    "paper_title": "材" * 100,
+                }
+            )
+    scope = plan.get("constraints", {}).get(question_id, [])
+    count = min(295, 4 * len(units) + 6)
+    # A conservative bound for the not-yet-written answer, including IDs/conditions
+    # and relation descriptions. Actual requests use the same schemas/prompts.
+    claims = [
+        {
+            "claim_id": f"cl_{i:020}",
+            "unit_id": f"U{i % len(units) + 1}" if units else None,
+            "text": "材" * 320,
+            "kind": "fact",
+            "evidence_ids": ["E999"] * 4,
+        }
+        for i in range(count)
+    ]
+    unit_payload = [
+        {
+            "unit_id": f"U{i + 1}",
+            "state": "answered",
+            "claims": claims[i * 4 : i * 4 + 4],
+        }
+        for i, u in enumerate(units)
+    ]
+    draft = {
+        "question": question.text,
+        "requirements": context["wire_units"],
+        "facts": facts,
+        "sources": passages,
+        "documents": context["documents"],
+        "scope_constraints": scope,
+        "reading_roles": plan.get("reading_roles", []),
+    }
+    check = {
+        "question": question.text,
+        "requirements": context["wire_units"],
+        "unit_states": [
+            {"unit_id": p["unit_id"], "state": p["state"]} for p in unit_payload
+        ],
+        "claims": claims,
+        "explanation_ids": [],
+        "conditions": claims[-2:],
+        "relations": [
+            {"description": "材" * 300, "evidence_ids": ["ev_" + "x" * 26] * 4}
+        ]
+        * 3,
+        "sources": passages,
+        "scope_constraints": [
+            {"constraint_id": f"K{i}", "text": c} for i, c in enumerate(scope, 1)
+        ],
+    }
+    tokens = model_cost(
+        ANSWER_SYSTEM, draft, Answer, answer_output(len(units))
+    ) + model_cost(CHECK_SYSTEM, check, Verdict, check_output(count))
+    # Core's byte estimator plus a small reserve for serialization and condition
+    # fields. Follow-up planning is optional and cannot invalidate a saved answer.
+    return {"llm_calls": 2, "llm_tokens": max(18000, tokens + 1800)}
+
+
+def can_read(tools, question_id, sources, asset_ids=()):
+    budget = envelope(
+        tools, question_id, future_sources=sources, future_assets=asset_ids
+    )
+    # Extraction contains at most 7000 source chars each; checks repeat at most
+    # four source windows plus bounded contexts and output. Keep all in one cap.
+    reading_tokens = 4500 + sources * 11000
+    return (
+        tools.resources.remaining("llm_calls") >= 1 + sources + budget["llm_calls"]
+        and tools.resources.remaining("llm_tokens")
+        >= reading_tokens + budget["llm_tokens"]
+    )

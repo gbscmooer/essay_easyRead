@@ -410,6 +410,7 @@ async def test_http_errors_classified_individually(monkeypatch, test_upload_dir,
 async def test_timeout_and_network_error_classified(monkeypatch, test_upload_dir):
     from backend.services.deep_research.pdf_downloader import download_pdf_detailed
 
+    monkeypatch.setattr("backend.services.url_security.socket.getaddrinfo", _fake_dns({}))
     files_before = set(os.listdir(test_upload_dir))
     monkeypatch.setattr(
         "backend.services.deep_research.pdf_downloader.resilient_get",
@@ -462,6 +463,7 @@ async def test_success_records_ok_attempt_and_wrapper_returns_path(monkeypatch, 
         download_pdf_detailed,
     )
 
+    monkeypatch.setattr("backend.services.url_security.socket.getaddrinfo", _fake_dns({}))
     monkeypatch.setattr(
         "backend.services.deep_research.pdf_downloader.resilient_get",
         AsyncMock(return_value=_pdf_response(b"%PDF-1.7 detailed-test")),

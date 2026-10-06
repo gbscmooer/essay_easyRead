@@ -512,7 +512,9 @@ def graph_neighbors(
     visible = set(visible_order)
     dedup_edges: list[dict[str, Any]] = []
     seen_edges: set[tuple[str, str, str]] = set()
-    for edge in selected_edges:
+    for edge in edges:
+        if kinds and _safe_text(edge.get("kind")) not in kinds:
+            continue
         source = str(edge.get("source"))
         target = str(edge.get("target"))
         kind = _safe_text(edge.get("kind"))

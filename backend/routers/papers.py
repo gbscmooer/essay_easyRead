@@ -342,6 +342,10 @@ async def update_metadata(paper_id: int, req: PaperMetadataUpdate):
         return PaperResponse(**{**paper.model_dump(), **paper_metadata.view(paper)})
 
 
+_reindex_schedule_lock = asyncio.Lock()
+_reindex_task = None
+
+
 @router.post("/reindex")
 async def reindex_library_endpoint(
     include_expanded: bool = Query(False, description="是否一并重索引联网扩展下载的论文"),
@@ -353,10 +357,14 @@ async def reindex_library_endpoint(
     """
     from ..services.auto_indexer import count_reindex_targets, reindex_library
 
-    queued = await asyncio.to_thread(count_reindex_targets, include_expanded)
-    if queued:
-        asyncio.create_task(reindex_library(include_expanded))
-    return {"queued": queued}
+    global _reindex_task
+    async with _reindex_schedule_lock:
+        if _reindex_task is not None and not _reindex_task.done():
+            raise HTTPException(409, detail={"detail": "重新索引正在进行", "code": "REINDEX_RUNNING"})
+        queued = await asyncio.to_thread(count_reindex_targets, include_expanded)
+        if queued:
+            _reindex_task = asyncio.create_task(reindex_library(include_expanded))
+        return {"queued": queued}
 
 
 # ============================================================
