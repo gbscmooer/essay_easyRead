@@ -1,4 +1,4 @@
-import { get, post, del } from './client'
+import { get, post } from './client'
 import type { ExplorationDepth, ExplorationRun, ExplorationRunSummary, ExplorationMessage, PreflightResponse, RunTokenUsage, SurveyEvidenceDetail, SurveyEvidenceIndex } from '@/types'
 
 // 领域探索（问句驱动免读领域认知，见 GOAL.md）
@@ -25,6 +25,11 @@ export function resumeExploration(runId: number) {
   return post<{ run_id: number; status: string; detail: string }>(`/exploration/runs/${runId}/resume`, {})
 }
 
+/** Explicitly requeue failed tasks with their frozen payload and remaining budget. */
+export function retryExploration(runId: number) {
+  return post<{ run_id: number; status: string; retried_tasks: number }>(`/exploration/runs/${runId}/retry`, { failed_only: true })
+}
+
 export async function listExplorations(limit = 20): Promise<ExplorationRunSummary[]> {
   return get<ExplorationRunSummary[]>(`/exploration/runs?limit=${limit}`)
 }
@@ -35,6 +40,22 @@ export async function getExploration(runId: number, signal?: AbortSignal): Promi
 
 export function getExplorationMessages(runId: number, signal?: AbortSignal) {
   return get<ExplorationMessage[]>(`/exploration/runs/${runId}/messages`, signal)
+}
+
+export function getResearchQuestions(runId: number, signal?: AbortSignal) {
+  return get<import('@/types').ResearchQuestionsResponse>(`/exploration/runs/${runId}/questions`, signal)
+}
+
+export function getResearchVersions(runId: number, signal?: AbortSignal) {
+  return get<import('@/types/researchRevision').ResearchVersions>(`/exploration/runs/${runId}/versions`, signal)
+}
+
+export function reviseResearch(runId: number, input: import('@/types/researchRevision').ResearchRevisionInput) {
+  return post<ExplorationRun>(`/exploration/runs/${runId}/revise`, input)
+}
+
+export function cancelExploration(runId: number) {
+  return post<import('@/types').SurveyRunControlResponse>(`/exploration/runs/${runId}/cancel`, {})
 }
 
 export function getExplorationEvidenceIndex(runId: number, subquestionId?: string, cursor = 0, limit = 20) {
@@ -54,7 +75,7 @@ export function askExploration(runId: number, question: string, searchMore: bool
 }
 
 export async function deleteExploration(runId: number): Promise<void> {
-  await del(`/exploration/runs/${runId}`)
+  await post(`/exploration/runs/${runId}/remove`, {})
 }
 
 /** 单次探索 run 的 LLM token 用量（含追问/报告重生成；旧 run 回退 result 台账快照） */

@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 *.egg-info/
 .venv/
+venv/
+.tox/
+.nox/
 *.egg
 
 # Node
@@ -12,9 +15,14 @@ dist/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+.vite/
+.vitest/
 
 # Environment & Local Config
 .env
+.env.*
+!.env.example
+!.env.*.example
 config.yaml
 config.yml
 config.toml
@@ -27,6 +35,11 @@ config_key.*
 
 # Database
 *.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
 
 # Uploads
 uploads/
@@ -44,6 +57,13 @@ data/
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+.cache/
+
+# Test coverage
+.coverage
+.coverage.*
+coverage/
+htmlcov/
 
 # IDE
 .vscode/
@@ -51,15 +71,20 @@ data/
 *.swp
 *.swo
 
-# Local planning and personal graduation materials
+# Local documentation, planning and assistant files (keep startup README)
+*.md
+!/README.md
+/docs/
+/draft
+.agents/
+.codex/
+.claude/
 .zcode/
 /毕业设计资料/
 
-# Claude Code worktrees
-.claude/worktrees/
-
 # OS
 .DS_Store
+._*
 Thumbs.db
 
 # 软著申请材料的生成产物（用 docs/copyright/tools/ 下的脚本重新生成）

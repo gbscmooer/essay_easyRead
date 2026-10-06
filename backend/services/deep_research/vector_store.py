@@ -88,7 +88,7 @@ def delete_paper(ws_id: int, paper_id: int):
     col.delete(where={"paper_id": paper_id})
 
 
-def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None) -> list[dict]:
+def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None, *, strict: bool = False) -> list[dict]:
     """列出工作区全部 chunk（供 BM25 等词法索引构建）。失败返回空列表。"""
     try:
         col = _get_client().get_collection(_collection_name(ws_id))
@@ -107,6 +107,8 @@ def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None) -> 
         return out
     except Exception as e:
         logger.warning(f"list_workspace_chunks failed: {e}")
+        if strict and not isinstance(e, chromadb.errors.NotFoundError):
+            raise
         return []
 
 
@@ -117,9 +119,10 @@ def query_workspace(ws_id: int, vec: list[float], top_k: int = 5, paper_ids: Opt
     res = col.query(query_embeddings=[vec], n_results=top_k, where=where,
                     include=["documents", "metadatas", "distances"])
     out = []
-    for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+    for cid, doc, meta, dist in zip(res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0]):
         out.append({
-            **meta,
+            **(meta or {}),
+            "chunk_id": cid,
             "snippet": doc,
             "score": 1.0 - float(dist),   # cosine distance → similarity
         })

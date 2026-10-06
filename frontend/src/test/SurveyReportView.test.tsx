@@ -20,6 +20,19 @@ beforeEach(() => {
 })
 
 describe('SurveyReportView', () => {
+  it('renders loop summary and two-source comparison as Markdown tables with citations', () => {
+    const comparison: SurveyReport = { ...report, workflow_revision: 'question_loop_v7',
+      summary: '| 方法 | 条件 |\n| --- | --- |\n| Alpha | 冻结编码器 [1] |',
+      chapters: [{ question_id: 'main', title: '方法比较', status: 'supported', answer_revision_id: 'a1',
+        text: '**文献关系**\n\n- **方法差异**：Alpha 丢弃旧条目，Beta 拒绝新条目。[1][2]', evidence: [] }],
+      references: [reference, { key: 'p2', title: 'Beta paper', doi: '10.1/beta', year: 2023 }] }
+    render(<SurveyReportView report={comparison} runId={7} busy={false} onGenerate={vi.fn()} />)
+    expect(screen.getByRole('columnheader', { name: '方法' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: /冻结编码器/ })).toBeInTheDocument()
+    expect(screen.getByText('方法差异')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: '[2]' })[0]).toHaveAttribute('href', 'https://doi.org/10.1/beta')
+  })
+
   it('renders evidence tables, coverage and links to complete exports', () => {
     const generate = vi.fn()
     render(<SurveyReportView report={report} runId={7} busy={false} onGenerate={generate} />)
@@ -157,4 +170,79 @@ describe('SurveyReportView', () => {
     expect(screen.queryByText('Paper Title 6')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开全部 8 篇' })).toBeInTheDocument()
   })
+})
+
+it('按问题展示冻结答案、条件、缺口与原文依据', () => {
+  const frozen: SurveyReport = { ...report, workflow_revision: 'question_loop_v1',
+    delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
+    method: { stop_reason: 'resource_limit' }, quality_status: 'needs_review',
+    chapters: [{ question_id: 'main', title: '队列怎样恢复？', text: '在已读材料中保存到磁盘。条件：固定磁盘。仍缺：重启后的测量。[1]',
+      status: 'insufficient', answer_revision_id: 'a1', evidence: [{ evidence_id: 'e1', asset_id: 'doc1', fact: '保存到磁盘', source_kind: 'full_text', spans: [{ quote: 'Entries are stored on disk.', page: 2, section: null, table: null, bbox: null, char_start: 0, char_end: 27 }] }] }] }
+  render(<SurveyReportView report={frozen} runId={7} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByRole('heading', { name: '队列怎样恢复？' })).toBeInTheDocument()
+  expect(screen.getByText(/尚未经人工评审/)).toBeInTheDocument()
+  expect(screen.getByText(/重启后的测量/)).toBeInTheDocument()
+  expect(screen.getByText(/Entries are stored on disk/)).toBeInTheDocument()
+  expect(screen.queryByText('Summary of Metrics Applicable to Evaluation Aspects')).not.toBeInTheDocument()
+})
+
+it('does not turn a planning failure into a zero-hit search claim', () => {
+  render(<SurveyReportView report={{ ...report, version: 4, status: 'no_results', chapters: [], method: { stop_reason: 'planning_failed' } }} runId={40} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText('规划失败 · 未执行搜索')).toBeInTheDocument()
+  expect(screen.getByText('答案未生成')).toBeInTheDocument()
+  expect(screen.queryByText('执行完成 · 检索未命中')).not.toBeInTheDocument()
+  expect(screen.queryByText('已执行的搜索')).not.toBeInTheDocument()
+})
+
+it('shows an upstream model failure before search without claiming zero hits', () => {
+  render(<SurveyReportView report={{ ...report, status: 'no_results', coverage: { ...report.coverage, corpus: 0 },
+    search_summary: { queries: [], sources: [], attempt_count: 0, total_channel_hits: 0, directions: [],
+      stop_reason: 'model_error', interpretation: '尚未执行检索', attempts: [] }, chapters: [], method: { stop_reason: 'model_error' },
+  }} runId={50} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText('模型调用失败 · 未执行搜索')).toBeInTheDocument()
+  expect(screen.getByText('答案未生成')).toBeInTheDocument()
+  expect(screen.queryByText('执行完成 · 检索未命中')).not.toBeInTheDocument()
+  expect(screen.queryByText('已执行的搜索')).not.toBeInTheDocument()
+})
+
+it.each([['none', '尚无通过核查的答案'], ['partial', '已有部分有据回答']] as const)('shows actual frozen answer delivery: %s', (answerStatus, label) => {
+  render(<SurveyReportView report={{ ...report, status: 'partial', workflow_revision: 'question_loop_v14',
+    delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers', answer_status: answerStatus },
+  }} runId={43} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('答案已生成')).not.toBeInTheDocument()
+})
+
+it('does not label an empty historical frozen answer as generated', () => {
+  render(<SurveyReportView report={{ ...report, status: 'partial', workflow_revision: 'question_loop_v13',
+    coverage: { ...report.coverage, used: 0 },
+    delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
+  }} runId={42} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText('尚无通过核查的答案')).toBeInTheDocument()
+})
+
+
+it('shows selection failure and preserved materials without claiming a finished answer', () => {
+  const failed: SurveyReport = { ...report, chapters: [], status: 'partial', summary: '选材工具未完成，材料已保留',
+    method: { ...report.method, stop_reason: 'material_selection_failed' },
+    delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers', answer_status: 'none' }, references: [] }
+  render(<SurveyReportView report={failed} runId={7} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText('选材未完成')).toBeInTheDocument()
+  expect(screen.getByText('尚无通过核查的答案')).toBeInTheDocument()
+  expect(screen.getByText(/停止原因：\s*选材工具未完成，已保留召回材料/)).toBeInTheDocument()
+  expect(screen.queryByText('执行完成')).not.toBeInTheDocument()
+})
+
+it('shows empty reading selection and its concrete gap instead of a completed research answer', () => {
+  const empty: SurveyReport = { ...report, status: 'partial', summary: '已召回候选，但尚未选出阅读组合',
+    method: { ...report.method, stop_reason: 'material_selection_empty' },
+    delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers', answer_status: 'none' },
+    coverage: { ...report.coverage, corpus: 17, examined: 0, used: 0 },
+    chapters: [{ question_id: 'main', title: '研究问题', status: 'insufficient', answer_revision_id: '',
+      text: '尚缺原始方法资料，未确认操作和测试判据', evidence: [] }] }
+  render(<SurveyReportView report={empty} runId={46} busy={false} onGenerate={vi.fn()} />)
+  expect(screen.getByText('未形成阅读组合')).toBeInTheDocument()
+  expect(screen.getByText('尚无通过核查的答案')).toBeInTheDocument()
+  expect(screen.getByText(/停止原因：\s*未选出可执行的阅读组合，具体缺口已保留/)).toBeInTheDocument()
+  expect(screen.getByText('尚缺原始方法资料，未确认操作和测试判据')).toBeInTheDocument()
 })

@@ -27,6 +27,8 @@ class TerminalSession:
         self.pid: Optional[int] = None
         self.master_fd: Optional[int] = None
         self._running = False
+        self.process = None
+        self.eof = False
 
     async def spawn(self):
         """启动 shell 进程"""
@@ -55,6 +57,7 @@ class TerminalSession:
 
         # 父进程关闭 slave fd
         os.close(slave_fd)
+        self.process = proc
         self.pid = proc.pid
         self.master_fd = master_fd
         self._running = True
@@ -76,7 +79,7 @@ class TerminalSession:
             try:
                 os.write(self.master_fd, data)
             except OSError:
-                self._running = False
+                pass  # A write failure must not prevent draining the output buffer.
 
     def read(self) -> bytes:
         """从终端读取数据（非阻塞）"""
@@ -86,9 +89,14 @@ class TerminalSession:
         try:
             ready, _, _ = select.select([self.master_fd], [], [], 0.05)
             if ready:
-                return os.read(self.master_fd, 4096)
+                data = os.read(self.master_fd, 4096)
+                if not data:
+                    self.eof = True
+                return data
+        except BlockingIOError:
+            pass
         except OSError:
-            self._running = False
+            self.eof = True
         return b""
 
     def close(self):
@@ -101,23 +109,16 @@ class TerminalSession:
                 pass
             self.master_fd = None
 
-        if self.pid is not None:
+        if self.process is not None and self.process.returncode is None:
             try:
-                os.kill(self.pid, signal.SIGTERM)
-                os.waitpid(self.pid, os.WNOHANG)
-            except (OSError, ChildProcessError):
+                self.process.terminate()
+            except ProcessLookupError:
                 pass
-            self.pid = None
+        self.pid = None
 
     @property
     def is_alive(self) -> bool:
-        if self.pid is None:
-            return False
-        try:
-            pid, status = os.waitpid(self.pid, os.WNOHANG)
-            return pid == 0
-        except ChildProcessError:
-            return False
+        return self.process is not None and self.process.returncode is None
 
 
 async def handle_terminal_websocket(websocket, cwd: str = None):
@@ -130,11 +131,14 @@ async def handle_terminal_websocket(websocket, cwd: str = None):
     async def read_from_pty():
         """从 PTY 读取数据并发送到 WebSocket"""
         loop = asyncio.get_event_loop()
-        while session.is_alive:
+        while not session.eof:
             try:
                 data = await loop.run_in_executor(None, session.read)
                 if data:
                     await websocket.send_bytes(data)
+                elif session.eof:
+                    await websocket.close()
+                    break
                 else:
                     await asyncio.sleep(0.01)
             except Exception:
@@ -175,3 +179,9 @@ async def handle_terminal_websocket(websocket, cwd: str = None):
             except asyncio.CancelledError:
                 pass
         session.close()
+        if session.process is not None:
+            try:
+                await asyncio.wait_for(session.process.wait(), timeout=3)
+            except asyncio.TimeoutError:
+                session.process.kill()
+                await session.process.wait()

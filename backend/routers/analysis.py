@@ -443,6 +443,20 @@ async def update_config(req: AppConfig, request: Request) -> dict:
     return {"message": "配置已保存"}
 
 
+class ThemeSelection(BaseModel):
+    theme: str
+
+
+@router.post("/config/theme")
+async def save_theme_selection(req: ThemeSelection, request: Request) -> dict:
+    _require_local_config_request(request)
+    from ..services.ai_config import save_ui_theme
+    try:
+        return {"ui": save_ui_theme(req.theme)}
+    except ValueError as exc:
+        raise HTTPException(422, detail={"detail": str(exc), "code": "INVALID_THEME"}) from exc
+
+
 @router.get("/config/file-info")
 async def get_config_file_info_endpoint() -> dict:
     """获取当前生效的配置文件信息（路径、格式、存在性）。"""
@@ -1368,7 +1382,7 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
             # 逐字段发送
             fields_order = [
                 "title", "authors", "venue", "year", "one_sentence", "problem",
-                "key_contributions", "outline", "method", "experiments",
+                "key_contributions", "outline", "method", "mermaid_chart", "experiments",
                 "code_mapping", "interview_qa", "limitations", "related_papers",
             ]
             for field_name in fields_order:
@@ -1383,7 +1397,7 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
                             field_name=field_name,
                             data={"value": value},
                         ))
-                        if mermaid:
+                        if mermaid and not analysis.mermaid_chart:
                             yield format_sse(StreamEvent(
                                 event="field",
                                 field_name="mermaid_chart",

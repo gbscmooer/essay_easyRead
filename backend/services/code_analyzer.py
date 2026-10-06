@@ -140,7 +140,7 @@ def build_file_tree(repo_path: str, max_depth: int = MAX_TREE_DEPTH) -> dict:
                 except PermissionError:
                     entries = []
                 for entry in entries:
-                    if entry in SKIP_DIRS or entry.startswith("."):
+                    if entry in SKIP_DIRS or entry.endswith(".egg-info") or entry.startswith("."):
                         continue
                     child_path = os.path.join(current_path, entry)
                     child = _build(child_path, depth + 1)

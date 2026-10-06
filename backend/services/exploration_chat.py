@@ -32,6 +32,13 @@ def _run(session: Session, run_id: int) -> ExplorationRun:
     run = session.get(ExplorationRun, run_id)
     if not run:
         raise ExplorationChatError(404, "NOT_FOUND", "探索记录不存在")
+    if run.workflow_version == "academic_survey_v2":
+        from .deep_research.research_loop.access import require_report
+        from .research_event_log import RunStateError
+        try:
+            require_report(session, run_id, (run.result or {}).get("survey_report") or {})
+        except RunStateError as exc:
+            raise ExplorationChatError(exc.status_code, exc.code, exc.detail) from exc
     return run
 
 

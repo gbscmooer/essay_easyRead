@@ -55,14 +55,26 @@ export function ControlPanel({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [showPicker, setShowPicker] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const workspaceRef = useRef({ id: wsId })
+  if (workspaceRef.current.id !== wsId) workspaceRef.current = { id: wsId }
+  const workspaceToken = workspaceRef.current
   const mounted = useRef(true)
+  useEffect(() => {
+    setPapers([])
+    setSelectedIds(new Set())
+    setExpandedCount(0)
+    setDigesting(false)
+    setDigestProgress(null)
+    setBackfilling(false)
+    setBackfillProgress(null)
+  }, [wsId])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
   // 加载工作区论文（含解读层级标记 read_level）。速读完成后复用以刷新标记。
   const loadPapers = useCallback(async (resetSelection = false) => {
     try {
       const ws = await getWorkspace(wsId)
-      if (!mounted.current) return
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       const l1 = ws.papers.filter(p => (p.level ?? 1) === 1)
       const l2plus = ws.papers.filter(p => (p.level ?? 1) >= 2)
       setPapers(l1)
@@ -73,7 +85,7 @@ export function ControlPanel({
         ))
       }
     } catch {
-      if (mounted.current) toast({ type: 'error', message: '加载工作区论文失败' })
+      if (mounted.current && workspaceRef.current === workspaceToken) toast({ type: 'error', message: '加载工作区论文失败' })
     }
   }, [wsId])
 
@@ -86,10 +98,10 @@ export function ControlPanel({
   // 轮询后台批量速读进度，直到结束；结束后刷新论文「已速读」标记
   const pollDigest = useCallback(() => {
     const tick = async () => {
-      if (!mounted.current) return
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       try {
         const s = await digestStatus(wsId)
-        if (!mounted.current) return
+        if (!mounted.current || workspaceRef.current !== workspaceToken) return
         setDigestProgress({ done: s.done, total: s.total })
         if (s.running) { setTimeout(tick, 1500); return }
         // 完成
@@ -103,7 +115,7 @@ export function ControlPanel({
         }
         loadPapers()   // 刷新「已速读」标记（持久化，源自 DB）
       } catch {
-        if (!mounted.current) return
+        if (!mounted.current || workspaceRef.current !== workspaceToken) return
         setDigesting(false)
         setDigestProgress(null)
         toast({ type: 'error', message: '速读进度查询失败' })
@@ -128,10 +140,10 @@ export function ControlPanel({
   // 轮询引用回填进度；完成后提示重建结果
   const pollBackfill = useCallback(() => {
     const tick = async () => {
-      if (!mounted.current) return
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       try {
         const s = await referenceBackfillStatus(wsId)
-        if (!mounted.current) return
+        if (!mounted.current || workspaceRef.current !== workspaceToken) return
         if (s.status === 'running') {
           setBackfillProgress({ done: s.done ?? 0, total: s.total ?? 0, phase: s.phase ?? 'refs' })
           setTimeout(tick, 2000)
@@ -149,7 +161,7 @@ export function ControlPanel({
           toast({ type: 'error', message: `引用回填失败：${s.error ?? '未知错误'}` })
         }
       } catch {
-        if (!mounted.current) return
+        if (!mounted.current || workspaceRef.current !== workspaceToken) return
         setBackfilling(false)
         setBackfillProgress(null)
         toast({ type: 'error', message: '引用回填进度查询失败' })
@@ -176,9 +188,11 @@ export function ControlPanel({
     setBackfillProgress(null)
     try {
       await startReferenceBackfill(wsId)
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       toast({ type: 'info', message: '已开始后台回填引用（Semantic Scholar），完成后自动重建图谱' })
       pollBackfill()
     } catch (e) {
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       const msg = (e as { detail?: string })?.detail || String(e)
       toast({ type: 'error', message: `引用回填启动失败：${msg}` })
       setBackfilling(false)
@@ -237,6 +251,7 @@ export function ControlPanel({
     setDigestProgress(null)
     try {
       const r = await digestBatch(wsId)
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       if (r.already_running) {
         setDigestProgress({ done: r.done ?? 0, total: r.total ?? 0 })
         pollDigest()
@@ -256,6 +271,7 @@ export function ControlPanel({
       toast({ type: 'info', message: `已开始后台速读 ${r.total} 篇，可离开页面；完成前请勿关闭后端` })
       pollDigest()
     } catch (e) {
+      if (!mounted.current || workspaceRef.current !== workspaceToken) return
       const msg = (e as { detail?: string })?.detail || String(e)
       toast({ type: 'error', message: `速读失败：${msg}` })
       setDigesting(false)
@@ -352,7 +368,7 @@ export function ControlPanel({
                   min={1}
                   max={20}
                   value={topK}
-                  onChange={e => setTopK(Number(e.target.value))}
+                  onChange={e => setTopK(Math.max(1, Math.min(20, Math.floor(Number(e.target.value) || 1))))}
                   disabled={disabled}
                   className="w-14 px-2 py-1 text-xs border text-center"
                   style={{

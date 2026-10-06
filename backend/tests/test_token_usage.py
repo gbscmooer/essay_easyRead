@@ -577,8 +577,8 @@ def test_run_usage_counts_failed_attempts(engine, monkeypatch):
 
 def test_exploration_run_instance_id_unique_and_stable(session):
     """run_instance_id 创建即冻结：两个 run 必不相同（同号复用后仍可区分）。"""
-    run_a = ExplorationRun(question="a", depth="lite")
-    run_b = ExplorationRun(question="b", depth="lite")
+    run_a = ExplorationRun(question="a", depth="lite", status="done")
+    run_b = ExplorationRun(question="b", depth="lite", status="done")
     session.add(run_a)
     session.add(run_b)
     session.commit()

@@ -38,9 +38,11 @@ export interface SurveySearchSummary {
   interpretation: string
 }
 export interface ReportDelivery {
+  /** 冻结答案的实际交付状态，创建报告版本不等于有答案。 */
+  answer_status?: 'none' | 'partial' | 'complete'
   /** v3 交付契约：旧报告缺失该字段时按未知处理，不猜测 */
   delivery_status: 'ready' | 'partial' | 'unavailable'
-  narrative_source: 'final_draft' | 'preliminary' | 'none'
+  narrative_source: 'final_draft' | 'preliminary' | 'none' | 'frozen_answers'
   evidence_version?: string
   citation_map_version?: string | null
   failure_stage?: string | null
@@ -66,6 +68,13 @@ export interface ReportNarrative {
   novelty: NarrativeEntry[]
 }
 export interface SurveyReport {
+  workflow_revision?: string
+  dossier_revision_id?: string
+  chapters?: { question_id: string; title: string; text: string; status: string; answer_revision_id: string | null;
+    requirement_ledger?: { unit_id: string; requirement: string; subject: string; resolved: boolean; gap: string }[];
+    relations?: { relation_id: string; subject: string; predicate: string; object: string; scope: string | null;
+      evidence_ids: string[]; verification_state: string; conditions: { answer_revision_id: string; description: string } }[];
+    evidence: { evidence_id: string; asset_id: string; paper_key?: string; fact: string; source_kind: string; spans: import('./index').SurveyEvidenceSpan[] }[] }[]
   version: number
   title: string
   created_at: string
@@ -81,7 +90,7 @@ export interface SurveyReport {
   evidence_store?: { version: number; evidence_version: string; count: number; records: unknown[] }
   evidence_coverage?: Record<string, { evidence_count: number; verified_count: number }>
   matrices: { aspect_metric: CoverageMatrix; task_dataset: CoverageMatrix }
-  coverage: { corpus: number; with_material: number; selected: number; examined: number; failed: number; full_text: number; abstract_only: number; rejected_rows: number }
+  coverage: { corpus: number; with_material: number; selected: number; examined: number; used?: number; failed: number; full_text: number; abstract_only: number; rejected_rows: number }
   bibliometrics: { by_year: Record<string, number>; year_span: number[] }
   references: { key: string; title: string; year?: number | null; doi?: string | null; arxiv_id?: string | null; url?: string | null; pdf_url?: string | null; paper_id?: number | null }[]
   warnings: string[]

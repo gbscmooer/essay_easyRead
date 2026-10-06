@@ -405,9 +405,13 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
 
     except Exception as e:
         logger.error(f"Background analysis failed for paper {paper_id}: {e}")
-        with Session(engine) as session:
-            update_paper_status(session, paper_id, "failed", str(e))
-        job.emit(StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"}))
+        try:
+            with Session(engine) as session:
+                update_paper_status(session, paper_id, "failed", str(e))
+        except Exception:
+            logger.exception("Unable to persist analysis failure for paper %s", paper_id)
+        finally:
+            job.emit(StreamEvent(event="error", data={"message": f"解析失败: {str(e)}"}))
     finally:
         job.done = True
         job.completed_at = time.monotonic()

@@ -1,9 +1,7 @@
-"""离线评测工具集。
+"""研究评测工具集，入口与限制见 docs/DEEP_RESEARCH_EVAL.md。
 
-- explore_eval：领域探索（/explore）的判定质量与证据可核验性评测
-  （系统 vs 仅凭记忆的裸 LLM 基线），见 docs/DOMAIN_ONBOARDING_AI_WORKFLOW_PLAN.md v1.5。
-
-原则（沿用 docs/DEEP_RESEARCH_EVAL.md）：原始运行结果落 data/eval/（gitignore，
-不进仓库）；预期判定是人工标注草案，正式出数前须用户/导师确认；CI 只跑桩测试，
-真实评测显式执行。
+explore_eval 会在线运行当前系统并与仅凭模型记忆的基线比较，不是纯离线工具。
+survey_metrics 计算显式标注的离线指标。原始输出保存在 data/eval/；预期判定
+为人工草案，正式出数前校核。新 workflow 对照协议见
+ docs/workflow_refactor/VALIDATION.md；现有 CI 桩不代表真实研究质量。
 """

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import os
 import time
 import weakref
@@ -13,7 +14,7 @@ from typing import Any
 
 from .adapters import get_adapter
 from .errors import LLMError, LLMResponseError
-from .json_utils import parse_json
+from .json_utils import parse_json, strip_markdown_fence, extract_balanced_json
 from .models import LLMConfig, LLMResponse
 
 MAX_RETRIES = 5
@@ -28,14 +29,46 @@ MODEL_CONCURRENCY_MAX = 4
 _MODEL_CONCURRENCY: int = max(1, min(
     MODEL_CONCURRENCY_MAX,
     int(os.environ.get("LLM_MODEL_CONCURRENCY") or MODEL_CONCURRENCY_DEFAULT)))
-_concurrency_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
-    weakref.WeakKeyDictionary())
+class _ModelLimiter:
+    def __init__(self, limit):
+        self.limit, self.active = limit, 0
+        self.waiters = set()
+
+    async def acquire(self):
+        while self.active >= self.limit:
+            waiter = asyncio.get_running_loop().create_future()
+            self.waiters.add(waiter)
+            try:
+                await waiter
+            finally:
+                self.waiters.discard(waiter)
+        self.active += 1
+        return True
+
+    def _wake(self):
+        for waiter in tuple(self.waiters):
+            if not waiter.done():
+                waiter.set_result(None)
+
+    def release(self):
+        self.active -= 1
+        self._wake()
+
+    def resize(self, limit):
+        self.limit = limit
+        self._wake()
+
+
+_concurrency_semaphores = weakref.WeakKeyDictionary()
 
 
 def set_model_concurrency(limit: int) -> int:
-    """设置全局模型并发上限（测试/运行时调参；收口 1..4 并返回生效值）。"""
+    """更新全局容量；已发送请求保留，新请求按新容量排队。"""
     global _MODEL_CONCURRENCY
     _MODEL_CONCURRENCY = max(1, min(MODEL_CONCURRENCY_MAX, int(limit)))
+    for loop, limiter in list(_concurrency_semaphores.items()):
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(limiter.resize, _MODEL_CONCURRENCY)
     return _MODEL_CONCURRENCY
 
 
@@ -43,14 +76,14 @@ def model_concurrency() -> int:
     return _MODEL_CONCURRENCY
 
 
-def _model_semaphore() -> asyncio.Semaphore:
-    # 信号量按事件循环缓存：跨 asyncio.run 的测试互不残留等待者
+def _model_semaphore():
     loop = asyncio.get_running_loop()
-    semaphore = _concurrency_semaphores.get(loop)
-    if semaphore is None:
-        semaphore = asyncio.Semaphore(_MODEL_CONCURRENCY)
-        _concurrency_semaphores[loop] = semaphore
-    return semaphore
+    limiter = _concurrency_semaphores.get(loop)
+    if limiter is None:
+        limiter = _ModelLimiter(_MODEL_CONCURRENCY)
+        _concurrency_semaphores[loop] = limiter
+    limiter.resize(_MODEL_CONCURRENCY)
+    return limiter
 
 # ── Token 台账（工作流可追溯性）──────────────────────────────────────────────
 # 上层流水线 start_token_ledger() 后，每次成功调用的 usage 按当前阶段标签
@@ -463,6 +496,10 @@ async def complete(
     user = _apply_budget_output_hint(budget, user)
     semaphore = _model_semaphore()
     estimated_input_tokens = _estimate_input_tokens(system, user)
+    from .structured import tool_input_bytes
+    structured_bytes = tool_input_bytes(extra_body)
+    if structured_bytes:
+        estimated_input_tokens += (structured_bytes + 2) // 3
     for attempt in range(max_retries + 1):
         _check_deadline()
         _budget_before_attempt(budget, token_limit, estimated_input_tokens)
@@ -545,6 +582,7 @@ async def complete_json(
     expected: type = dict,
     max_retries: int = MAX_RETRIES,
     metadata_out: dict[str, Any] | None = None,
+    root_array_key: str | None = None,
     **kwargs: Any,
 ) -> Any:
     delays = retry_delays(max_retries)
@@ -567,7 +605,46 @@ async def complete_json(
                     "request_id": response.request_id,
                     "usage": dict(response.usage or {}),
                 })
-            return parse_json(response.text, expected=expected)
+            try:
+                from .structured import requests_result_tool, unwrap_result
+                if requests_result_tool(kwargs.get("extra_body")):
+                    result = unwrap_result(parse_json(response.text, expected=dict), expected)
+                    if metadata_out is not None:
+                        metadata_out["structured_recovery"] = {"kind": "native_result_envelope", "field": "result"}
+                    return result
+                return parse_json(response.text, expected=expected)
+            except (ValueError, TypeError) as exc:
+                framed = strip_markdown_fence(response.text)
+                candidate = extract_balanced_json(framed) or framed
+                root_type = None
+                try:
+                    parsed = json.loads(candidate)
+                    root_type = type(parsed).__name__
+                except (ValueError, TypeError):
+                    parsed = None
+                if expected is dict and root_array_key and isinstance(parsed, list) and framed == candidate:
+                    # Only an explicit caller contract may wrap a top-level array.
+                    # All items remain unchanged and still undergo schema checks.
+                    if metadata_out is not None:
+                        metadata_out["structured_recovery"] = {
+                            "kind": "root_array_wrapper", "field": root_array_key,
+                            "response_chars": len(response.text),
+                            "response_sha256": hashlib.sha256(response.text.encode()).hexdigest(),
+                        }
+                    return {root_array_key: parsed}
+                if metadata_out is not None:
+                    # Diagnose syntax without retaining generated text, material
+                    # or credentials in metadata consumed by public event logs.
+                    metadata_out["structured_error"] = {
+                        "type": type(exc).__name__,
+                        "root_type": root_type,
+                        "response_chars": len(response.text),
+                        "response_sha256": hashlib.sha256(response.text.encode()).hexdigest(),
+                        **({"message": exc.msg, "line": exc.lineno,
+                            "column": exc.colno, "position": exc.pos}
+                           if isinstance(exc, json.JSONDecodeError) else {}),
+                    }
+                raise
         except LLMError as exc:
             # 预算类错误（BUDGET_*）不可重试；其余 LLMError 按其 retryable 重试
             if not exc.retryable or attempt >= max_retries:

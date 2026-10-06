@@ -60,6 +60,7 @@ class ScopusProvider:
         self._throttle = None
         self._auth_fails = 0
         self._disabled = False
+        self.last_request_status = "unknown"
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -84,8 +85,10 @@ class ScopusProvider:
                     account_source_request()
                     r = await self._http().get(f"{SCOPUS_BASE}{path}", params=params)
                     if r.status_code == 200:
+                        self.last_request_status = "ok"
                         self._throttle.on_success()
                     if r.status_code in (401, 403):
+                        self.last_request_status = "auth_error"
                         self._auth_fails += 1
                         if self._auth_fails >= _AUTH_FAIL_LIMIT:
                             self._disabled = True
@@ -96,7 +99,9 @@ class ScopusProvider:
                             )
                         return None
                     if r.status_code == 429:
+                        self.last_request_status = "rate_limited"
                         if "QUOTA_EXCEEDED" in (r.text or ""):
+                            self.last_request_status = "quota_exhausted"
                             self._disabled = True
                             logger.warning("Scopus 配额耗尽（QUOTA_EXCEEDED），本次运行内熔断")
                             return None
@@ -108,9 +113,11 @@ class ScopusProvider:
                     r.raise_for_status()
                     return r.json()
                 except httpx.HTTPStatusError as e:
+                    self.last_request_status = "error"
                     logger.warning(f"Scopus HTTP {e.response.status_code}: {e}")
                     return None
                 except (httpx.TimeoutException, httpx.HTTPError) as e:
+                    self.last_request_status = "timeout" if isinstance(e, httpx.TimeoutException) else "error"
                     if attempt == 2:
                         logger.warning(f"Scopus request failed: {e}")
                         return None
@@ -257,7 +264,7 @@ class ScopusProvider:
     async def get_paper_citations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
         data = await self._get("/content/search/scopus", {
             "query": f"REF({paper_id})",
-            "count": min(limit, 100),
+            "count": min(limit, 25),
             "sort": "-citedby-count",
             "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count",
         })

@@ -351,7 +351,7 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     cfg = get_analysis_config()
 
     if not cfg.get("api_key"):
-        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "INVALID_FORMAT"})
+        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "NO_API_KEY"})
 
     try:
         answer = await generate_research_answer(req.question, hits, graph_context_str, cfg)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { FileNode } from '@/types'
 import { Tooltip } from '@/ds-entry'
 
@@ -80,6 +80,10 @@ function TreeNode({
   onSelect: (path: string) => void
 }) {
   const [expanded, setExpanded] = useState(depth < 2)
+  useEffect(() => {
+    const prefix = node.path === '.' || node.path === '' ? '' : `${node.path}/`
+    if (node.type === 'dir' && selected?.startsWith(prefix)) setExpanded(true)
+  }, [node.path, node.type, selected])
 
   if (node.type === 'file') {
     const isSelected = selected === node.path

@@ -757,11 +757,12 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
         retrieval = {"coverage_policy": "read_budget_exhausted", "warnings": []}
         warnings.append("精读额度（read_papers）已耗尽：本轮未选材、未做证据提取，"
                         "报告只包含检索与计量结果，可续跑后重新生成报告。")
-    elif research_frozen and not cached:
-        # 冻结进入交付且没有任何已缓存提取：不做研究侧选材/提取
+    elif research_frozen:
+        # Derive a frozen selection from the cached keys without paid selection.
+        selected = [p for p in papers if p["key"] in cached]
         retrieval = {"coverage_policy": "research_time_frozen", "warnings": []}
-        warnings.append("研究侧时间预算已耗尽且没有已缓存的证据提取：报告只包含"
-                        "检索与计量结果；可续跑（预算恢复后）重新生成报告。")
+        warnings.append("研究侧时间预算已耗尽：只使用已有缓存证据提取与检索计量结果，"
+                        "本次交付不再选材或提取。")
     elif eligible and cfg and cfg.get("api_key"):
         ranked, retrieval = await retrieve_materials(
             eligible, question,
@@ -1024,8 +1025,6 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                                   "status": entry.get("status")})
             if entry.get("status") == "deferred":
                 raise StagePausedError("report extraction paused at safe point")
-            if entry.get("status") == "examined":
-                break
         if backfill_used:
             warnings.append(
                 "关键材料层（数据集/综述）首轮无成功提取，已按候补递补："

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
+import React, { useState, useLayoutEffect, useCallback, useMemo, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { SelectionPopup } from '@/components/SelectionPopup'
 import { AnnotationLayer } from './AnnotationLayer'
@@ -84,14 +84,31 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [showAnnotationIndex, setShowAnnotationIndex] = useState(false)
   const [visibleRange, setVisibleRange] = useState({ start: 1, end: 3 })
-  const [pageMetricsReady, setPageMetricsReady] = useState(false)
+  const [pageMetricsReady, setPageMetricsReady] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const isScrollingRef = useRef(false)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const sectionHighlightTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const visiblePageRef = useRef(visiblePage)
-  const pageSizeRef = useRef<{ width: number; height: number } | null>(null)
+  const pageSizesRef = useRef(new Map<number, { width: number; height: number }>())
+  const renderedPagesRef = useRef(new Map<number, number>())
+  const pageRefCallbacks = useRef(new Map<number, (element: HTMLDivElement | null) => void>())
+  const bindPageRef = useCallback((page: number) => {
+    let callback = pageRefCallbacks.current.get(page)
+    if (!callback) {
+      callback = element => {
+        if (element) pageRefs.current.set(page, element)
+        else { pageRefs.current.delete(page); renderedPagesRef.current.delete(page) }
+      }
+      pageRefCallbacks.current.set(page, callback)
+    }
+    return callback
+  }, [])
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
+  const zoomAnchorRef = useRef<{ page: number; fractionX: number; fractionY: number; viewportX: number; viewportY: number } | null>(null)
+  const navigationRef = useRef(0)
   const restoredForRef = useRef<number | null>(null)
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
 
@@ -194,19 +211,48 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     setReloadToken(token => token + 1)
   }, [])
 
-  /** 首页渲染完成时记下页面原始尺寸，供「适应宽度 / 适应页面」反解缩放比。 */
-  const onPageRenderSuccess = useCallback((page: { getViewport?: (p: { scale: number }) => { width: number; height: number } }) => {
-    if (pageSizeRef.current) return
-    try {
-      const viewport = page.getViewport?.({ scale: 1 })
-      if (viewport && viewport.width > 0 && viewport.height > 0) {
-        pageSizeRef.current = { width: viewport.width, height: viewport.height }
-        setPageMetricsReady(true)
+  const onPageLoadSuccess = useCallback((pageNumber: number, page: { getViewport?: (p: { scale: number }) => { width: number; height: number } }) => {
+    const viewport = page.getViewport?.({ scale: 1 })
+    if (viewport && viewport.width > 0 && viewport.height > 0) {
+      const prior = pageSizesRef.current.get(pageNumber)
+      if (!prior || prior.width !== viewport.width || prior.height !== viewport.height) {
+        pageSizesRef.current.set(pageNumber, { width: viewport.width, height: viewport.height })
+        setPageMetricsReady(value => value + 1)
       }
-    } catch {
-      // 拿不到 viewport 时保持手动缩放即可
     }
   }, [])
+
+  const captureZoomAnchor = useCallback((point?: { x: number; y: number }) => {
+    if (zoomAnchorRef.current) return
+    const container = scrollRef.current
+    if (!container) return
+    const bounds = container.getBoundingClientRect()
+    const x = point?.x ?? bounds.left + container.clientWidth / 2
+    const y = point?.y ?? bounds.top + container.clientHeight / 2
+    const pages = Array.from(pageRefs.current.entries())
+    const found = pages.find(([, el]) => { const rect = el.getBoundingClientRect(); return rect.top <= y && rect.bottom >= y })
+      ?? pages.reduce<typeof pages[number] | undefined>((best, entry) => !best || Math.abs(entry[1].getBoundingClientRect().top - y) < Math.abs(best[1].getBoundingClientRect().top - y) ? entry : best, undefined)
+    if (!found) return
+    const [page, element] = found
+    const rect = element.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    zoomAnchorRef.current = { page, fractionX: (x - rect.left) / rect.width, fractionY: (y - rect.top) / rect.height,
+      viewportX: x - bounds.left, viewportY: y - bounds.top }
+  }, [])
+
+  const restoreZoomAnchor = useCallback(() => {
+    const anchor = zoomAnchorRef.current
+    const container = scrollRef.current
+    const page = anchor && pageRefs.current.get(anchor.page)
+    if (!anchor || !container || !page) return
+    const rect = page.getBoundingClientRect()
+    const bounds = container.getBoundingClientRect()
+    container.scrollTop += rect.top - bounds.top + rect.height * anchor.fractionY - anchor.viewportY
+    container.scrollLeft += rect.left - bounds.left + rect.width * anchor.fractionX - anchor.viewportX
+    if (renderedPagesRef.current.get(anchor.page) === scaleRef.current) zoomAnchorRef.current = null
+  }, [])
+
+  useLayoutEffect(() => { restoreZoomAnchor() }, [scale, restoreZoomAnchor])
 
   const scrollToPage = useCallback((page: number) => {
     const container = scrollRef.current
@@ -242,11 +288,12 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
     let attempts = 0
     const tick = () => {
-      if (pageRefs.current.get(page)) {
+      if (pageRefs.current.get(page) && renderedPagesRef.current.get(page) === scaleRef.current) {
         done()
         return
       }
-      if (attempts++ < 25) schedule(tick, 80)
+      if (attempts++ < 100) schedule(tick, 80)
+      else toast({ type: 'warning', message: '目标页尚未完成渲染，请稍后重试跳转' })
     }
     schedule(tick, 0)
   }, [numPages, schedule])
@@ -254,14 +301,14 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   useImperativeHandle(ref, () => ({
     jumpToPage: (page: number) => {
       if (page >= 1 && page <= numPages) {
-        ensurePageRendered(page, () => scrollToPage(page))
+        const navigation = ++navigationRef.current
+        ensurePageRendered(page, () => { if (navigation === navigationRef.current) scrollToPage(page) })
       }
     },
     jumpToSection: (page: number, searchText: string) => {
       if (page < 1 || page > numPages) return
 
-      // 先跳到目标页（窗口外的页先渲染出来再滚）
-      ensurePageRendered(page, () => scrollToPage(page))
+      const navigation = ++navigationRef.current
 
       // 策略1: 使用后端提取的标题坐标精确定位
       const pageHeadings = headings?.filter(h => h.page === page) || []
@@ -289,17 +336,18 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
           container.scrollTo({ top: offset, behavior: 'smooth' })
         }
         // 等待页面渲染
-        setTimeout(scrollToHeading, 500)
+        ensurePageRendered(page, () => { if (navigation === navigationRef.current) scrollToHeading() })
         return
       }
 
       // 策略2: 回退到 TextLayer 文字匹配
       const tryFind = (attempts: number) => {
+        if (navigation !== navigationRef.current) return
         const pageEl = pageRefs.current.get(page)
         if (!pageEl) return
         const textLayer = pageEl.querySelector('.react-pdf__Page__textContent')
         if (!textLayer) {
-          if (attempts < 15) setTimeout(() => tryFind(attempts + 1), 200)
+          if (attempts < 15) schedule(() => tryFind(attempts + 1), 200)
           return
         }
         if (!searchText) return
@@ -349,9 +397,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
           }, 5000)
         }
       }
-      setTimeout(() => tryFind(0), 600)
+      ensurePageRendered(page, () => {
+        if (navigation !== navigationRef.current) return
+        scrollToPage(page)
+        tryFind(0)
+      })
     },
-  }), [numPages, scrollToPage, ensurePageRendered, headings])
+  }), [numPages, scrollToPage, ensurePageRendered, headings, schedule])
 
   useEffect(() => {
     const container = scrollRef.current
@@ -455,12 +507,15 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   }, [uiConfig])
 
   /** 任何手动缩放都会退出适配模式 —— 用户接管后就不该再被自动改回去。 */
-  const applyScale = useCallback((next: number | ((current: number) => number), mode: FitMode = 'none') => {
-    setZoomPref(prev => {
-      const raw = typeof next === 'function' ? next(prev.scale) : next
-      return { scale: clampScale(raw), fitMode: mode }
-    })
-  }, [clampScale])
+  const applyScale = useCallback((next: number | ((current: number) => number), mode: FitMode = 'none', point?: { x: number; y: number }) => {
+    const nextScale = clampScale(typeof next === 'function' ? next(scaleRef.current) : next)
+    if (nextScale !== scaleRef.current) {
+      captureZoomAnchor(point)
+      renderedPagesRef.current.clear()
+      scaleRef.current = nextScale
+    }
+    setZoomPref({ scale: nextScale, fitMode: mode })
+  }, [clampScale, captureZoomAnchor])
 
   // 缩放偏好跨论文保留（视力与屏幕是人的属性，不是某一篇 PDF 的属性）
   useEffect(() => { saveZoom(zoomPref) }, [zoomPref])
@@ -468,7 +523,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   /** 按容器可用空间反解「适应宽度 / 适应页面」的缩放比。 */
   const computeFitScale = useCallback((mode: FitMode): number | null => {
     const container = scrollRef.current
-    const size = pageSizeRef.current
+    const size = pageSizesRef.current.get(activePage ?? visiblePage) ?? pageSizesRef.current.get(visiblePage)
     if (!container || !size || mode === 'none') return null
     const usableWidth = container.clientWidth - 56   // 两侧留白 + 左侧页码栏
     const usableHeight = container.clientHeight - 48
@@ -476,7 +531,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     const widthScale = usableWidth / size.width
     const raw = mode === 'width' ? widthScale : Math.min(widthScale, usableHeight / size.height)
     return clampScale(raw)
-  }, [clampScale])
+  }, [clampScale, activePage, visiblePage])
 
   // 适配模式下随容器尺寸重算（拖分割条、折叠面板、改窗口都会触发）
   useEffect(() => {
@@ -487,7 +542,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     const apply = () => {
       const next = computeFitScale(fitMode)
       if (next == null) return
-      setZoomPref(prev => (Math.abs(prev.scale - next) < 0.005 ? prev : { ...prev, scale: next }))
+      if (Math.abs(scaleRef.current - next) < 0.005) return
+      captureZoomAnchor()
+      renderedPagesRef.current.clear()
+      setZoomPref(prev => ({ ...prev, scale: next }))
     }
     apply()
 
@@ -495,7 +553,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     const observer = new ResizeObserver(apply)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [fitMode, computeFitScale, pageMetricsReady])
+  }, [fitMode, computeFitScale, pageMetricsReady, captureZoomAnchor])
 
   const toggleFit = useCallback((mode: Exclude<FitMode, 'none'>) => {
     setZoomPref(prev => ({ ...prev, fitMode: prev.fitMode === mode ? 'none' : mode }))
@@ -512,7 +570,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       const delta = -e.deltaY
       if (delta === 0) return
       const step = uiConfig.pinch_zoom_step || 0.02
-      applyScale(current => current + (delta > 0 ? step : -step))
+      applyScale(current => current + (delta > 0 ? step : -step), 'none', { x: e.clientX, y: e.clientY })
     }
 
     container.addEventListener('wheel', handleWheel, { passive: false })
@@ -535,8 +593,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     setVisiblePage(1)
     setVisibleRange({ start: 1, end: 3 })
     setShowAnnotationIndex(false)
-    pageSizeRef.current = null
-    setPageMetricsReady(false)
+    pageSizesRef.current.clear()
+    renderedPagesRef.current.clear()
+    zoomAnchorRef.current = null
+    navigationRef.current += 1
+    timersRef.current.forEach(clearTimeout)
+    timersRef.current.clear()
+    setPageMetricsReady(0)
     restoredForRef.current = null
   }, [pdfUrl])
 
@@ -564,7 +627,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
 
   const goToPage = useCallback((page: number) => {
     if (page >= 1 && page <= numPages) {
-      ensurePageRendered(page, () => scrollToPage(page))
+      const navigation = ++navigationRef.current
+      ensurePageRendered(page, () => { if (navigation === navigationRef.current) scrollToPage(page) })
     }
   }, [numPages, ensurePageRendered, scrollToPage])
 
@@ -771,10 +835,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
               <div
                 key={pageNum}
                 data-page={pageNum}
-                ref={el => {
-                  if (el) pageRefs.current.set(pageNum, el)
-                  else pageRefs.current.delete(pageNum)
-                }}
+                ref={bindPageRef(pageNum)}
                 className="relative transition-all duration-300"
                 style={activePage === pageNum
                   ? { boxShadow: '0 0 0 2px var(--accent)', transform: 'scale(1.01)' }
@@ -783,7 +844,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
                 <Page
                   pageNumber={pageNum}
                   scale={scale}
-                  onLoadSuccess={onPageRenderSuccess}
+                  onLoadSuccess={page => onPageLoadSuccess(pageNum, page)}
+                  onRenderSuccess={() => { renderedPagesRef.current.set(pageNum, scale); restoreZoomAnchor() }}
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
                   className=""
@@ -812,7 +874,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       {/* 标注索引面板 */}
       {showAnnotationIndex && annotationGroups.length > 0 && (
         <aside
-          className="absolute right-3 bottom-14 z-20 w-[19rem] max-h-[55%] flex flex-col overflow-hidden"
+          className="absolute right-3 bottom-14 z-20 w-[19rem] max-w-[calc(100%-1.5rem)] max-h-[55%] flex flex-col overflow-hidden"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border)',

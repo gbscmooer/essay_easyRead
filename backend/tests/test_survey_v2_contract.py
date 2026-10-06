@@ -125,12 +125,14 @@ def test_reconcile_marks_v1_failed_but_exempts_v2(engine):
         v2 = ExplorationRun(question="v2 leased", status="running",
                             workflow_version=WORKFLOW_ACADEMIC_SURVEY_V2, state_version=2)
         session.add(v1)
+        session.commit()
+        v1_id = v1.id
+    assert reconcile_interrupted_runs(engine) == 1
+    with Session(engine) as session:
         session.add(v2)
         session.commit()
-        v1_id, v2_id = v1.id, v2.id
-
-    count = reconcile_interrupted_runs(engine)
-    assert count == 1
+        v2_id = v2.id
+    assert reconcile_interrupted_runs(engine) == 0
     with Session(engine) as session:
         assert session.get(ExplorationRun, v1_id).status == "failed"
         assert session.get(ExplorationRun, v2_id).status == "running"  # worker 租约负责恢复
@@ -245,7 +247,8 @@ def v1_env(engine):
 # ============================================================
 
 
-def test_create_v2_is_gated_with_contract_error(client):
+def test_create_v2_is_gated_with_contract_error(client, monkeypatch):
+    monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "false")
     response = client.post("/api/exploration/runs", json={
         "question": "检索增强生成综述研究",
         "depth": "deep",
@@ -266,8 +269,8 @@ def test_create_rejects_unknown_workflow_version(client):
     assert response.json()["code"] == "VALIDATION_ERROR"
 
 
-def test_create_v1_without_workflow_version_still_works(client, monkeypatch, engine):
-    """v1 默认行为不变：不传 workflow_version 的创建仍走旧链路（后台任务打桩防真实检索）。"""
+def test_create_explicit_v1_still_works(client, monkeypatch, engine):
+    """显式旧入口保留，后台任务打桩防真实检索。"""
     from backend.routers import exploration
 
     monkeypatch.setattr(exploration, "get_engine", lambda: engine)
@@ -276,7 +279,7 @@ def test_create_v1_without_workflow_version_still_works(client, monkeypatch, eng
         return None
 
     monkeypatch.setattr(exploration, "run_exploration", fake_run)
-    response = client.post("/api/exploration/runs", json={"question": "AI 肿瘤识别研究"})
+    response = client.post("/api/exploration/runs", json={"question": "AI 肿瘤识别研究", "workflow_version": "legacy_v1"})
     assert response.status_code == 200
     body = response.json()
     assert body["workflow_version"] == "legacy_v1"
@@ -286,6 +289,48 @@ def test_create_v1_without_workflow_version_still_works(client, monkeypatch, eng
         row = session.get(ExplorationRun, body["id"])
         assert row.workflow_version == "legacy_v1"
         assert "workflow" not in (row.options or {})
+
+
+@pytest.mark.parametrize("version", [{}, {"workflow_version": None}, {"workflow_version": "academic_survey_v2"}])
+def test_create_defaults_to_v19_with_frozen_options(client, monkeypatch, engine, version):
+    from backend.routers import exploration
+    from backend.services.deep_research.research_loop.contracts import LOOP_VERSION
+    from backend.config import settings
+
+    monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "true")
+    monkeypatch.setattr(exploration, "get_engine", lambda: engine)
+    started = []
+    monkeypatch.setattr(exploration.loop_worker, "start", lambda run_id: started.append(run_id))
+    monkeypatch.setattr(exploration, "start_worker", lambda *args: pytest.fail("Must not start legacy worker"))
+    response = client.post("/api/exploration/runs", json={
+        "question": "研究输入与测试判据", "depth": "quick",
+        "protocol_options": {"answer_criteria": ["区分训练和测试"]},
+        "budget": {"llm_tokens": 200000}, **version,
+    }, headers={"Origin": settings.frontend_origin})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == settings.frontend_origin
+    body = response.json()
+    assert body["workflow_version"] == "academic_survey_v2" and body["state_version"] == 1
+    assert started == [body["id"]]
+    with Session(engine) as session:
+        row = session.get(ExplorationRun, body["id"])
+        assert row.options["workflow"]["loop_revision"] == LOOP_VERSION == "question_loop_v20"
+        assert row.options["workflow"]["budget"] == {"llm_tokens": 200000}
+        assert row.options["workflow"]["protocol_options"] == {"answer_criteria": ["区分训练和测试"]}
+    assert client.get(f"/api/exploration/runs/{body['id']}").json()["workflow_version"] == "academic_survey_v2"
+
+
+@pytest.mark.parametrize("version", [{}, {"workflow_version": None}])
+def test_default_create_disabled_has_no_legacy_fallback(client, monkeypatch, engine, version):
+    from backend.routers import exploration
+
+    monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "false")
+    monkeypatch.setattr(exploration, "get_engine", lambda: engine)
+    monkeypatch.setattr(exploration.loop_worker, "start", lambda *args: pytest.fail("Disabled loop must not start"))
+    response = client.post("/api/exploration/runs", json={"question": "默认新版关闭", **version})
+    assert response.status_code == 400 and response.json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
+    with Session(engine) as session:
+        assert session.exec(select(ExplorationRun)).all() == []
 
 
 def test_v2_options_snapshot_roundtrip():
@@ -508,7 +553,10 @@ def test_pause_cancel_cas_and_unimplemented_resume_semantics(client, engine, v2_
     assert client.post(f"{base}/pause", json={}).status_code == 409
 
 
-def test_retry_requeues_failed_only_and_is_idempotent(client, engine, v2_env):
+def test_retry_requeues_failed_only_and_is_idempotent(client, engine, v2_env, monkeypatch):
+    from backend.services.deep_research.research_loop import worker
+    monkeypatch.setattr(worker, "supported", lambda run: True)
+    monkeypatch.setattr(worker, "start", lambda run_id: None)
     run_id = v2_env["run_id"]
     base = f"/api/exploration/runs/{run_id}"
     client.post(f"{base}/cancel", json={})
@@ -724,8 +772,8 @@ def test_task_idempotency_scoped_to_run(engine):
     from sqlalchemy.exc import IntegrityError
 
     with Session(engine) as session:
-        run_a = ExplorationRun(question="run a")
-        run_b = ExplorationRun(question="run b")
+        run_a = ExplorationRun(question="run a", status="done")
+        run_b = ExplorationRun(question="run b", status="done")
         session.add_all([run_a, run_b])
         session.commit()
         session.add(ResearchTask(run_id=run_a.id, kind="extract", idempotency_key="key-1"))
@@ -762,8 +810,8 @@ def test_task_idempotency_index_migrates_from_global(tmp_path):
     from sqlalchemy.exc import IntegrityError
 
     with Session(engine) as session:
-        run_a = ExplorationRun(question="a")
-        run_b = ExplorationRun(question="b")
+        run_a = ExplorationRun(question="a", status="done")
+        run_b = ExplorationRun(question="b", status="done")
         session.add_all([run_a, run_b])
         session.commit()
         session.add(ResearchTask(run_id=run_a.id, kind="extract", idempotency_key="same"))
@@ -896,6 +944,7 @@ def test_rollback_form_keeps_v2_readonly_and_blocks_writes(client, engine, v2_en
     """声明的回滚形态是「保留 S0 契约层」：v2 数据经 HTTP 只读可访问，
     新 v2 执行关闭，旧写入路径（v1 报告重建/删除）不能改动 v2，v1 入口照常。"""
     from backend.routers import exploration
+    monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "false")
 
     run_id = v2_env["run_id"]
     base = f"/api/exploration/runs/{run_id}"
@@ -920,4 +969,4 @@ def test_rollback_form_keeps_v2_readonly_and_blocks_writes(client, engine, v2_en
         return None
 
     monkeypatch.setattr(exploration, "run_exploration", fake_run)
-    assert client.post("/api/exploration/runs", json={"question": "v1 照常运行"}).status_code == 200
+    assert client.post("/api/exploration/runs", json={"question": "v1 照常运行", "workflow_version": "legacy_v1"}).status_code == 200

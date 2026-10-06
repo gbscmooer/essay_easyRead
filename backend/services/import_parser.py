@@ -377,26 +377,22 @@ _GO_IMPORT_RE = re.compile(r'import\s+(?:\(\s*(.*?)\s*\)|"([^"]+)")', re.DOTALL)
 
 
 def _parse_go(content: str) -> list[ParsedImport]:
-    """解析 Go import"""
+    """Parse standalone and grouped imports, preserving source line numbers."""
     results = []
     for m in _GO_IMPORT_RE.finditer(content):
-        if m.group(1):  # 多行 import block
-            for line_content in m.group(1).strip().split("\n"):
-                line_content = line_content.strip().strip('"').strip()
-                if line_content and not line_content.startswith("//"):
-                    # 去掉别名
-                    parts = line_content.rsplit("/", 1)
-                    module = parts[-1].strip().strip('"') if parts else line_content
-                    results.append(ParsedImport(
-                        module=line_content, names=[module],
-                        is_relative=False, line_number=0,
-                    ))
-        elif m.group(2):  # 单行 import
+        if m.group(1):
+            offset = m.start(1)
+            for line in m.group(1).splitlines(keepends=True):
+                match = re.match(r'\s*(?:[\w.]+\s+)?"([^"\n]+)"', line)
+                if match:
+                    module = match.group(1)
+                    results.append(ParsedImport(module=module, names=[module.rsplit("/", 1)[-1]],
+                        is_relative=False, line_number=content.count("\n", 0, offset) + 1))
+                offset += len(line)
+        elif m.group(2):
             module = m.group(2)
-            results.append(ParsedImport(
-                module=module, names=[module.rsplit("/", 1)[-1]],
-                is_relative=False, line_number=0,
-            ))
+            results.append(ParsedImport(module=module, names=[module.rsplit("/", 1)[-1]],
+                is_relative=False, line_number=content.count("\n", 0, m.start()) + 1))
     return results
 
 

@@ -1,18 +1,13 @@
-"""统一运行预算 Core（计划 §16.6 P2：统一预算和有限并发）。
+"""运行资源预算 Core；当前调用边界见 document.md §2.6。
 
-一次研究 run 的全部共享资源额度：活动墙钟（含交付预留）、底层模型尝试
-（含失败/重试）、输入/输出 token、来源 HTTP 尝试、材料数量、补充批次、
-交付修复次数。调用前原子预占（check-and-deduct，并发下不会多个任务同时
-花掉最后余额），结束后按实际用量结算并退还差额；暂停停走活动时钟，恢复
-沿用剩余额度——任何路径都不重置已消耗量。
+提供活动时钟、模型 attempt/input/output、HTTP、材料与补充批次的原子预留
+和结算，暂停不计活动时间，恢复沿用已消费账本。是否强制由调用者设置：
+当前 lite 默认强制，其他档默认仅记账；extract/synthesize/report 会脱离
+检索侧硬预算与期限，不能据此声称整次研究已有统一总成本上限。
 
-预设表是 §16.6 的新流程实验初值（lite 50 篇为用户指定上限，不要求凑满），
-不是对现有 legacy 流程直接换常量：legacy run 默认只做记账（enforce=False），
-新 lite 实验路径（P3）显式开启强制。
-
-时间语义：活动墙钟按 run 实际执行累计，暂停区间不计（"不把暂停算计算"
-的观测口径）；`research_seconds_left` 扣除交付预留——研究侧先到预留线即
-停止新增研究，交付侧继续用 `delivery_seconds_left`。测试可注入 clock。
+research_seconds_left 扣除交付预留，delivery_seconds_left 表示交付余量；
+具体执行器是否接入这些口径需看调用点。预设是资源配置，不是效果或完成保证。
+输出 token 为软提示，硬性保护和无进展终止仍需执行器配合。
 """
 
 from __future__ import annotations
@@ -21,14 +16,8 @@ import threading
 import time
 from typing import Any, Callable
 
-# §16.6 预设：资源上限（实验初值，非完成指标；单位见键名）
-# lite 按 v7.4.1 run6 无约束实测校准（65 次调用 / 29.8 万 token，其中 10.3 万
-# reasoning）：enforce 开启后限额约束新增调用，配合分级降级（跳过增强类调用）
-# 应完整跑完「50 篇召回 + 8 篇选材提取 + 报告」而非中途硬停。
-# v7.5：output_tokens 改为软限制（不再硬拦截调用，见 before_model_attempt /
-# llm_output_hint），预设放大 10 倍兜底——思考型模型（如 deepseek-flash）
-# reasoning 可占输出 84%，30k 硬额度在写作阶段前即被击穿（run4
-# DRAFT_WRITE_FAILED）；硬停兜底交给 model_attempts / input_tokens / 总时长。
+# 资源预设；数值单位见键名。模型 attempt 与输入有独立治理，输出为软提示。
+# 当前阶段接入范围见 document.md §2.6；后续分账与写作预留见重构方案。
 DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
     "lite": {
         "total_active_seconds": 900, "delivery_reserve_seconds": 240,

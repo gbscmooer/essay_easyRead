@@ -69,7 +69,7 @@ class ExplorationSynthesis(SQLModel):
 class ExplorationRun(SQLModel, table=True):
     """一次领域探索任务的执行记录（问句维度，不挂工作区）
 
-    academic_survey_v2 扩展（S0 冻结，见 docs/ACADEMIC_SURVEY_AGENT_PLAN_2026-09-08.md §7.1）：
+    academic_survey_v2 契约扩展（见 document.md §2.7；question_loop_v1 显式实验执行）：
     - workflow_version: legacy_v1（默认，含迁移前旧数据）| academic_survey_v2
     - state_version: 单调递增；v2 状态操作在事务内 compare-and-swap（陈旧版本 409）
     - protocol_asset_id: 指向 research_assets 中冻结的协议版本（v1 为 NULL）
@@ -84,7 +84,7 @@ class ExplorationRun(SQLModel, table=True):
     question: str                    # 学者的自然语言问句
     depth: str = "standard"          # lite | quick | standard | deep
     status: str = "pending"          # pending | running | done | failed（v2 另见 RUN_STATES_V2）
-    current_stage: Optional[str] = None  # decompose | recall | enrich | metrics | synthesize | persist
+    current_stage: Optional[str] = None  # preflight | protocol | recall | screen | select | extract | synthesize | report
     error_message: Optional[str] = None
 
     # 实际使用的检索源（scopus/openalex/…，透明度用）
@@ -103,6 +103,9 @@ class ExplorationRun(SQLModel, table=True):
     workflow_version: str = "legacy_v1"
     state_version: int = 0           # v2 创建时置 1，此后每次 CAS 状态变更 +1
     protocol_asset_id: Optional[str] = None
+    worker_owner: Optional[str] = None
+    worker_lease_expires_at: Optional[datetime] = None
+    active_seconds: float = 0.0
 
     # 运行实例身份（P1，计划 §16.5）：创建时落库的不可复用 UUID。数字 id 删除后
     # 可被 SQLite 复用，用量/性能归因以本字段为准（llm_usage_records.run_instance_id）；

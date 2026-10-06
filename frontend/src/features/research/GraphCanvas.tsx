@@ -119,6 +119,15 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
     if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
   }, [])
 
+  const stableNodes = useMemo(() => !graph ? [] : graph.nodes.map(n => ({
+        id: n.id,
+        name: n.label,
+        kind: n.kind,
+        meta: n.meta,
+        semantic: n.semantic,
+        _raw: n,
+      })), [graph])
+
   const graphData = useMemo(() => {
     if (!graph) return { nodes: [], links: [] }
     // 旧图谱（v2 及以前）里关系边叫 similar，与 related 同属「关联」筛选项
@@ -127,17 +136,9 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
       return edgeFilter.has(kind)
     })
     // 始终显示所有节点（含孤立节点），不因无边而过滤
-    const visibleNodes = graph.nodes
 
     return {
-      nodes: visibleNodes.map(n => ({
-        id: n.id,
-        name: n.label,
-        kind: n.kind,
-        meta: n.meta,
-        semantic: n.semantic,
-        _raw: n,
-      })),
+      nodes: stableNodes,
       links: filteredEdges.map(e => ({
         source: e.source,
         target: e.target,
@@ -148,7 +149,7 @@ export function GraphCanvas({ graph, edgeFilter, onSelectNode, onSelectEdge, lin
         semantic: e.semantic,
       })),
     }
-  }, [graph, edgeFilter])
+  }, [graph, edgeFilter, stableNodes])
 
   useEffect(() => {
     if (fgRef.current && graphData.nodes.length > 0 && size.w > 0) {

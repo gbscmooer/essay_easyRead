@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from threading import RLock
 from collections import OrderedDict
 
 import numpy as np
@@ -23,6 +24,7 @@ from .reranker import rerank
 
 RRF_K = 60
 _vectors: OrderedDict[tuple, list[float]] = OrderedDict()
+_vectors_lock = RLock()
 
 
 def paper_text(paper: dict) -> str:
@@ -58,19 +60,22 @@ async def document_vectors(texts: list[str]) -> np.ndarray:
     cfg = get_embedding_config()
     identity = (cfg.get("provider"), cfg.get("base_url"), cfg.get("model"))
     keys = [identity + (hashlib.sha256(t.encode()).hexdigest(),) for t in texts]
-    missing = list(dict.fromkeys(i for i, k in enumerate(keys) if k not in _vectors))
+    with _vectors_lock:
+        local = {k: _vectors[k] for k in keys if k in _vectors}
+    missing = [i for i, k in enumerate(keys) if k not in local]
     batch = max(1, min(32, int(cfg.get("batch_size") or 32)))
     for start in range(0, len(missing), batch):
         indices = missing[start:start + batch]
         embedded = _validated_vectors(await embed_texts([texts[i] or " " for i in indices]), len(indices))
         for i, vector in zip(indices, embedded):
-            _vectors[keys[i]] = vector.tolist()
-    # Collect before eviction: a large request can exceed the cache capacity.
-    result = _validated_vectors([_vectors[k] for k in keys], len(keys))
-    for key in keys:
-        _vectors.move_to_end(key)
-    while len(_vectors) > 4096:
-        _vectors.popitem(last=False)
+            local[keys[i]] = vector.tolist()
+    result = _validated_vectors([local[k] for k in keys], len(keys))
+    with _vectors_lock:
+        for key in keys:
+            _vectors[key] = local[key]
+            _vectors.move_to_end(key)
+        while len(_vectors) > 4096:
+            _vectors.popitem(last=False)
     return result
 
 

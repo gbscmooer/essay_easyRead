@@ -391,7 +391,7 @@ def load_config_key(path: Optional[str] = None) -> dict:
             "temperature", "max_tokens", "thinking_effort", "timeout_seconds",
         )
         for k in valid_keys:
-            if k in data and data[k] is not None and data[k] != "":
+            if k not in llm_cfg and k in data and data[k] is not None and data[k] != "":
                 llm_cfg[k] = data[k]
             elif k in data and k not in llm_cfg:
                 llm_cfg[k] = data[k]
@@ -449,8 +449,8 @@ def save_llm_profile_keys(keys: dict, path: Optional[str] = None) -> str:
         return target_path
 
     existing = read_file_config(target_path)
-    llm_section = existing.get("llm") if isinstance(existing.get("llm"), dict) else {"api_key": ""}
-    content_data = {"llm": llm_section, "llm_profiles": {str(k): str(v or "") for k, v in keys.items()}}
+    content_data = copy.deepcopy(existing)
+    content_data["llm_profiles"] = {str(k): str(v or "") for k, v in keys.items()}
     _write_config_key_data(content_data, target_path)
     return target_path
 
@@ -581,8 +581,9 @@ def _to_toml_val(val) -> str:
     elif isinstance(val, (int, float)):
         return str(val)
     elif isinstance(val, str):
-        escaped = val.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        return f'"{escaped}"'
+        return json.dumps(val, ensure_ascii=False)
+    elif isinstance(val, dict):
+        return "{ " + ", ".join(f"{json.dumps(str(k))} = {_to_toml_val(v)}" for k, v in val.items()) + " }"
     elif isinstance(val, list):
         items = [_to_toml_val(x) for x in val]
         return f"[{', '.join(items)}]"
@@ -597,9 +598,9 @@ def dump_toml(data: dict, prefix: str = "") -> str:
         if isinstance(v, dict):
             subtables.append((k, v))
         else:
-            lines.append(f"{k} = {_to_toml_val(v)}")
+            lines.append(f"{json.dumps(str(k))} = {_to_toml_val(v)}")
     for sub_k, sub_v in subtables:
-        header = f"{prefix}.{sub_k}" if prefix else sub_k
+        header = f"{prefix}.{json.dumps(str(sub_k))}" if prefix else json.dumps(str(sub_k))
         lines.append("")
         lines.append(f"[{header}]")
         sub_res = dump_toml(sub_v, header)
@@ -857,8 +858,7 @@ def _persist_llm_profiles_section(section: dict) -> None:
     main_config = read_file_config(target_path)
     if not main_config:
         main_config = _deep_copy_default()
-    main_config.pop("analysis", None)
-    main_config.pop("translate", None)
+    # Profile edits do not remove legacy migration sources before activation.
     main_config["llm_profiles"] = section
     dump_file_config(main_config, target_path)
 
@@ -987,7 +987,7 @@ def ensure_default_llm_profile() -> dict:
     section["profiles"] = [profile]
     section["active_id"] = profile["id"]
     _persist_llm_profiles_section(section)
-    return get_llm_profiles()
+    return activate_llm_profile(profile["id"])
 
 
 def export_config(fmt: str = "yaml", mask_keys: bool = False) -> tuple[str, str, str]:
@@ -1167,3 +1167,15 @@ def get_reranker_config() -> dict:
     if not cfg.get("base_url"):
         cfg["base_url"] = full.get("embedding", {}).get("base_url", "")
     return cfg
+
+
+def save_ui_theme(theme: str) -> dict:
+    config = load_config()
+    ui = copy.deepcopy(config.get("ui") or DEFAULT_CONFIG["ui"])
+    allowed = {"light", "dark", *("custom:" + str(t.get("id")) for t in ui.get("custom_themes") or [])}
+    if theme not in allowed:
+        raise ValueError("主题不存在")
+    ui["theme"] = theme
+    config["ui"] = ui
+    save_config(config)
+    return ui

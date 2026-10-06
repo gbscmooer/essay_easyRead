@@ -47,11 +47,14 @@ class LLMResponseError(LLMError, ValueError):
         model: str,
         request_id: object = None,
         content_length: int = 0,
+        finish_reason: str | None = None,
     ) -> None:
         self.content_length = max(0, int(content_length or 0))
+        self.finish_reason = finish_reason if finish_reason in {"stop", "length", "max_tokens", "content_filter", "tool_calls"} else None
+        suffix = f" finish_reason={self.finish_reason}" if self.finish_reason else ""
         super().__init__(
             code,
-            f"content_length={self.content_length}",
+            f"content_length={self.content_length}{suffix}",
             base_url=base_url,
             model=model,
             request_id=request_id,

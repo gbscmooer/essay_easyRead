@@ -71,7 +71,7 @@ def _subquestions(table: str, fact: dict, quote: str = "") -> list[str]:
         if any(word in joined for word in ("throughput", "latency", "speed", "memory",
                                            "flop", "img/s", "fps")):
             result.append("runtime_efficiency")
-        if fact.get("hardware") or fact.get("batch_size") or fact.get("input_size") or fact.get("precision"):
+        if (fact.get("hardware") or fact.get("batch_size") or fact.get("input_size") or fact.get("precision")) and "runtime_efficiency" not in result:
             result.append("runtime_efficiency")
     elif table == "taxonomy":
         result = ["method_mechanism"]

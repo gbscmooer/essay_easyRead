@@ -128,13 +128,6 @@ async def _register_and_download(
     async with SEM:
         with Session(_get_engine(), expire_on_commit=False) as s:
             path = await download_for_paper(s, paper.id)
-            if path:
-                paper = s.get(Paper, paper.id)
-                if paper and paper.download_status == "available":
-                    paper.status = "indexed"
-                    s.add(paper)
-                    s.commit()
-                    s.refresh(paper)
 
     with Session(_get_engine(), expire_on_commit=False) as s:
         paper = s.get(Paper, paper.id)
@@ -257,13 +250,6 @@ async def _register_legacy_ref(
     async with SEM:
         with Session(_get_engine(), expire_on_commit=False) as s:
             path = await download_for_paper(s, paper.id)
-            if path:
-                paper = s.get(Paper, paper.id)
-                if paper and paper.download_status == "available":
-                    paper.status = "indexed"
-                    s.add(paper)
-                    s.commit()
-                    s.refresh(paper)
 
     with Session(_get_engine(), expire_on_commit=False) as s:
         paper = s.get(Paper, paper.id)

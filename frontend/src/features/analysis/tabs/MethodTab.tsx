@@ -68,7 +68,7 @@ export function MethodTab({ result }: MethodTabProps) {
       {method.key_modules && method.key_modules.length > 0 && (
         <section>
           <h2 className="text-heading text-[15px] mb-3.5" style={{ color: 'var(--text-primary)' }}>关键模块</h2>
-          <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+          <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
             <table className="w-full text-[13px]">
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>

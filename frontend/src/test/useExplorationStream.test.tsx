@@ -33,6 +33,14 @@ afterEach(() => {
 })
 
 describe('useExplorationStream stage loop events', () => {
+  it('updates persisted active time from the question loop heartbeat and resets across runs', () => {
+    vi.stubGlobal('EventSource', MockEventSource)
+    const { result, rerender } = renderHook(({ id }) => useExplorationStream(id), { initialProps: { id: 12 } })
+    act(() => MockEventSource.current?.emit('run_status', { status: 'running', active_seconds: 42 }))
+    expect(result.current.activeSeconds).toBe(42)
+    rerender({ id: 13 })
+    expect(result.current.activeSeconds).toBeUndefined()
+  })
   it('shows bounded ReAct iteration progress without exposing rationale text', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const { result, unmount } = renderHook(() => useExplorationStream(12))

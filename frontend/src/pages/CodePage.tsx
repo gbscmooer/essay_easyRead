@@ -24,6 +24,7 @@ export default function CodePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [scrollToLine, setScrollToLine] = useState<number | null>(null)
+  const [navigationId, setNavigationId] = useState(0)
 
   const [leftWidth, setLeftWidth] = useState(240)
   const [rightWidth, setRightWidth] = useState(320)
@@ -97,6 +98,7 @@ export default function CodePage() {
   const handleFileClick = useCallback((path: string, line?: number) => {
     setSelectedFile(path)
     setScrollToLine(line ?? null)
+    setNavigationId(value => value + 1)
   }, [])
 
   useEffect(() => {
@@ -234,7 +236,7 @@ export default function CodePage() {
         {leftCollapsed && (
           <button
             onClick={() => setLeftCollapsed(false)}
-            className="absolute left-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200 focus-glow group"
+            className="shrink-0 w-6 h-full flex items-center justify-center transition-all duration-200 focus-glow group"
             style={{ backgroundColor: 'var(--bg-surface)', borderRight: '1px solid var(--border)' }}
             title="展开文件栏"
             aria-label="展开文件栏"
@@ -270,8 +272,8 @@ export default function CodePage() {
         )}
 
         {/* 中间：代码查看器 */}
-        <div className="flex-1 overflow-hidden">
-          <CodeViewer paperId={paperId} filePath={selectedFile} scrollToLine={scrollToLine} />
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <CodeViewer paperId={paperId} filePath={selectedFile} scrollToLine={scrollToLine} navigationId={navigationId} />
         </div>
 
         {/* 右侧拖拽条 */}
@@ -300,7 +302,7 @@ export default function CodePage() {
         {rightCollapsed && (
           <button
             onClick={() => setRightCollapsed(false)}
-            className="absolute right-0 top-0 bottom-0 z-10 w-6 flex items-center justify-center transition-all duration-200 focus-glow group"
+            className="shrink-0 w-6 h-full flex items-center justify-center transition-all duration-200 focus-glow group"
             style={{ backgroundColor: 'var(--bg-surface)', borderLeft: '1px solid var(--border)' }}
             title="展开分析栏"
             aria-label="展开分析栏"

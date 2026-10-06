@@ -201,6 +201,9 @@ from ..models.research_core import (
     ResearchReportRevision,
     ResearchTask,
     ResearchTaskAttempt,
+    ResearchQuestion,
+    ResearchAnswerRevision,
+    ResearchDossierRevision,
     WORKFLOW_ACADEMIC_SURVEY_V2,
 )
 from ..models.tag import Tag, PaperTag
@@ -274,6 +277,9 @@ def _migrate_schema(engine) -> None:
             ("workflow_version", "TEXT NOT NULL DEFAULT 'legacy_v1'"),
             ("state_version", "INTEGER NOT NULL DEFAULT 0"),
             ("protocol_asset_id", "TEXT"),
+            ("worker_owner", "TEXT"),
+            ("worker_lease_expires_at", "TIMESTAMP"),
+            ("active_seconds", "REAL NOT NULL DEFAULT 0"),
         ]
         for col_name, col_def in exploration_v2_migrations:
             _validate_column_name(col_name)
@@ -304,7 +310,30 @@ def _migrate_schema(engine) -> None:
             ResearchBudgetEvent.__table__,
             ResearchEvent.__table__,
             ResearchIdentityDecision.__table__,
+            ResearchQuestion.__table__,
+            ResearchAnswerRevision.__table__,
+            ResearchDossierRevision.__table__,
         ])
+
+        # Loop schema v1：先建新表，再为旧表加列；不改历史证据的支持状态。
+        additions = {
+            "research_evidence": [
+                ("question_ids", "JSON NOT NULL DEFAULT '[]'"),
+                ("fact", "TEXT NOT NULL DEFAULT ''"),
+                ("evidence_kind", "TEXT NOT NULL DEFAULT 'fact'"),
+                ("source_kind", "TEXT NOT NULL DEFAULT 'unknown'"),
+                ("conditions", "JSON NOT NULL DEFAULT '{}'"),
+                ("missing_fields", "JSON NOT NULL DEFAULT '[]'"),
+                ("verification", "JSON NOT NULL DEFAULT '{}'"),
+            ],
+            "research_report_revisions": [("dossier_revision_id", "TEXT")],
+        }
+        for table, columns in additions.items():
+            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, definition in columns:
+                if name not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            conn.commit()
 
         # research_tasks 幂等键唯一索引（S0 复审修正 F2）：旧全局唯一索引会阻断
         # 同协议的另一个 run 建立自己的账本；改为 (run_id, idempotency_key) 唯一。
@@ -574,6 +603,24 @@ def _migrate_schema(engine) -> None:
             logger.info("Migration: ensured active research_runs unique index")
         except Exception as e:
             logger.warning(f"Migration failed for active research_runs unique index: {e}")
+
+        if conn.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE type='table' AND name='exploration_runs'").first():
+            conn.exec_driver_sql("""
+                CREATE TRIGGER IF NOT EXISTS exploration_one_active_insert
+                BEFORE INSERT ON exploration_runs
+                WHEN NEW.status IN ('pending', 'running', 'paused')
+                AND EXISTS (SELECT 1 FROM exploration_runs WHERE status IN ('pending', 'running', 'paused'))
+                BEGIN SELECT RAISE(ABORT, 'EXPLORATION_RUNNING'); END
+            """)
+            conn.exec_driver_sql("""
+                CREATE TRIGGER IF NOT EXISTS exploration_one_active_update
+                BEFORE UPDATE OF status ON exploration_runs
+                WHEN NEW.status IN ('pending', 'running', 'paused')
+                AND OLD.status NOT IN ('pending', 'running', 'paused')
+                AND EXISTS (SELECT 1 FROM exploration_runs WHERE id != NEW.id AND status IN ('pending', 'running', 'paused'))
+                BEGIN SELECT RAISE(ABORT, 'EXPLORATION_RUNNING'); END
+            """)
+            conn.commit()
 
         # create_all does not add new indexes to an already existing table.
         if conn.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE type='table' AND name='exploration_messages'").first():

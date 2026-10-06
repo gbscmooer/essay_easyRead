@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ from .routers.annotations import router as annotations_router
 from .routers.agent_tools import router as agent_tools_router
 
 
-APP_VERSION = "6.2.0"
+APP_VERSION = "9.0.0"
 DEFAULT_RATE_LIMIT = "120/minute"
 
 _STATUS_ERROR_CODES = {
@@ -123,6 +124,18 @@ def register_http_error_handlers(target_app: FastAPI) -> None:
     target_app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
     target_app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     target_app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    target_app.add_exception_handler(IntegrityError, integrity_exception_handler)
+
+
+async def integrity_exception_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    if "EXPLORATION_RUNNING" in str(exc.orig):
+        return JSONResponse(status_code=409, content={
+            "detail": "已有运行中的探索任务", "code": "EXPLORATION_RUNNING",
+        })
+    logger.error("Database constraint failed (%s)", type(exc.orig).__name__)
+    return JSONResponse(status_code=500, content={
+        "detail": "数据库写入失败", "code": "INTERNAL_ERROR",
+    })
 
 
 @asynccontextmanager
@@ -337,15 +350,15 @@ async def open_vscode(request: Request, req: dict):
 
     path = req.get("path", "")
     if not path or not os.path.exists(path):
-        return {"error": "路径不存在"}
+        raise StarletteHTTPException(status_code=404, detail={"detail": "路径不存在", "code": "NOT_FOUND"})
 
     real_path = os.path.realpath(path)
     project_root = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
     try:
         if os.path.commonpath([real_path, project_root]) != project_root:
-            return {"error": "路径不在项目目录内"}
+            raise StarletteHTTPException(status_code=400, detail={"detail": "路径不在项目目录内", "code": "INVALID_PATH"})
     except ValueError:
-        return {"error": "路径不在项目目录内"}
+        raise StarletteHTTPException(status_code=400, detail={"detail": "路径不在项目目录内", "code": "INVALID_PATH"})
 
     code_cmd = shutil.which("code")
     if not code_cmd:
@@ -354,11 +367,11 @@ async def open_vscode(request: Request, req: dict):
             code_cmd = mac_path
 
     if not code_cmd:
-        return {"error": "未找到 VSCode，请确保已安装并将 'code' 命令添加到 PATH"}
+        raise StarletteHTTPException(status_code=503, detail={"detail": "未找到 VSCode，请确保已安装并将 'code' 命令添加到 PATH", "code": "VSCODE_UNAVAILABLE"})
 
     try:
         subprocess.Popen([code_cmd, real_path], start_new_session=True)
         return {"message": f"已打开 VSCode: {real_path}"}
     except Exception as e:
         logger.error(f"Failed to open VSCode: {e}")
-        return {"error": "打开失败"}
+        raise StarletteHTTPException(status_code=500, detail={"detail": "打开失败", "code": "VSCODE_OPEN_FAILED"})

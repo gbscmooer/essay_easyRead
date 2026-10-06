@@ -1,6 +1,6 @@
 """url_security 结构化校验失败契约测试（PDF 下载 DNS 阻断专项配套）。
 
-验收基线见 docs/PDF_DOWNLOAD_DNS_FIX_PLAN_2026-09-18.md 第 5 节：
+当前地址校验边界见 document.md §2.10；下列用例检验失败分类：
 - 198.18/私网/链路本地字面量与解析地址一律拒绝，结构化标注 NON_PUBLIC_ADDRESS_BLOCKED；
 - 同一域名混合公网+非公网解析结果整体拒绝，不挑公网放行；
 - DNS 解析失败单独归类 DNS_RESOLUTION_FAILED；

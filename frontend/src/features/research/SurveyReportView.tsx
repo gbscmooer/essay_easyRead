@@ -130,21 +130,31 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
 }) {
   const references = useMemo(() => new Map((report?.references ?? []).map(p => [p.key, p])), [report])
   const citations = useMemo(() => Object.fromEntries((report?.references ?? []).map((p, i) => [String(i + 1), p.key])), [report])
-  const years = useMemo(() => Object.entries(report?.bibliometrics.by_year ?? {}).sort(([a], [b]) => Number(a) - Number(b)).map(([year, count]) => ({ year, count })), [report])
-  const noResults = report?.status === 'no_results'
+  const years = useMemo(() => Object.entries(report?.bibliometrics?.by_year ?? {}).sort(([a], [b]) => Number(a) - Number(b)).map(([year, count]) => ({ year, count })), [report])
+  const planningFailed = report?.method?.stop_reason === 'planning_failed'
+  const modelFailedBeforeSearch = report?.method?.stop_reason === 'model_error' && report.coverage.corpus === 0
+    && (report.search_summary?.attempts?.length ?? 0) === 0
+  const selectionFailed = report?.method?.stop_reason === 'material_selection_failed'
+  const selectionEmpty = report?.method?.stop_reason === 'material_selection_empty'
+  const noResults = report?.status === 'no_results' && !planningFailed && !modelFailedBeforeSearch
   const delivery = report?.delivery
+  const frozenAnswerStatus = delivery?.answer_status ?? (
+    delivery?.narrative_source === 'frozen_answers' && report?.coverage.used === 0 ? 'none' : undefined
+  )
   const isPreliminary = delivery?.narrative_source === 'preliminary'
   const isUnavailable = delivery?.narrative_source === 'none'
   // 执行与答案生成分列显示；报告生成后即结束，不再展示核验状态。
-  const execChip = !report ? '' : noResults ? '执行完成 · 检索未命中'
+  const execChip = !report ? '' : modelFailedBeforeSearch ? '模型调用失败 · 未执行搜索' : selectionEmpty ? '未形成阅读组合' : selectionFailed ? '选材未完成' : planningFailed ? '规划失败 · 未执行搜索' : noResults ? '执行完成 · 检索未命中'
     : report.status === 'completed' ? '执行完成'
     : report.status === 'partial' ? '执行部分完成'
     : report.status === 'unavailable' ? '执行未完成' : '执行状态未知'
-  const answerChip = !report ? '' : noResults ? '答案未生成 · 检索审计'
+  const answerChip = !report ? '' : planningFailed || modelFailedBeforeSearch ? '答案未生成' : noResults ? '答案未生成 · 检索审计'
     : !delivery ? '旧版报告 · 生成状态未记录'
-    : delivery?.narrative_source === 'final_draft' ? '答案已生成'
+    : frozenAnswerStatus === 'none' ? '尚无通过核查的答案'
+    : frozenAnswerStatus === 'partial' ? '已有部分有据回答'
+    : delivery?.narrative_source === 'final_draft' || delivery?.narrative_source === 'frozen_answers' ? '答案已生成'
     : isPreliminary ? '答案未生成 · 仅前置预览' : '答案未生成'
-  const statusBadge = !report ? '' : noResults ? '检索未命中 · 报告已生成'
+  const statusBadge = !report ? '' : modelFailedBeforeSearch ? '模型调用失败 · 未执行搜索' : selectionEmpty ? '未形成阅读组合 · 具体缺口已保留' : selectionFailed ? '选材工具未完成 · 材料已保留' : planningFailed ? '规划失败 · 未执行搜索' : noResults ? '检索未命中 · 报告已生成'
     : isUnavailable ? '未生成终稿 · 保留证据表'
     : isPreliminary ? '前置综合预览 · 终稿未生成'
     : delivery?.delivery_status === 'ready' || report.quality_status === 'internally_checked' ? '报告已生成'
@@ -175,28 +185,50 @@ export function SurveyReportView({ report, runId, busy, onGenerate, error }: {
       </section>
       <section id="survey-directions" className="survey-section"><h3><ListTree size={18} />建议补搜方向</h3><p className="survey-note">以下内容是查询策略建议，不是关于领域现状的事实结论。</p><ul>{(report.search_summary?.directions ?? []).map((text, i) => <li key={i}>{text}</li>)}</ul>{!report.search_summary?.directions?.length && <p className="survey-empty">当前搜索记录不足以自动形成补搜方向。</p>}</section>
       <section id="survey-limits" className="survey-section"><h3><Layers size={18} />结论边界</h3><p>{report.search_summary?.interpretation || '本次零命中不能证明全领域不存在相关工作。'}</p><ul>{report.warnings.map((text, i) => <li key={i}>{text}</li>)}</ul></section>
+    </> : report.chapters ? <>
+      <section className="survey-section"><h3>研究结论与依据</h3><EvidenceMarkdown text={planningFailed ? '研究规划未完成，尚未执行文献检索与分析；当前没有研究结论。' : report.summary} papers={report.references} citations={citations} />
+        <p>停止原因：{({ required_questions_supported: '必答问题已有依据支持', no_progress: '多次尝试未补充有效依据',
+          no_actionable_gap: '当前没有可执行的补充方向', resource_limit: '已到本次研究的资源上限', action_limit: '已到本次研究的工作轮次上限',
+          material_selection_empty: '未选出可执行的阅读组合，具体缺口已保留', material_selection_failed: '选材工具未完成，已保留召回材料', planning_failed: '研究计划未通过校验', model_error: '模型服务调用未完成' } as Record<string, string>)[String(report.method?.stop_reason)] ?? '未记录'} · {report.quality_status === 'internally_checked' ? '已进行内部支持检查' : '仍有未解决问题'}；尚未经人工评审。</p>
+        <dl className="survey-stat-strip survey-stat-strip--5">{[['相关候选', report.coverage?.corpus ?? 0], ['可读材料', report.coverage?.with_material ?? 0],
+          ['已读材料', report.coverage?.examined ?? 0], ['答案引用', report.coverage?.used ?? report.references?.length ?? 0],
+          ['全文材料', report.coverage?.full_text ?? 0]].map(([name, count]) => <div key={name}><dt>{name}</dt><dd>{count}<small> 篇</small></dd></div>)}</dl>
+      </section>
+      {report.chapters.map(chapter => <section className="survey-section" key={chapter.question_id}>
+        <h3>{chapter.title}</h3>
+        <EvidenceMarkdown text={chapter.text} papers={report.references} citations={citations} />
+        <details><summary>原文依据（{chapter.evidence.length} 条）</summary>
+          {chapter.evidence.map(evidence => <blockquote key={evidence.evidence_id}>
+            <p>{evidence.paper_key && references.has(evidence.paper_key) && <PaperTitle paper={references.get(evidence.paper_key)!} />}
+              <span className="survey-source-kind">{evidence.source_kind === 'abstract' ? '摘要' : '全文片段'}</span></p>
+            <p>{evidence.fact}</p>
+            {evidence.spans.map((span, i) => <p key={i}>{span.quote}{span.page ? `（第 ${span.page} 页）` : ''}</p>)}
+          </blockquote>)}
+        </details>
+      </section>)}
+      <ReferencesSection references={report.references} />
     </> : (report.references ?? []).length === 0 ? <p className="survey-empty">这是旧版无材料记录，尚未保存可审计的检索明细；可点击“重新生成”生成零命中报告。</p> : <>
       <nav className="survey-toc" aria-label="报告目录">{[['scope', '摘要与范围'], ['taxonomy', '技术分类'], ['frameworks', '评估框架'], ['metrics', '维度与指标'], ['tasks', '任务与数据集'], ['experiments', '实验比较'], ['limits', '局限'], ['references', '参考文献']].map(([id, label]) => <a key={id} href={`#survey-${id}`}>{label}</a>)}</nav>
       <section id="survey-scope" className="survey-section"><h3><FileText size={18} />摘要与研究范围</h3>
         <EvidenceMarkdown text={report.summary || '本次材料尚未形成跨文献摘要。'} papers={report.references} citations={citations} />
         {report.findings.length > 0 && <><h4>跨文献发现</h4><ul>{report.findings.map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul></>}
-        <dl className="survey-stat-strip">{[['材料总量', report.coverage.corpus], ['已提取证据', report.coverage.examined], ['全文片段', report.coverage.full_text], ['仅摘要', report.coverage.abstract_only]].map(([name, count]) => <div key={name}><dt>{name}</dt><dd>{count}<small> 篇</small></dd></div>)}</dl>
+        <dl className="survey-stat-strip">{[['材料总量', report.coverage?.corpus ?? 0], ['已提取证据', report.coverage?.examined ?? 0], ['全文片段', report.coverage?.full_text ?? 0], ['仅摘要', report.coverage?.abstract_only ?? 0]].map(([name, count]) => <div key={name}><dt>{name}</dt><dd>{count}<small> 篇</small></dd></div>)}</dl>
         <div className="survey-year-chart"><h4>本次材料的发表年份分布</h4><ResponsiveContainer width="100%" height={190}><BarChart data={years} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" /><XAxis dataKey="year" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} /><YAxis allowDecimals={false} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} /><Tooltip /><Bar dataKey="count" name="论文数" fill="#288b7d" maxBarSize={44} />
         </BarChart></ResponsiveContainer></div>
       </section>
-      <section id="survey-taxonomy" className="survey-section"><h3><ListTree size={18} />技术分类与研究范式</h3><SummaryTable rows={report.tables.taxonomy} columns={['category', 'description']} references={references} caption="Technical Taxonomy" /></section>
-      <section id="survey-frameworks" className="survey-section"><h3><FlaskConical size={18} />评估框架汇总</h3><SummaryTable rows={report.tables.frameworks} columns={['name', 'kind', 'target', 'aspects', 'metrics']} references={references} caption="Summary of Evaluation Frameworks" /></section>
-      <section id="survey-metrics" className="survey-section"><h3><Grid3X3 size={18} />评估维度与指标</h3><SummaryTable rows={report.tables.metrics} columns={['aspect', 'metric', 'description']} references={references} caption="Summary of Metrics Applicable to Evaluation Aspects" />
-        <SurveyHeatmap matrix={report.matrices.aspect_metric} title="评估维度 × 指标" references={references} />
+      <section id="survey-taxonomy" className="survey-section"><h3><ListTree size={18} />技术分类与研究范式</h3><SummaryTable rows={report.tables?.taxonomy ?? []} columns={['category', 'description']} references={references} caption="Technical Taxonomy" /></section>
+      <section id="survey-frameworks" className="survey-section"><h3><FlaskConical size={18} />评估框架汇总</h3><SummaryTable rows={report.tables?.frameworks ?? []} columns={['name', 'kind', 'target', 'aspects', 'metrics']} references={references} caption="Summary of Evaluation Frameworks" /></section>
+      <section id="survey-metrics" className="survey-section"><h3><Grid3X3 size={18} />评估维度与指标</h3><SummaryTable rows={report.tables?.metrics ?? []} columns={['aspect', 'metric', 'description']} references={references} caption="Summary of Metrics Applicable to Evaluation Aspects" />
+        {report.matrices?.aspect_metric && <SurveyHeatmap matrix={report.matrices.aspect_metric} title="评估维度 × 指标" references={references} />}
       </section>
-      <section id="survey-tasks" className="survey-section"><h3><Table2 size={18} />下游任务与数据集</h3><SummaryTable rows={report.tables.tasks} columns={['task', 'subtask', 'dataset', 'method']} references={references} caption="Downstream Tasks and Datasets" />
-        <SurveyHeatmap matrix={report.matrices.task_dataset} title="下游任务 × 数据集" references={references} />
+      <section id="survey-tasks" className="survey-section"><h3><Table2 size={18} />下游任务与数据集</h3><SummaryTable rows={report.tables?.tasks ?? []} columns={['task', 'subtask', 'dataset', 'method']} references={references} caption="Downstream Tasks and Datasets" />
+        {report.matrices?.task_dataset && <SurveyHeatmap matrix={report.matrices.task_dataset} title="下游任务 × 数据集" references={references} />}
       </section>
-      <section id="survey-experiments" className="survey-section"><h3><FlaskConical size={18} />实验结果、条件与可比性</h3><SummaryTable rows={report.tables.experimental_comparisons ?? []} columns={['method', 'baseline_method', 'task', 'dataset', 'split', 'metric', 'value', 'baseline_value', 'unit', 'metric_direction', 'hardware', 'batch_size', 'input_size', 'precision', 'comparison_limit']} references={references} caption="Experimental Comparisons and Conditions" /></section>
+      <section id="survey-experiments" className="survey-section"><h3><FlaskConical size={18} />实验结果、条件与可比性</h3><SummaryTable rows={report.tables?.experimental_comparisons ?? []} columns={['method', 'baseline_method', 'task', 'dataset', 'split', 'metric', 'value', 'baseline_value', 'unit', 'metric_direction', 'hardware', 'batch_size', 'input_size', 'precision', 'comparison_limit']} references={references} caption="Experimental Comparisons and Conditions" /></section>
       <section id="survey-limits" className="survey-section"><h3><Layers size={18} />局限与未解决问题</h3>
-        <ul>{[...(report.limitations ?? report.gaps), ...report.warnings].map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul>
-        {(report.coverage.failed > 0 || report.coverage.rejected_rows > 0) && <p className="survey-note">提取失败 {report.coverage.failed} 篇；原文、字段或关系复核未通过 {report.coverage.rejected_rows} 条。</p>}
+        <ul>{[...(report.limitations ?? report.gaps ?? []), ...report.warnings].map((text, i) => <li key={i}><EvidenceMarkdown text={text} papers={report.references} citations={citations} /></li>)}</ul>
+        {((report.coverage?.failed ?? 0) > 0 || (report.coverage?.rejected_rows ?? 0) > 0) && <p className="survey-note">提取失败 {report.coverage?.failed ?? 0} 篇；原文、字段或关系复核未通过 {report.coverage?.rejected_rows ?? 0} 条。</p>}
         <p className="survey-note">报告生成后流程结束，未进行额外真实性核验。</p>
       </section>
       <ReferencesSection references={report.references} />

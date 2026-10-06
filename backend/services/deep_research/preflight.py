@@ -61,21 +61,26 @@ async def _probe_arxiv() -> dict:
     search_topic 的最小真实查询补上这块盲区。role=supplement：arXiv 判死只
     触发召回熔断与警告，不参与「全部判死才快速失败」的主源判定。"""
     from .arxiv_client import search_topic
+    from ..http_diagnostics import capture_http_attempts, http_failure
 
     started = time.monotonic()
-    try:
-        rows = await asyncio.wait_for(search_topic("machine learning", limit=1), timeout=12.0)
-        return {"name": "arxiv", "role": "supplement", "status": "ok",
-                "detail": f"最小查询命中 {len(rows)} 条", "http_status": None,
-                "latency_ms": round((time.monotonic() - started) * 1000)}
-    except asyncio.TimeoutError:
-        return {"name": "arxiv", "role": "supplement", "status": "network_error",
-                "detail": "探测超时（12s）", "http_status": None,
-                "latency_ms": round((time.monotonic() - started) * 1000)}
-    except Exception as e:
-        return {"name": "arxiv", "role": "supplement", "status": "network_error",
-                "detail": f"探测失败（{type(e).__name__}）", "http_status": None,
-                "latency_ms": round((time.monotonic() - started) * 1000)}
+    with capture_http_attempts() as attempts:
+        result = {"name": "arxiv", "role": "supplement"}
+        try:
+            rows = await asyncio.wait_for(search_topic("machine learning", limit=1, timeout=12, max_attempts=1), timeout=12)
+            result.update(status="ok", detail=f"最小查询命中 {len(rows)} 条", http_status=200)
+        except Exception as exc:
+            error = http_failure(exc, attempts)
+            status = {"rate_limited": "rate_limited", "auth_error": "auth_error",
+                      "server_error": "error", "http_error": "error", "tool_error": "error"}.get(error["failure_kind"], "network_error")
+            code = error["http_status"]
+            detail = f"HTTP {code}：" if code else ""
+            detail += "限流，请稍后重试" if code == 429 else f"探测失败（{error['error_code']}）"
+            if not code and error["last_http_status"]:
+                detail += f"；此前响应 HTTP {error['last_http_status']}"
+            result.update(status=status, detail=detail, http_status=code)
+        result.update(latency_ms=round((time.monotonic() - started) * 1000), http_attempts=attempts)
+        return result
 
 
 async def preflight_research_sources(cfg: dict | None = None, *, use_cache: bool = True,

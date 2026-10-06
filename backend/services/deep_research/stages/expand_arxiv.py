@@ -393,13 +393,6 @@ async def _register_pdf_candidate(
 
     with Session(_get_engine(), expire_on_commit=False) as s:
         path = await download_for_paper(s, paper.id)
-        if path:
-            paper = s.get(Paper, paper.id)
-            if paper:
-                paper.status = "indexed"
-                s.add(paper)
-                s.commit()
-                s.refresh(paper)
 
     with Session(_get_engine(), expire_on_commit=False) as s:
         paper = s.get(Paper, paper.id)

@@ -37,7 +37,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
   if (!edge) return null
   const detail = edge.detail
   const rankFusion = detail?.method === 'weighted_rrf_v1'
-  const totalContribution = detail
+  const totalContribution = detail?.components
     ? detail.components.reduce((s, c) => s + Math.max(0, c.contribution), 0)
     : 0
   const isRelation = edge.kind === 'related' || edge.kind === 'similar'
@@ -146,7 +146,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
               </div>
               {detail && totalContribution > 0 && (
                 <div className="flex h-2.5 overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-                  {detail.components.filter(c => c.contribution > 0).map(c => (
+                  {(detail.components ?? []).filter(c => c.contribution > 0).map(c => (
                     <div
                       key={c.facet}
                       title={`${c.label} 贡献 ${c.contribution.toFixed(3)}`}
@@ -170,7 +170,7 @@ export function EdgeDetail({ edge, onClose }: { edge: SelectedEdge | null; onClo
               Disparity 保留标记（包含度数为 1 时的保留约定），不代表关联正确率。
             </p>}
 
-            {detail ? (
+            {detail?.components && detail.components.length > 0 ? (
               <div className="space-y-3">
                 <span className="text-label" style={{ color: 'var(--text-muted)' }}>通道分解</span>
                 {detail.components.map(c => (

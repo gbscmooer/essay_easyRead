@@ -522,7 +522,7 @@ async def run_target_recall(
         nonlocal excluded_count
         corpus = _dedupe_candidates(list(all_candidates))
         corpus, removed_info = apply_exclusions(corpus, active_exclusions.get())
-        excluded_count += int((removed_info or {}).get("count") or 0)
+        excluded_count = int((removed_info or {}).get("count") or 0)
         return corpus
 
     def _next_keywords(raw: Any) -> list[str]:

@@ -40,7 +40,7 @@ def _get_lock() -> asyncio.Lock:
 
 def _get_client() -> httpx.AsyncClient:
     global _client
-    if _client is None:
+    if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
             timeout=20.0,
             headers={"User-Agent": USER_AGENT},
@@ -49,23 +49,46 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
-async def _arxiv_request(qs: str) -> str:
+class ArxivResponseError(ValueError):
+    """A successful HTTP response did not contain a usable Atom feed."""
+
+
+def _validate_feed(text):
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ArxivResponseError("ARXIV_INVALID_ATOM") from exc
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    if root.tag != "{" + ns["atom"] + "}feed":
+        raise ArxivResponseError("ARXIV_INVALID_ATOM")
+    if any("/api/errors" in entry.findtext("atom:id", default="", namespaces=ns)
+           for entry in root.findall("atom:entry", ns)):
+        raise ArxivResponseError("ARXIV_API_ERROR")
+
+
+async def _arxiv_request(qs: str, *, timeout: float = 25, max_attempts: int = 2) -> str:
     """限速 GET，返回响应文本。串行调用，不可并发。"""
-    async with _get_lock():
-        hit = _query_cache.get(qs)
-        if hit and time.monotonic() - hit[0] < 600:
-            return hit[1]
-        from ..rate_limiter import resilient_get
-        resp = await resilient_get(ARXIV_API, params=dict(urllib.parse.parse_qsl(qs)),
-                                   client=_get_client(), max_retries=2, timeout=20)
-        _query_cache[qs] = (time.monotonic(), resp.text)
-        _query_cache.move_to_end(qs)
-        while len(_query_cache) > 128:
-            _query_cache.popitem(last=False)
-        return resp.text
+    from ..http_diagnostics import record_http_attempt
+    deadline = time.monotonic() + timeout
+    async with asyncio.timeout(timeout):
+        async with _get_lock():
+            hit = _query_cache.get(qs)
+            if hit and time.monotonic() - hit[0] < 600:
+                record_http_attempt({"phase": "cache", "http_status": 200, "elapsed_ms": 0})
+                return hit[1]
+            from ..rate_limiter import resilient_get
+            resp = await resilient_get(ARXIV_API, params=dict(urllib.parse.parse_qsl(qs)),
+                                       client=_get_client(), max_retries=max_attempts,
+                                       timeout=min(10, timeout), deadline=deadline)
+            _validate_feed(resp.text)
+            _query_cache[qs] = (time.monotonic(), resp.text)
+            _query_cache.move_to_end(qs)
+            while len(_query_cache) > 128:
+                _query_cache.popitem(last=False)
+            return resp.text
 
 
-async def search_topic(query: str, limit: int = 20) -> list[dict]:
+async def search_topic(query: str, limit: int = 20, *, timeout: float = 25, max_attempts: int = 2) -> list[dict]:
     """Single bounded query returning both abstracts and official full-text links."""
     terms = re.findall(r"[\w-]+", query, re.UNICODE)
     if not terms:
@@ -73,7 +96,8 @@ async def search_topic(query: str, limit: int = 20) -> list[dict]:
     qs = urllib.parse.urlencode({"search_query": " AND ".join(f"all:{t}" for t in terms),
                                  "sortBy": "relevance", "sortOrder": "descending",
                                  "max_results": min(max(limit, 1), 40)})
-    return _parse_entries(await _arxiv_request(qs), max_entries=min(max(limit, 1), 40))
+    return _parse_entries(await _arxiv_request(qs, timeout=timeout, max_attempts=max_attempts),
+                          max_entries=min(max(limit, 1), 40))
 
 
 # arXiv 扩展命名空间，<arxiv:primary_category term="cs.LG"/> 给出主学科分类

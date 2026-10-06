@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useLayoutEffect, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { textAction } from '@/api/textAction'
 import type { AnnotationType } from '@/types'
@@ -66,6 +66,8 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
   const [flipY, setFlipY] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const requestId = useRef(0)
+  useEffect(() => () => { requestId.current += 1 }, [])
   const dragging = useRef(false)
   const dragOffset = useRef({ x: 0, y: 0 })
   const timeoutRef = useRef<number | null>(null)
@@ -75,6 +77,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
 
 
   const hidePopup = useCallback(() => {
+    requestId.current += 1
     setVisible(false)
     setResult(null)
     setLoading(false)
@@ -124,12 +127,22 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         selectionLineRectsRef.current = mergeLineRects(Array.from(range.getClientRects()))
         pageElementRef.current = pageEl
 
-        const posY = rect.top - containerRect.top - 8
-        setFlipY(posY < 60)
+        const shouldFlip = (rect.top - containerRect.top) < 70
+        const posY = shouldFlip
+          ? rect.bottom - containerRect.top + 8
+          : rect.top - containerRect.top - 8
+        const rawX = rect.left + rect.width / 2 - containerRect.left
+        const halfW = 140
+        const minX = Math.min(halfW, containerRect.width / 2)
+        const maxX = Math.max(minX, containerRect.width - minX)
+        const posX = Math.max(minX, Math.min(maxX, rawX))
+
+        setFlipY(shouldFlip)
         setPosition({
-          x: rect.left + rect.width / 2 - containerRect.left,
+          x: posX,
           y: posY,
         })
+        requestId.current += 1
         setSelectedText(text)
         setResult(null)
         setLoading(false)
@@ -161,10 +174,18 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         const containerRect = container.getBoundingClientRect()
         const rect = range.getBoundingClientRect()
         if (rect.width === 0) return
-        const posX = rect.left + rect.width / 2 - containerRect.left
-        const posY = rect.top - containerRect.top - 8
-        setFlipY(posY < 60)
+        const shouldFlip = (rect.top - containerRect.top) < 70
+        const posY = shouldFlip
+          ? rect.bottom - containerRect.top + 8
+          : rect.top - containerRect.top - 8
+        const rawX = rect.left + rect.width / 2 - containerRect.left
+        const halfW = 140
+        const minX = Math.min(halfW, containerRect.width / 2)
+        const maxX = Math.max(minX, containerRect.width - minX)
+        const posX = Math.max(minX, Math.min(maxX, rawX))
+        setFlipY(shouldFlip)
         setPosition({ x: posX, y: posY })
+        requestId.current += 1
         setSelectedText(text)
         setResult(null)
         setLoading(false)
@@ -200,7 +221,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
       const popupH = popup?.offsetHeight || 0
       setPosition({
         x: e.clientX - containerRect.left - dragOffset.current.x + popupW / 2,
-        y: e.clientY - containerRect.top - dragOffset.current.y + popupH,
+        y: e.clientY - containerRect.top - dragOffset.current.y + (flipY ? 0 : popupH),
       })
     }
     const handleMouseUp = () => {
@@ -214,10 +235,11 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [containerRef])
+  }, [containerRef, flipY])
 
 
   const handleAction = useCallback(async (act: 'translate' | 'summarize') => {
+    const id = ++requestId.current
     setAction(act)
     setLoading(true)
     setResult(null)
@@ -225,8 +247,9 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
 
     try {
       const res = await textAction(selectedText, act)
-      setResult(res)
+      if (id === requestId.current) setResult(res)
     } catch (err: unknown) {
+      if (id !== requestId.current) return
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('API Key') || msg.includes('配置')) {
         setConfigError(msg)
@@ -234,7 +257,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
         setResult(`处理失败: ${msg}`)
       }
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }, [selectedText])
 
@@ -294,21 +317,42 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
   }, [pendingAnnotationType, doAnnotate])
 
 
+  useLayoutEffect(() => {
+    if (!visible) return
+    const container = containerRef.current
+    const popup = popupRef.current
+    if (!container || !popup) return
+    const clamp = () => {
+      const half = Math.min(popup.offsetWidth / 2 + 8, container.clientWidth / 2)
+      setPosition(current => {
+        const x = Math.max(half, Math.min(container.clientWidth - half, current.x))
+        return x === current.x ? current : { ...current, x }
+      })
+    }
+    clamp()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(clamp)
+    observer.observe(popup)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [visible, result, loading, showColorPicker, containerRef])
+
   if (!visible || selectedText.length < 3) return null
 
 
   return (
     <div
       ref={popupRef}
-      className="absolute z-50 pointer-events-auto"
+      className="absolute z-50 pointer-events-auto flex flex-col items-center"
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
+        maxWidth: 'calc(100% - 16px)',
         transform: flipY ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
       }}
     >
       <div
-        className="overflow-hidden cursor-move select-none transition-colors animate-reveal-scale"
+        className="max-w-full overflow-hidden cursor-move select-none transition-colors animate-reveal-scale"
         style={{
           backgroundColor: 'var(--bg-elevated)',
           border: '1px solid var(--border-light)',
@@ -471,7 +515,7 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
 
         {/* 结果展示 */}
         {result && (
-          <div className="max-w-sm">
+          <div className="max-w-sm w-full min-w-0">
             <div className="flex items-center justify-between px-3 py-1.5 border-b" style={{ borderColor: 'var(--border-light)' }}>
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {action === 'translate' ? '翻译结果' : '总结'}
@@ -541,17 +585,17 @@ export function SelectionPopup({ containerRef, onAnnotate }: SelectionPopupProps
       </div>
 
       {/* 小三角箭头 */}
-      <div className={`flex ${flipY ? 'justify-center -mb-1' : 'justify-center'}`}>
+      <div className={`flex justify-center ${flipY ? 'order-first' : ''}`}>
         <div
           className="w-2 h-2 transform rotate-45"
           style={{
             backgroundColor: 'var(--bg-elevated)',
-            borderRight: '1px solid var(--border-light)',
+            borderRight: flipY ? 'none' : '1px solid var(--border-light)',
             borderBottom: flipY ? 'none' : '1px solid var(--border-light)',
             borderTop: flipY ? '1px solid var(--border-light)' : 'none',
             borderLeft: flipY ? '1px solid var(--border-light)' : 'none',
-            marginTop: flipY ? 0 : '-4px',
-            marginBottom: flipY ? 0 : undefined,
+            marginTop: flipY ? undefined : '-4px',
+            marginBottom: flipY ? '-4px' : undefined,
           }}
         />
       </div>

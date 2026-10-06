@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ExplorePage from '@/pages/ExplorePage'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
 import { createExploration, deleteExploration } from '@/api/exploration'
-import type { ExplorationResult, ExplorationSynthesis } from '@/types'
+import type { ExplorationResult, ExplorationSynthesis, QuestionLoopResult } from '@/types'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { getExploration, getExplorationMessages, listExplorations, preflightExploration } from '@/api/exploration'
 import { getWorkspace } from '@/api/workspaces'
@@ -32,6 +32,11 @@ vi.mock('@/api/exploration', () => ({
   createExploration: vi.fn(),
   listExplorations: vi.fn().mockResolvedValue([]),
   deleteExploration: vi.fn(),
+  getResearchQuestions: vi.fn().mockResolvedValue({ run_id: 7, legacy: false, items: [] }),
+  getResearchVersions: vi.fn().mockResolvedValue({ run_id: 7, state_version: 2, status: 'completed', worker_active: false, ancestors: [], children: [], materials: [] }),
+  reviseResearch: vi.fn(),
+  pauseExploration: vi.fn(),
+  cancelExploration: vi.fn(),
   getExploration: vi.fn(),
   getExplorationMessages: vi.fn().mockResolvedValue([]),
   askExploration: vi.fn(),
@@ -117,7 +122,7 @@ describe('ExplorePage', () => {
 
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: '肿瘤检测有人做吗' } })
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true, workflow_version: 'academic_survey_v2' }))
     unmount()
   })
 
@@ -130,7 +135,7 @@ describe('ExplorePage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: 'dataset survey' } })
     fireEvent.click(screen.getByRole('checkbox', { name: '联网补充文献' }))
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false, workflow_version: 'academic_survey_v2' }))
   })
 
   it('成品视图：结论卡 / 透明度 / 总览复用 / 证据列表 / 报告齐备，证据可点开', () => {
@@ -264,6 +269,21 @@ describe('ExplorePage', () => {
     expect(screen.getByText(/开始研究将自动回退 OpenAlex/)).toBeInTheDocument()
   })
 
+  it('arXiv补充源展示限流原因，不误标回退源', async () => {
+    vi.mocked(preflightExploration).mockResolvedValue({
+      checked_at: '2026-10-03T00:00:00Z',
+      sources: [
+        { name: 'openalex', role: 'primary', status: 'ok', detail: '检索服务正常', http_status: 200 },
+        { name: 'arxiv', role: 'supplement', status: 'rate_limited', detail: 'HTTP 429：限流，请稍后重试', http_status: 429 },
+      ],
+    })
+    renderPage()
+    expect(await screen.findByText('arXiv')).toBeInTheDocument()
+    expect(screen.getByText('限速中')).toBeInTheDocument()
+    expect(screen.getByText('arXiv').closest('[title]')).toHaveAttribute('title', 'arXiv · 补充源 · HTTP 429：限流，请稍后重试')
+    expect(screen.queryByText(/开始研究将自动回退/)).not.toBeInTheDocument()
+  })
+
   it('近期探索进入独立详情，刷新读取资料和持久化对话', async () => {
     vi.mocked(listExplorations).mockResolvedValue([{ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
     vi.mocked(getExploration).mockResolvedValue({ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', result: makeResult() })
@@ -381,4 +401,77 @@ describe('ExplorePage', () => {
     expect(screen.getByText(/总耗时/)).toBeInTheDocument()
     expect(screen.getByText(/2 分/)).toBeInTheDocument()
   })
+})
+
+it('默认使用问题驱动研究，深度提示不沿用旧召回数量', async () => {
+  mockUse.mockReturnValue(IDLE)
+  mockCreate.mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'academic_survey_v2' })
+  renderPage()
+  const option = screen.getByRole('checkbox', { name: '使用问题驱动研究（默认）' })
+  expect(option).toBeChecked()
+  expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '围绕问题检索、阅读并补充关键依据')
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
+  fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('队列恢复机制是什么', 'standard', expect.objectContaining({ workflow_version: 'academic_survey_v2' })))
+})
+
+it('取消问题驱动选择时显式使用旧流程', async () => {
+  mockUse.mockReturnValue(IDLE)
+  mockCreate.mockResolvedValue({ id: 8, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1' })
+  renderPage()
+  fireEvent.click(screen.getByRole('checkbox', { name: '使用问题驱动研究（默认）' }))
+  expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '3 式 · 上限 200 篇')
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
+  fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('队列恢复机制是什么', 'standard', expect.objectContaining({ workflow_version: 'legacy_v1' })))
+})
+
+it('新版完成结果不依赖旧计量字段，也不展示未生成的分析图表', async () => {
+  mockUse.mockReturnValue(IDLE)
+  const result: QuestionLoopResult = {
+    papers: [],
+    loop: { revision: 'question_loop_v1', stop_reason: 'no_progress', dossier_revision_id: 'd1' },
+    survey_report: {
+      version: 4, title: '冻结报告', created_at: '2026-01-01', status: 'partial', summary: '仍缺证据', findings: [], gaps: ['待补材料'],
+      chapters: [], tables: { frameworks: [], metrics: [], tasks: [], taxonomy: [] },
+      matrices: { aspect_metric: { rows: [], columns: [], cells: [] }, task_dataset: { rows: [], columns: [], cells: [] } },
+      coverage: { corpus: 0, with_material: 0, selected: 0, examined: 0, failed: 0, full_text: 0, abstract_only: 0, rejected_rows: 0 },
+      bibliometrics: { by_year: {}, year_span: [] }, references: [], warnings: [], markdown: '',
+      delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
+    },
+  }
+  vi.mocked(getExploration).mockResolvedValue({
+    id: 7, question: '问题驱动结果', depth: 'lite', status: 'partial', provider: '',
+    workflow_version: 'academic_survey_v2', active_seconds: 120,
+    created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:02:00Z', result,
+  })
+  renderPage('/explorer/7')
+  await screen.findByRole('heading', { name: '问题驱动结果' })
+  expect(screen.getByRole('tab', { name: '研究报告' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: '分析结果' })).not.toBeInTheDocument()
+  expect(screen.getByText('有效工作时长（已记录）')).toBeInTheDocument()
+  expect(screen.getByText('2 分 0 秒')).toBeInTheDocument()
+  expect(screen.queryByText('该探索没有可展示的产物。')).not.toBeInTheDocument()
+})
+
+it('规划失败且没有搜索时不提示关键词未命中', async () => {
+  mockUse.mockReturnValue(IDLE)
+  const result: QuestionLoopResult = {
+    papers: [], loop: { revision: 'question_loop_v11', stop_reason: 'planning_failed', dossier_revision_id: 'd1' },
+    survey_report: {
+      version: 4, title: '规划失败的研究', created_at: '2026-01-01', status: 'no_results', summary: '旧版零材料摘要', findings: [], gaps: ['规划未完成'],
+      chapters: [], tables: { frameworks: [], metrics: [], tasks: [], taxonomy: [] },
+      matrices: { aspect_metric: { rows: [], columns: [], cells: [] }, task_dataset: { rows: [], columns: [], cells: [] } },
+      coverage: { corpus: 0, with_material: 0, selected: 0, examined: 0, failed: 0, full_text: 0, abstract_only: 0, rejected_rows: 0 },
+      bibliometrics: { by_year: {}, year_span: [] }, references: [], warnings: [], markdown: '',
+      method: { stop_reason: 'planning_failed' }, delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
+    },
+  }
+  vi.mocked(getExploration).mockResolvedValue({ id: 40, question: '规划失败的研究', depth: 'quick', status: 'partial', provider: '',
+    workflow_version: 'academic_survey_v2', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:02:00Z', result })
+  renderPage('/explorer/40')
+  await screen.findByRole('heading', { name: '规划失败的研究' })
+  expect(screen.getByText('研究计划未通过校验，尚未执行文献检索')).toBeInTheDocument()
+  expect(screen.queryByText(/所提问句关键词在当前数据源中未检索到匹配论文/)).not.toBeInTheDocument()
+  expect(screen.queryByText('未检索到资料')).not.toBeInTheDocument()
 })

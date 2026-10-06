@@ -214,16 +214,16 @@ function ParadigmCard({ bucket, synthesis, onSelectNode, onViewInGraph, paperFor
       {!paradigm && bucket.labelSource === 'tficf' && (
         <p className="rs-card__philosophy rs-card__philosophy--muted">关键词标签（未运行领域综合）</p>
       )}
-      {(paradigm?.pros?.length || paradigm?.cons?.length) && (
+      {((paradigm?.pros?.length ?? 0) > 0 || (paradigm?.cons?.length ?? 0) > 0) && (
         <div className="rs-card__procon">
-          {paradigm!.pros!.length > 0 && (
+          {(paradigm?.pros?.length ?? 0) > 0 && (
             <ul>
               {paradigm!.pros!.slice(0, 3).map((p, i) => (
                 <li key={i} className="rs-card__pro">✓ {p}</li>
               ))}
             </ul>
           )}
-          {paradigm!.cons!.length > 0 && (
+          {(paradigm?.cons?.length ?? 0) > 0 && (
             <ul>
               {paradigm!.cons!.slice(0, 3).map((c, i) => (
                 <li key={i} className="rs-card__con">✗ {c}</li>
@@ -287,7 +287,7 @@ export function DomainOverview({ graph, synthesis, onSelectNode, onViewInGraph, 
         <p>图谱里还没有可识别的子方向（关系边不足，所有论文都是孤立点）。</p>
         <p>可以尝试：启动一次深度研究补充召回，或切到图谱视图查看原始结构。</p>
         {onViewInGraph && (
-          <button type="button" className="er-btn er-btn--secondary er-btn--sm" onClick={() => onViewInGraph(graph!.nodes[0]?.id ?? '')}>
+          <button type="button" className="er-btn er-btn--secondary er-btn--sm" onClick={() => onViewInGraph(graph?.nodes?.[0]?.id ?? '')}>
             切换到图谱视图
           </button>
         )}

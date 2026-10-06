@@ -1,0 +1,11 @@
+{
+  "version":"synthetic_workflow_v1",
+  "purpose":"engineering_expectations_not_domain_quality_gold",
+  "required_units":{
+    "landscape":["bounded_memory_queue","disk_recovery"],
+    "novelty":["B_has_recovery","no_universal_absence_claim"],
+    "mechanism":["drops_oldest_when_full"],
+    "comparison":["A_12ms_conditions","no_ranking_with_missing_B_measurement"],
+    "deployment":["A_cannot_recover_after_restart"]
+  }
+}

@@ -159,17 +159,23 @@ def build_langgraph_workflow(call_tool: ToolCaller):
         return {"search_results": data, "selected_paper_ids": selected}
 
     async def evidence_node(state: PaperDrivenDevState) -> PaperDrivenDevState:
-        data = await _maybe_await(
-            call_tool(
-                "paper_retrieve_evidence",
-                {
-                    "workspace_id": state["workspace_id"],
-                    "query": state["goal"],
-                    "top_k": 8,
-                    "paper_ids": state.get("selected_paper_ids") or None,
-                },
+        from .agent_tools import AgentToolError
+        try:
+            data = await _maybe_await(
+                call_tool(
+                    "paper_retrieve_evidence",
+                    {
+                        "workspace_id": state["workspace_id"],
+                        "query": state["goal"],
+                        "top_k": 8,
+                        "paper_ids": state.get("selected_paper_ids") or None,
+                    },
+                )
             )
-        )
+        except AgentToolError as exc:
+            if exc.code != "CHROMA_NOT_INITIALIZED":
+                raise
+            data = {"evidence": [], "warnings": ["工作区尚无向量索引，本次没有全文检索依据"]}
         evidence_paper_ids: list[int] = []
         for item in data.get("evidence", []):
             pid = item.get("paper_id")

@@ -1,7 +1,7 @@
 """Final report generation: evidence pack → role-based draft → contract/citation
 normalization → frozen report version.
 
-契约要点（docs/REPORT_DELIVERY_FIX_PLAN_2026-09-18.md）：
+当前交付契约（document.md §2.4；重构输入方案见 docs/workflow_refactor/ARCHITECTURE.md）：
 - 写作由程序直接发起，不依赖模型先输出 inspect/submit/finish；
 - 一次初稿 + 最多一次结构恢复，不层层重试；
 - 内部引用统一 evidence_id，展示编号由程序经冻结 citation_map 映射为 [n]；
@@ -552,8 +552,8 @@ def canonical_segments(sections: dict[str, list[dict]], tables: dict | None = No
                 })
     if tables:
         lines = []
-        block_evidence: list[str] = []
-        block_citations: list[int] = []
+        line_evidence: list[list[str]] = []
+        line_citations: list[list[int]] = []
         for row in tables.get("experimental_comparisons") or []:
             values = [f"{field}={row[field]}" for field in EXPERIMENT_FIELDS if row.get(field)]
             row_evidence = row.get("evidence") or []
@@ -561,16 +561,15 @@ def canonical_segments(sections: dict[str, list[dict]], tables: dict | None = No
                                if e.get("paper_key") in (refs or {})})
             if values:
                 lines.append(" | ".join(values) + " " + " ".join(f"[{n}]" for n in row_refs))
-                block_evidence.extend(str(e.get("evidence_id"))
-                                      for e in row_evidence if e.get("evidence_id"))
-                block_citations.extend(row_refs)
+                line_evidence.append([str(e.get("evidence_id")) for e in row_evidence if e.get("evidence_id")])
+                line_citations.append(row_refs)
         for start in range(0, len(lines), 24):
             chunk = lines[start:start + 24]
             if chunk:
                 segments.append({"id": f"exp-table-{start // 24 + 1}",
                                  "text": "\n".join(chunk),
-                                 "evidence_ids": list(dict.fromkeys(block_evidence)),
-                                 "citation_numbers": sorted(set(block_citations))})
+                                 "evidence_ids": list(dict.fromkeys(e for row in line_evidence[start:start + 24] for e in row)),
+                                 "citation_numbers": sorted({n for row in line_citations[start:start + 24] for n in row})})
     full_text = "\n\n".join(segment["text"] for segment in segments)
     return full_text, segments
 

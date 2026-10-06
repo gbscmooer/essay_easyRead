@@ -215,7 +215,7 @@ export default function WorkspaceDetailPage() {
     )
   }
 
-  const unreadCount = workspace.papers.filter(p => !p.read_level || p.read_level === 'none').length
+  const unreadCount = (workspace.papers ?? []).filter(p => !p.read_level || p.read_level === 'none').length
 
   return (
     <div className="er-page er-page--workspace-detail">
@@ -268,7 +268,7 @@ export default function WorkspaceDetailPage() {
         {discoveredPapers.length > 0 && (
           <span className="er-readout"><b>{discoveredPapers.length}</b>篇深度研究发现</span>
         )}
-        {workspace.papers.length > 0 && (
+        {(workspace.papers ?? []).length > 0 && (
           unreadCount === 0
             ? <span className="er-tag">已全部速读</span>
             : <span className="er-tag er-tag--warn">还有 {unreadCount} 篇未速读</span>
@@ -289,7 +289,7 @@ export default function WorkspaceDetailPage() {
         <button
           type="button"
           onClick={() => navigate(`/workspace/${workspaceId}/research`)}
-          disabled={workspace.papers.length === 0}
+          disabled={(workspace.papers ?? []).length === 0}
           className="ws-research er-relief"
         >
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -297,13 +297,13 @@ export default function WorkspaceDetailPage() {
           </svg>
           <span className="ws-research__copy">
             <strong>发起文献研究</strong>
-            <small>{workspace.papers.length === 0 ? '先往集合里放入论文' : `${workspace.papers.length} 篇母论文`}</small>
+            <small>{(workspace.papers ?? []).length === 0 ? '先往集合里放入论文' : `${(workspace.papers ?? []).length} 篇母论文`}</small>
           </span>
           <span className="ws-research__go" aria-hidden="true">→</span>
         </button>
       </div>
 
-      <WorkspaceComparison workspaceId={workspaceId} papers={workspace.papers} />
+      <WorkspaceComparison workspaceId={workspaceId} papers={workspace.papers ?? []} />
       <WorkspaceInnovationPanel plan={readingPlan} survey={survey} loading={innovationLoading} />
       <WorkspaceInsights insights={insights} loading={insightsLoading} />
 

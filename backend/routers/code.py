@@ -86,7 +86,7 @@ async def clone_repo(paper_id: int) -> dict:
 
     code_url = paper.code_url
     if not code_url:
-        raise HTTPException(status_code=400, detail={"detail": "该论文未找到代码仓库 URL", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": "该论文未找到代码仓库 URL", "code": "CODE_URL_MISSING"})
 
     # 更新状态为 cloning
     from ..services.database import update_paper_status
@@ -157,7 +157,7 @@ async def get_file_tree(paper_id: int) -> dict:
 
     code_path = paper.code_path
     if not code_path:
-        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "CODE_PATH_MISSING"})
 
     from ..services.code_analyzer import build_file_tree
     tree = await asyncio.to_thread(build_file_tree, code_path)
@@ -181,7 +181,7 @@ async def get_file_content(paper_id: int, path: str = Query(..., description="�
 
     code_path = paper.code_path
     if not code_path:
-        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "CODE_PATH_MISSING"})
 
     from ..services.code_analyzer import read_file_content, read_notebook_content
     try:
@@ -223,7 +223,7 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
 
     code_path = paper.code_path
     if not code_path:
-        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "NOT_FOUND"})
+        raise HTTPException(status_code=400, detail={"detail": "代码路径不存在", "code": "CODE_PATH_MISSING"})
 
     async def event_generator():
         from ..services.code_analyzer import build_file_tree, select_core_files, read_file_content, analyze_imports

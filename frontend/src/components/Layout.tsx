@@ -11,6 +11,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from 'react'
 import { Link, useBlocker, useLocation, useNavigate } from 'react-router-dom'
@@ -19,8 +20,10 @@ import { ThemeProvider } from './ThemeProvider'
 import { APP_VERSION, VersionPopup } from './VersionPopup'
 import { ShortcutHelp } from './ShortcutHelp'
 import { ConfirmDialog } from '@/ds-entry'
-import { useConfigDirty, useUIConfig, setUIPreview } from '@/hooks/useConfig'
+import { useConfigDirty, useUIConfig, saveTheme } from '@/hooks/useConfig'
 import { setHelpCallback, useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { useThemeMode } from '@/theme/useTheme'
+import { toast } from '@/hooks/useToast'
 import { useMotionPreference } from '@/hooks/useMotionPreference'
 
 interface LayoutProps {
@@ -125,14 +128,13 @@ export function Layout({ children }: LayoutProps) {
   const workspaceId = useCurrentWorkspaceId()
   const configDirty = useConfigDirty()
   const uiConfig = useUIConfig()
-  const isDark = uiConfig.theme === 'dark'
+  const isDark = useThemeMode() === 'dark'
+  const preferredThemes = useRef({ light: 'light', dark: 'dark' })
+  if (uiConfig.theme) preferredThemes.current[isDark ? 'dark' : 'light'] = uiConfig.theme
 
   const toggleTheme = useCallback(() => {
-    const next = isDark ? 'light' : 'dark'
-    setUIPreview({ theme: next })
-    try {
-      localStorage.setItem('essay_theme', next)
-    } catch {}
+    const next = preferredThemes.current[isDark ? 'light' : 'dark']
+    void saveTheme(next).catch(() => toast({ type: 'error', message: '主题保存失败，请重试' }))
   }, [isDark])
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (

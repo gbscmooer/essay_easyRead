@@ -5,7 +5,7 @@
  */
 
 import type { Paper, PaperListResponse, AnalysisResult, RelatedPaper, SearchResponse } from '@/types'
-import { get, post, upload, del, uploadWithProgress } from './client'
+import { parseError, safeFetch, get, post, upload, del, uploadWithProgress } from './client'
 
 
 /**
@@ -151,17 +151,8 @@ export async function getAnalysis(paperId: number): Promise<AnalysisResult> {
  * GET /api/papers/{paperId}/export
  */
 export async function exportPaper(paperId: number): Promise<string> {
-  const res = await fetch(`/api/papers/${paperId}/export`)
-  if (!res.ok) {
-    let detail = res.statusText
-    try {
-      const body = await res.json()
-      detail = body.detail || detail
-    } catch {
-      // 忽略解析错误
-    }
-    throw new Error(detail)
-  }
+  const res = await safeFetch(`/api/papers/${paperId}/export`)
+  if (!res.ok) await parseError(res)
   return res.text()
 }
 
@@ -225,7 +216,7 @@ export async function refreshRelatedPapers(paperId: number): Promise<RelatedPape
 /** 导入结果中单篇论文的状态 */
 export interface ImportPaperResult {
   title: string
-  status: 'local' | 'downloaded' | 'failed'
+  status: 'local' | 'downloaded' | 'registered' | 'failed'
   paper_id?: number
   message: string
 }
@@ -262,17 +253,8 @@ export async function importRelatedPapers(
 
 
 export async function exportBibtex(paperId: number): Promise<string> {
-  const res = await fetch(`/api/analysis/${paperId}/bibtex`)
-  if (!res.ok) {
-    let detail = res.statusText
-    try {
-      const body = await res.json()
-      detail = body.detail || detail
-    } catch {
-      // 忽略解析错误
-    }
-    throw new Error(detail)
-  }
+  const res = await safeFetch(`/api/analysis/${paperId}/bibtex`)
+  if (!res.ok) await parseError(res)
   return res.text()
 }
 

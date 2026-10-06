@@ -180,8 +180,8 @@ async def auto_index(
             if full:
                 p.full_text = full
             # PDF 提取只覆盖尚无可靠来源的字段；脏年份视同缺失。
-            protected = (p.bibliography or {}).get("field_sources") or {}
-            can_overwrite = overwrite
+            protected = dict((p.bibliography or {}).get("field_sources") or {})
+            can_overwrite = overwrite and p.status != "done"
             for field in _META_FIELDS:
                 val = meta.get(field)
                 if not val:
@@ -190,10 +190,12 @@ async def auto_index(
                     continue  # 不写入脏年份
                 cur = getattr(p, field)
                 cur_bad_year = field == "year" and cur is not None and not _valid_year(cur)
-                if field in protected:
+                if field in protected and (not can_overwrite or protected[field] == "manual"):
                     continue
                 if can_overwrite or not cur or cur_bad_year:
                     setattr(p, field, val)
+                    protected[field] = "grobid"
+            p.bibliography = {**(p.bibliography or {}), "field_sources": protected}
             if meta.get("arxiv_id") and not p.arxiv_id:
                 p.arxiv_id = meta["arxiv_id"]
             if meta.get("doi") and not p.doi:
@@ -267,12 +269,26 @@ def count_reindex_targets(include_expanded: bool = False) -> int:
     return len(_pick_reindex_targets(include_expanded))
 
 
+_reindex_running = False
+
+
 async def reindex_library(include_expanded: bool = False, concurrency: int = 2) -> int:
+    global _reindex_running
+    if _reindex_running:
+        return 0
+    _reindex_running = True
+    try:
+        return await _reindex_library(include_expanded, concurrency)
+    finally:
+        _reindex_running = False
+
+
+async def _reindex_library(include_expanded: bool = False, concurrency: int = 2) -> int:
     """手动重新索引：对范围内每篇论文逐篇清空旧索引并用 GROBID 重做（不跳过已索引的）。
 
     默认处理论文库里的所有论文（uploaded）；include_expanded=True 时一并处理深度研究
-    发现的论文（expanded）。GROBID 作为唯一索引来源，直接覆盖旧元数据（仅在 GROBID
-    给出非空值时；脏年份永不写入）。返回本次处理的论文数。
+    发现的论文（expanded）。未完成精读的论文刷新非手工元数据；已完成精读的论文
+    仅填补没有可靠来源的空字段。仅接收非空值和合法年份。返回处理论文数。
     """
     rows = _pick_reindex_targets(include_expanded)
     if not rows:

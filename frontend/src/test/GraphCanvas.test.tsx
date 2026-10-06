@@ -2,16 +2,20 @@ import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ResearchGraph } from '@/types'
 
+const snapshots = vi.hoisted(() => ({ nodes: [] as Array<Array<{ id: string; x?: number; y?: number }>> }))
+
 vi.mock('react-force-graph-2d', async () => {
   const { createElement, forwardRef, useImperativeHandle } = await vi.importActual<typeof import('react')>('react')
 
   interface MockProps {
     width: number
     height: number
+    graphData: { nodes: Array<{ id: string; x?: number; y?: number }> }
     onZoomEnd?: (transform: { k: number }) => void
   }
 
   const ForceGraph2D = forwardRef(function ForceGraph2D(props: MockProps, ref) {
+    snapshots.nodes.push(props.graphData.nodes)
     useImperativeHandle(ref, () => ({
       d3Force: () => ({ distance: () => {} }),
       d3ReheatSimulation: () => {},
@@ -46,6 +50,7 @@ let animationFrames: Map<number, FrameRequestCallback>
 let frameId: number
 
 beforeEach(() => {
+  snapshots.nodes = []
   animationFrames = new Map()
   frameId = 0
   vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
@@ -79,6 +84,16 @@ afterEach(() => {
 })
 
 describe('GraphCanvas', () => {
+  it('边类型过滤保留节点对象与已有布局坐标', () => {
+    const view = render(<GraphCanvas graph={graph} edgeFilter={new Set(['related'])} onSelectNode={() => {}} />)
+    const before = snapshots.nodes[snapshots.nodes.length - 1][0]
+    before.x = 150; before.y = 250
+    view.rerender(<GraphCanvas graph={graph} edgeFilter={new Set(['cocitation'])} onSelectNode={() => {}} />)
+    const after = snapshots.nodes[snapshots.nodes.length - 1][0]
+    expect(after).toBe(before)
+    expect([after.x, after.y]).toEqual([150, 250])
+  })
+
   it('底层图谱在 render 中同步回报缩放时延迟更新父组件状态', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 

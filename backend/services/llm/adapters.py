@@ -14,6 +14,7 @@ from .models import (
     LLMResponse,
 )
 from .thinking import resolve_thinking
+from .json_utils import final_content_after_thinking
 from ..llm_proxy import resolve_transport
 
 
@@ -188,6 +189,10 @@ class OpenAIChatAdapter(ProviderAdapter):
                 )
             )
             if isinstance(response, str):
+                from .structured import requests_result_tool
+                if requests_result_tool(extra_body):
+                    raise LLMResponseError("LLM_STRUCTURED_RESULT_NOT_RETURNED",
+                                           base_url=transport.base_url, model=config.model)
                 text = response
                 finish_reason = None
             else:
@@ -210,9 +215,21 @@ class OpenAIChatAdapter(ProviderAdapter):
                     )
                 content = getattr(message, "content", None)
                 text = content if isinstance(content, str) else ""
-                if not text.strip():
+                from .structured import requests_result_tool, result_arguments
+                if requests_result_tool(extra_body):
+                    arguments = result_arguments(message)
+                    if arguments is None:
+                        raise LLMResponseError(
+                            "LLM_STRUCTURED_RESULT_NOT_RETURNED", base_url=transport.base_url,
+                            model=config.model, request_id=_request_id(response),
+                            finish_reason=str(finish_reason) if finish_reason is not None else None,
+                        )
+                    text = arguments
+                if not text.strip() and (extra_body or {}).get("reasoning_split") is not True:
                     reasoning = getattr(message, "reasoning_content", None)
                     text = reasoning if isinstance(reasoning, str) else ""
+            if (extra_body or {}).get("reasoning_split") is True:
+                text = final_content_after_thinking(text)
             if not text.strip():
                 raise LLMResponseError(
                     "LLM_EMPTY_CONTENT",
@@ -220,6 +237,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                     model=config.model,
                     request_id=_request_id(response),
                     content_length=len(text),
+                    finish_reason=str(finish_reason) if finish_reason is not None else None,
                 )
             return LLMResponse(
                 text=text,

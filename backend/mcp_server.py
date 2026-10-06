@@ -209,28 +209,30 @@ def main() -> None:
             continue
         try:
             req = json.loads(line)
-            req_id = req.get("id")
-            if req_id is None:
-                continue
-
+        except (ValueError, TypeError):
+            _write_response({"jsonrpc": "2.0", "id": None,
+                             "error": {"code": -32700, "message": "Parse error"}})
+            continue
+        if not isinstance(req, dict):
+            _write_response({"jsonrpc": "2.0", "id": None,
+                             "error": {"code": -32600, "message": "Invalid request"}})
+            continue
+        if "id" not in req:
+            continue
+        req_id = req["id"]
+        try:
             result = handle_request(req.get("method"), req.get("params", {}))
             response: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id}
             if result.get("isError"):
-                response["error"] = {
-                    "code": -32603,
-                    "message": result["content"][0]["text"],
-                }
+                response["error"] = {"code": -32603, "message": result["content"][0]["text"]}
             else:
                 response["result"] = result
-            _write_response(response)
-        except Exception as exc:
-            logger.error("Error processing JSON-RPC line: %s", exc)
-            _write_response(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32700, "message": f"Parse error: {exc}"},
-                }
-            )
+        except Exception:
+            logger.exception("Error handling JSON-RPC request")
+            response = {"jsonrpc": "2.0", "id": req_id,
+                        "error": {"code": -32603, "message": "Internal error"}}
+        _write_response(response)
+
 
 
 if __name__ == "__main__":
