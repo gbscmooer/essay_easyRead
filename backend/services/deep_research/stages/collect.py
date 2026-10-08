@@ -39,7 +39,7 @@ async def stage_collect(ws_id: int, params: dict) -> list[Paper]:
     with Session(_get_engine(), expire_on_commit=False) as s:
         base = (select(Paper).join(WorkspacePaper, WorkspacePaper.paper_id == Paper.id)
                 .where(WorkspacePaper.workspace_id == ws_id)
-                .where(Paper.status.in_(["done", "indexed", "pending"])))
+                .where(Paper.status.in_(["done", "partial", "indexed", "pending"])))
 
         if pids:
             # L1 按 picker 勾选过滤；L2+ 默认全要，include_expanded=False 时排除

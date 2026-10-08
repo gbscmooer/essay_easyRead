@@ -19,6 +19,7 @@ from .llm import (
     stream_text,
 )
 from .llm.client import MAX_RETRIES, is_retryable, retry_delays
+from .analysis_integrity import valid_field, missing_fields
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +426,7 @@ async def analyze_paper_stream(
                 parsed = _try_parse_partial_json(accumulated)
                 if parsed:
                     for field_name in _TOP_LEVEL_FIELDS:
-                        if field_name in parsed and field_name not in yielded_fields:
+                        if field_name in parsed and field_name not in yielded_fields and valid_field(field_name, parsed[field_name]):
                             yielded_fields.add(field_name)
                             yield StreamEvent(
                                 event="field",
@@ -445,8 +446,10 @@ async def analyze_paper_stream(
                 else:
                     raise ValueError(f"无法解析 AI 返回的 JSON: {e}")
 
+            if not isinstance(final, dict):
+                raise ValueError("AI 返回的分析必须是 JSON 对象")
             for field_name in _TOP_LEVEL_FIELDS:
-                if field_name in final and field_name not in yielded_fields:
+                if field_name in final and field_name not in yielded_fields and valid_field(field_name, final[field_name]):
                     yielded_fields.add(field_name)
                     yield StreamEvent(
                         event="field",
@@ -455,15 +458,20 @@ async def analyze_paper_stream(
                     )
 
             # mermaid_chart 嵌套在 method 中，单独提取
-            mermaid = final.get("method", {}).get("mermaid_chart")
-            if mermaid:
+            method = final.get("method")
+            mermaid = method.get("mermaid_chart") if isinstance(method, dict) else None
+            if isinstance(mermaid, str) and mermaid:
                 yield StreamEvent(
                     event="field",
                     field_name="mermaid_chart",
                     data={"value": mermaid},
                 )
 
-            yield StreamEvent(event="done", data={"message": "解析完成"})
+            missing = missing_fields(final)
+            yield StreamEvent(event="partial" if missing else "done", data={
+                "message": "部分分析已保存，仍有内容未完成" if missing else "解析完成",
+                "missing_fields": missing,
+            })
             return  # 成功，退出重试循环
 
         except Exception as e:

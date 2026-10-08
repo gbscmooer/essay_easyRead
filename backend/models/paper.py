@@ -24,6 +24,7 @@ class Paper(SQLModel, table=True):
     __table_args__ = (
         Index('ix_papers_source_created', 'source', 'created_at'),
         Index('ix_papers_source_category_year', 'source', 'category', 'year'),
+        {"sqlite_autoincrement": True},
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -49,7 +50,7 @@ class Paper(SQLModel, table=True):
     index_status: str = "none"  # none | indexing | indexed | failed
 
     # 状态
-    # pending | extracting | analyzing | done | failed
+    # pending | extracting | analyzing | partial | done | failed
     # indexed: 深度研究扩展下载的论文，只跑了 PDF 提取 + chunk + embed，没跑 LLM 分析（level=2 专用）
     status: str = "pending"
     error_message: Optional[str] = None  # 失败时的错误信息

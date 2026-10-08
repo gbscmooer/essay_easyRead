@@ -104,6 +104,8 @@ class PaperProfile:
 
 def build_paper_profile(paper: Paper, analysis: AnalysisResult | None = None) -> PaperProfile:
     digest = paper.graph_digest if isinstance(getattr(paper, "graph_digest", None), dict) else {}
+    if paper.status == "partial":
+        analysis = None
     read_level = "full" if analysis is not None else ("digest" if digest else "none")
     detail_level = "full" if analysis is not None else ("digest" if digest else "metadata")
 

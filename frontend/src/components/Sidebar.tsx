@@ -25,6 +25,7 @@ type StatusIconKind = 'done' | 'pending' | 'failed' | null
 
 function statusLabel(status: Paper['status']): { text: string; color: string; icon: StatusIconKind } {
   switch (status) {
+    case 'partial': return { text: '部分完成', color: 'var(--warning)', icon: 'done' }
     case 'done': return { text: '已完成', color: 'var(--success)', icon: 'done' }
     case 'extracting': return { text: '提取中', color: 'var(--warning)', icon: 'pending' }
     case 'analyzing': return { text: '分析中', color: 'var(--warning)', icon: 'pending' }

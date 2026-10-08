@@ -186,6 +186,8 @@ class AnalysisResult(SQLModel, table=True):
 
     __tablename__ = "analysis_results"
 
+    completeness: dict = Field(default_factory=dict, sa_column=Column(JSON))
+
     id: Optional[int] = Field(default=None, primary_key=True)
     paper_id: int = Field(
         sa_column=Column(

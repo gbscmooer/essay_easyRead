@@ -297,7 +297,10 @@ class HybridRetriever:
         rrf_k: int = DEFAULT_RRF_K,
         weights: dict[str, float] | None = None,
         graph_config: dict[str, Any] | None = None,
+        original_only: bool = False,
     ) -> HybridRetrieveResult:
+        if paper_ids == []:
+            return HybridRetrieveResult(hits=[], debug=[])
         dense_hits, dense_scores = self._dense_recall(query_vec, recall_k, paper_ids)
         bm25_hits: list[dict[str, Any]] = []
         bm25_scores: dict[str, float] = {}
@@ -351,6 +354,9 @@ class HybridRetriever:
         for cid, fused_score, ranks in fused[:recall_k]:
             base = dict(self._chunk_catalog.get(cid, {}))
             if not base:
+                continue
+            if original_only and (base.get("source_kind") in {"analysis_summary", "citation_context"}
+                                  or ":sec:" in cid or ":cite_ctx:" in cid):
                 continue
             source_hits: dict[str, float] = {}
             if cid in dense_scores:

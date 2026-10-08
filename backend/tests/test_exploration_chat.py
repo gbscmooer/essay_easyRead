@@ -12,30 +12,60 @@ from backend.services.database import _migrate_schema, reconcile_interrupted_run
 @pytest.fixture
 def chat_env(engine, monkeypatch):
     from backend.services.deep_research import literature_retrieval as retrieval
+
     async def unavailable(*args, **kwargs):
         raise RuntimeError("offline test")
+
     monkeypatch.setattr(retrieval, "document_vectors", unavailable)
     monkeypatch.setattr(retrieval, "get_reranker_config", lambda: {"enabled": False})
-    async def audit(*args, **kwargs):
-        return {"status": "completed", "support_rate": 1.0, "claim_count": 1}
+
+    async def audit(answer, *args, **kwargs):
+        import hashlib
+
+        return {
+            "status": "completed",
+            "support_rate": 1.0,
+            "claim_count": 1,
+            "coverage_complete": True,
+            "binding": {"text_hash": hashlib.sha256(answer.encode()).hexdigest()},
+            "claims": [{"label": "supported", "validation_errors": []}],
+        }
+
     monkeypatch.setattr(chat, "audit_answer", audit)
     monkeypatch.setattr(chat, "get_engine", lambda: engine)
-    monkeypatch.setattr(chat, "get_analysis_config", lambda: {"api_key": "test", "model": "test"})
+    monkeypatch.setattr(
+        chat, "get_analysis_config", lambda: {"api_key": "test", "model": "test"}
+    )
     from backend.routers import exploration
+
     monkeypatch.setattr(exploration, "get_engine", lambda: engine)
     with Session(engine) as session:
-        run = ExplorationRun(question="Original research question", status="done", result={
-            "papers": [{"key": "p1", "title": "First paper", "abstract": "A robust method", "doi": "10.1/a"}],
-            "decompose": {"en_queries": ["original query"]},
-            "synthesis": {"markdown_report": "Initial findings"}, "metrics": {"total": 1},
-        })
+        run = ExplorationRun(
+            question="Original research question",
+            status="done",
+            result={
+                "papers": [
+                    {
+                        "key": "p1",
+                        "title": "First paper",
+                        "abstract": "A robust method",
+                        "doi": "10.1/a",
+                    }
+                ],
+                "decompose": {"en_queries": ["original query"]},
+                "synthesis": {"markdown_report": "Initial findings"},
+                "metrics": {"total": 1},
+            },
+        )
         session.add(run)
         session.commit()
         session.refresh(run)
         return run.id
 
 
-def test_multiturn_persists_context_and_filters_invalid_evidence(chat_env, monkeypatch, engine):
+def test_multiturn_persists_context_and_filters_invalid_evidence(
+    chat_env, monkeypatch, engine
+):
     payloads = []
 
     async def llm(cfg, system, user, **kwargs):
@@ -56,7 +86,10 @@ def test_multiturn_persists_context_and_filters_invalid_evidence(chat_env, monke
     assert rows[1].context["history_ids"] == [one.id]
     assert rows[1].context["evidence_audit"]["status"] == "completed"
     with Session(engine) as session:
-        assert session.get(ExplorationRun, chat_env).result["synthesis"]["markdown_report"] == "Initial findings"
+        assert (
+            session.get(ExplorationRun, chat_env).result["synthesis"]["markdown_report"]
+            == "Initial findings"
+        )
 
 
 def test_new_materials_survive_failure_and_are_used_next_turn(chat_env, monkeypatch):
@@ -105,7 +138,9 @@ def test_busy_no_key_restart_and_missing(chat_env, monkeypatch, engine):
     assert exc.value.status == 404
 
 
-def test_api_persistence_validation_delete_and_cors(chat_env, monkeypatch, client, engine):
+def test_api_persistence_validation_delete_and_cors(
+    chat_env, monkeypatch, client, engine
+):
     monkeypatch.setattr(chat, "start_message", lambda _: None)
     url = f"/api/exploration/runs/{chat_env}/messages"
     assert client.post(url, json={"question": "   "}).status_code == 422
@@ -122,22 +157,40 @@ def test_api_persistence_validation_delete_and_cors(chat_env, monkeypatch, clien
     assert client.delete(f"/api/exploration/runs/{chat_env}").status_code == 200
     assert client.get(url).status_code == 404
     from backend.config import settings
-    cors = client.options(url, headers={"Origin": settings.frontend_origin,
-        "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"})
+
+    cors = client.options(
+        url,
+        headers={
+            "Origin": settings.frontend_origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
     assert cors.status_code == 200
     assert cors.headers["access-control-allow-origin"] == settings.frontend_origin
-    untrusted = client.options(url, headers={"Origin": "https://untrusted.invalid", "Access-Control-Request-Method": "POST"})
+    untrusted = client.options(
+        url,
+        headers={
+            "Origin": "https://untrusted.invalid",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
     assert "access-control-allow-origin" not in untrusted.headers
 
 
 def test_explicit_selection_overrides_citations():
-    papers = [{"key": "a", "title": "Popular paper", "citation_count": 9000},
-              {"key": "b", "title": "Specific paper", "citation_count": 0}]
-    assert chat.select_materials(papers, "Popular paper", ["b"], limit=1)[0]["key"] == "b"
+    papers = [
+        {"key": "a", "title": "Popular paper", "citation_count": 9000},
+        {"key": "b", "title": "Specific paper", "citation_count": 0},
+    ]
+    assert (
+        chat.select_materials(papers, "Popular paper", ["b"], limit=1)[0]["key"] == "b"
+    )
 
 
 def test_active_message_index_migrates_existing_table(chat_env, engine):
     from sqlalchemy.exc import IntegrityError
+
     with engine.begin() as conn:
         conn.exec_driver_sql("DROP INDEX uq_exploration_active_message")
     _migrate_schema(engine)
@@ -147,3 +200,29 @@ def test_active_message_index_migrates_existing_table(chat_env, engine):
         session.add(ExplorationMessage(run_id=chat_env, question="Concurrent"))
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+@pytest.mark.parametrize("status", ["partial", "error", "contradicted"])
+def test_unverified_followup_is_withheld_and_kept_only_as_diagnostic(
+    chat_env, monkeypatch, status
+):
+    async def llm(*args, **kwargs):
+        return {"answer": "An unsupported claim [P1]", "evidence": ["P1"]}
+
+    async def audit(*args, **kwargs):
+        return {
+            "status": "completed" if status == "contradicted" else status,
+            "coverage_complete": status == "contradicted",
+            "unsupported_count": 1 if status == "contradicted" else 0,
+            "claims": [{"label": "contradicted"}] if status == "contradicted" else [],
+        }
+
+    monkeypatch.setattr(chat, "_llm_json", llm)
+    monkeypatch.setattr(chat, "audit_answer", audit)
+    row = chat.create_message(chat_env, "Question", False, [])
+    asyncio.run(chat.answer_message(row.id))
+    answer = chat.conversation(chat_env)[0]
+    assert answer.answer != "An unsupported claim [P1]"
+    assert answer.context["answer_attempt"] == "An unsupported claim [P1]"
+    assert answer.context["answer_status"] in {"unchecked", "withheld"}
+    assert answer.evidence_keys == []

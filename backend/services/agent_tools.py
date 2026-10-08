@@ -553,6 +553,10 @@ async def retrieve_evidence(
         ws = session.get(Workspace, workspace_id)
         if not ws:
             raise AgentToolError("工作区不存在", "NOT_FOUND", 404)
+        from .material_lifecycle import workspace_paper_ids
+        paper_ids = workspace_paper_ids(session, workspace_id, paper_ids)
+        if not paper_ids:
+            raise AgentToolError("所选资料不在工作区", "CHROMA_NOT_INITIALIZED", 404)
 
     from .deep_research.vector_store import query_workspace, workspace_index_available
 
@@ -565,10 +569,17 @@ async def retrieve_evidence(
     from .deep_research.embedder import embed_query
 
     vec = await embed_query(query)
-    hits = query_workspace(workspace_id, vec, top_k=top_k, paper_ids=paper_ids)
+    hits = query_workspace(workspace_id, vec, top_k=top_k * 4, paper_ids=paper_ids)
+    from .material_sources import verified_pdf_hits
+    hits = (await verified_pdf_hits(hits))[:top_k]
     if not hits:
         raise AgentToolError("未构建索引或无命中", "CHROMA_NOT_INITIALIZED", 404)
 
+    with Session(engine) as session:
+        current_ids = workspace_paper_ids(session, workspace_id)
+        hits = [hit for hit in hits if int(hit["paper_id"]) in current_ids]
+    if not hits:
+        raise AgentToolError("检索期间资料已移出工作区", "MATERIAL_CHANGED", 409)
     evidence = []
     for idx, hit in enumerate(hits, start=1):
         evidence.append(
@@ -581,6 +592,7 @@ async def retrieve_evidence(
                 "score": float(hit.get("score") or 0.0),
                 "chunk_id": hit.get("chunk_id") or hit.get("id"),
                 "source": "workspace_vector_index",
+                **{key: hit[key] for key in ("source_kind", "document_hash", "page_number", "start_char", "end_char") if key in hit},
             }
         )
 

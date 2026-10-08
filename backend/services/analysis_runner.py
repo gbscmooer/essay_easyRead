@@ -26,6 +26,7 @@ from sqlmodel import Session
 
 from ..models.schemas import StreamEvent
 from .database import get_engine
+from .analysis_integrity import validated_fields, missing_fields
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +42,6 @@ _TOTAL_FIELDS = len(_PROGRESS_FIELDS)
 # 相关论文搜索超时（秒）：findpapers 多源 + 网络重试可能卡很久，超时则跳过。
 # 主体结果在此步之前已落库并标记完成，故超时只影响「相关论文」模块，不影响其余字段展示。
 RELATED_PAPERS_TIMEOUT = 45.0
-
-# 判定「AI 分析阶段已完成」所需的核心字段（用于断点续传时决定是否跳过 AI 调用）
-_AI_REQUIRED_FIELDS = [
-    "title", "one_sentence", "problem", "key_contributions",
-    "outline", "method", "experiments", "code_mapping",
-    "interview_qa", "limitations",
-]
 
 # 断点续传缓存目录：<project_root>/data/analysis_cache
 _CACHE_DIR = os.path.join(
@@ -161,6 +155,12 @@ def get_job(paper_id: int) -> Optional[AnalysisJob]:
     return _jobs.get(paper_id)
 
 
+def forget_job(paper_id: int) -> None:
+    job = _jobs.get(paper_id)
+    if job is None or job.done:
+        _jobs.pop(paper_id, None)
+
+
 def _cleanup_expired_jobs() -> None:
     """Delete completed jobs older than _JOB_TTL_SECONDS."""
     now = time.monotonic()
@@ -222,7 +222,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
 
     # ---- 0. 读取断点缓存 ----
     result: dict = load_cache(paper_id)
-    ai_done = bool(result) and all(f in result for f in _AI_REQUIRED_FIELDS)
+    ai_done = bool(result) and not missing_fields(result)
     related_done = "related_papers" in result
 
     try:
@@ -270,7 +270,7 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                 # 这里仅转发 status / field，done 留给最终阶段统一发。
                 if event.event == "error":
                     raise RuntimeError(event.data.get("message", "AI 分析失败"))
-                if event.event == "done":
+                if event.event in ("done", "partial"):
                     continue
                 job.emit(event)
 
@@ -287,6 +287,13 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
                     save_cache(paper_id, result)
 
         # ---- 3. 提取代码仓库 URL ----
+        missing = missing_fields(result)
+        # Preserve only the actual valid model output in the resumable cache.
+        result = {**validated_fields(result), **({"related_papers": result["related_papers"]} if related_done else {})}
+        completeness = {"status": "partial" if missing else "complete", "missing_fields": missing,
+                        "input_truncated": bool(getattr(content, "truncated", False)),
+                        "quality_status": "unchecked"}
+        save_cache(paper_id, result)
         code_url = extract_code_url(content.full_text)
         if code_url:
             job.emit(StreamEvent(event="status", data={"status": "analyzing", "message": f"找到代码仓库: {code_url}"}))
@@ -307,18 +314,33 @@ async def _run_analysis(job: AnalysisJob, pdf_path: str) -> None:
         ]:
             result.setdefault(key, default)
         result = _json_safe(result)
+        result["completeness"] = completeness
 
         with Session(engine) as session:
-            update_paper_metadata(
-                session, paper_id,
-                result.get("title", ""),
-                result.get("venue", "Unknown"),
-                result.get("year", 0),
-                result.get("authors", ""),
-            )
+            from ..models.paper import Paper
+            paper = session.get(Paper, paper_id)
+            if paper is None:
+                return
+            protected = (paper.bibliography or {}).get("field_sources") or {}
+            def metadata_value(name, fallback):
+                current = getattr(paper, name)
+                if current and (missing or protected.get(name) == "manual"):
+                    return current
+                value = result.get(name)
+                return value if value not in (None, "", "Unknown", 0) else current or fallback
+            update_paper_metadata(session, paper_id,
+                metadata_value("title", ""), metadata_value("venue", "Unknown"),
+                metadata_value("year", 0), metadata_value("authors", ""))
             save_analysis_result(session, paper_id, result)
             if code_url:
                 update_paper_code_url(session, paper_id, code_url)
+
+        if missing:
+            with Session(engine) as session:
+                update_paper_status(session, paper_id, "partial", "部分分析已保存，请继续分析以补全缺失内容")
+            emit_progress(90, "部分分析已保存，仍有内容未完成", "partial")
+            job.emit(StreamEvent(event="partial", data={"message": "部分分析已保存，仍有内容未完成", "missing_fields": missing}))
+            return
 
         # 4.5. 自动标签：尽量在主体完成时就落库，便于前端在「已完成」状态下立即显示
         # 智能标签；失败不影响主流程。

@@ -5,7 +5,7 @@ import { toast } from '@/hooks/useToast'
 
 interface TagManagerProps {
   paperId: number
-  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'done' | 'failed'
+  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'partial' | 'done' | 'failed'
 }
 
 export function TagManager({ paperId, analysisStatus }: TagManagerProps) {

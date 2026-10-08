@@ -169,6 +169,7 @@ async def _answer(message_id: int) -> None:
     if not materials:
         answer = "现有资料不足以回答这个问题。请补充检索或明确研究任务、方法和时间范围。"
         evidence = []
+        context["answer_status"] = "no_evidence"
     else:
         sources = [{"id": f"P{i + 1}", "title": p.get("title"), "year": p.get("year"),
                     "abstract": _source_excerpt(p, question)[0][:6000],
@@ -202,6 +203,13 @@ async def _answer(message_id: int) -> None:
         evidence = list(dict.fromkeys(valid[e] for e in data.get("evidence", []) if isinstance(e, str) and e in valid))
         context["citations"] = valid
         context["evidence_audit"] = await audit_answer(answer, sources, cfg)
+        from .answer_delivery import deliver_audited_answer
+        candidate = answer
+        answer, context["answer_status"] = deliver_audited_answer(candidate, context["evidence_audit"])
+        if context["answer_status"] != "internally_checked":
+            context["answer_attempt"] = candidate
+            context["warnings"].append("候选回答未通过完整证据核查，已保留为诊断资料。")
+            evidence = []
 
     with Session(get_engine()) as session:
         msg = session.get(ExplorationMessage, message_id)

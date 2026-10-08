@@ -8,7 +8,7 @@
  * uploadAndAnalyze 上传成功后 setState(activePaperId) 触发 SSE 连接。
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Paper, AnalysisResult, AnalysisStatus } from '@/types'
 import { uploadPaper, getPaper, getAnalysis, reparsePaper, startAnalysisJob } from '@/api/papers'
 import { useStreaming } from './useStreaming'
@@ -52,6 +52,7 @@ interface UseAnalysisReturn {
  * @returns 解析状态和操作方法
  */
 export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
+  const attemptRef = useRef(0)
   const [activePaperId, setActivePaperId] = useState<number | null>(initialPaperId ?? null)
   const [paper, setPaper] = useState<Paper | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
@@ -75,16 +76,17 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
     if (initialPaperId === undefined) return
 
     let cancelled = false
+    const attempt = attemptRef.current
     setActivePaperId(initialPaperId)
 
     getPaper(initialPaperId).then(p => {
       if (cancelled) return
       setPaper(p)
       // 如果已经完成，直接获取完整结果
-      if (p.status === 'done') {
+      if (p.status === 'done' || p.status === 'partial') {
         setShouldConnect(true)
         getAnalysis(initialPaperId).then(result => {
-          if (!cancelled) setAnalysis(result)
+          if (!cancelled && attempt === attemptRef.current) setAnalysis(result)
         }).catch(() => {
           toast({ type: 'error', message: '加载分析结果失败' })
         })
@@ -107,17 +109,21 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
 
   // 当 SSE 完成时，获取完整结果
   useEffect(() => {
-    if (streamStatus === 'done' && activePaperId !== null) {
+    if ((streamStatus === 'done' || streamStatus === 'partial') && activePaperId !== null) {
+      let cancelled = false
+      const attempt = attemptRef.current
       getAnalysis(activePaperId).then(result => {
-        setAnalysis(result)
+        if (!cancelled && attempt === attemptRef.current) setAnalysis(result)
       }).catch(() => {
-        toast({ type: 'error', message: '加载完整分析失败' })
+        if (!cancelled) toast({ type: 'error', message: '加载完整分析失败' })
       })
+      return () => { cancelled = true }
     }
   }, [streamStatus, activePaperId])
 
   // 上传并开始解析
   const uploadAndAnalyze = useCallback(async (file: File) => {
+    attemptRef.current += 1
     setAnalysis(null)
     setPaper(null)
     try {
@@ -141,6 +147,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   // 重新解析
   const reparse = useCallback(async () => {
     if (activePaperId === null) return
+    attemptRef.current += 1
     setAnalysis(null)
     setLocalError(null)
     setShouldConnect(false)
@@ -158,14 +165,16 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   // 开始分析（从 idle 状态触发）
   const startAnalysis = useCallback(() => {
     if (activePaperId === null) return
-    // 后台启动分析任务，再连接 SSE 显示进度
-    startAnalysisJob(activePaperId).catch((e: unknown) => {
-      setShouldConnect(false)
+    attemptRef.current += 1
+    setShouldConnect(false)
+    setAnalysis(null)
+    setLocalError(null)
+    setPaper(prev => prev ? { ...prev, status: 'analyzing', error_message: null } : prev)
+    startAnalysisJob(activePaperId).then(() => setShouldConnect(true)).catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : '启动分析任务失败'
       setLocalError(msg)
       toast({ type: 'error', message: msg })
     })
-    setShouldConnect(true)
   }, [activePaperId])
 
   // 合并状态：
@@ -174,7 +183,7 @@ export function useAnalysis(initialPaperId?: number): UseAnalysisReturn {
   // - 如果未连接且 paper 待分析，显示 idle（等待用户点击"开始分析"）
   // - 否则使用 streamStatus（正在分析中）
   const status: AnalysisStatus = analysis
-    ? 'done'
+    ? (analysis.completeness?.status === 'partial' || paper?.status === 'partial' ? 'partial' : 'done')
     : paper?.status === 'done'
     ? 'done'
     : !shouldConnect

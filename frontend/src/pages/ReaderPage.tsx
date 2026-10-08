@@ -323,6 +323,7 @@ export default function ReaderPage() {
               ref={pdfViewerRef}
               pdfUrl={pdfUrl}
               paperId={paperId}
+              citationPage={Number(new URLSearchParams(location.search).get('page')) || null}
               activePage={activePage}
               headings={headings}
               onPageChange={onPageChangeNoop}

@@ -56,6 +56,7 @@ interface PdfViewerProps {
   pdfUrl: string
   paperId?: number
   activePage?: number | null
+  citationPage?: number | null
   headings?: HeadingPos[]
   onPageChange: (page: number) => void
 }
@@ -66,7 +67,7 @@ export interface PdfViewerHandle {
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function PdfViewer(
-  { pdfUrl, paperId, activePage, headings, onPageChange },
+  { pdfUrl, paperId, activePage, citationPage, headings, onPageChange },
   ref,
 ) {
   const uiConfig = useUIConfig()
@@ -608,15 +609,16 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     if (!paperId || numPages === 0 || restoredForRef.current === paperId) return
     restoredForRef.current = paperId
 
-    const saved = loadReadingPage(paperId)
-    if (!saved || saved < 2 || saved > numPages) return
+    const fromCitation = typeof citationPage === 'number' && Number.isInteger(citationPage) && citationPage >= 1 && citationPage <= numPages
+    const saved = fromCitation ? citationPage : loadReadingPage(paperId)
+    if (!saved || saved < 1 || saved > numPages) return
 
     ensurePageRendered(saved, () => {
       scrollToPage(saved)
       setVisiblePage(saved)
-      toast({ type: 'info', message: `已回到上次阅读位置 · 第 ${saved} 页` })
+      toast({ type: 'info', message: `${fromCitation ? '引用位置' : '已回到上次阅读位置'} · 第 ${saved} 页` })
     })
-  }, [paperId, numPages, ensurePageRendered, scrollToPage])
+  }, [paperId, numPages, citationPage, ensurePageRendered, scrollToPage])
 
   // 记住当前页（防抖，避免连续滚动时高频写 storage）
   useEffect(() => {

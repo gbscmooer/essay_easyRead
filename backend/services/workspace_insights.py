@@ -138,7 +138,7 @@ def _semantic_graph(nodes: list[dict], edges: list[dict]) -> nx.Graph:
         graph.add_node(nid)
 
     for edge in edges:
-        if edge.get("kind") == "cites":
+        if edge.get("kind") == "cites" or edge.get("bridge"):
             continue
         src = edge.get("source")
         tgt = edge.get("target")

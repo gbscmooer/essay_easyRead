@@ -59,6 +59,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
   // 主体完成后，相关论文阶段仍会发 status=analyzing 的 progress 事件，
   // 用此 ref 防止把已 done 的状态又拉回 analyzing（否则界面会闪回加载态）
   const mainDoneRef = useRef(false)
+  const terminalRef = useRef(false)
 
   const cleanup = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -87,9 +88,10 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
 
     const es = new EventSource(`/api/analysis/${paperId}/stream`)
     eventSourceRef.current = es
+    terminalRef.current = false
 
     es.addEventListener('status', (e: MessageEvent) => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = JSON.parse(e.data)
         setStatus(data.status as AnalysisStatus)
@@ -100,7 +102,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     })
 
     es.addEventListener('progress', (e: MessageEvent) => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = JSON.parse(e.data)
         if (typeof data.percent === 'number') setProgress(data.percent)
@@ -113,7 +115,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     })
 
     es.addEventListener('field', (e: MessageEvent) => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = JSON.parse(e.data)
         const fieldName = data.field_name as keyof AnalysisResult
@@ -127,14 +129,14 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     // 主体分析完成：立即切到 done 让前端渲染全部主体字段，但保持连接以接收相关论文
     // （相关论文模块的 loading/ok/failed 状态由后端的 related_status 事件驱动）
     es.addEventListener('main_done', () => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
       mainDoneRef.current = true
       setStatus('done')
     })
 
     // 相关论文模块的独立状态
     es.addEventListener('related_status', (e: MessageEvent) => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = JSON.parse(e.data)
         if (data.status) setRelatedStatus(data.status)
@@ -143,8 +145,20 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
       }
     })
 
+    es.addEventListener('partial', (e: MessageEvent) => {
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
+      mainDoneRef.current = true
+      terminalRef.current = true
+      setStatus('partial')
+      setProgress(90)
+      try { setProgressMessage(JSON.parse(e.data).message || '部分分析已保存') } catch { setProgressMessage('部分分析已保存') }
+      es.close()
+      eventSourceRef.current = null
+    })
+
     es.addEventListener('done', () => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
+      terminalRef.current = true
       setStatus('done')
       setProgressMessage('')
       setProgress(100)
@@ -153,7 +167,9 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     })
 
     es.addEventListener('error', (e: MessageEvent) => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || eventSourceRef.current !== es) return
+      if (!e.data) return
+      terminalRef.current = true
       try {
         const data = JSON.parse(e.data)
         setStatus('failed')
@@ -172,7 +188,7 @@ export function useStreaming(paperId: number | null, shouldConnect: boolean = tr
     }
 
     es.onerror = () => {
-      if (isUnmountedRef.current) return
+      if (isUnmountedRef.current || terminalRef.current || eventSourceRef.current !== es) return
       es.close()
       eventSourceRef.current = null
 

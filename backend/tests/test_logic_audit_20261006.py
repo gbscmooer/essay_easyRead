@@ -124,6 +124,7 @@ def test_report_failure_keeps_checkpoint_and_resume(resume_env, monkeypatch):
 async def test_rebuild_preserves_other_chunks_and_failure_does_not_drop(monkeypatch):
     from backend.services.deep_research.stages import embed
 
+    monkeypatch.setattr("backend.services.material_lifecycle.workspace_paper_ids", lambda *a, **kw: [1, 2])
     old = {
         "id": "1:body:0",
         "text": "old",

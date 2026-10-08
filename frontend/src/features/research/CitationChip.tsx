@@ -75,7 +75,7 @@ export function CitationChip({ citation, index, showDebug = false, debug }: Cita
 
   return (
     <Link
-      to={`/reader/${citation.paper_id}`}
+      to={`/reader/${citation.paper_id}${citation.page_number ? `?page=${citation.page_number}` : ''}`}
       /* 用 .list-row 的左色条 hover 代替上浮 + 投影：硬边平面里没有「浮起来」
          这回事，而那段 JS 设的 boxShadow 本来就被全局阴影禁令吃掉了，从来没
          生效过。 */
@@ -84,7 +84,7 @@ export function CitationChip({ citation, index, showDebug = false, debug }: Cita
     >
       <div className="flex items-start gap-2">
         <span className="text-[11px] font-mono font-semibold shrink-0 mt-px tabular-nums" style={{ color: 'var(--accent)' }}>
-          [{index}]
+          [P{index}]
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -94,12 +94,12 @@ export function CitationChip({ citation, index, showDebug = false, debug }: Cita
             <DownloadBadge citation={citation} />
           </div>
           <p className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
-            {citation.section_name} — {citation.snippet.slice(0, 100)}…
+            {citation.page_number ? `第 ${citation.page_number} 页 · ` : ''}{citation.section_name} — {citation.snippet.slice(0, 100)}…
           </p>
           {showDebug && dbg && <CitationDebugPanel debug={dbg} />}
         </div>
         <span className="text-[11px] font-mono shrink-0 tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {(citation.score * 100).toFixed(0)}%
+          排序分 {citation.score.toFixed(4)}
         </span>
       </div>
     </Link>
