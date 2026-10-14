@@ -1,17 +1,14 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.0.1'
+const APP_VERSION = '9.0.2'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-10-08',
+  date: '2026-10-14',
   changes: [
-    '修复论文与工作区删除后的关联残留、旧索引和编号复用问题',
-    '完善不完整论文分析的状态提示、已提取内容保留与继续分析',
-    '文献问答核对原文、版本与引用位置，明确未核验和证据不足状态',
-    '修复引用页码跳转、问答重复提交和分析事件断流处理',
-    '修复工作区图谱中的过期材料与展示连线统计',
+    '修复开启代理虚拟网卡（fake-IP）时论文全文下载被全部拦截的问题',
+    '仓库不再包含本地文档与助手配置文件，本地副本保留不变',
   ],
 }
 

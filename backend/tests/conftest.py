@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 os.environ.setdefault("LLM_API_KEY", "test-key-for-ci")
+os.environ.setdefault("URL_PUBLIC_ADDRESS_CHECK", "1")
 
 
 @pytest.fixture(scope="session")
