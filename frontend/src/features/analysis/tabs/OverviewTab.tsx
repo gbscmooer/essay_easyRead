@@ -13,7 +13,7 @@ const SPRING = 'var(--ease-press)'
 interface OverviewTabProps {
   result: AnalysisResult
   paperId?: number
-  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'done' | 'failed'
+  analysisStatus?: 'idle' | 'extracting' | 'analyzing' | 'generating' | 'partial' | 'done' | 'failed'
   /** 相关论文模块独立状态：loading 搜索中 / failed 超时或失败 */
   relatedStatus?: 'idle' | 'loading' | 'ok' | 'failed'
 }

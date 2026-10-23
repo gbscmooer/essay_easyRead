@@ -7,7 +7,7 @@
 
 
 /** 论文基础信息（列表用） */
-export type PaperStatus = 'pending' | 'extracting' | 'analyzing' | 'done' | 'failed' | 'indexed'
+export type PaperStatus = 'pending' | 'extracting' | 'analyzing' | 'done' | 'failed' | 'indexed' | 'partial'
 
 export interface Paper {
   id: number
@@ -131,6 +131,7 @@ export interface RelatedPaper {
 
 /** 完整解析结果 */
 export interface AnalysisResult {
+  completeness?: { status?: string; missing_fields?: string[]; input_truncated?: boolean; quality_status?: string }
   paper_id: number
   title: string
   authors: string
@@ -220,6 +221,7 @@ export type AnalysisStatus =
   | 'extracting'    // 正在提取 PDF 文本
   | 'analyzing'     // 正在调用 AI 分析
   | 'generating'    // 正在生成流程图
+  | 'partial'       // 部分完成，可继续补全
   | 'done'          // 完成
   | 'failed'        // 失败
 
@@ -614,7 +616,7 @@ export interface ExplorationMessage {
   selected_keys: string[]
   papers: ExplorationPaper[]
   evidence_keys: string[]
-  context: { citations?: Record<string, string>; queries?: string[]; warnings?: string[]; paper_keys?: string[]; evidence_audit?: unknown }
+  context: { citations?: Record<string, string>; queries?: string[]; warnings?: string[]; paper_keys?: string[]; evidence_audit?: unknown; answer_status?: string; answer_attempt?: string }
   error_message: string | null
   created_at: string
   updated_at: string
@@ -1074,6 +1076,11 @@ export interface RagCitationDebug {
 }
 
 export interface RagCitation {
+  source_kind?: string
+  document_hash?: string
+  page_number?: number | null
+  start_char?: number | null
+  end_char?: number | null
   paper_id: number
   paper_title: string
   section_name: string
@@ -1095,6 +1102,8 @@ export interface RagPathEvidence {
 }
 
 export interface RagQueryResponse {
+  answer_status?: string
+  evidence_audit?: Record<string, unknown>
   answer: string
   citations: RagCitation[]
   path_evidence?: RagPathEvidence[]

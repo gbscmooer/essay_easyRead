@@ -118,6 +118,9 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
             with Session(engine) as s:
                 run = s.get(ExplorationRun, run_id)
                 result = run.result or {}
+                run_failed = run.status == "failed"
+                token_total = (((run.result or {}).get("sources") or {}).get("token_usage") or {}).get("total")
+                run_error = run.error_message
         finally:
             explorer.get_engine = original
             engine.dispose()
@@ -142,8 +145,13 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
         "partial": bool(synthesis.get("partial")),
         "fallback_decompose": bool((result.get("decompose") or {}).get("fallback")),
         "wall_s": wall,
+        "tokens": token_total,
         "error": None,
     }
+    # 运行失败（如检索式规划超时）不是「检索未命中」：记错误，不映射为 no_recall
+    if run_failed:
+        rec["error"] = f"run failed: {run_error or 'unknown'}"[:300]
+        return rec
     # 零召回题：系统应如实走「检索未命中」通道（无 verdict），不算综合失败
     if total <= 3 and not rec["verdict"]:
         rec["verdict"] = NO_RECALL
@@ -174,8 +182,10 @@ async def ask_baseline(question: str, llm_cfg: dict) -> dict:
     from backend.services.deep_research.domain_synthesizer import _llm_json
 
     t0 = time.monotonic()
+    meta: dict = {}
     data = await _llm_json(
         llm_cfg, _BASELINE_SYSTEM, _BASELINE_USER.format(q=question), max_tokens=6000,
+        metadata_out=meta,
     )
     wall = round(time.monotonic() - t0, 1)
     v = data.get("verdict")
@@ -200,6 +210,7 @@ async def ask_baseline(question: str, llm_cfg: dict) -> dict:
         "cited_dois": dois,
         "median_cited_year": median_year(years),
         "wall_s": wall,
+        "tokens": meta.get("usage") or None,
         "error": None,
     }
 
@@ -443,6 +454,8 @@ def _parse_args(argv: list[str] | None = None):
     p.add_argument("--skip-system", action="store_true")
     p.add_argument("--skip-baseline", action="store_true")
     p.add_argument("--list", action="store_true", help="列出题集后退出")
+    p.add_argument("--thinking-effort", default="", choices=["", "off", "low", "medium", "high"],
+                   help="覆盖全局 LLM 思考强度（两臂同时生效），用于模型能力降级的消融实验")
     return p.parse_args(argv)
 
 
@@ -450,6 +463,17 @@ async def main_async(argv: list[str] | None = None) -> int:
     from backend.services.ai_config import get_analysis_config
 
     args = _parse_args(argv)
+    if args.thinking_effort:
+        # 两臂与系统内部所有阶段都经 ai_config.get_llm_config 取配置（get_analysis_config 亦然），
+        # 在此统一覆盖思考强度；显式传 thinking_effort 的调用点保持各自设定
+        from backend.services import ai_config as _ai_config
+
+        _orig_llm_config = _ai_config.get_llm_config
+
+        def _llm_config_override() -> dict:
+            return {**_orig_llm_config(), "thinking_effort": args.thinking_effort}
+
+        _ai_config.get_llm_config = _llm_config_override
     questions = load_questions(args.questions)
     if args.list:
         for q in questions:
@@ -489,6 +513,7 @@ async def main_async(argv: list[str] | None = None) -> int:
             "date": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "questions_version": (args.questions or _BUNDLED_QUESTIONS).name,
             "model": llm_cfg.get("model", ""),
+            "thinking_effort": llm_cfg.get("thinking_effort", ""),
             "duration_s": round(time.monotonic() - t0, 1),
         },
         records,

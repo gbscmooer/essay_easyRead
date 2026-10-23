@@ -298,8 +298,8 @@ def test_global_model_concurrency_caps_inflight_requests():
             responses = asyncio.run(run_five())
         assert len(responses) == 5
         assert inflight["max"] == 2  # 峰值被全局信号量封顶
-        assert set_model_concurrency(4) == 4  # 上限 4
-        assert set_model_concurrency(9) == 4  # 收口不超上限
+        assert set_model_concurrency(8) == 8  # 上限 8
+        assert set_model_concurrency(9) == 8  # 收口不超上限
     finally:
         _cleanup()
 

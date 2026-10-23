@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import type { RagQueryResponse } from '@/types'
 import { queryRag } from '@/api/research'
 import { CitationChip } from './CitationChip'
+import { EvidenceAuditPanel } from './EvidenceAuditPanel'
 import { LoadingSpinner } from '@/ds-entry'
 
 type RagMode = 'vector' | 'hybrid' | 'graph'
@@ -13,6 +14,7 @@ interface RagQueryBoxProps {
 }
 
 export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
+  const pendingRef = useRef(false)
   const [question, setQuestion] = useState('')
   const [mode, setMode] = useState<RagMode>('vector')
   const [loading, setLoading] = useState(false)
@@ -21,7 +23,8 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
   const [showDebug, setShowDebug] = useState(false)
 
   const handleQuery = async () => {
-    if (!question.trim()) return
+    if (pendingRef.current || !question.trim()) return
+    pendingRef.current = true
     setLoading(true)
     setError(null)
     setResult(null)
@@ -31,6 +34,7 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '查询失败')
     } finally {
+      pendingRef.current = false
       setLoading(false)
     }
   }
@@ -118,6 +122,9 @@ export function RagQueryBox({ wsId, paperIds, topN = 5 }: RagQueryBoxProps) {
             <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>
               {result.answer}
             </p>
+            {result.answer_status === 'internally_checked' && <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>已按当前原文自动核查，仍可人工复核。</p>}
+            {result.answer_status !== 'internally_checked' && result.evidence_audit && <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>以下核查针对未发布的候选回答。</p>}
+            <EvidenceAuditPanel audit={result.evidence_audit} />
             {(result.path_evidence?.length ?? 0) > 0 && (
               <div className="space-y-2">
                 <span className="text-label" style={{ color: 'var(--text-muted)' }}>图谱路径</span>

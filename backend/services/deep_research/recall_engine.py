@@ -484,6 +484,14 @@ async def run_target_recall(
         async def llm_json(system: str, user: str) -> dict:
             return await _dj_json(cfg, system, user, max_tokens=1500)
 
+        # 相关性筛选是逐篇二分类，不需要推理链：思考模式下单批 1500 token 上限常被
+        # 推理吃满、答案截断后整批 fail-open。130 篇对照实测关闭思考后输出 token
+        # -77%、耗时 181→34 s，与原判定一致率 116/124（分歧全部落在 uncertain）。
+        async def screen_json(system: str, user: str) -> dict:
+            return await _dj_json(cfg, system, user, max_tokens=1500, thinking_effort="off")
+    else:
+        screen_json = llm_json
+
     async def _emit(payload: dict) -> None:
         if on_event:
             try:
@@ -724,7 +732,7 @@ async def run_target_recall(
         supplement_budget_stop = ""
         if has_llm and llm_json is not None and pool:
             kept, filter_audit = await _filter_pool(
-                pool, question, batch_size=batch_size, llm_json=llm_json,
+                pool, question, batch_size=batch_size, llm_json=screen_json,
                 verdict_cache=verdict_cache, should_pause=should_pause,
                 on_progress=lambda done, total: _emit(
                     {"phase": "filter", "done": done, "total": total}))
@@ -781,7 +789,7 @@ async def run_target_recall(
                                           question, [*queries, *plan_keywords], now_year)
                 if new_pool:
                     new_kept, new_audit = await _filter_pool(
-                        new_pool, question, batch_size=batch_size, llm_json=llm_json,
+                        new_pool, question, batch_size=batch_size, llm_json=screen_json,
                         verdict_cache=verdict_cache, should_pause=should_pause)
                     confirmed.extend(p for p in new_kept if p.get("relevance_status") != "unknown")
                     unknown.extend(p for p in new_kept if p.get("relevance_status") == "unknown")

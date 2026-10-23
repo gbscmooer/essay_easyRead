@@ -253,6 +253,7 @@ def _migrate_schema(engine) -> None:
 
         # analysis_results 表迁移
         analysis_migrations = [
+            ("completeness", "JSON DEFAULT '{}'"),
             ("outline", "JSON DEFAULT '[]'"),
             ("authors", "TEXT DEFAULT ''"),
         ]
@@ -694,6 +695,8 @@ def init_db(database_url: str) -> None:
 
         # 简易迁移：为已有表添加新列
         _migrate_schema(engine)
+        from .storage_integrity import migrate_material_integrity
+        migrate_material_integrity(engine)
     finally:
         if owns_engine:
             engine.dispose()
@@ -856,10 +859,12 @@ def save_analysis_result(session: Session, paper_id: int, result: dict) -> None:
         existing.limitations = result.get("limitations", "")
         existing.related_papers = result.get("related_papers", [])
         existing.mermaid_chart = mermaid
+        existing.completeness = result.get("completeness", {})
         session.add(existing)
     else:
         analysis = AnalysisResult(
             paper_id=paper_id,
+            completeness=result.get("completeness", {}),
             title=result.get("title", ""),
             authors=result.get("authors", ""),
             venue=result.get("venue", ""),
@@ -1128,13 +1133,11 @@ def delete_paper(session: Session, paper_id: int) -> tuple[str, str | None]:
     pdf_path = paper.pdf_path
     code_path = paper.code_path
 
-    # AnalysisResult 通过 CASCADE 会自动删除，但显式删除更安全
-    statement = select(AnalysisResult).where(AnalysisResult.paper_id == paper_id)
-    analysis = session.exec(statement).first()
-    if analysis:
-        session.delete(analysis)
+    from .material_lifecycle import delete_paper_records, cleanup_paper_indexes
+    workspace_ids = delete_paper_records(session, paper)
 
     session.delete(paper)
     session.commit()
+    cleanup_paper_indexes(workspace_ids, paper_id)
 
     return pdf_path, code_path

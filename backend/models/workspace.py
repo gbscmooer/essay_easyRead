@@ -15,6 +15,7 @@ class Workspace(SQLModel, table=True):
     """工作区表"""
 
     __tablename__ = "workspaces"
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = "未命名工作区"

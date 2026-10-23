@@ -84,12 +84,33 @@ def upsert_chunks(ws_id: int, ids: list[str], docs: list[str], embeddings: list[
 
 
 def delete_paper(ws_id: int, paper_id: int):
-    col = get_or_create(ws_id)
-    col.delete(where={"paper_id": paper_id})
+    try:
+        col = _get_client().get_collection(_collection_name(ws_id))
+        col.delete(where={"paper_id": paper_id})
+    except chromadb.errors.NotFoundError:
+        pass
+    except Exception:
+        logger.exception("Failed to remove paper %s from workspace %s index", paper_id, ws_id)
 
+
+
+def delete_obsolete_chunks(ws_id: int, paper_id: int, keep_ids: set[str]):
+    """Prune older document generations only after new embeddings are ready."""
+    try:
+        col = _get_client().get_collection(_collection_name(ws_id))
+        old_ids = set(col.get(where={"paper_id": paper_id}, include=[]).get("ids") or [])
+        obsolete = sorted(old_ids - keep_ids)
+        if obsolete:
+            col.delete(ids=obsolete)
+    except chromadb.errors.NotFoundError:
+        pass
+    except Exception:
+        logger.exception("Failed to prune stale chunks for paper %s in workspace %s", paper_id, ws_id)
 
 def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None, *, strict: bool = False) -> list[dict]:
     """列出工作区全部 chunk（供 BM25 等词法索引构建）。失败返回空列表。"""
+    if paper_ids == []:
+        return []
     try:
         col = _get_client().get_collection(_collection_name(ws_id))
         where = {"paper_id": {"$in": paper_ids}} if paper_ids else None
@@ -113,6 +134,8 @@ def list_workspace_chunks(ws_id: int, paper_ids: Optional[list[int]] = None, *, 
 
 
 def query_workspace(ws_id: int, vec: list[float], top_k: int = 5, paper_ids: Optional[list[int]] = None) -> list[dict]:
+    if paper_ids == []:
+        return []
     # Query is read-only: a missing collection must not create persistent state.
     col = _get_client().get_collection(_collection_name(ws_id))
     where = {"paper_id": {"$in": paper_ids}} if paper_ids else None

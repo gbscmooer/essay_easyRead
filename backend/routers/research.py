@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
-_COLLECTABLE_PAPER_STATUSES = ("done", "indexed", "pending")
+_COLLECTABLE_PAPER_STATUSES = ("done", "partial", "indexed", "pending")
 
 
 def _has_collectable_papers(session: Session, ws_id: int, req: ResearchRunCreate) -> bool:
@@ -236,7 +236,7 @@ async def latest_run(ws_id: int) -> ResearchRunResponse:
 
 
 # ── 引用回填（存量数据修复：PaperReference 空表 → 图谱无 cites 边）──────────
-_BACKFILL_JOBS: dict[int, dict] = {}
+from ..services.material_activity import backfill_jobs as _BACKFILL_JOBS
 
 
 async def _backfill_worker(ws_id: int, force: bool) -> None:
@@ -281,14 +281,27 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
     from ..services.deep_research.hybrid_retriever import HybridRetriever
     from ..services.ai_config import get_research_config, get_reranker_config
 
+    from ..services.material_lifecycle import workspace_paper_ids
+    from ..services.ai_config import get_analysis_config
+    from ..services.deep_research.vector_store import workspace_index_available
+    engine = get_engine()
+    with Session(engine) as session:
+        if session.get(Workspace, ws_id) is None:
+            raise HTTPException(404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+        allowed_ids = workspace_paper_ids(session, ws_id, req.paper_ids)
+    if not allowed_ids or not workspace_index_available(ws_id):
+        raise HTTPException(404, detail={"detail": "未构建索引或所选资料不在工作区", "code": "CHROMA_NOT_INITIALIZED"})
+    cfg = get_analysis_config()
+    if not cfg.get("api_key"):
+        raise HTTPException(400, detail={"detail": "请先在配置页面设置 API Key", "code": "NO_API_KEY"})
     vec = await embed_query(req.question)
 
     rcfg = get_reranker_config()
     research_cfg = get_research_config()
     hybrid_cfg = dict(research_cfg.get("hybrid_retrieval") or {})
     use_rerank = bool(rcfg.get("enabled", True))
-    final_k = max(1, min(20, int(rcfg.get("top_n", req.top_k))))
-    recall_k = max(int(rcfg.get("candidate_k", 30)), final_k) if use_rerank else final_k
+    final_k = req.top_k
+    recall_k = max(int(rcfg.get("candidate_k", 30)), final_k * 4)
 
     graph = None
     engine = get_engine()
@@ -309,19 +322,22 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
         vec,
         top_k=final_k,
         recall_k=recall_k,
-        paper_ids=req.paper_ids,
+        paper_ids=allowed_ids,
         mode=req.mode,
         use_rerank=use_rerank,
         graph=graph,
         rrf_k=int(hybrid_cfg.get("rrf_k", 60)),
         weights=dict(hybrid_cfg.get("weights") or {}),
         graph_config=dict(hybrid_cfg.get("graph") or {}),
+        original_only=True,
     )
-    hits = result.hits
-    retrieval_debug = result.debug
+    from ..services.material_sources import verified_pdf_hits
+    hits = await verified_pdf_hits([h for h in result.hits if int(h.get("paper_id", -1)) in allowed_ids])
+    debug_by_chunk = {d.get("chunk_id"): d for d in result.debug}
+    retrieval_debug = [debug_by_chunk.get(h.get("chunk_id"), {}) for h in hits]
 
     if not hits:
-        raise HTTPException(404, detail={"detail": "未构建索引或无命中", "code": "CHROMA_NOT_INITIALIZED"})
+        raise HTTPException(404, detail={"detail": "没有可定位到当前 PDF 原文的命中，请重建索引或补充 PDF", "code": "NO_ORIGINAL_EVIDENCE"})
 
     hit_paper_ids = {int(h["paper_id"]) for h in hits if h.get("paper_id") is not None}
     paper_statuses: dict[int, str] = {}
@@ -335,41 +351,43 @@ async def query(ws_id: int, req: RagQueryRequest) -> RagQueryResponse:
             }
 
     # Graph-RAG context enhancement: PathRAG 解释性 context，不参与精排
-    graph_context_str = ""
     path_evidence = []
     if req.mode == "graph":
         try:
             path_context = build_path_context(graph, hits)
-            graph_context_str = path_context.context
             path_evidence = path_context.evidence or []
         except Exception as ge:
             logger.warning(f"Graph context enhancement failed: {ge}")
 
-    # 调用统一 LLM Core 用 hits 生成回答
-    from ..services.ai_config import get_analysis_config
-    from ..services.research_answer import generate_research_answer
-    cfg = get_analysis_config()
-
-    if not cfg.get("api_key"):
-        raise HTTPException(status_code=400, detail={"detail": "请先在配置页面设置 API Key", "code": "NO_API_KEY"})
+    # The request uses one configuration snapshot and only original excerpts.
+    from ..services.research_answer import generate_audited_answer
 
     try:
-        answer = await generate_research_answer(req.question, hits, graph_context_str, cfg)
+        answer, answer_status, evidence_audit = await generate_audited_answer(req.question, hits, cfg)
     except Exception as e:
-        logger.error(f"RAG query failed: {e}")
-        raise HTTPException(status_code=500, detail={"detail": f"AI 回答生成失败: {str(e)}", "code": "LLM_ERROR"})
+        logger.warning("RAG query failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=500, detail={"detail": "AI 回答未完成，请检查模型配置或稍后重试", "code": "LLM_ERROR"})
 
+    with Session(engine) as session:
+        current_ids = workspace_paper_ids(session, ws_id)
+        if any(int(hit["paper_id"]) not in current_ids for hit in hits):
+            raise HTTPException(409, detail={"detail": "回答期间工作区资料已变化，请重新提问", "code": "MATERIAL_CHANGED"})
+    from ..services.material_sources import document_versions_match
+    if not await document_versions_match(hits):
+        raise HTTPException(409, detail={"detail": "回答期间 PDF 版本已变化，请重新构建索引并提问", "code": "MATERIAL_CHANGED"})
     return RagQueryResponse(
-        answer=answer,
+        answer=answer, answer_status=answer_status, evidence_audit=evidence_audit,
         citations=[
             RagCitation(
                 paper_id=h["paper_id"],
                 paper_title=h["paper_title"],
                 section_name=h["section_name"],
-                snippet=h["snippet"][:400],
+                snippet=h["snippet"],
                 score=h["score"],
                 download_status=paper_statuses.get(int(h["paper_id"]), "none"),
-                metadata_only=paper_statuses.get(int(h["paper_id"]), "none") != "available",
+                metadata_only=False,
+                source_kind=h["source_kind"], document_hash=h["document_hash"],
+                page_number=h["page_number"], start_char=h["start_char"], end_char=h["end_char"],
                 debug=RagCitationDebug(**d) if (d := (retrieval_debug[i] if i < len(retrieval_debug) else None)) else None,
             )
             for i, h in enumerate(hits)
@@ -384,6 +402,11 @@ async def clear_research(ws_id: int) -> dict:
     """清空该工作区的图谱与向量索引（不删除 expanded 论文文件）"""
     engine = get_engine()
     with Session(engine) as session:
+        from ..services.material_lifecycle import ensure_idle, MaterialBusyError
+        try:
+            ensure_idle(session, [ws_id])
+        except MaterialBusyError as exc:
+            raise HTTPException(409, detail={"detail": str(exc), "code": "MATERIAL_BUSY"}) from None
         g = session.exec(select(ResearchGraph).where(ResearchGraph.workspace_id == ws_id)).first()
         if g:
             session.delete(g)

@@ -14,6 +14,7 @@ from ....config import settings
 from ....models.analysis import AnalysisResult
 from ....models.paper import Paper
 from ....services.pdf_parser import extract_pdf_content
+from ....services.material_sources import file_digest, page_chunks
 
 _engine = None
 
@@ -53,6 +54,7 @@ async def stage_chunk(papers, *, citation_contexts: dict[int, list[dict]] | None
                 if sec.get("summary"):
                     chunks.append({
                         "id": f"{p.id}:sec:{i}",
+                        "source_kind": "analysis_summary",
                         "paper_id": p.id, "paper_title": p.title,
                         "section_name": sec.get("section", f"Section {i}"),
                         "chunk_index": i,
@@ -71,15 +73,8 @@ async def stage_chunk(papers, *, citation_contexts: dict[int, list[dict]] | None
 
         try:
             content = await asyncio.to_thread(extract_pdf_content, p.pdf_path)
-            full = content.full_text or ""
-            for j, ck in enumerate(_sliding_window(full)):
-                chunks.append({
-                    "id": f"{p.id}:body:{j}",
-                    "paper_id": p.id, "paper_title": p.title,
-                    "section_name": "Body",
-                    "chunk_index": j, "page_hint": "",
-                    "text": ck,
-                })
+            digest = await asyncio.to_thread(file_digest, p.pdf_path)
+            chunks.extend(page_chunks(p, content, digest))
         except Exception:
             continue
 
@@ -102,6 +97,7 @@ async def stage_chunk(papers, *, citation_contexts: dict[int, list[dict]] | None
             text = f"[{' | '.join(prefix_parts)}] {context_text}"
             chunks.append({
                 "id": f"{seed_id}:cite_ctx:{i}",
+                "source_kind": "citation_context",
                 "paper_id": seed_id,
                 "paper_title": seed.title or "",
                 "section_name": section or "Citation Context",

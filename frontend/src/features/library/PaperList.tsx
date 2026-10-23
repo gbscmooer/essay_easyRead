@@ -120,6 +120,7 @@ type StatusIcon = 'check' | 'cross' | 'clock' | 'spin'
 /** 状态 → 文案 + 语义色档位。色相只允许取自调色板里的四个语义色。 */
 function statusLabel(status: Paper['status']): { text: string; tone: string; icon: StatusIcon } {
   switch (status) {
+    case 'partial': return { text: '部分完成', tone: 'er-tag--warn', icon: 'clock' }
     case 'done': return { text: '已完成', tone: '', icon: 'check' }
     case 'extracting': return { text: '提取中', tone: 'er-tag--warn', icon: 'spin' }
     case 'analyzing': return { text: '分析中', tone: 'er-tag--warn', icon: 'spin' }

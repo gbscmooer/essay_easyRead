@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 os.environ.setdefault("LLM_API_KEY", "test-key-for-ci")
+os.environ.setdefault("URL_PUBLIC_ADDRESS_CHECK", "1")
 
 
 @pytest.fixture(scope="session")
@@ -35,6 +36,10 @@ def patch_settings(test_db_url, test_upload_dir):
     settings.database_url = test_db_url
     settings.upload_dir = test_upload_dir
     settings.llm_api_key = "test-key"
+    # Lifecycle regressions must never touch the user's Chroma or analysis cache.
+    settings.chroma_dir = str(Path(test_upload_dir).parent / "chroma")
+    from backend.services import analysis_runner
+    analysis_runner._CACHE_DIR = str(Path(test_upload_dir).parent / "analysis_cache")
 
 
 @pytest.fixture(scope="session")

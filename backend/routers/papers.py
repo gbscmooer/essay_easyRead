@@ -30,6 +30,7 @@ from ..services.database import (
     PAPER_SORTS,
 )
 from ..services.pdf_parser import extract_pdf_content
+from ..services.material_lifecycle import MaterialBusyError
 from ..utils.streaming import format_analysis_as_markdown
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
@@ -147,7 +148,7 @@ async def get_papers_list(
             )
 
     paper_responses = [
-        PaperResponse(**p, read_level="full" if p["id"] in analyzed_ids else ("digest" if p.get("graph_digest") else "none"))
+        PaperResponse(**p, read_level="full" if p["id"] in analyzed_ids and p["status"] == "done" else ("digest" if p.get("graph_digest") else "none"))
         for p in papers
     ]
 
@@ -396,6 +397,8 @@ async def delete_paper_endpoint(paper_id: int) -> dict:
     try:
         with Session(engine) as session:
             pdf_path, code_path = delete_paper(session, paper_id)
+    except MaterialBusyError as exc:
+        raise HTTPException(409, detail={"detail": str(exc), "code": "MATERIAL_BUSY"}) from None
     except ValueError:
         raise HTTPException(
             status_code=404,

@@ -314,6 +314,10 @@ async def analyze_code(paper_id: int) -> StreamingResponse:
             from ..models.code_analysis import CodeAnalysis
             with Session(engine) as session:
                 from sqlmodel import select
+                from ..models.paper import Paper as PaperModel
+                if session.get(PaperModel, paper_id) is None:
+                    yield format_sse(StreamEvent(event="error", data={"message": "论文已删除，代码分析未保存"}))
+                    return
                 statement = select(CodeAnalysis).where(CodeAnalysis.paper_id == paper_id)
                 existing = session.exec(statement).first()
 

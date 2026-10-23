@@ -909,7 +909,7 @@ async def _run_digest(text: str, title: str, cfg: dict) -> dict:
 # 批量速读后台任务进度（按 workspace_id 记在内存）。单进程 uvicorn 足够；
 # 结果本身逐篇持久化到 Paper.graph_digest，故即使进程重启丢了进度，再点一次会
 # 自动跳过已速读的论文、从断点继续（断点续跑）。
-_DIGEST_JOBS: dict[int, dict] = {}
+from ..services.material_activity import digest_jobs as _DIGEST_JOBS
 
 
 def _digest_job_view(ws_id: int) -> dict:
@@ -1308,7 +1308,7 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
             detail={"detail": paper.error_message or "Analysis failed", "code": "PARSING_FAILED"},
         )
 
-    if paper.status != "done":
+    if paper.status not in ("done", "partial"):
         raise HTTPException(
             status_code=400,
             detail={"detail": "Paper analysis is not completed yet", "code": "NOT_READY"},
@@ -1325,6 +1325,7 @@ async def get_analysis_result(paper_id: int) -> AnalysisResponse:
 
     return AnalysisResponse(
         paper_id=analysis.paper_id,
+        completeness=analysis.completeness or {},
         title=analysis.title,
         authors=analysis.authors or "",
         venue=analysis.venue,
@@ -1369,8 +1370,11 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
         实时接收进度与字段。客户端断开仅取消订阅，不会终止后台分析。
         """
 
-        # 根据论文状态决定行为
-        if paper.status == "done":
+        from ..services.analysis_runner import get_job
+        active_job = get_job(paper_id)
+        active = active_job is not None and not active_job.done
+        # A retry may start before its first persisted status update.
+        if not active and paper.status in ("done", "partial"):
             # 已完成：直接发送已存储的结果
             try:
                 with Session(engine) as session:
@@ -1410,10 +1414,12 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
                             data={"value": value},
                         ))
 
-            yield format_sse(StreamEvent(event="done", data={"message": "解析完成"}))
+            yield format_sse(StreamEvent(event="partial" if paper.status == "partial" else "done",
+                data={"message": "部分分析已保存，仍有内容未完成" if paper.status == "partial" else "解析完成",
+                      "missing_fields": (analysis.completeness or {}).get("missing_fields", [])}))
             return
 
-        if paper.status == "failed":
+        if not active and paper.status == "failed":
             yield format_sse(StreamEvent(
                 event="error",
                 data={"message": paper.error_message or "Analysis failed"},
@@ -1445,7 +1451,7 @@ async def stream_analysis(paper_id: int) -> StreamingResponse:
             while True:
                 event = await queue.get()
                 yield format_sse(event)
-                if event.event in ("done", "error"):
+                if event.event in ("done", "partial", "error"):
                     break
         finally:
             # 客户端断开（切换页面/刷新）只取消订阅，后台分析继续运行

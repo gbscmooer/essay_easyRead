@@ -129,7 +129,7 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
   }
 
   // 解析中
-  if (status !== 'done' || !result) {
+  if ((status !== 'done' && status !== 'partial') || !result) {
     return (
       <div className="flex flex-col h-full">
         <LoadingState status={status} message={progressMessage} partialResult={partialResult} progress={progress} />
@@ -139,6 +139,15 @@ export function AnalysisPanel({ result, partialResult, status, progressMessage, 
 
   return (
     <div className="flex flex-col h-full">
+      {status === 'partial' && (
+        <div role="status" className="p-3 text-[12px]" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--warning)' }}>
+          部分分析已保存，缺少 {result.completeness?.missing_fields?.length ?? 0} 项内容。空白项尚未完成。
+          <button onClick={onStartAnalysis} className="ml-3 underline">继续补全</button>
+        </div>
+      )}
+      {result.completeness?.input_truncated && (
+        <p role="status" className="p-3 text-[12px]" style={{ color: 'var(--warning)' }}>论文超过当前精读长度限制，部分页面未送入分析模型。</p>
+      )}
       {/* Tab 栏 */}
       <div
         role="tablist"

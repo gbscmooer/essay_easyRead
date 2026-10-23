@@ -1,13 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.0.1'
+const APP_VERSION = '9.0.3'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-10-13',
+  date: '2026-10-23',
   changes: [
-    '修复数据库测试用例依赖本机是否安装 findpapers 的问题，持续集成恢复通过',
+    '文献相关性筛选关闭模型深度思考，筛选耗时与用量大幅下降',
+    '智谱 GLM 模型的深度思考开关可正常生效',
+    '模型默认并发调整为 5、上限 8，各阶段超时读取配置',
   ],
 }
 

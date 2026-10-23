@@ -63,7 +63,13 @@ export function ExplorationConversation({ runId, papers, disabled, onMessages, q
         <p className="ex-chat-question">{m.question}</p>
         <strong>AI</strong>
         {m.status === 'done' && <div className="ex-report"><EvidenceMarkdown text={m.answer} papers={papers} citations={m.context?.citations} /></div>}
-        {m.status === 'done' && <EvidenceAuditPanel audit={m.context?.evidence_audit} />}
+        {m.status === 'done' && m.context?.answer_attempt && <details>
+          <summary>未发布的候选回答（诊断资料）</summary>
+          <p>以下内容未通过完整证据核查，不作为正式研究结论。</p>
+          <EvidenceMarkdown text={m.context.answer_attempt} papers={papers} citations={m.context.citations} />
+          <EvidenceAuditPanel audit={m.context.evidence_audit} />
+        </details>}
+        {m.status === 'done' && !m.context?.answer_attempt && <EvidenceAuditPanel audit={m.context?.evidence_audit} />}
         {['pending', 'running'].includes(m.status) && <p role="status">{m.search_more ? '正在检索资料并回答…' : '正在分析已有资料…'}</p>}
         {m.status === 'failed' && <div role="alert">{m.error_message}
           <button type="button" className="ex-icon" title="重试追问" aria-label="重试追问" disabled={active || sending || disabled}

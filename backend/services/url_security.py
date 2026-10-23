@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 from urllib.parse import urlsplit
+
+# 非公网地址拦截开关：默认关闭。代理 TUN 的 fake-IP（198.18.0.0/15）会让正常出版商
+# 域名解析为非公网地址，导致全文下载全部被拒；设 URL_PUBLIC_ADDRESS_CHECK=1 恢复拦截。
+PUBLIC_ADDRESS_CHECK = os.getenv("URL_PUBLIC_ADDRESS_CHECK", "0") == "1"
 
 # 结构化错误码（下载审计外显用）。错误码只是原因分类，不做二次转义：
 # 例如 NON_PUBLIC_ADDRESS_BLOCKED 不得自动改名为"代理错误"。
@@ -82,6 +87,8 @@ def validate_public_http_url(url: str, *, resolve_dns: bool = True) -> None:
             error_code=ERROR_INVALID_URL,
             stage=STAGE_VALIDATE,
         )
+    if not PUBLIC_ADDRESS_CHECK:
+        return
 
     hostname = parsed.hostname.rstrip(".").casefold()
     if hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal")):

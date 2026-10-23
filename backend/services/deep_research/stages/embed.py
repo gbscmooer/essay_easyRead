@@ -9,7 +9,7 @@ from typing import AsyncIterator
 from ..embedder import embed_texts
 from ..vector_store import (
     upsert_chunks, drop_workspace_collection, get_or_create,
-    get_existing_ids, collection_model, list_workspace_chunks,
+    get_existing_ids, collection_model, list_workspace_chunks, delete_obsolete_chunks,
 )
 from ...ai_config import get_embedding_config
 
@@ -34,7 +34,15 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
     if model_changed and not rebuild:
         logger.warning(f"embedding 模型由 {prev_model!r} 变为 {model!r}，自动重建向量库以避免新旧向量混用")
     if full_rebuild:
-        previous = list_workspace_chunks(ws_id, strict=True)
+        from sqlmodel import Session
+        from ...database import get_engine
+        from ...material_lifecycle import workspace_paper_ids
+        with Session(get_engine()) as session:
+            live_ids = workspace_paper_ids(session, ws_id)
+        previous = [c for c in list_workspace_chunks(ws_id, paper_ids=live_ids, strict=True) if c.get("paper_id") in live_ids]
+        chunks = [c for c in chunks if c.get("paper_id") in live_ids]
+        refreshed_ids = {c["paper_id"] for c in chunks}
+        previous = [c for c in previous if c["paper_id"] not in refreshed_ids]
         chunks = list({c["id"]: c for c in [*previous, *chunks]}.values())
     # Finish all model calls before discarding the usable old collection.
     rebuilt_batches = []
@@ -69,6 +77,7 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
                 "paper_id": c["paper_id"], "paper_title": c["paper_title"],
                 "section_name": c["section_name"], "chunk_index": c["chunk_index"],
                 "page_hint": c["page_hint"],
+                **{key: c[key] for key in ("source_kind", "document_hash", "page_number", "start_char", "end_char") if c.get(key) is not None},
                 **({"seed_paper_id": c["seed_paper_id"]} if c.get("seed_paper_id") else {}),
                 **({"target_arxiv_id": c["target_arxiv_id"]} if c.get("target_arxiv_id") else {}),
                 **({"target_doi": c["target_doi"]} if c.get("target_doi") else {}),
@@ -77,5 +86,8 @@ async def stage_embed(ws_id: int, chunks: list[dict], rebuild: bool) -> AsyncIte
         done += len(batch)
         if not full_rebuild:
             yield done
+    if not full_rebuild:
+        for paper_id in {c["paper_id"] for c in chunks}:
+            delete_obsolete_chunks(ws_id, paper_id, {c["id"] for c in chunks if c["paper_id"] == paper_id})
     if full_rebuild:
         yield done

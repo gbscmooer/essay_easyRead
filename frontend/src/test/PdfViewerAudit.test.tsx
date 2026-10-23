@@ -24,7 +24,7 @@ vi.mock('@/api/annotations', () => ({ listAnnotations: vi.fn(async () => []), cr
 vi.mock('@/components/SelectionPopup', () => ({ SelectionPopup: () => null }))
 vi.mock('@/features/viewer/AnnotationLayer', () => ({ AnnotationLayer: () => null }))
 import { PdfViewer, type PdfViewerHandle } from '@/features/viewer/PdfViewer'
-import { saveZoom } from '@/utils/readerPrefs'
+import { saveZoom, saveReadingPage } from '@/utils/readerPrefs'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -52,6 +52,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('PDF audit', () => {
+  it('引用页码优先于上次阅读页码，等待文档加载和目标页渲染', async () => {
+    saveReadingPage(12, 1)
+    render(<PdfViewer pdfUrl="/stub.pdf" paperId={12} citationPage={2} onPageChange={() => {}} />)
+    await act(async () => vi.advanceTimersByTime(0))
+    expect(HTMLElement.prototype.scrollTo).not.toHaveBeenCalled()
+    act(() => state.renderPage.get(2)?.())
+    await act(async () => vi.advanceTimersByTime(100))
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled()
+    expect(screen.getByLabelText('跳转到页码')).toHaveAttribute('placeholder', '2')
+  })
+
   it('缩放达到上限不使已渲染的章节定位失效', async () => {
     saveZoom({ scale: 3, fitMode: 'none' })
     const ref = createRef<PdfViewerHandle>()

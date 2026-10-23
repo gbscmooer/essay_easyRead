@@ -5,6 +5,7 @@
 """
 
 import logging
+import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -123,7 +124,7 @@ async def get_workspace(workspace_id: int) -> WorkspaceDetailResponse:
 
         papers = []
         for paper, added_at in rows:
-            if paper.id in analyzed:
+            if paper.id in analyzed and paper.status == "done":
                 read_level = "full"
             elif getattr(paper, "graph_digest", None):
                 read_level = "digest"
@@ -263,13 +264,24 @@ async def delete_workspace(workspace_id: int) -> dict:
         ws = session.get(Workspace, workspace_id)
         if not ws:
             raise HTTPException(status_code=404, detail={"detail": "工作区不存在", "code": "NOT_FOUND"})
+        from ..services.material_lifecycle import ensure_idle, invalidate_graph, MaterialBusyError
+        from ..models.research import ResearchRun
+        from sqlalchemy import delete
+        try:
+            ensure_idle(session, [workspace_id])
+        except MaterialBusyError as exc:
+            raise HTTPException(409, detail={"detail": str(exc), "code": "MATERIAL_BUSY"}) from None
+        invalidate_graph(session, workspace_id)
+        session.exec(delete(ResearchRun).where(ResearchRun.workspace_id == workspace_id))
         # 删除关联记录
         stmt = select(WorkspacePaper).where(WorkspacePaper.workspace_id == workspace_id)
         for wp in session.exec(stmt).all():
             session.delete(wp)
         session.delete(ws)
         session.commit()
-        return {"message": "工作区已删除"}
+    from ..services.deep_research.vector_store import drop_workspace_collection
+    await asyncio.to_thread(drop_workspace_collection, workspace_id)
+    return {"message": "工作区已删除"}
 
 
 # ============================================================
@@ -352,10 +364,18 @@ async def remove_paper_from_workspace(workspace_id: int, paper_id: int) -> dict:
         wp = session.exec(stmt).first()
         if not wp:
             raise HTTPException(status_code=404, detail={"detail": "论文不在该工作区中", "code": "NOT_FOUND"})
+        from ..services.material_lifecycle import ensure_idle, invalidate_graph, MaterialBusyError
+        try:
+            ensure_idle(session, [workspace_id])
+        except MaterialBusyError as exc:
+            raise HTTPException(409, detail={"detail": str(exc), "code": "MATERIAL_BUSY"}) from None
+        invalidate_graph(session, workspace_id)
         session.delete(wp)
         ws = session.get(Workspace, workspace_id)
         if ws:
             ws.updated_at = datetime.now(timezone.utc)
             session.add(ws)
         session.commit()
-        return {"message": "已移除"}
+    from ..services.deep_research.vector_store import delete_paper
+    await asyncio.to_thread(delete_paper, workspace_id, paper_id)
+    return {"message": "已移除"}

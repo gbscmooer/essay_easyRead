@@ -143,6 +143,9 @@ async def test_retrieve_evidence_uses_existing_vector_index(monkeypatch, engine,
             }
         ]
 
+    async def verified(hits):
+        return hits
+    monkeypatch.setattr("backend.services.material_sources.verified_pdf_hits", verified)
     monkeypatch.setattr("backend.services.deep_research.embedder.embed_query", fake_embed_query)
     monkeypatch.setattr("backend.services.deep_research.vector_store.workspace_index_available", lambda _ws_id: True)
     monkeypatch.setattr("backend.services.deep_research.vector_store.query_workspace", fake_query_workspace)

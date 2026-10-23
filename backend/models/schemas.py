@@ -73,7 +73,7 @@ class PaperResponse(BaseModel):
     metadata_updated_at: Optional[str] = None
     doi: Optional[str] = None
     arxiv_id: Optional[str] = None
-    status: str  # pending | extracting | analyzing | done | failed | indexed
+    status: str  # pending | extracting | analyzing | partial | done | failed | indexed
     index_status: str = "none"          # none | indexing | indexed | failed（自动索引）
     error_message: Optional[str] = None
     code_url: Optional[str] = None
@@ -121,6 +121,7 @@ class AnalysisResponse(BaseModel):
     """
 
     paper_id: int
+    completeness: dict = Field(default_factory=dict)
     title: str
     authors: str = ""
     venue: str
@@ -896,6 +897,11 @@ class RagCitation(BaseModel):
     score: float
     download_status: Optional[str] = None   # none | available | failed | unavailable | pending
     metadata_only: Optional[bool] = None    # True = 无 PDF 正文，仅元数据
+    source_kind: str = "unknown"
+    document_hash: str = ""
+    page_number: Optional[int] = None
+    start_char: Optional[int] = None
+    end_char: Optional[int] = None
     debug: Optional[RagCitationDebug] = None
 
 
@@ -913,6 +919,8 @@ class RecallChannelStats(BaseModel):
 class RagQueryResponse(BaseModel):
     """RAG 问答响应"""
     answer: str
+    answer_status: str = "unchecked"
+    evidence_audit: dict = Field(default_factory=dict)
     citations: list[RagCitation]
     path_evidence: list[dict] = Field(default_factory=list)
     debug: Optional[list[RagCitationDebug]] = None

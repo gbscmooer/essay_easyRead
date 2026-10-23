@@ -21,11 +21,11 @@ MAX_RETRIES = 5
 BASE_DELAY = 3.0
 MAX_DELAY = 120.0
 
-# ── 全局模型并发（计划 §16.6 P2）：默认 2、上限 4 ───────────────────────────
+# ── 全局模型并发（计划 §16.6 P2）：默认 5（智谱单账号并发上限）、上限 8 ───────────────────────────
 # 逐篇提取/批次核验/关系复核等流水线各自的 Semaphore 只控制结构并行度，
 # 实际在途供应商请求由这里统一封顶，叠加池不再放大并发。
-MODEL_CONCURRENCY_DEFAULT = 2
-MODEL_CONCURRENCY_MAX = 4
+MODEL_CONCURRENCY_DEFAULT = 5
+MODEL_CONCURRENCY_MAX = 8
 _MODEL_CONCURRENCY: int = max(1, min(
     MODEL_CONCURRENCY_MAX,
     int(os.environ.get("LLM_MODEL_CONCURRENCY") or MODEL_CONCURRENCY_DEFAULT)))
