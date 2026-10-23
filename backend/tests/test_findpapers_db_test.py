@@ -19,6 +19,9 @@ def _search_ok(papers):
 
 
 def _patch_search(monkeypatch, papers):
+    # 搜索已被替身接管，findpapers 是否真的安装（CI 未装）与分档下载逻辑无关
+    monkeypatch.setattr(
+        "backend.services.findpapers_service.is_findpapers_installed", lambda: True)
     monkeypatch.setattr(
         "backend.services.findpapers_service._test_search_one_sync",
         lambda db, query, max_n=2: _search_ok(papers),

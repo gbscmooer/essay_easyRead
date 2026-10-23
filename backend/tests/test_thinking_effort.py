@@ -131,3 +131,14 @@ def test_openai_adapter_merges_extra_body_with_deepseek_thinking():
     )
     assert call["extra_body"] == {"existing": 1, "thinking": {"type": "enabled"}}
     assert call["temperature"] == 0.2
+
+
+def test_glm_thinking_toggle():
+    kwargs, _ = resolve_thinking(
+        True, "https://open.bigmodel.cn/api/coding/paas/v4", "glm-5.3-flash", "off", 1500,
+    )
+    assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+    kwargs, _ = resolve_thinking(
+        True, "https://open.bigmodel.cn/api/paas/v4", "GLM-4.5", "low", 1500,
+    )
+    assert kwargs == {"extra_body": {"thinking": {"type": "enabled"}}}

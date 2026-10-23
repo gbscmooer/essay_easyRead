@@ -50,7 +50,7 @@ from .graph_analytics import _detect_communities, _label_clusters, _tokenize
 from .literature_retrieval import paper_similarity, retrieve_materials
 from .citation_metrics import annotate_citation_metrics
 from .graphkit.backbone import mutual_knn
-from .survey_report import build_survey_report, redeliver_survey_report
+from .survey_report import _stage_timeout, build_survey_report, redeliver_survey_report
 from .recall_engine import RECALL_TARGETS, run_target_recall
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
@@ -955,7 +955,7 @@ async def refine_decomposition_with_tools(
         validator=validate,
         max_iterations=limits["query_turns"],
         no_progress_limit=3,
-        turn_timeout=120,
+        turn_timeout=_stage_timeout(llm_cfg, 120),
         progress_marker=lambda s: (
             tuple(s["decompose"].get("en_queries") or []),
             len(s["preview_rounds"]),
@@ -1803,7 +1803,7 @@ async def synthesize_exploration(
             },
             validator=validate_synthesis,
             max_iterations={"lite": 4, "quick": 4, "standard": 6, "deep": 8}.get(depth, 6),
-            no_progress_limit=2, turn_timeout=150,
+            no_progress_limit=2, turn_timeout=_stage_timeout(llm_cfg, 150),
             progress_marker=lambda current: (
                 current["evidence_inspections"], current["metrics_inspections"],
                 json.dumps(current.get("draft"), ensure_ascii=False, sort_keys=True),
@@ -2494,7 +2494,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     _rescreen_cfg = dict(llm_cfg)
 
                     async def _rescreen_json(system: str, user: str) -> dict:
-                        return await _dj_json(_rescreen_cfg, system, user, max_tokens=1500)
+                        return await _dj_json(_rescreen_cfg, system, user, max_tokens=1500,
+                                              thinking_effort="off")
 
                     kept, rescreen_audit = await _rescreen_pool(
                         unknown_pool, question, batch_size=5, llm_json=_rescreen_json,

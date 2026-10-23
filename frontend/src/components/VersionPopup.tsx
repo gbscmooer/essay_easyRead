@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.0.2'
+const APP_VERSION = '9.0.3'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-10-14',
+  date: '2026-10-23',
   changes: [
-    '修复开启代理虚拟网卡（fake-IP）时论文全文下载被全部拦截的问题',
-    '仓库不再包含本地文档与助手配置文件，本地副本保留不变',
+    '文献相关性筛选关闭模型深度思考，筛选耗时与用量大幅下降',
+    '智谱 GLM 模型的深度思考开关可正常生效',
+    '模型默认并发调整为 5、上限 8，各阶段超时读取配置',
   ],
 }
 
