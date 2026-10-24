@@ -200,6 +200,10 @@ class Settings(BaseSettings):
             "SCOPUS_API_KEY",
         ),
     )
+    openalex_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("OPENALEX_API_KEY"),
+    )
     research_email: str = Field(
         "",
         validation_alias=AliasChoices(

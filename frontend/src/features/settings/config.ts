@@ -89,6 +89,8 @@ export interface ResearchConfig {
   api_key: string
   /** Elsevier / Scopus API Key（机构订阅校外访问用；校园网内可留空） */
   elsevier_api_key?: string
+  /** OpenAlex API Key（免费；不填时共用按出口 IP 计的每日额度） */
+  openalex_api_key?: string
   /** 领域认知综合（stage_synthesize）：图谱后注入节点角色/引用因果/流派/全景简报 */
   synthesize?: { enabled: boolean }
   /** 旧配置兼容；当前骨架算法忽略目标度数 */
@@ -250,6 +252,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     email: '',
     api_key: '',
     elsevier_api_key: '',
+    openalex_api_key: '',
     synthesize: { enabled: true },
     map_density: 8,
     backbone_alpha: 0.05,
