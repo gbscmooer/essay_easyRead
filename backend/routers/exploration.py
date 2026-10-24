@@ -4,7 +4,7 @@ Exploration 路由 — 问句驱动的领域探索（GOAL.md 核心命题）
 创建/查询探索任务、SSE 进度流。产物结构见 models/exploration.py。
 
 academic_survey_v2 契约边界见 document.md §2.7、§5.9：
-- 新创建默认 academic_survey_v2 / question_loop_v20；显式 legacy_v1 保留 exploration_v8。
+- 新创建默认 legacy_v1 / exploration_v8（2026-10-23 用户决定，毕设主流程）；显式 academic_survey_v2 走实验 question_loop_v20。
 - 新端点仅 GET/POST；旧契约 v2 行或关闭实验开关时拒绝启动执行器。
 - 实施差异与验证边界见 docs/workflow_refactor/STATUS.md。
 
@@ -49,7 +49,7 @@ from ..models.schemas import (
     ResearchTaskItem, ResearchTaskListResponse,
     CoverageSubquestionEntry, CoverageGapEntry, RunCoverageResponse,
     BudgetResourceEntry, RunBudgetResponse,
-    RunControlRequest, RunControlResponse,
+    RunAdjustRequest, RunControlRequest, RunControlResponse,
     RunRetryRequest, RunRetryResponse,
     ReportRevisionEntry, ReportRevisionListResponse,
     EvidenceSpanEntry, EvidenceDetailResponse, EvidenceIndexItem, EvidenceIndexResponse,
@@ -312,7 +312,7 @@ def _v2_options_snapshot(req: ExplorationRunCreate, options: dict) -> dict:
 @router.post("/runs", response_model=ExplorationRunResponse)
 async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunResponse:
     # Resolve only new requests. Persisted legacy defaults remain unchanged.
-    req = req.model_copy(update={"workflow_version": req.workflow_version or WORKFLOW_ACADEMIC_SURVEY_V2})
+    req = req.model_copy(update={"workflow_version": req.workflow_version or WORKFLOW_LEGACY_V1})
     engine = get_engine()
     with Session(engine) as session:
         # 同一时刻只允许一个探索任务（检索配额与 LLM 成本控制）；暂停的研究同样占位
@@ -381,8 +381,98 @@ async def create_exploration(req: ExplorationRunCreate) -> ExplorationRunRespons
         return ExplorationRunResponse.model_validate(run, from_attributes=True)
 
 
+def _legacy_revision_options(session: Session, parent: ExplorationRun, req: ResearchRevisionCreate) -> dict:
+    """八阶段修正/补充的输入快照：继承父研究来源与排除项，追加用户剔除的文献。"""
+    base = dict(parent.options or {})
+    old = base.get("exclusions") or {}
+    papers = {p.get("key"): p for p in ((parent.result or {}).get("papers") or [])}
+    dropped = [papers[k] for k in req.exclude_asset_ids if k in papers]
+    unknown = [k for k in req.exclude_asset_ids if k not in papers]
+    if unknown:
+        raise ValueError(f"排除的文献不在原研究材料中：{', '.join(unknown[:3])}")
+    workspace_id = req.workspace_id if req.workspace_id is not None else base.get("workspace_id")
+    seeds = req.seed_paper_ids or (base.get("seed_paper_ids") or None if workspace_id else None)
+    search_online = base.get("search_online", True) if req.search_online is None else req.search_online
+    options = seed_options(
+        session, workspace_id, seeds, search_online or not workspace_id,
+        exclude_dois=[*(old.get("dois") or []), *(p["doi"] for p in dropped if p.get("doi"))],
+        exclude_arxiv_ids=[*(old.get("arxiv_ids") or []), *(p["arxiv_id"] for p in dropped if p.get("arxiv_id"))],
+        exclude_titles=[*(old.get("titles") or []),
+                        *(p["title"] for p in dropped if p.get("title") and not p.get("doi") and not p.get("arxiv_id"))],
+    )
+    if not search_online and not workspace_id:
+        if not req.reuse_materials:
+            raise ValueError("不联网且无工作区时必须复用原研究材料")
+        options["search_online"] = False
+    options["parent_run_id"] = parent.id
+    if req.reuse_materials:
+        options["reuse_from_run_id"] = parent.id
+    if req.additional_questions:
+        options["revision_conditions"] = list(req.additional_questions)
+    return options
+
+
+async def _revise_legacy(parent_id: int, req: ResearchRevisionCreate) -> ExplorationRunResponse:
+    question = req.question.strip()
+    if req.additional_questions:
+        question += "\n补充条件：" + "；".join(q.strip() for q in req.additional_questions)
+    engine = get_engine()
+    with Session(engine) as session:
+        parent = _get_run_or_404(session, parent_id)
+        if parent.status in ("running", "pending"):
+            raise HTTPException(409, detail={"detail": "原研究仍在运行，请等它结束或先暂停", "code": "INVALID_STATE"})
+        active = session.exec(select(ExplorationRun).where(
+            ExplorationRun.status.in_(["running", "pending", "paused"]))).first()
+        if active:
+            raise HTTPException(409, detail={"detail": "已有运行中或暂停的研究，请先处理", "code": "EXPLORATION_RUNNING"})
+        try:
+            options = _legacy_revision_options(session, parent, req)
+        except SourceError as exc:
+            raise HTTPException(exc.status, detail={"detail": str(exc), "code": "INVALID_SOURCES"}) from exc
+        except ValueError as exc:
+            raise HTTPException(422, detail={"detail": str(exc), "code": "INVALID_REVISION"}) from exc
+        child = ExplorationRun(question=question, depth=req.depth or parent.depth, status="pending",
+                               options=options, workflow_version=WORKFLOW_LEGACY_V1, state_version=0)
+        session.add(child)
+        session.commit()
+        session.refresh(child)
+        child_id = child.id
+        response = ExplorationRunResponse.model_validate(child, from_attributes=True)
+    get_exploration_bus(child_id)
+    start_worker(child_id, run_exploration(child_id))
+    return response
+
+
+def _legacy_versions(session: Session, run: ExplorationRun) -> dict:
+    """八阶段版本链：沿 parent_run_id 上溯祖先，列出直接子修订。"""
+    def row(r: ExplorationRun) -> dict:
+        verdict = (((r.result or {}).get("synthesis") or {}).get("verdict") or {}).get("status")
+        return {"id": r.id, "question": r.question, "status": r.status, "depth": r.depth,
+                "created_at": r.created_at, "verdict": verdict,
+                "conditions": (r.options or {}).get("revision_conditions") or [],
+                "reused": bool((r.options or {}).get("reuse_from_run_id"))}
+    ancestors, cursor, seen = [], (run.options or {}).get("parent_run_id"), {run.id}
+    while cursor and cursor not in seen and len(ancestors) < 20:
+        seen.add(cursor)
+        node = session.get(ExplorationRun, cursor)
+        if node is None:
+            break
+        ancestors.insert(0, row(node))
+        cursor = (node.options or {}).get("parent_run_id")
+    children = [row(r) for r in session.exec(
+        select(ExplorationRun).where(ExplorationRun.workflow_version == WORKFLOW_LEGACY_V1)
+        .order_by(ExplorationRun.id)).all() if (r.options or {}).get("parent_run_id") == run.id]
+    return {"run_id": run.id, "workflow_version": WORKFLOW_LEGACY_V1, "current": row(run),
+            "ancestors": ancestors, "children": children}
+
+
 @router.post("/runs/{run_id}/revise", response_model=ExplorationRunResponse)
 async def revise_research(run_id: int, req: ResearchRevisionCreate):
+    with Session(get_engine()) as session:
+        parent = _get_run_or_404(session, run_id)
+        legacy = (parent.workflow_version or WORKFLOW_LEGACY_V1) == WORKFLOW_LEGACY_V1
+    if legacy:
+        return await _revise_legacy(run_id, req)
     if not loop_worker.enabled():
         raise HTTPException(400, detail={"detail": "实验研究执行器已关闭", "code": "WORKFLOW_NOT_IMPLEMENTED"})
     with Session(get_engine()) as session:
@@ -404,6 +494,8 @@ def research_versions(run_id: int):
     with Session(get_engine()) as session:
         try:
             run = _get_run_or_404(session, run_id)
+            if (run.workflow_version or WORKFLOW_LEGACY_V1) == WORKFLOW_LEGACY_V1:
+                return _legacy_versions(session, run)
             return loop_revisions.version_view(session, run_id, worker_active=loop_worker.active(run_id) or loop_worker.leased(run))
         except event_log.RunStateError as exc:
             raise HTTPException(exc.status_code, detail={"detail": exc.detail, "code": exc.code}) from exc
@@ -975,6 +1067,71 @@ async def pause_run(run_id: int, req: RunControlRequest) -> RunControlResponse:
             run_id=run_id, status="paused", state_version=run.state_version,
             detail="研究进程已不在运行（可能服务重启过），已直接标记为暂停，可从断点继续",
         )
+
+
+_STAGES_AFTER_RECALL = ("screen", "select", "extract", "synthesize", "report")
+
+
+@router.post("/runs/{run_id}/adjust")
+def adjust_paused_run(run_id: int, req: RunAdjustRequest) -> dict:
+    """暂停时干预（八阶段）：剔除文献与追加检索式写入输入快照，续跑时生效。
+
+    召回已完成时，受影响的后续阶段从检查点中撤销，续跑会在缩小/补充后的语料上
+    重新筛选、选材、提取与综合；未受影响篇目的逐篇提取缓存保留。
+    """
+    from datetime import datetime as _dt
+    if not req.exclude_keys and not req.add_queries:
+        raise HTTPException(422, detail={"detail": "请至少剔除一篇文献或追加一条检索式", "code": "EMPTY_ADJUSTMENT"})
+    with Session(get_engine()) as session:
+        run = _get_run_or_404(session, run_id)
+        if (run.workflow_version or WORKFLOW_LEGACY_V1) != WORKFLOW_LEGACY_V1:
+            raise HTTPException(400, detail={"detail": "问题驱动研究请使用修订功能", "code": "UNSUPPORTED_WORKFLOW"})
+        if run.status != "paused" or has_exploration_bus(run_id):
+            raise HTTPException(409, detail={"detail": "只能在研究暂停后调整", "code": "INVALID_STATE"})
+        papers = {p.get("key"): p for p in ((run.result or {}).get("papers") or [])}
+        unknown = [k for k in req.exclude_keys if k not in papers]
+        if unknown:
+            raise HTTPException(422, detail={"detail": f"文献不在当前材料中：{', '.join(unknown[:3])}",
+                                             "code": "INVALID_ADJUSTMENT"})
+        options = dict(run.options or {})
+        exclusions = {k: list(v) for k, v in (options.get("exclusions") or {}).items()}
+        from ..services.paper_identity import normalize_arxiv_id, normalize_doi
+        for key in req.exclude_keys:
+            paper = papers[key]
+            if paper.get("doi") and normalize_doi(paper["doi"]):
+                exclusions.setdefault("dois", []).append(normalize_doi(paper["doi"]))
+            elif paper.get("arxiv_id") and normalize_arxiv_id(paper["arxiv_id"]):
+                exclusions.setdefault("arxiv_ids", []).append(normalize_arxiv_id(paper["arxiv_id"]))
+            elif paper.get("title"):
+                exclusions.setdefault("titles", []).append(paper["title"].strip())
+        if exclusions:
+            for field in ("dois", "arxiv_ids"):
+                exclusions.setdefault(field, [])
+            options["exclusions"] = {k: sorted(set(v)) for k, v in exclusions.items()}
+        queries = [q.strip() for q in req.add_queries]
+        if queries:
+            options["pending_user_queries"] = list(dict.fromkeys([*(options.get("pending_user_queries") or []), *queries]))
+        checkpoint = dict(run.checkpoint or {})
+        completed = list(checkpoint.get("completed_stages") or [])
+        invalidated = [s for s in completed if s in _STAGES_AFTER_RECALL] if "recall" in completed else []
+        checkpoint["completed_stages"] = [s for s in completed if s not in invalidated]
+        if invalidated:
+            report_cp = dict(checkpoint.get("report") or {})
+            report_cp.pop("selected_keys", None)
+            report_cp["extractions"] = {k: v for k, v in (report_cp.get("extractions") or {}).items()
+                                        if k not in set(req.exclude_keys)}
+            checkpoint["report"] = report_cp
+        intervention = {"at": _dt.now(timezone.utc).isoformat(), "stage": run.current_stage,
+                        "excluded": [papers[k].get("title") or k for k in req.exclude_keys],
+                        "queries": queries, "note": req.note.strip(), "invalidated_stages": invalidated}
+        options["interventions"] = [*(options.get("interventions") or []), intervention]
+        run.options = options
+        run.checkpoint = checkpoint
+        run.updated_at = datetime.now(timezone.utc)
+        session.add(run)
+        session.commit()
+        return {"run_id": run_id, "status": run.status, "intervention": intervention,
+                "completed_stages": checkpoint["completed_stages"]}
 
 
 @router.post("/runs/{run_id}/resume", response_model=RunControlResponse)

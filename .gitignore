@@ -92,3 +92,6 @@ docs/copyright/build/
 
 # 软著申请正式材料（含个人信息，已移至仓库外单独存放，严禁入库）
 docs/copyright/软件著作权申请资料/
+
+# 本地编辑器索引配置
+.zcodeignore

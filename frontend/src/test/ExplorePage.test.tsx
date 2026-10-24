@@ -33,6 +33,7 @@ vi.mock('@/api/exploration', () => ({
   listExplorations: vi.fn().mockResolvedValue([]),
   deleteExploration: vi.fn(),
   getResearchQuestions: vi.fn().mockResolvedValue({ run_id: 7, legacy: false, items: [] }),
+  getLegacyVersions: vi.fn().mockResolvedValue({ run_id: 7, workflow_version: 'legacy_v1', current: { id: 7, question: 'q', status: 'done', depth: 'standard', created_at: '2026-01-01', verdict: null, conditions: [], reused: false }, ancestors: [], children: [] }),
   getResearchVersions: vi.fn().mockResolvedValue({ run_id: 7, state_version: 2, status: 'completed', worker_active: false, ancestors: [], children: [], materials: [] }),
   reviseResearch: vi.fn(),
   pauseExploration: vi.fn(),
@@ -122,7 +123,7 @@ describe('ExplorePage', () => {
 
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: '肿瘤检测有人做吗' } })
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true, workflow_version: 'academic_survey_v2' }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true, workflow_version: 'legacy_v1' }))
     unmount()
   })
 
@@ -135,7 +136,7 @@ describe('ExplorePage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: 'dataset survey' } })
     fireEvent.click(screen.getByRole('checkbox', { name: '联网补充文献' }))
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false, workflow_version: 'academic_survey_v2' }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false, workflow_version: 'legacy_v1' }))
   })
 
   it('成品视图：结论卡 / 透明度 / 总览复用 / 证据列表 / 报告齐备，证据可点开', () => {
@@ -403,23 +404,37 @@ describe('ExplorePage', () => {
   })
 })
 
-it('默认使用问题驱动研究，深度提示不沿用旧召回数量', async () => {
+it('详情页展示检索与分析完整性提示', async () => {
+  mockUse.mockReturnValue(IDLE)
+  const result = { ...makeResult(), integrity: { level: 'partial' as const, label: '部分完成', items: [
+    { kind: 'extract', severity: 'partial', message: '精读选中 13 篇，成功提取 2 篇，失败 11 篇；主要原因：模型调用超时×11。' },
+    { kind: 'source', severity: 'partial', message: '数据源 arxiv 不可用（HTTP 429），本次检索未覆盖该来源。' },
+  ] } }
+  vi.mocked(getExploration).mockResolvedValue({ id: 21, question: 'Integrity question', depth: 'quick', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1', result })
+  renderPage('/explorer/21')
+  const notice = await screen.findByRole('alert', { name: '检索与分析完整性' })
+  expect(notice).toHaveTextContent('部分完成')
+  expect(notice).toHaveTextContent('模型调用超时×11')
+  expect(notice).toHaveTextContent('arxiv 不可用')
+})
+
+it('勾选问题驱动研究时使用实验流程，深度提示不沿用旧召回数量', async () => {
   mockUse.mockReturnValue(IDLE)
   mockCreate.mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'academic_survey_v2' })
   renderPage()
-  const option = screen.getByRole('checkbox', { name: '使用问题驱动研究（默认）' })
-  expect(option).toBeChecked()
+  const option = screen.getByRole('checkbox', { name: '使用问题驱动研究（实验）' })
+  expect(option).not.toBeChecked()
+  fireEvent.click(option)
   expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '围绕问题检索、阅读并补充关键依据')
   fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
   fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
   await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('队列恢复机制是什么', 'standard', expect.objectContaining({ workflow_version: 'academic_survey_v2' })))
 })
 
-it('取消问题驱动选择时显式使用旧流程', async () => {
+it('默认使用八阶段流程', async () => {
   mockUse.mockReturnValue(IDLE)
   mockCreate.mockResolvedValue({ id: 8, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1' })
   renderPage()
-  fireEvent.click(screen.getByRole('checkbox', { name: '使用问题驱动研究（默认）' }))
   expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '3 式 · 上限 200 篇')
   fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
   fireEvent.click(screen.getByRole('button', { name: '开始研究' }))

@@ -91,7 +91,9 @@ evidence 核对并针对 research_question 撰写个性化答案。中间产物�
 - 跨论文综合、趋势判断等推断标 statement_kind=synthesis_inference，必须给出
   支撑证据并在正文写明适用范围或限制，不得写成无条件结论；
 - 研究过程说明（如“本次未获取某篇全文”）标 statement_kind=process_note，无需
-  论文引用；
+  论文引用；转述 fixed_statistics/statistics_summary 中程序计算的语料统计（篇数、
+  年份分布、来源构成等）同样标 process_note 并写明“本次召回范围”，不得与需要
+  论文证据的结论写在同一条目里；
 - 严禁引用证据包之外的任何编号或论文；严禁编造数字、论文名与结论；
 - 证据不足的子问题在 gaps 中如实说明缺失，不猜测、不用记忆补齐。"""
 
@@ -104,7 +106,8 @@ requested_section 指定的一个章节，并只输出 JSON：
   "role": "mainline|application|alternative",
   "statement_kind": "fact|synthesis_inference|process_note"}]}
 entries 数量与篇幅遵循 writing_plan 对应章节；证据不足时可为空或更短。事实与综合推断
-必须引用证据包内真实 evidence_ids，推断需写明范围/限制；过程说明可无引用。严禁使用
+必须引用证据包内真实 evidence_ids，推断需写明范围/限制；过程说明与程序计算的语料统计
+标 process_note，可无引用。严禁使用
 证据包外知识、编号或论文。不要输出 requested_section 之外的章节或解释文字。"""
 
 _STATISTICS_WRITER_SYSTEM = """你是调查报告的统计信息编辑。输入数据由程序计算，

@@ -30,7 +30,7 @@ _locks = weakref.WeakKeyDictionary()
 
 # 判死口径：auth_error / network_error / error / unconfigured 都是「这次运行
 # 别再用它」；rate_limited 例外——权限没丢，提前熔断只会在限速窗口里错杀
-_DEAD_STATUSES = {"auth_error", "network_error", "error", "unconfigured"}
+_DEAD_STATUSES = {"auth_error", "network_error", "error", "unconfigured", "quota_exhausted"}
 
 
 def dead_source_names(healths: list[dict]) -> set[str]:
@@ -106,6 +106,7 @@ async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: boo
         LocalProvider, OpenAlexProvider, ScopusProvider,
         SemanticScholarProvider, _elsevier_key,
     )
+    from .providers.openalex import configured_api_key
 
     cfg = dict(cfg if cfg is not None else get_research_config())
     provider_name = str(cfg.get("provider") or "auto").lower()
@@ -113,7 +114,8 @@ async def _preflight_research_sources(cfg: dict | None = None, *, use_cache: boo
     email = str(cfg.get("email") or "").strip()
 
     cache_key = hashlib.sha256(
-        f"{provider_name}|{key}|{email}|{cfg.get('api_key', '')}|arxiv={int(include_arxiv)}".encode()).hexdigest()
+        f"{provider_name}|{key}|{email}|{cfg.get('api_key', '')}|{configured_api_key()}"
+        f"|arxiv={int(include_arxiv)}".encode()).hexdigest()
     now = time.monotonic()
     if use_cache:
         hit = _cache.get(cache_key)

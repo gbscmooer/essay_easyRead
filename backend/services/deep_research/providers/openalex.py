@@ -2,7 +2,10 @@
 OpenAlex Provider — 免费、无需 key、配额慷慨
 
 API 文档: https://docs.openalex.org/
-- 公共匿名调用即可，速率约 10 req/s（24 h 内 100 k）
+- 无 key 的请求共用“按网络出口 IP 计”的免费每日额度，额度耗尽后全天 429（UTC 零点重置）；
+  免费 API key 有独立额度（https://help.openalex.org/api/authentication/）
+- key 来源：research.openalex_api_key > 环境变量 OPENALEX_API_KEY；以 Authorization 头发送，
+  不进 URL，避免被日志记录
 - 提供 `mailto` 邮箱可进入 "polite pool"，获得更稳定的服务质量
 """
 
@@ -28,19 +31,65 @@ WORK_FIELDS = (
 HISTORY_FIELDS = "id,doi,cited_by_count,counts_by_year,abstract_inverted_index,keywords,primary_location,locations,open_access"
 
 
+class OpenAlexQuotaExhausted(httpx.HTTPStatusError):
+    """每日额度用尽（429 且响应说明 budget 用完）：重试无意义，到 UTC 零点前直接跳过。"""
+
+
+def _quota_exhausted(response: httpx.Response) -> bool:
+    if response.status_code != 429:
+        return False
+    try:
+        text = response.text
+    except Exception:
+        return False
+    return "budget" in text.lower()
+
+
+def _next_utc_midnight() -> float:
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    return (now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).timestamp()
+
+
+def quota_detail(has_key: bool) -> str:
+    if has_key:
+        return "HTTP 429：OpenAlex API key 的每日额度已用完（UTC 零点重置）"
+    return ("HTTP 429：无 API key 时共用的每日免费额度已用完（UTC 零点重置）；"
+            "请在设置中填写免费申请的 OpenAlex API Key")
+
+
+def configured_api_key() -> str:
+    """research.openalex_api_key 优先，其次环境变量；读配置失败时视为未配置。"""
+    try:
+        from ...ai_config import get_research_config
+        key = str(get_research_config().get("openalex_api_key") or "")
+    except Exception:
+        key = ""
+    if not key:
+        try:
+            from ....config import settings
+            key = settings.openalex_api_key or ""
+        except Exception:
+            key = ""
+    return key
+
+
 class OpenAlexProvider:
     name = "openalex"
 
-    def __init__(self, email: str = ""):
+    def __init__(self, email: str = "", api_key: str | None = None):
         self.email = (email or "").strip()
+        self.api_key = (configured_api_key() if api_key is None else api_key).strip()
         self._client: httpx.AsyncClient | None = None
         self._last_req = 0.0
         self._lock = asyncio.Lock()
         self.last_request_status = "unknown"
+        self._quota_reset_at = 0.0   # 额度用尽后到该时刻（UTC 零点）前不再发请求
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else None
+            self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
         return self._client
 
     async def _get(self, path: str, params: dict | None = None) -> dict:
@@ -48,6 +97,10 @@ class OpenAlexProvider:
         if self.email:
             params["mailto"] = self.email
         from ...rate_limiter import account_source_request
+        if time.time() < self._quota_reset_at:
+            raise OpenAlexQuotaExhausted(quota_detail(bool(self.api_key)),
+                                         request=httpx.Request("GET", f"{OA_BASE}{path}"),
+                                         response=httpx.Response(429))
         for attempt in range(4):
             async with self._lock:
                 gap = time.monotonic() - self._last_req
@@ -57,6 +110,11 @@ class OpenAlexProvider:
             account_source_request()
             try:
                 r = await self._http().get(f"{OA_BASE}{path}", params=params)
+                if _quota_exhausted(r):
+                    self.last_request_status = "quota_exhausted"
+                    self._quota_reset_at = _next_utc_midnight()
+                    logger.warning("OpenAlex 每日额度已用完，UTC 零点前跳过该源")
+                    raise OpenAlexQuotaExhausted(quota_detail(bool(self.api_key)), request=r.request, response=r)
                 if r.status_code == 429:
                     self.last_request_status = "rate_limited"
                     from ...rate_limiter import parse_retry_after
@@ -67,6 +125,8 @@ class OpenAlexProvider:
                 r.raise_for_status()
                 self.last_request_status = "ok"
                 return r.json()
+            except OpenAlexQuotaExhausted:
+                raise
             except httpx.HTTPError as e:
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
                     self.last_request_status = "ok"
@@ -376,6 +436,8 @@ class OpenAlexProvider:
         if r.status_code == 403:
             return {**base, "status": "auth_error",
                     "detail": "HTTP 403：出口 IP 被限制"}
+        if _quota_exhausted(r):
+            return {**base, "status": "quota_exhausted", "detail": quota_detail(bool(self.api_key))}
         if r.status_code == 429:
             return {**base, "status": "rate_limited",
                     "detail": "HTTP 429：限速（稍后自动恢复）"}
@@ -393,7 +455,8 @@ _shared_oa_provider: Optional[OpenAlexProvider] = None
 def get_shared_openalex_provider(email: str = "") -> OpenAlexProvider:
     """获取应用全局共享的 OpenAlexProvider 实例（复用限速与连接池）。"""
     global _shared_oa_provider
-    if _shared_oa_provider is None:
+    if _shared_oa_provider is None or _shared_oa_provider.api_key != configured_api_key().strip():
+        # 设置页改了 key 后重建实例（旧实例的连接与额度状态不再适用）
         _shared_oa_provider = OpenAlexProvider(email=email)
     elif email and not _shared_oa_provider.email:
         _shared_oa_provider.email = email

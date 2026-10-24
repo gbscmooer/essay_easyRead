@@ -453,6 +453,7 @@ async def run_target_recall(
     backfill_abstracts: Backfill | None = None,
     should_pause=None,
     protocol_dimensions: list[dict] | None = None,
+    sources: tuple[str, ...] = ("arxiv", "scopus", "openalex"),
 ) -> tuple[list[dict], dict]:
     """执行目标量驱动的多源并行召回，返回（论文清单, 审计）。
 
@@ -560,12 +561,12 @@ async def run_target_recall(
                 search_one(src, kw, fetch, "relevance"), timeout=SEARCH_ONE_BUDGET_SECONDS)
 
         results = await asyncio.gather(
-            *(_budgeted(src) for src in ("arxiv", "scopus", "openalex")),
+            *(_budgeted(src) for src in sources),
             return_exceptions=True)
         raw: list = []
         per_source_hits: dict[str, int] = {}
         per_source_errors: dict[str, str] = {}
-        for src, res in zip(("arxiv", "scopus", "openalex"), results):
+        for src, res in zip(sources, results):
             if isinstance(res, BaseException):
                 per_source_hits[src] = 0
                 per_source_errors[src] = type(res).__name__
@@ -590,12 +591,14 @@ async def run_target_recall(
                 search_one(src, anchor, max(12, per_source // 2), "cited"),
                 timeout=SEARCH_ONE_BUDGET_SECONDS)
 
+        # arXiv 不支持按被引排序，不参与经典通道
+        cited_sources = tuple(src for src in sources if src != "arxiv")
         results = await asyncio.gather(
-            _budgeted("scopus"), _budgeted("openalex"),
+            *(_budgeted(src) for src in cited_sources),
             return_exceptions=True)
         row = {"round": round_no, "keyword": anchor, "order": "cited",
                "sources": {}, "source_errors": {}}
-        for src, res in zip(("scopus", "openalex"), results):
+        for src, res in zip(cited_sources, results):
             if isinstance(res, BaseException):
                 row["sources"][src] = 0
                 row["source_errors"][src] = type(res).__name__

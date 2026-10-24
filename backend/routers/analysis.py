@@ -170,6 +170,7 @@ class ResearchConfig(BaseModel):
     email: str = ""
     api_key: str = ""
     elsevier_api_key: str = ""    # Elsevier / Scopus API Key（校园网内可留空）
+    openalex_api_key: str = ""    # OpenAlex API Key（免费；无 key 时共用按 IP 计的每日额度）
     map_density: float = 8.0       # 兼容旧配置，当前骨架算法忽略
     backbone_alpha: float = 0.05   # Disparity Filter 局部显著性阈值，不是准确率
     backbone_method: str = "mutual_knn_with_disparity_annotation_v1"

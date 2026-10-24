@@ -143,6 +143,7 @@ DEFAULT_CONFIG = {
         "email": "",                  # OpenAlex / Unpaywall polite pool 邮箱（可选，更稳定）
         "api_key": "",                # Semantic Scholar API key（可选）
         "elsevier_api_key": "",       # Elsevier / ScienceDirect API key（可选，校外需配置）
+        "openalex_api_key": "",       # OpenAlex API key（免费申请；无 key 时共用按 IP 计的每日额度，常被耗尽）
         "download_concurrency": 4,    # 多线程并发下载数（默认 4）
         "map_density": 8.0,           # 旧配置兼容字段；原始 Disparity Filter 不使用目标度数
         "backbone_alpha": 0.05,       # 局部显著性阈值，不是准确率
@@ -241,7 +242,7 @@ def _mask_api_key(key: str) -> str:
 
 
 # 需要「GET 掩码 + POST 保留」处理的密钥字段名（api_key 及其变体）
-_SECRET_KEY_NAMES = ("api_key", "elsevier_api_key")
+_SECRET_KEY_NAMES = ("api_key", "elsevier_api_key", "openalex_api_key")
 
 
 def mask_config(config: dict) -> dict:

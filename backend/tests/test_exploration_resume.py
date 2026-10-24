@@ -1144,3 +1144,53 @@ def test_v1_checkpoint_without_papers_marks_needs_restart(resume_env):
         assert run.checkpoint["migration_status"] == "needs_restart"
         # 旧产物保留（导出能力不受影响）
         assert run.result.get("survey_report", {}).get("title") == "legacy report"
+
+
+# ── 暂停时干预（2026-10-23）：剔除文献后续跑，从筛选阶段起在缩小后的语料上重做 ──
+
+def test_pause_adjust_excludes_paper_and_reruns_downstream(resume_env, monkeypatch):
+    from backend.models.schemas import RunAdjustRequest
+    from backend.routers import exploration as router
+
+    engine, events, provider = resume_env
+    run_id = _make_run(engine)
+    real_paper_similarity = explorer.paper_similarity
+    attempts = {"n": 0}
+
+    async def flaky(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise RuntimeError("stop after recall")
+        return await real_paper_similarity(*args, **kwargs)
+
+    monkeypatch.setattr(explorer, "paper_similarity", flaky)
+    asyncio.run(run_exploration(run_id))
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        run.status = "paused"
+        s.add(run)
+        s.commit()
+        drop = next(p for p in run.result["papers"] if "unet" in p["title"])
+
+    monkeypatch.setattr(router, "get_engine", lambda: engine)
+    monkeypatch.setattr(router, "has_exploration_bus", lambda rid: False)
+    with pytest.raises(router.HTTPException):
+        router.adjust_paused_run(run_id, RunAdjustRequest(exclude_keys=["missing"]))
+    out = router.adjust_paused_run(run_id, RunAdjustRequest(exclude_keys=[drop["key"]], add_queries=["tumor segmentation"]))
+    assert out["intervention"]["excluded"] == [drop["title"]]
+    with Session(engine) as s:
+        options = s.get(ExplorationRun, run_id).options
+        assert options["pending_user_queries"] == ["tumor segmentation"]
+
+    searches_before = provider.search_calls
+    asyncio.run(run_exploration(run_id, resume=True))
+    # 无模型 Key 时不补搜（补搜依赖相关性筛选），追加检索式仍记为已消费，不重复执行
+    assert provider.search_calls == searches_before
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        assert run.status == "done"
+        assert [p["title"] for p in run.result["papers"]] and drop["title"] not in [p["title"] for p in run.result["papers"]]
+        assert run.result["metrics"]["total"] == 2
+        assert "pending_user_queries" not in run.options and run.options["user_queries"] == ["tumor segmentation"]
+        messages = [item["message"] for item in run.result["integrity"]["items"]]
+        assert any("剔除 1 篇文献" in m and "tumor segmentation" in m for m in messages)

@@ -323,6 +323,29 @@ export function ResearchProviderSection({ config, setConfig }: SectionProps) {
         </div>
       )}
 
+      {['auto', 'scopus', 'openalex'].includes(config.research.provider) && (
+        <div>
+          <label className="block text-xs mb-1" style={LABEL}>
+            OpenAlex API Key（建议填写 · 免费）
+          </label>
+          <input
+            type="password"
+            value={config.research.openalex_api_key ?? ''}
+            onChange={e => setConfig(prev => ({
+              ...prev,
+              research: { ...prev.research, openalex_api_key: e.target.value },
+            }))}
+            placeholder="在 openalex.org 免费申请"
+            className="w-full px-3 py-2 text-sm border focus:outline-none transition-colors font-mono"
+            style={INPUT}
+          />
+          <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-disabled)' }}>
+            优先级：此处填写 &gt; 环境变量 OPENALEX_API_KEY。不填时与同一网络出口的所有人共用每日免费额度，
+            额度用完后当天 OpenAlex 不可用（UTC 零点重置），预检与完整性提示会注明。
+          </p>
+        </div>
+      )}
+
       {config.research.provider === 'semantic_scholar' && (
         <div>
           <label className="block text-xs mb-1" style={LABEL}>
