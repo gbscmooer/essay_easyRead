@@ -31,3 +31,23 @@ export interface ResearchVersions {
   children: ResearchVersion[]
   materials: { asset_id: string; title: string; source_kind: string }[]
 }
+
+/** 八阶段研究的版本链（后端 _legacy_versions） */
+export interface LegacyVersionRow {
+  id: number
+  question: string
+  status: string
+  depth: string
+  created_at: string
+  verdict: string | null
+  conditions: string[]
+  reused: boolean
+}
+
+export interface LegacyVersions {
+  run_id: number
+  workflow_version: 'legacy_v1'
+  current: LegacyVersionRow
+  ancestors: LegacyVersionRow[]
+  children: LegacyVersionRow[]
+}

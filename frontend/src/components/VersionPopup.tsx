@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.0.3'
+const APP_VERSION = '9.1.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
-  date: '2026-10-23',
+  date: '2026-10-24',
   changes: [
-    '文献相关性筛选关闭模型深度思考，筛选耗时与用量大幅下降',
-    '智谱 GLM 模型的深度思考开关可正常生效',
-    '模型默认并发调整为 5、上限 8，各阶段超时读取配置',
+    '新建研究默认使用八阶段流程，问题驱动研究改为实验选项',
+    '研究暂停时可剔除文献、追加检索式后继续；完成后可修正问题生成新版本并查看版本链',
+    '报告与页面显示检索与分析完整性：数据源失败、资料不足、提取失败与改判原因',
+    '逐篇证据提取更稳定，检索未命中与成熟度判定增加程序复核',
   ],
 }
 

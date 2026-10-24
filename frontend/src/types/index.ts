@@ -551,9 +551,17 @@ export interface ExplorationSynthesis {
   stats?: Record<string, unknown>
 }
 
+/** 检索与分析完整性（后端 integrity.py 确定性汇总） */
+export interface RunIntegrity {
+  level: 'complete' | 'partial' | 'insufficient' | 'retrieval_miss'
+  label: string
+  items: { kind: string; severity: string; message: string }[]
+}
+
 export interface ExplorationResult {
   survey_report?: import('./survey').SurveyReport
   report_error?: string
+  integrity?: RunIntegrity
   sources?: ResearchSourceOptions & {
     seed_count?: number
     warnings?: string[]

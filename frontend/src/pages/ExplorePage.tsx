@@ -20,6 +20,8 @@ import { SurveyReportView } from '@/features/research/SurveyReportView'
 import { RunTokenUsageCard } from '@/features/research/RunTokenUsageCard'
 import { ResearchQuestions } from '@/features/research/ResearchQuestions'
 import { ResearchRevision } from '@/features/research/ResearchRevision'
+import { LegacyRevision } from '@/features/research/LegacyRevision'
+import { PauseAdjust } from '@/features/research/PauseAdjust'
 import { listWorkspaces, getWorkspace, type WorkspaceItem, type WorkspaceDetail } from '@/api/workspaces'
 import { toast } from '@/hooks/useToast'
 import { DomainOverview } from '@/features/research/DomainOverview'
@@ -30,7 +32,7 @@ import { createExploration, deleteExploration, listExplorations, getExploration,
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
-  ExplorationRun, ExplorationResult, ExplorationMessage, CitationMethod, PreflightResponse,
+  ExplorationRun, ExplorationResult, RunIntegrity, ExplorationMessage, CitationMethod, PreflightResponse,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
 import { ConfirmDialog } from '@/ds-entry'
@@ -115,7 +117,7 @@ export default function ExplorePage() {
   const detail = id !== undefined
   const [question, setQuestion] = useState('')
   const [depth, setDepth] = useState<ExplorationDepth>('standard')
-  const [useQuestionLoop, setUseQuestionLoop] = useState(true)
+  const [useQuestionLoop, setUseQuestionLoop] = useState(false)
   const [savedRun, setSavedRun] = useState<ExplorationRun | null>(null)
   const [loadError, setLoadError] = useState('')
   const [tab, setTab] = useState<'report' | 'analysis' | 'papers' | 'chat'>('report')
@@ -443,6 +445,7 @@ export default function ExplorePage() {
         </div>
       )}
       {detail && savedRun && <RunTimingPanel run={savedRun} stream={stream} />}
+      {detail && !running && result?.integrity && <IntegrityNotice integrity={result.integrity} />}
       {detail && savedRun && allPapers.length === 0 && !running && !paused && stream.status !== 'failed' && (
         <div className="ex-empty-warning" role="alert">
           <div className="ex-empty-warning__header">
@@ -554,7 +557,7 @@ export default function ExplorePage() {
               </button>
             ))}
           </div>
-          <label><input type="checkbox" checked={useQuestionLoop} onChange={e => setUseQuestionLoop(e.target.checked)} /> 使用问题驱动研究（默认）</label>
+          <label><input type="checkbox" checked={useQuestionLoop} onChange={e => setUseQuestionLoop(e.target.checked)} /> 使用问题驱动研究（实验）</label>
           {useQuestionLoop && <p className="survey-note">围绕问题补搜、补读并展示依据与缺口；尚未完成独立质量对照评测。</p>}
           <button type="button" className="ex-ask__run" onClick={() => void submit()} disabled={running || sourceLoading || !!workspaceId && (!workspace || !seedIds.length)}>
             {running ? '研究中…' : '开始研究'}
@@ -725,6 +728,8 @@ export default function ExplorePage() {
         }}
       />
 
+      {detail && paused && runId && savedRun?.workflow_version !== 'academic_survey_v2' && <PauseAdjust runId={runId} papers={allPapers} />}
+
       {(stream.status === 'failed' && stream.error) ? (
         <section className="ex-empty ex-empty--error" role="alert">
           <div>探索失败：{stream.error}</div>
@@ -752,6 +757,8 @@ export default function ExplorePage() {
       {detail && savedRun && <>
         {savedRun.workflow_version === 'academic_survey_v2' && <ResearchQuestions runId={runId!} refreshKey={`${stream.status}-${revision}`} />}
         {savedRun.workflow_version === 'academic_survey_v2' && <ResearchRevision run={savedRun} onCreated={child => navigate(`/explorer/${child.id}`)} />}
+        {savedRun.workflow_version !== 'academic_survey_v2' && !running && !paused && (
+          <LegacyRevision run={savedRun} papers={allPapers} disabled={busy} onCreated={child => navigate(`/explorer/${child.id}`)} />)}
         <div className="ex-detail-tabs" role="tablist" aria-label="探索视图">
           {([{ key: 'report', label: '研究报告' }, { key: 'analysis', label: '分析结果' }, { key: 'papers', label: `全部资料 (${allPapers.length})` }, { key: 'chat', label: '连续追问' }] as const)
             .filter(t => t.key !== 'analysis' || savedRun.workflow_version !== 'academic_survey_v2').map(t =>
@@ -1225,5 +1232,22 @@ function ChipItem({ text, ink, papers }: { text: string; ink: string; papers: Ex
       </div>
       {long && <button type="button" className="ex-chip-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)}>{open ? '收起' : '展开全文'}</button>}
     </li>
+  )
+}
+
+
+/** 检索与分析完整性：失败、资料不足与分析不完整的统一提示（任务书要求）。 */
+function IntegrityNotice({ integrity }: { integrity: RunIntegrity }) {
+  const ok = integrity.level === 'complete'
+  return (
+    <section className={`ex-integrity ex-integrity--${integrity.level}`} aria-label="检索与分析完整性" role={ok ? undefined : 'alert'}>
+      <div className="ex-empty-warning__header">
+        <span className="ex-integrity__badge">{integrity.label}</span>
+        <strong>检索与分析完整性</strong>
+      </div>
+      {integrity.items.length > 0
+        ? <ul className="ex-integrity__list">{integrity.items.map((item, i) => <li key={i}>{item.message}</li>)}</ul>
+        : <p className="ex-empty-warning__desc">各阶段均已完成，未发现数据源失败或提取缺失。</p>}
+    </section>
   )
 }

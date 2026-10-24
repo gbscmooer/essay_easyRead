@@ -404,6 +404,11 @@ async def _extract_paper_once(
     return rows, int(rejected), audit
 
 
+# 单次结构化提取的档位：quick 自 2026-10-23 起与 lite 一致（run59/61 quick 逐篇多轮
+# 提取 13 篇中 11~12 篇因单轮模型超时失败，判定实际只用上摘要）
+ONE_SHOT_EXTRACT_DEPTHS = ("lite", "quick")
+
+
 async def extract_paper_with_agent(
     question: str, paper: dict, excerpt: str, kind: str, cfg: dict, depth: str,
     on_iteration=None, reader: DocumentEvidenceReader | None = None,
@@ -415,7 +420,7 @@ async def extract_paper_with_agent(
     避免 ReAct 固定五步的重复决策开销。"""
     subquestions = subquestions or report_subquestions(question)
     full_source = reader.text if reader is not None else excerpt
-    if depth == "lite":
+    if depth in ONE_SHOT_EXTRACT_DEPTHS:
         return await _extract_paper_once(
             question, paper, excerpt, kind, cfg, subquestions,
             reader=reader, on_iteration=on_iteration,
@@ -912,8 +917,12 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             diagnostics["locate"]["duration_ms"] += round((time.monotonic() - locate_started) * 1000)
             extract_started = time.monotonic()
 
-            async def _run_extraction(excerpt_text: str):
+            async def _run_extraction(excerpt_text: str, *, one_shot: bool = False):
                 nonlocal rate_limit_cooldowns
+                if one_shot:
+                    return await _extract_paper_once(
+                        question, paper, excerpt_text, kind, cfg, subquestions,
+                        reader=reader, on_iteration=iteration_progress)
                 parameters = inspect.signature(extract_paper_with_agent).parameters
                 reader_kwargs = ({"reader": reader} if "reader" in parameters else {})
                 if "subquestions" in parameters:
@@ -948,15 +957,24 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                     # 缩小上下文重试：长全文（18k 片段）超时 / 输出被截断导致
                     # 非法 JSON 时，先怀疑载荷而不是放弃该篇（run6 教训：MVTec
                     # 数据集论文提取超时直接让框架表清零）。半量再试一次。
-                    if (kind == "full_text_excerpt" and len(excerpt) > 4200
-                            and not isinstance(first_exc, asyncio.CancelledError)):
+                    if isinstance(first_exc, asyncio.CancelledError):
+                        raise
+                    if kind == "full_text_excerpt" and len(excerpt) > 4200:
                         shrunk = excerpt[:8000]
                         diagnostics["extract"]["failures"].append({
                             "paper_key": paper.get("key"), "code": "CONTEXT_SHRUNK_RETRY",
                             "detail": f"{type(first_exc).__name__}: {len(excerpt)}→{len(shrunk)} chars",
                         })
-                        rows, rejected, loop_audit = await _run_extraction(shrunk)
+                        # 多轮循环失败后不再重跑多轮：改为单次结构化提取（半量上下文）
+                        rows, rejected, loop_audit = await _run_extraction(shrunk, one_shot=True)
                         loop_audit = {**loop_audit, "context_shrunk_retry": True}
+                    elif depth not in ONE_SHOT_EXTRACT_DEPTHS:
+                        diagnostics["extract"]["failures"].append({
+                            "paper_key": paper.get("key"), "code": "ONE_SHOT_RETRY",
+                            "detail": f"{type(first_exc).__name__}: {str(first_exc)[:120]}",
+                        })
+                        rows, rejected, loop_audit = await _run_extraction(excerpt, one_shot=True)
+                        loop_audit = {**loop_audit, "one_shot_retry": True}
                     else:
                         raise
                 diagnostics["extract"]["calls"] += loop_audit.get("model_calls", 0)
@@ -1505,6 +1523,8 @@ def render_markdown(report: dict) -> str:
     lines = [f"# {report['title']}", "", "## 摘要", "", report["summary"] or "暂无跨文献摘要。", "",
              "## 研究范围与材料", "", f"检索材料 {coverage['corpus']} 篇；已完成表格提取 {coverage['examined']} 篇，"
              f"其中全文片段 {coverage['full_text']} 篇、仅摘要 {coverage['abstract_only']} 篇。", ""]
+    from .integrity import render_integrity_markdown
+    lines += render_integrity_markdown(report.get("integrity"))
     search = report.get("search_summary") or {}
     if search:
         lines += ["## 已执行的搜索", ""]
@@ -1624,6 +1644,11 @@ def render_html(report: dict) -> str:
            "<h2>摘要</h2><p>" + esc(report["summary"] or "暂无跨文献摘要") + "</p>",
            f"<p>材料 {report['coverage']['corpus']} 篇 · 已完成表格提取 {report['coverage']['examined']} 篇 · "
            f"全文片段 {report['coverage']['full_text']} 篇 · 仅摘要 {report['coverage']['abstract_only']} 篇</p>"]
+    integrity = report.get("integrity") or {}
+    if integrity:
+        out.append(f"<h2>检索与分析完整性</h2><p><strong>{esc(integrity.get('label'))}</strong></p><ul>"
+                   + "".join(f"<li>{esc(item.get('message'))}</li>" for item in integrity.get("items") or [])
+                   + "</ul>")
     search = report.get("search_summary") or {}
     if search:
         out.append("<h2>已执行的搜索</h2><div class='scroll'><table><thead><tr><th>阶段</th><th>轮次</th><th>数据源</th><th>检索式</th><th>排序</th><th>上限</th><th>命中</th></tr></thead><tbody>")

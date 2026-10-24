@@ -414,7 +414,7 @@ def test_delivery_repairs_object_findings_and_unknown_evidence(monkeypatch):
         if "文献证据复核器" in system:
             payload = json.loads(user)
             return {"supported_ids": [row["id"] for row in payload["candidates"]], "rejected_ids": []}
-        if "单篇证据提取阶段代理" in system:
+        if "单篇证据提取阶段代理" in system or "单篇证据提取器" in system:
             return {"experimental_comparisons": [experiment_row()]}
         if "调查报告撰写代理" in system:
             payload = json.loads(user)
@@ -1013,3 +1013,23 @@ def test_delivery_sync_pause_true_raises_before_any_model_call(monkeypatch):
             cfg={"api_key": "test", "model": "fixture"},
             should_pause=lambda: True,
         ))
+
+
+@pytest.mark.parametrize("depth,expected_calls", [("quick", 1), ("lite", 1)])
+def test_quick_depth_uses_one_shot_extraction(monkeypatch, depth, expected_calls):
+    """2026-10-23：quick 档逐篇提取与 lite 一致走单次结构化调用（多轮循环在真实运行中大量超时）。"""
+    systems = []
+
+    async def llm(_cfg, system, user, **_kwargs):
+        systems.append(system)
+        if "文献证据复核器" in system:
+            return {"supported_ids": [], "rejected_ids": []}
+        assert "单篇证据提取器" in system and "阶段代理" not in system
+        return {"metrics": []}
+
+    monkeypatch.setattr(sr, "_llm_json", llm)
+    paper = {"key": "k:1", "title": "Paper", "abstract": "abstract text"}
+    rows, rejected, audit = asyncio.run(sr.extract_paper_with_agent(
+        "question", paper, "abstract text", "abstract", {"api_key": "k", "model": "m"}, depth))
+    assert audit["stop_reason"] == "one_shot" and audit["model_calls"] == expected_calls
+    assert len(systems) == 1
