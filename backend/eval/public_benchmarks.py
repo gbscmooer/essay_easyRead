@@ -27,6 +27,8 @@ import argparse
 import asyncio
 import csv
 import json
+import logging
+from contextvars import ContextVar
 import random
 import re
 import time
@@ -138,11 +140,15 @@ def match_local(target_ids: list, corpus: list[dict], *, rejected_keys: set[str]
     key_of = key_of or {}
     by_id = {str(p.get("local_id")): p for p in corpus if p.get("local_id") is not None}
     baseline_rank = {doc_id: i for i, doc_id in enumerate(baseline or [], 1)}
+    # 重排前顺序（recall_pos）：同一次运行内对照「重排 vs 不重排」
+    pre_order = (sorted(corpus, key=lambda p: p["recall_pos"])
+                 if corpus and all("recall_pos" in p for p in corpus) else None)
     rows = []
     for tid in map(str, target_ids):
         hit = by_id.get(tid)
         rows.append({"corpusid": tid, "title": hit.get("title") if hit else None,
                      "found": hit is not None, "rank": _rank_of(corpus, hit),
+                     "recall_rank": _rank_of(pre_order, hit) if pre_order else None,
                      "kept": bool(hit) and hit.get("relevance_status") in ("confirmed", "title_confirmed"),
                      "rejected_by_filter": hit is None and key_of.get(tid) in rejected_keys,
                      "baseline_rank": baseline_rank.get(tid),
@@ -180,6 +186,8 @@ def summarize_litsearch(records: list[dict]) -> dict:
         "target_rejected_by_filter": sum(t.get("rejected_by_filter", False) for t in targets),
         "query_any_found": avg(any(t["found"] for t in r["targets"]) for r in done),
         **{f"system_recall@{k}": avg(bool(t.get("rank")) and t["rank"] <= k for t in targets) for k in (5, 20)},
+        **({f"norerank_recall@{k}": avg(bool(t.get("recall_rank")) and t["recall_rank"] <= k for t in targets)
+            for k in (5, 20)} if any(t.get("recall_rank") for t in targets) else {}),
         **({f"bm25_recall@{k}": avg(bool(t.get("baseline_rank")) and t["baseline_rank"] <= k for t in targets)
             for k in (5, 20, 200)} if any("baseline_rank" in t for t in targets) else {}),
         "median_corpus": sorted(r["corpus_size"] for r in done)[len(done) // 2] if done else None,
@@ -280,12 +288,89 @@ def litsearch_targets(corpusids: list[int]) -> dict[int, dict]:
 
 # ── 评测执行 ─────────────────────────────────────────────────────────────────
 
-def _llm_cfg(thinking_effort: str) -> dict:
+_watch_scope: ContextVar[dict | None] = ContextVar("quota_watch_scope", default=None)
+
+
+class QuotaWatch(logging.Handler):
+    """捕获运行期间日志里的模型限流/额度上限（智谱 1308/1310、HTTP 429）。
+
+    流程内部把限流当作单批失败降级（筛选 fail-open、规划停止），不会抛到评测层；
+    评测必须自己识别，否则限流期间的结果会被当成有效数据。
+    """
+
+    MAX_RETRIES = 3
+    _RESET = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*重置")
+    # 限流与一般接口错误：本题作废，等待后重跑；被提供方拒绝/封禁：等待无用，停止评测
+    _MARKERS = ("LLM_RATE_LIMITED", "LLM_PROVIDER_ERROR", "LLM_TIMEOUT", "'1308'", "'1310'", "使用上限")
+    _FATAL = ("unusual activity", '"code":3012', "LLM_AUTH_FAILED", "LLM_FORBIDDEN", "不支持关闭思考")
+
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.hits = 0
+        self.sample = ""
+        self.fatal = ""
+        self.reset_at: datetime | None = None
+
+    @classmethod
+    def install(cls) -> "QuotaWatch":
+        watch = cls()
+        logging.getLogger().addHandler(watch)
+        if logging.getLogger().level > logging.WARNING:
+            logging.getLogger().setLevel(logging.WARNING)
+        return watch
+
+    def clear(self) -> None:
+        self.hits, self.sample = 0, ""
+
+    @staticmethod
+    def scope() -> dict:
+        """在当前任务（及其子任务）内单独计数：并发跑多题时各题只看自己的限流。
+
+        日志处理器的 emit 在产生日志的任务上下文里同步执行，ContextVar 能区分来源题目。
+        """
+        bucket = {"hits": 0, "sample": ""}
+        _watch_scope.set(bucket)
+        return bucket
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = record.getMessage()
+        if any(m in msg for m in self._FATAL):
+            self.fatal = self.fatal or msg[:300]
+        if any(m in msg for m in self._MARKERS) or any(m in msg for m in self._FATAL):
+            self.hits += 1
+            self.sample = self.sample or msg[:300]
+            bucket = _watch_scope.get()
+            if bucket is not None:
+                bucket["hits"] += 1
+                bucket["sample"] = bucket["sample"] or msg[:300]
+            found = self._RESET.search(msg)
+            if found:
+                self.reset_at = datetime.strptime(found.group(1), "%Y-%m-%d %H:%M:%S")
+
+    async def wait_for_reset(self) -> None:
+        """等到提示的重置时间（本地时间）后 2 分钟；没有给出时间时等 10 分钟。
+
+        提供方拒绝/封禁（如 3012 unusual activity）等待无用：直接停止评测。
+        """
+        if self.fatal:
+            raise SystemExit(f"模型提供方拒绝请求，评测停止（已完成的题已保存）：{self.fatal}")
+        wait = 600.0
+        if self.reset_at is not None:
+            wait = max(60.0, (self.reset_at - datetime.now()).total_seconds() + 120)
+        print(f"    等待额度重置 {wait / 60:.0f} 分钟（至 {self.reset_at or '未知'}）", flush=True)
+        await asyncio.sleep(wait)
+        self.reset_at = None
+
+
+def _llm_cfg(thinking_effort: str, model: str = "") -> dict:
+    """评测期间统一覆盖思考强度与模型（流程各阶段都经 ai_config.get_llm_config 取配置），
+    不改用户设置文件。"""
     from backend.services import ai_config
 
-    if thinking_effort:
+    overrides = {k: v for k, v in (("thinking_effort", thinking_effort), ("model", model)) if v}
+    if overrides:
         original = ai_config.get_llm_config
-        ai_config.get_llm_config = lambda: {**original(), "thinking_effort": thinking_effort}
+        ai_config.get_llm_config = lambda: {**original(), **overrides}
     cfg = ai_config.get_analysis_config()
     if not cfg.get("api_key"):
         raise SystemExit("未配置模型 API Key")
@@ -302,7 +387,7 @@ async def run_synergy(args) -> dict:
     papers = [{"key": f"rec:{r['record_id']}", "title": r.get("title") or "", "abstract": r.get("abstract") or "",
                "year": int(r["year"]) if str(r.get("year") or "").isdigit() else None} for r in picked]
     question = args.question or meta["title"].strip()
-    cfg = _llm_cfg(args.thinking_effort)
+    cfg = _llm_cfg(args.thinking_effort, args.model)
 
     async def screen_json(system: str, user: str) -> dict:
         # 与正式召回筛选同一调用方式（关闭思考、同一输出上限）
@@ -336,14 +421,23 @@ async def run_synergy(args) -> dict:
 
 async def run_litsearch(args) -> dict:
     from backend.services.deep_research.explorer import _preset_for_depth, decompose_question
-    from backend.services.deep_research.recall_engine import run_target_recall
+    from backend.services.deep_research.recall_engine import LISTWISE_TOP, run_target_recall
+    from backend.services.deep_research.reranker import rerank_scores
 
-    queries = [q for q in litsearch_queries()
-               if args.specificity is None or q["specificity"] == args.specificity]
+    spec = None if args.specificity == "all" else int(args.specificity)
+    queries = [q for q in litsearch_queries() if spec is None or q["specificity"] == spec]
     if args.quality is not None:
         queries = [q for q in queries if q["quality"] >= args.quality]
-    rng = random.Random(args.seed)
-    picked = rng.sample(queries, min(args.n, len(queries)))
+    if args.subset:
+        # 固定子集：按子集文件列出的题（与 --specificity/--n 无关），保证各次运行同题
+        wanted = [row["query"] for row in json.loads(Path(args.subset).read_text(encoding="utf-8"))["queries"]]
+        by_text = {q["query"]: q for q in litsearch_queries()}
+        picked = [by_text[text] for text in wanted]
+    # --n 0：全量（按数据集原顺序），否则按种子抽样
+    elif args.n <= 0:
+        picked = queries
+    else:
+        picked = random.Random(args.seed).sample(queries, min(args.n, len(queries)))
     local = args.corpus == "local"
     if local:
         from backend.services.deep_research.local_search import LOCAL_SOURCE, LocalCorpusIndex
@@ -355,16 +449,29 @@ async def run_litsearch(args) -> dict:
         targets = {}
     else:
         targets = litsearch_targets([c for q in picked for c in q["corpusids"]])
-    cfg = _llm_cfg(args.thinking_effort)
+    cfg = _llm_cfg(args.thinking_effort, args.model)
     preset = _preset_for_depth(args.depth)
     now_year = datetime.now(timezone.utc).year
     records = []
     out_path = OUT_DIR / f"public_litsearch_{args.corpus}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    if args.resume:
+        # 断点续跑：沿用原文件，已成功完成的题跳过（出错的题重跑）
+        out_path = Path(args.resume)
+        records = [r for r in json.loads(out_path.read_text(encoding="utf-8"))["records"] if not r.get("error")]
+        done = {r["query"] for r in records}
+        picked = [q for q in picked if q["query"] not in done]
+        print(f"续跑：已完成 {len(records)} 题，剩余 {len(picked)} 题", flush=True)
 
     async def no_backfill(_dois: list[str]) -> dict[str, str]:
         return {}
 
-    for i, q in enumerate(picked, 1):
+    watch = QuotaWatch.install()
+    retries: dict[str, int] = {}
+    i = 0
+    while i < len(picked):
+        q = picked[i]
+        i += 1
+        watch.clear()
         print(f"[{i}/{len(picked)}] {q['query'][:100]}", flush=True)
         t0 = time.monotonic()
         rec = {"query": q["query"], "query_set": q["query_set"], "specificity": q["specificity"],
@@ -376,11 +483,14 @@ async def run_litsearch(args) -> dict:
                 corpus, audit = await run_target_recall(
                     q["query"], decompose["en_queries"], depth=args.depth, now_year=now_year, llm_cfg=cfg,
                     preflight_dead=set(), search_one=index.as_search_one(), sources=(LOCAL_SOURCE,),
-                    backfill_abstracts=no_backfill)
+                    backfill_abstracts=no_backfill, rerank_scores=None if args.no_rerank else rerank_scores,
+                    listwise_top=0 if args.no_rerank else LISTWISE_TOP)
                 ids = [str(c) for c in q["corpusids"]]
                 # 与召回去重同一来源的 key（无 DOI/arXiv 时为 titlefp:…），用于判断是否被筛掉
                 key_of = {c: index.candidate(by_id[c], 0, 0.0, "relevance").canonical_key for c in ids if c in by_id}
                 baseline = [doc["id"] for doc, _ in index.search(q["query"], limit=200)]
+                rec["corpus"] = [[p.get("local_id"), p.get("relevance_status"), p.get("recall_pos"),
+                                  p.get("rerank_score")] for p in corpus]
                 rec["targets"] = match_local(
                     ids, corpus, key_of=key_of, baseline=baseline, indexable=set(by_id),
                     rejected_keys={str(r.get("key")) for r in (audit.get("filter") or {}).get("rejections") or []})
@@ -392,17 +502,30 @@ async def run_litsearch(args) -> dict:
                     raise LookupError(f"target_metadata_unavailable: {missing}")
                 dead = dead_source_names(await preflight_research_sources())
                 rec["dead_sources"] = sorted(dead)
-                corpus, audit = await run_target_recall(q["query"], decompose["en_queries"], depth=args.depth,
-                                                        now_year=now_year, llm_cfg=cfg, preflight_dead=dead)
+                corpus, audit = await run_target_recall(
+                    q["query"], decompose["en_queries"], depth=args.depth, now_year=now_year, llm_cfg=cfg,
+                    preflight_dead=dead, rerank_scores=None if args.no_rerank else rerank_scores,
+                    listwise_top=0 if args.no_rerank else LISTWISE_TOP)
                 rec["targets"] = match_targets(
                     [targets[c] for c in q["corpusids"]], corpus,
                     {str(r.get("key")) for r in (audit.get("filter") or {}).get("rejections") or []})
             rec.update({"corpus_size": len(corpus), "stop_reason": audit.get("stop_reason"),
+                        "rerank": audit.get("rerank"),
                         "corpus_after_search": audit.get("corpus_after_search"),
                         "attempts": audit.get("attempts")})
         except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案，不中断
             rec["error"] = f"{type(exc).__name__}: {exc}"[:300]
         rec["wall_s"] = round(time.monotonic() - t0, 1)
+        if watch.hits and retries.get(q["query"], 0) < QuotaWatch.MAX_RETRIES:
+            # 运行中撞到模型限流/额度上限：筛选与规划会按失败降级，结果不可信——
+            # 丢弃本题，等额度重置后重跑同一题
+            retries[q["query"]] = retries.get(q["query"], 0) + 1
+            print(f"    ⚠ 模型限流（{watch.sample[:120]}），丢弃本题结果", flush=True)
+            await watch.wait_for_reset()
+            i -= 1
+            continue
+        if watch.hits:
+            rec["error"] = f"rate_limited: {watch.sample}"[:300]
         records.append(rec)
         rows = rec.get("targets") or []
         print(f"    → 语料 {rec.get('corpus_size')} 篇，目标命中 {sum(t['found'] for t in rows)}/{len(q['corpusids'])}"
@@ -411,7 +534,11 @@ async def run_litsearch(args) -> dict:
         out_path.write_text(json.dumps({"partial": True, "records": records}, ensure_ascii=False, indent=1),
                             encoding="utf-8")
     return {"corpus": args.corpus, "depth": args.depth, "specificity": args.specificity, "seed": args.seed,
-            "model": cfg.get("model"), "summary": summarize_litsearch(records), "records": records,
+            "subset": args.subset or None,
+            "model": cfg.get("model"), "summary": summarize_litsearch(records),
+            "by_specificity": {str(v): summarize_litsearch([r for r in records if r.get("specificity") == v])
+                               for v in (0, 1) if any(r.get("specificity") == v for r in records)},
+            "records": records,
             "_path": str(out_path)}
 
 
@@ -425,14 +552,19 @@ def main() -> None:
     s.add_argument("--question", default="", help="覆盖研究问题（默认用综述题目）")
     li = sub.add_parser("litsearch")
     li.add_argument("--n", type=int, default=30)
-    li.add_argument("--specificity", type=int, default=0, choices=[0, 1])
+    li.add_argument("--specificity", default="0", choices=["0", "1", "all"],
+                    help="0=宽泛题 155，1=具体题 442，all=全部 597")
+    li.add_argument("--resume", default="", help="续跑已有结果文件（跳过已完成的题）")
+    li.add_argument("--subset", default="", help="固定子集文件，如 backend/eval/litsearch_subset_v1.json")
     li.add_argument("--quality", type=int, default=None)
     li.add_argument("--depth", default="quick")
+    li.add_argument("--no-rerank", action="store_true", help="关闭终裁重排（对照用）")
     li.add_argument("--corpus", default="local", choices=["local", "online"],
                     help="local=数据集自带语料（不联网检索）；online=真实数据源")
     for p in (s, li):
         p.add_argument("--seed", type=int, default=0)
         p.add_argument("--thinking-effort", default="off")
+        p.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")
     args = parser.parse_args()
     result = asyncio.run(run_synergy(args) if args.bench == "synergy" else run_litsearch(args))
     path = Path(result.pop("_path", "")) if result.get("_path") else (

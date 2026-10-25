@@ -32,7 +32,7 @@ import { createExploration, deleteExploration, listExplorations, getExploration,
 import type {
   ExplorationDepth, ExplorationKeywordTrend, ExplorationPaper, ExplorationRunSummary,
   GraphNode, GraphSynthesis, NoveltyStatus, ResearchGraph,
-  ExplorationRun, ExplorationResult, RunIntegrity, ExplorationMessage, CitationMethod, PreflightResponse,
+  ExplorationRun, ExplorationResult, RunIntegrity, DirectAnswer, ExplorationMessage, CitationMethod, PreflightResponse,
 } from '@/types'
 import { clusterInk, inkWash } from '@/theme/graphPalette'
 import { ConfirmDialog } from '@/ds-entry'
@@ -446,6 +446,7 @@ export default function ExplorePage() {
       )}
       {detail && savedRun && <RunTimingPanel run={savedRun} stream={stream} />}
       {detail && !running && result?.integrity && <IntegrityNotice integrity={result.integrity} />}
+      {detail && !running && result?.answer && <DirectAnswerCard answer={result.answer} papers={allPapers} />}
       {detail && savedRun && allPapers.length === 0 && !running && !paused && stream.status !== 'failed' && (
         <div className="ex-empty-warning" role="alert">
           <div className="ex-empty-warning__header">
@@ -1248,6 +1249,37 @@ function IntegrityNotice({ integrity }: { integrity: RunIntegrity }) {
       {integrity.items.length > 0
         ? <ul className="ex-integrity__list">{integrity.items.map((item, i) => <li key={i}>{item.message}</li>)}</ul>
         : <p className="ex-empty-warning__desc">各阶段均已完成，未发现数据源失败或提取缺失。</p>}
+    </section>
+  )
+}
+
+
+/** 直接回答：每句以 [n] 引用材料，参考文献附原文摘录（便于逐句核查）。 */
+function DirectAnswerCard({ answer, papers }: { answer: DirectAnswer; papers: ExplorationPaper[] }) {
+  const citations = Object.fromEntries(answer.references.map(r => [String(r.n), r.key]))
+  const statusLabel = answer.status === 'needs_review' ? '引用待复核'
+    : answer.status === 'insufficient' ? '资料不足' : answer.status === 'failed' ? '生成失败' : null
+  return (
+    <section className="ex-answer" aria-label="直接回答">
+      <div className="ex-empty-warning__header">
+        <strong>直接回答</strong>
+        {statusLabel && <span className="ex-integrity__badge">{statusLabel}</span>}
+      </div>
+      {answer.text
+        ? <div className="ex-answer__body"><EvidenceMarkdown text={answer.text} papers={papers} citations={citations} /></div>
+        : <p className="ex-empty-warning__desc">未能生成直接回答{answer.error ? `（${answer.error}）` : ''}，请查看下方报告。</p>}
+      {answer.references.length > 0 && (
+        <ol className="ex-answer__refs" aria-label="直接回答的参考文献">
+          {answer.references.map(r => (
+            <li key={r.n} value={r.n}>
+              <span className="ex-answer__ref-title">{r.title}{r.year ? `（${r.year}）` : ''}</span>
+              {(r.excerpts?.length ? r.excerpts : [r.excerpt]).map((e, i) => (
+                <q key={i} className="ex-answer__excerpt">{e}</q>
+              ))}
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   )
 }

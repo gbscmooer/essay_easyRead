@@ -692,7 +692,8 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                               draft_state: dict | None = None,
                               protocol: dict | None = None,
                               paper_limit: int | None = None,
-                              research_frozen: bool = False) -> dict:
+                              research_frozen: bool = False,
+                              time_up=None) -> dict:
     """构建证据表报告。
 
     断点续传缝（explorer 编排层接线）：
@@ -713,6 +714,8 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
     - paper_limit：编排层传入的选材上限（enforce 档按 read_papers 剩余额度收缩）；
       None 时沿用档位默认 LIMITS[depth]；**显式 0 合法**——read_papers 额度耗尽时
       跳过选材与提取，产出带说明的受限报告。
+    - time_up()：运行时长到达写作预留线时为真——每篇开工前检查，未开工篇目按
+      skipped_frozen 记账（不提取），已开工篇目照常完成；
     - research_frozen：研究侧时间预算已耗尽（enforce 档交付预留接线）——本调用
       只做交付侧工作：选材复用冻结清单（无清单时跳过语义选材），提取只复用
       resume_state 缓存，不为未提取篇目发起新的研究侧提取/下载/补位。
@@ -802,7 +805,10 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             return
         from .pdf_downloader import download_pdf_detailed
         from ..pdf_parser import extract_pdf_content
+        from ..paper_download import _get_institutional_publisher_pdf_url
+        # 有正式发表版（出版社机构订阅直链）时优先下正式版，arXiv 预印本作为后备
         urls = list(dict.fromkeys(u for u in [
+            _get_institutional_publisher_pdf_url(paper["doi"]) if paper.get("doi") else None,
             f"https://arxiv.org/pdf/{paper['arxiv_id']}" if paper.get("arxiv_id") else None,
             paper.get("pdf_url"),
         ] if u))
@@ -906,6 +912,9 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             # 已开工的篇目（≤4）自然完成。检查放槽后保证暂停能拦住排队篇目。
             if should_pause is not None and await _maybe_await(should_pause()):
                 return {"key": paper["key"], "status": "deferred", "source_kind": "",
+                        "rejected_rows": 0, "rows": {}}
+            if time_up is not None and time_up():
+                return {"key": paper["key"], "status": "skipped_frozen", "source_kind": "",
                         "rejected_rows": 0, "rows": {}}
             locate_started = time.monotonic()
             diagnostics["locate"]["calls"] += 1
@@ -1015,6 +1024,10 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                     "rejected_rows": 0, "rows": {}} for p in pending]
     else:
         results = list(await asyncio.gather(*(one(p) for p in pending)))
+        timed_out = sum(x.get("status") == "skipped_frozen" for x in results)
+        if timed_out:
+            warnings.append(f"运行时长已到写作预留线：{timed_out} 篇已选材料未做证据提取，"
+                            f"答案基于其余 {len(results) - timed_out + len(cached)} 篇。")
     if any(x.get("status") == "deferred" for x in results):
         raise StagePausedError("report extraction paused at safe point")
 

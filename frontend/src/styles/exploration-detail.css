@@ -373,3 +373,16 @@
 .ex-integrity--complete .ex-integrity__badge { color: #31877f; background: rgba(49, 135, 127, 0.1); }
 .ex-integrity--insufficient .ex-integrity__badge, .ex-integrity--retrieval_miss .ex-integrity__badge { color: #d94a38; background: rgba(217, 74, 56, 0.1); }
 .ex-integrity__list { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+
+.ex-answer {
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--seed-radius, 8px);
+}
+.ex-answer__body { font-size: 14px; line-height: 1.8; color: var(--text-primary); }
+.ex-answer__refs { margin: var(--s3) 0 0; padding-left: 24px; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+.ex-answer__refs li { margin-bottom: var(--s1); }
+.ex-answer__ref-title { display: block; color: var(--text-primary); }
+.ex-answer__excerpt { display: block; font-style: italic; color: var(--text-muted); }

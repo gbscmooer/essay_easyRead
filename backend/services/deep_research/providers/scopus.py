@@ -21,6 +21,7 @@ API 文档: https://dev.elsevier.com/
 """
 
 import asyncio
+import re
 import logging
 import time
 import weakref
@@ -42,6 +43,19 @@ _AUTH_FAIL_LIMIT = 2
 # 排除 letter / note / erratum / 章节等噪声类型（探索召回的「排除干扰」）
 _ACADEMIC_DOCTYPES = "ar OR cp OR re OR sh OR ip"
 _shared_throttles = weakref.WeakKeyDictionary()
+_STOPWORDS = frozenset("a an and are as at be by for from how in into is it of on or that the this to "
+                       "vs versus what which with why can do does using use based via".split())
+
+
+def relaxed_queries(query: str) -> list[str]:
+    """原检索式 → 0 命中时的放宽序列：[原式（loose AND）, 去停用词 OR]；不足 3 个实词不放宽。
+
+    实测（2026-10-25）：两条 6~10 词检索式原式均 0 命中，OR 后按相关度排序的前几条多数对题，
+    混入的跨领域噪声交给后续筛选与重排；去停用词 AND 与原式结果相同，不单列。
+    """
+    q = query.strip()
+    terms = [t for t in re.findall(r"[\w-]+", q) if t.lower() not in _STOPWORDS]
+    return [q, " OR ".join(terms)] if len(terms) >= 3 else [q]
 
 
 def _shared_throttle():
@@ -186,8 +200,8 @@ class ScopusProvider:
         if not data:
             return []
         results = data.get("search-results") or {}
-        # 零结果时 Scopus 不返回 entry 键
-        return [e for e in (results.get("entry") or []) if isinstance(e, dict)]
+        # 零结果时 Scopus 不返回 entry 键，或返回 [{"error": "Result set was empty"}]
+        return [e for e in (results.get("entry") or []) if isinstance(e, dict) and "error" not in e]
 
     @staticmethod
     def _entry_eid(entry: dict) -> str | None:
@@ -298,24 +312,30 @@ class ScopusProvider:
         if not query or not query.strip():
             return []
         entries: list[dict] = []
-        remaining = min(limit, 100)
-        start = 0
         sort = "-citedby-count" if order == "cited" else "-relevancy"
-        while remaining > 0:
-            count = min(25, remaining)
-            data = await self._get("/content/search/scopus", {
-                "query": self.build_search_query(query, academic_only=academic_only),
-                "count": count,
-                "start": start,
-                "sort": sort,
-                "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
-            })
-            page = self._search_entries(data)
-            entries.extend(page)
-            if len(page) < count:  # 没有更多结果
+        # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时多数 0 命中（E10：
+        # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
+        # （OR 按相关度排序，命中词越多越靠前；只取第一页）
+        for i, variant in enumerate(relaxed_queries(query)):
+            remaining = min(limit, 100) if i == 0 else min(limit, 25)  # 放宽式只取第一页
+            start = 0
+            while remaining > 0:
+                count = min(25, remaining)
+                data = await self._get("/content/search/scopus", {
+                    "query": self.build_search_query(variant, academic_only=academic_only),
+                    "count": count,
+                    "start": start,
+                    "sort": sort,
+                    "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
+                })
+                page = self._search_entries(data)
+                entries.extend(page)
+                if len(page) < count:  # 没有更多结果
+                    break
+                remaining -= count
+                start += count
+            if entries:
                 break
-            remaining -= count
-            start += count
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )

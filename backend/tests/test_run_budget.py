@@ -38,7 +38,14 @@ def test_presets_match_plan_table():
         "model_attempts": 40, "source_requests": 80,
         "input_tokens": 160_000, "output_tokens": 300_000,
         "supplement_batches": 0, "delivery_repairs": 1,
+        "time_cap_seconds": 900, "time_cap_research_seconds": 540, "time_cap_writing_seconds": 180,
     }
+    # 运行时长硬上限：最深一档 30 分钟，研究线 < 写作线 < 上限
+    for preset in DEPTH_BUDGET_PRESETS.values():
+        assert preset["time_cap_seconds"] <= 1800
+        assert (preset["time_cap_research_seconds"]
+                < preset["time_cap_seconds"] - preset["time_cap_writing_seconds"]
+                < preset["time_cap_seconds"])
     assert DEPTH_BUDGET_PRESETS["quick"]["total_active_seconds"] == 480
     assert DEPTH_BUDGET_PRESETS["quick"]["output_tokens"] == 250_000
     assert DEPTH_BUDGET_PRESETS["standard"]["model_attempts"] == 80
@@ -546,3 +553,24 @@ def test_stream_consumption_is_bounded_by_run_deadline():
     snap = budget.snapshot()
     assert snap["resources"]["output_tokens"]["used"] == 10
     assert snap["usage_unknown_attempts"] == 1
+
+
+def test_model_limiter_reports_queueing_and_utilization():
+    """全局并发占用统计：超出容量的请求记为排队，占用率 = 在途名额秒 / (时长 × 容量)。"""
+    async def scenario():
+        limiter = llm_client._ModelLimiter(2)
+
+        async def hold():
+            await limiter.acquire()
+            try:
+                await asyncio.sleep(0.05)
+            finally:
+                limiter.release()
+
+        await asyncio.gather(*(hold() for _ in range(4)))
+        return limiter.stats()
+
+    stats = asyncio.run(scenario())
+    assert stats["limit"] == 2 and stats["acquired"] == 4 and stats["queued"] == 2
+    assert stats["wait_seconds"] >= 0.08  # 两个排队请求各等约 0.05s
+    assert 0.8 <= stats["utilization"] <= 1.0

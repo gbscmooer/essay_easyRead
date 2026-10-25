@@ -18,6 +18,8 @@ from typing import Any, Callable
 
 # 资源预设；数值单位见键名。模型 attempt 与输入有独立治理，输出为软提示。
 # 当前阶段接入范围见 document.md §2.6；后续分账与写作预留见重构方案。
+# time_cap_*：运行时长硬上限（所有档位生效，与 enforce 无关；按阶段时间线累计，暂停不计）。
+# 到 research 线后召回不再扩展；到「上限 − writing」线后证据提取不再开新篇目；写作总会执行。
 DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
     "lite": {
         "total_active_seconds": 900, "delivery_reserve_seconds": 240,
@@ -25,6 +27,7 @@ DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
         "model_attempts": 40, "source_requests": 80,
         "input_tokens": 160_000, "output_tokens": 300_000,
         "supplement_batches": 0, "delivery_repairs": 1,
+        "time_cap_seconds": 900, "time_cap_research_seconds": 540, "time_cap_writing_seconds": 180,
     },
     "quick": {
         "total_active_seconds": 480, "delivery_reserve_seconds": 120,
@@ -32,6 +35,7 @@ DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
         "model_attempts": 40, "source_requests": 32,
         "input_tokens": 150_000, "output_tokens": 250_000,
         "supplement_batches": 1, "delivery_repairs": 1,
+        "time_cap_seconds": 1200, "time_cap_research_seconds": 780, "time_cap_writing_seconds": 240,
     },
     "standard": {
         "total_active_seconds": 1200, "delivery_reserve_seconds": 300,
@@ -39,6 +43,7 @@ DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
         "model_attempts": 80, "source_requests": 64,
         "input_tokens": 400_000, "output_tokens": 600_000,
         "supplement_batches": 2, "delivery_repairs": 1,
+        "time_cap_seconds": 1500, "time_cap_research_seconds": 960, "time_cap_writing_seconds": 300,
     },
     "deep": {
         "total_active_seconds": 2700, "delivery_reserve_seconds": 600,
@@ -46,6 +51,7 @@ DEPTH_BUDGET_PRESETS: dict[str, dict[str, float]] = {
         "model_attempts": 150, "source_requests": 120,
         "input_tokens": 800_000, "output_tokens": 1_200_000,
         "supplement_batches": 3, "delivery_repairs": 1,
+        "time_cap_seconds": 1800, "time_cap_research_seconds": 1140, "time_cap_writing_seconds": 360,
     },
 }
 

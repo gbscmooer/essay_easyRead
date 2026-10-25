@@ -12,17 +12,22 @@
 - 相关性三级判定：confirmed（摘要级显式接受）/ title_confirmed（标题级显式接受）/
   unknown（未确认或筛选失败待判）；unknown 保留但不挤占 confirmed 的目标配额；
 - 超量候选按问题主题匹配裁剪，保留少量被引经典/近年论文作多样性配额，
-  避免在内容筛选之前仅凭引用量丢弃低引关键论文。
+  避免在内容筛选之前仅凭引用量丢弃低引关键论文；
+- 终裁排序（可选）：筛选只决定去留，最终顺序交给一个重排模型按问题逐篇打分；
+  confirmed 在前、随行 unknown 在后，各自按分数降序，重排失败保持原顺序。
 
-引擎依赖全部可注入（search_one / llm_json / backfill_abstracts），便于单测离线运行。
+引擎依赖全部可注入（search_one / llm_json / backfill_abstracts / rerank_scores），
+便于单测离线运行。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import re
+import time
 from collections import defaultdict
 from typing import Any, Awaitable, Callable
 
@@ -56,6 +61,73 @@ SEARCH_ONE_BUDGET_SECONDS = 120.0
 SearchOne = Callable[[str, str, int, str], Awaitable[list]]
 LlmJson = Callable[[str, str], Awaitable[dict]]
 Backfill = Callable[[list[str]], Awaitable[dict[str, str]]]
+RerankScores = Callable[[str, list[str]], Awaitable["list[float] | None"]]
+
+
+def rerank_text(paper: dict) -> str:
+    return f"{paper.get('title') or ''}. {(paper.get('abstract') or '')[:1500]}".strip()
+
+
+async def rerank_final(question: str, confirmed: list[dict], unknown: list[dict], *,
+                       keep: int, unknown_keep: int,
+                       rerank_scores: RerankScores) -> tuple[list[dict], list[dict], dict] | None:
+    """重排模型逐篇打分后裁剪：confirmed 取前 keep 篇，unknown 取前 unknown_keep 篇。
+
+    返回 None 表示打分不可用（调用方沿用原裁剪与顺序）。每篇记 rerank_score 与
+    recall_pos（重排前位置，便于评测对照）。
+    """
+    papers = [*confirmed, *unknown]
+    if not papers:
+        return [], [], {"scored": 0}
+    try:
+        scores = await rerank_scores(question, [rerank_text(p) for p in papers])
+    except Exception as exc:
+        logger.warning("rerank failed, keep recall order: %s", exc)
+        scores = None
+    if not scores or len(scores) != len(papers):
+        return None
+    for pos, (paper, score) in enumerate(zip(papers, scores)):
+        paper["recall_pos"] = pos
+        paper["rerank_score"] = round(float(score), 6)
+
+    def _order(group: list[dict]) -> list[dict]:
+        return sorted(group, key=lambda p: (-p["rerank_score"], p["recall_pos"]))
+
+    return _order(confirmed)[:keep], _order(unknown)[:unknown_keep], {
+        "scored": len(papers), "trimmed": max(0, len(confirmed) - keep)}
+
+
+LISTWISE_TOP = 30   # 列表式精排的篇数（交叉编码器排序后的前 N 篇）
+_LISTWISE_SYSTEM = (
+    "You rank scientific papers by how well they match a literature search request. "
+    "Output JSON only: {\"ranking\": [ids from most to least relevant]}; include every id once.")
+
+
+async def listwise_rerank(question: str, papers: list[dict], llm_json: LlmJson, *,
+                          top: int = LISTWISE_TOP) -> tuple[list[dict], dict]:
+    """对前 top 篇做一次 LLM 列表式精排（只调整这几篇的相对顺序，其余不动）。
+
+    LitSearch 宽泛题 30 题（34 篇目标）离线对照：交叉编码器排序 R@5 0.50 / R@20 0.71，
+    其前 30 篇再经列表式精排 0.56 / 0.74；直接对召回顺序精排只有 0.50 / 0.71——
+    交叉编码器先把目标送进前 30，精排才有对象可排。
+    """
+    head, tail = papers[:top], papers[top:]
+    if len(head) < 2:
+        return papers, {"applied": False, "reason": "too_few"}
+    lines = [f"[{i}] {p.get('title') or ''}. {(p.get('abstract') or '')[:400]}" for i, p in enumerate(head)]
+    try:
+        out = await llm_json(_LISTWISE_SYSTEM, f"Request: {question}\n\nPapers:\n" + "\n".join(lines))
+        raw = out.get("ranking") if isinstance(out, dict) else None
+        order = [int(x) for x in raw or [] if str(x).strip().isdigit() and int(x) < len(head)]
+    except Exception as exc:
+        logger.warning("listwise rerank failed, keep cross-encoder order: %s", exc)
+        return papers, {"applied": False, "reason": type(exc).__name__}
+    order = list(dict.fromkeys(order))
+    if not order:
+        return papers, {"applied": False, "reason": "empty_ranking"}
+    missing = [i for i in range(len(head)) if i not in order]
+    ranked = [head[i] for i in [*order, *missing]]
+    return [*ranked, *tail], {"applied": True, "top": len(head), "ranked": len(order), "appended": len(missing)}
 
 
 def _sanitize_keyword(q: str) -> str:
@@ -144,6 +216,11 @@ async def _default_search_one(source: str, keyword: str, limit: int, order: str,
     """真实三源发射；单源失败抛异常由调用方记账（不吞成零命中）。"""
     state = _state if _state is not None else {}
     if source == "arxiv":
+        from .arxiv_mirror import default_mirror
+
+        mirror = default_mirror()
+        if mirror is not None:  # 本地镜像：字面 + 语义两通道，摘要齐全、不限流
+            return await mirror.as_search_one()(source, keyword, limit, order)
         from .arxiv_client import search_topic
         from ...models.recall import RecallSource, build_recall_candidate
 
@@ -184,8 +261,11 @@ async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict
 
     cfg = dict(get_research_config())
     provider = OpenAlexProvider(email=str(cfg.get("email") or ""))
+    found: dict[str, str] = {}
     try:
-        return await provider.get_abstracts_by_dois(dois)
+        found = dict(await provider.get_abstracts_by_dois(dois) or {})
+    except Exception as exc:
+        logger.warning("OpenAlex abstract backfill failed, trying Semantic Scholar: %s", exc)
     finally:
         aclose = getattr(provider, "aclose", None)
         if aclose:
@@ -193,6 +273,25 @@ async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict
                 await aclose()
             except Exception:
                 pass
+    # 后备：OpenAlex 不可用或未覆盖的 DOI 先查 Crossref（无需 key、不易限流），再走 S2 批量接口
+    rest = [d for d in dois if d and d.lower() not in {str(k).lower() for k in found}]
+    if rest:
+        from .crossref_client import get_abstracts_by_dois as _crossref_abstracts
+
+        try:
+            found.update(await _crossref_abstracts(rest))
+        except Exception as exc:
+            logger.warning("Crossref abstract backfill failed (non-fatal): %s", exc)
+    have = {str(d).lower() for d in found}
+    rest = [d for d in dois if d and d.lower() not in have]
+    if rest:
+        from ..semantic_scholar import get_abstracts_by_dois as _s2_abstracts
+
+        try:
+            found.update(await _s2_abstracts(rest))
+        except Exception as exc:
+            logger.warning("Semantic Scholar abstract backfill failed (non-fatal): %s", exc)
+    return found
 
 
 def _planner_prompt(question: str, *, target: int, corpus: list[dict],
@@ -451,15 +550,23 @@ async def run_target_recall(
     search_one: SearchOne | None = None,
     llm_json: LlmJson | None = None,
     backfill_abstracts: Backfill | None = None,
+    match_local: Callable[[list[tuple[str | None, str]]], list[dict | None]] | None = None,
     should_pause=None,
+    time_up: Callable[[], bool] | None = None,
     protocol_dimensions: list[dict] | None = None,
     sources: tuple[str, ...] = ("arxiv", "scopus", "openalex"),
+    rerank_scores: RerankScores | None = None,
+    listwise_top: int = 0,
 ) -> tuple[list[dict], dict]:
     """执行目标量驱动的多源并行召回，返回（论文清单, 审计）。
 
     search_one(source, keyword, limit, order) / llm_json(system, user) /
     backfill_abstracts(dois) 均可注入，缺省接真实三源与统一 LLM Core。
+    match_local([(doi, title)]) 在 DOI 反查前先查本地 arXiv 镜像（缺省：镜像可用时接入）。
+    rerank_scores(question, texts) 给出时由重排模型决定终裁顺序；缺省不重排。
+    listwise_top>0 时再对前 N 篇做一次 LLM 列表式精排（用筛选同款关闭思考的调用）。
     should_pause 在每轮边界观察暂停请求，命中则抛 StagePausedError（协作式安全点）。
+    time_up() 为真（运行时长到达研究侧上限）时不再开新一轮检索或补搜，已有语料照常筛选与重排。
     protocol_dimensions：研究协议阶段产出的六类覆盖目标（[{dimension, probes}]），
     并入程序化推导的覆盖维度，驱动补搜缺口检查。
     """
@@ -511,6 +618,16 @@ async def run_target_recall(
     keyword_stats: list[dict] = []
     classic_stats: list[dict] = []
     source_failures: dict[str, int] = defaultdict(int)
+    # 分段计时（秒）：检索 / 规划 / 摘要补全 / 筛选 / 重排；并发运行时含排队等待
+    timing: dict[str, float] = defaultdict(float)
+
+    @contextlib.contextmanager
+    def _timed(phase: str):
+        t0 = time.monotonic()
+        try:
+            yield
+        finally:
+            timing[phase] += time.monotonic() - t0
     excluded_count = 0
     tried: set[str] = set()
     attempts = 0
@@ -618,7 +735,8 @@ async def run_target_recall(
         system, user = _planner_prompt(question, target=target, corpus=corpus,
                                        keyword_stats=keyword_stats, coverage=coverage)
         try:
-            plan = await llm_json(system, user)
+            with _timed("plan"):
+                plan = await llm_json(system, user)
         except Exception as exc:
             logger.warning("recall planner failed, stop expanding: %s", exc)
             return {"__error__": f"{type(exc).__name__}"}
@@ -661,9 +779,10 @@ async def run_target_recall(
                     from .stage_agent import StagePausedError
                     raise StagePausedError(f"recall paused at round {len(rounds_trace) + 1}")
             round_no = len(rounds_trace) + 1
-            round_stats = await _fire_keywords(current_keywords)
-            if round_no <= CLASSIC_ROUNDS and round_stats and len(_fresh_corpus()) < target:
-                await _classic_round(round_no, round_stats[0]["keyword"])
+            with _timed("search"):
+                round_stats = await _fire_keywords(current_keywords)
+                if round_no <= CLASSIC_ROUNDS and round_stats and len(_fresh_corpus()) < target:
+                    await _classic_round(round_no, round_stats[0]["keyword"])
             corpus = _fresh_corpus()
             rounds_trace.append({"round": round_no,
                                  "keywords": [s["keyword"] for s in round_stats],
@@ -675,6 +794,9 @@ async def run_target_recall(
 
             if len(corpus) >= target:
                 stop_reason = "target_reached"
+                break
+            if time_up is not None and time_up():
+                stop_reason = "time_budget"
                 break
             if attempts >= MAX_KEYWORD_ATTEMPTS:
                 stop_reason = "attempt_budget"
@@ -703,28 +825,58 @@ async def run_target_recall(
 
         corpus = _fresh_corpus()
 
-        # 摘要补全：Scopus 来源无摘要 → DOI 批量反查 OpenAlex
-        backfill_audit = {"needed": 0, "filled": 0}
+        # 摘要补全：Scopus 来源无摘要 → 先按 DOI/题名查本地 arXiv 镜像（同时补 arXiv 编号以便取全文），
+        # 再 DOI 批量反查（OpenAlex → Crossref → S2）。
+        # 首轮语料、补搜新增论文各补一次；终裁前对仍缺摘要的再补一次（临时限流兜底）
+        backfill_audit = {"needed": 0, "filled": 0, "topup_needed": 0, "topup_filled": 0,
+                          "retry_needed": 0, "retry_filled": 0, "local_filled": 0}
         if backfill_abstracts is None:
             async def bf(dois: list[str]) -> dict[str, str]:
                 return await _default_backfill(dois)
+            if match_local is None:
+                from .arxiv_mirror import default_mirror
+
+                mirror = default_mirror()
+                match_local = mirror.match if mirror is not None else None
         else:
             async def bf(dois: list[str]) -> dict[str, str]:
                 return await backfill_abstracts(dois)
-        missing = [p for p in corpus if p.get("doi") and not (p.get("abstract") or "").strip()]
-        backfill_audit["needed"] = len(missing)
-        if missing:
-            try:
-                doi_map = {p["doi"].lower(): p for p in missing}
-                for chunk in _chunks(missing, 50):
+
+        async def _backfill(papers: list[dict], prefix: str = "") -> None:
+            with _timed("backfill"):
+                await _backfill_inner(papers, prefix)
+
+        async def _backfill_inner(papers: list[dict], prefix: str) -> None:
+            if match_local is not None:
+                pending = [p for p in papers if not (p.get("abstract") or "").strip() and p.get("title")]
+                try:
+                    rows = await asyncio.to_thread(match_local, [(p.get("doi"), p["title"]) for p in pending])
+                except Exception as exc:
+                    logger.warning("local mirror match failed (non-fatal): %s", exc)
+                    rows = []
+                for p, row in zip(pending, rows):
+                    if row:
+                        p["abstract"] = row["abstract"]
+                        if not p.get("arxiv_id"):
+                            p["arxiv_id"] = row["arxiv_id"]
+                            p["pdf_url"] = p.get("pdf_url") or f"https://arxiv.org/pdf/{row['arxiv_id']}"
+                        backfill_audit["local_filled"] += 1
+            missing = [p for p in papers if p.get("doi") and not (p.get("abstract") or "").strip()]
+            backfill_audit[f"{prefix}needed"] += len(missing)
+            doi_map = {p["doi"].lower(): p for p in missing}
+            for chunk in _chunks(missing, 50):
+                try:
                     found = await bf([p["doi"] for p in chunk])
-                    for doi, abstract in (found or {}).items():
-                        p = doi_map.get(str(doi).lower())
-                        if p and abstract:
-                            p["abstract"] = abstract
-                            backfill_audit["filled"] += 1
-            except Exception as exc:
-                logger.warning("abstract backfill failed (non-fatal): %s", exc)
+                except Exception as exc:
+                    logger.warning("abstract backfill failed (non-fatal): %s", exc)
+                    continue
+                for doi, abstract in (found or {}).items():
+                    p = doi_map.get(str(doi).lower())
+                    if p and abstract and not (p.get("abstract") or "").strip():
+                        p["abstract"] = abstract
+                        backfill_audit[f"{prefix}filled"] += 1
+
+        await _backfill(corpus)
 
         # 筛选 + 确认量驱动的预算内补搜：
         # 先按目标量 1.3 倍预裁 → 三级筛选 → 确认量不足且预算未尽时规划员补搜，
@@ -734,11 +886,13 @@ async def run_target_recall(
                               question, queries, now_year)
         supplement_budget_stop = ""
         if has_llm and llm_json is not None and pool:
-            kept, filter_audit = await _filter_pool(
-                pool, question, batch_size=batch_size, llm_json=screen_json,
-                verdict_cache=verdict_cache, should_pause=should_pause,
-                on_progress=lambda done, total: _emit(
-                    {"phase": "filter", "done": done, "total": total}))
+            with _timed("filter"):
+                kept, filter_audit = await _filter_pool(
+                    pool, question,
+                    batch_size=batch_size, llm_json=screen_json,
+                    verdict_cache=verdict_cache, should_pause=should_pause,
+                    on_progress=lambda done, total: _emit(
+                        {"phase": "filter", "done": done, "total": total}))
             confirmed = [p for p in kept if p.get("relevance_status") != "unknown"]
             unknown = [p for p in kept if p.get("relevance_status") == "unknown"]
 
@@ -760,6 +914,9 @@ async def run_target_recall(
                    and stop_reason != "planner_error"):
                 # 注意：搜索循环的 planner_stop 不阻止补搜——规划员的 done 针对
                 # 原始候选量，质量筛选/覆盖检查可能推翻它（筛后确认量不足就要补）
+                if time_up is not None and time_up():
+                    supplement_budget_stop = "time_budget"
+                    break
                 if _sup_budget is not None and hasattr(_sup_budget, "reserve"):
                     if not _sup_budget.reserve("supplement_batches", 1.0):
                         supplement_budget_stop = "supplement_budget_exhausted"
@@ -776,7 +933,8 @@ async def run_target_recall(
                     break
                 topups += 1
                 tried.update(k.lower() for k in plan_keywords)
-                round_stats = await _fire_keywords(plan_keywords)
+                with _timed("search"):
+                    round_stats = await _fire_keywords(plan_keywords)
                 if any(s["raw_hits"] > 0 for s in round_stats):
                     effective_rounds += 1
                 corpus = _fresh_corpus()
@@ -791,9 +949,11 @@ async def run_target_recall(
                 new_pool = relevance_trim(new_pool, min(len(new_pool), target),
                                           question, [*queries, *plan_keywords], now_year)
                 if new_pool:
-                    new_kept, new_audit = await _filter_pool(
-                        new_pool, question, batch_size=batch_size, llm_json=screen_json,
-                        verdict_cache=verdict_cache, should_pause=should_pause)
+                    await _backfill(new_pool, "topup_")
+                    with _timed("filter"):
+                        new_kept, new_audit = await _filter_pool(
+                            new_pool, question, batch_size=batch_size, llm_json=screen_json,
+                            verdict_cache=verdict_cache, should_pause=should_pause)
                     confirmed.extend(p for p in new_kept if p.get("relevance_status") != "unknown")
                     unknown.extend(p for p in new_kept if p.get("relevance_status") == "unknown")
                     for k in ("batches", "rejected", "fail_open_batches", "confirmed",
@@ -822,11 +982,33 @@ async def run_target_recall(
         # 对象），隔离后不进入计量/聚类/综合/选材。宁可语料少于 target 也不
         # 让未裁决论文污染下游（run6 教训：6 篇 unknown 综述凭高被引进入
         # top_cited 与聚类，计量图被跨领域论文整体带偏）。
-        final = relevance_trim(confirmed, target, question, queries, now_year)
         escort_cap = max(10, int(target * 0.2))
-        escorted_unknown = relevance_trim(
-            unknown, min(len(unknown), escort_cap), question, queries, now_year) if unknown else []
+        await _backfill([*confirmed, *unknown], "retry_")
+        reranked = None
+        if rerank_scores is not None:
+            with _timed("rerank"):
+                reranked = await rerank_final(question, confirmed, unknown, keep=target,
+                                              unknown_keep=escort_cap, rerank_scores=rerank_scores)
+        if reranked is not None:
+            final, escorted_unknown, rerank_audit = reranked
+            rerank_audit["applied"] = True
+            # 重排模型是排序的唯一依据：confirmed 与随行 unknown 按同一分数统一排序
+            # （下游按 relevance_status 隔离 unknown，不依赖位置）
+            final = sorted([*final, *escorted_unknown],
+                           key=lambda p: (-p["rerank_score"], p["recall_pos"]))
+            escorted_unknown_count = len(escorted_unknown)
+            escorted_unknown = []
+        else:
+            final = relevance_trim(confirmed, target, question, queries, now_year)
+            escorted_unknown = relevance_trim(
+                unknown, min(len(unknown), escort_cap), question, queries, now_year) if unknown else []
+            rerank_audit = {"applied": False, "requested": rerank_scores is not None}
+            escorted_unknown_count = len(escorted_unknown)
         final.extend(escorted_unknown)
+        if listwise_top and has_llm and screen_json is not None and len(final) > 1:
+            with _timed("listwise"):
+                final, rerank_audit["listwise"] = await listwise_rerank(
+                    question, final, screen_json, top=listwise_top)
 
         audit = {
             "engine": "target_recall_v1",
@@ -846,11 +1028,13 @@ async def run_target_recall(
             "abstract_backfill": backfill_audit,
             "filter": filter_audit,
             "relevance": {"confirmed": len(confirmed), "unknown": len(unknown),
-                          "escorted_unknown": len(escorted_unknown),
-                          "unknown_pending_screen": max(0, len(unknown) - len(escorted_unknown)),
+                          "escorted_unknown": escorted_unknown_count,
+                          "unknown_pending_screen": max(0, len(unknown) - escorted_unknown_count),
                           "final_count": len(final)},
             "final_count": len(final),
+            "rerank": rerank_audit,
             "keyword_stats": keyword_stats,
+            "timing_s": {k: round(v, 1) for k, v in timing.items()},
         }
         if supplement_budget_stop:
             audit["supplement_budget_stop"] = supplement_budget_stop

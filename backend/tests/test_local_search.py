@@ -60,6 +60,37 @@ def test_recall_engine_runs_offline_on_local_corpus():
     assert audit["source_failures"] == {}
 
 
+def test_failed_abstract_backfill_is_retried_before_final_ranking():
+    base = LocalCorpusIndex(_RECORDS, name="toy").as_search_one()
+
+    async def search_one(source, keyword, limit, order):
+        out = await base(source, keyword, limit, order)
+        for c in out:  # 模拟 Scopus：有 DOI 无摘要
+            c.doi, c.abstract = f"10.1/{c.extra['local_id']}", None
+        return out
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            return {"next_keywords": [], "done": True, "reason": "ok"}
+        return {"accepted": [item["key"] for item in json.loads(user)["papers"]], "rejected": [], "uncertain": []}
+
+    calls = []
+
+    async def backfill(dois):
+        calls.append(list(dois))
+        if len(calls) == 1:
+            raise RuntimeError("429")  # 首轮临时限流
+        return {d.upper(): f"abstract of {d}" for d in dois}
+
+    papers, audit = asyncio.run(run_target_recall(
+        "data poisoning with few examples", ["data poisoning attacks"], depth="quick", now_year=2026,
+        llm_cfg={"api_key": "k"}, search_one=search_one, sources=(LOCAL_SOURCE,),
+        llm_json=llm_json, backfill_abstracts=backfill))
+    bf = audit["abstract_backfill"]
+    assert bf["filled"] == 0 and bf["retry_needed"] == bf["retry_filled"] == len(papers) == 2
+    assert all(p["abstract"].startswith("abstract of 10.1/") for p in papers)
+
+
 def test_match_local_reports_rank_filter_rejection_and_baseline():
     corpus = [{"local_id": "2", "title": "B", "relevance_status": "confirmed"},
               {"local_id": "1", "title": "A", "relevance_status": "unknown"}]
@@ -70,3 +101,75 @@ def test_match_local_reports_rank_filter_rejection_and_baseline():
     assert [r["baseline_rank"] for r in rows] == [3, 1, None]
     summary = pb.summarize_litsearch([{"targets": rows, "corpus_size": 2, "wall_s": 5}])
     assert summary["system_recall@5"] == round(2 / 3, 3) and summary["bm25_recall@5"] == round(2 / 3, 3)
+
+
+def test_rerank_orders_final_and_keeps_recall_position():
+    index = LocalCorpusIndex(_RECORDS, name="toy")
+
+    async def llm_json(system, user):
+        if "检索规划员" in system:
+            return {"next_keywords": [], "done": True, "reason": "ok"}
+        return {"accepted": [item["key"] for item in json.loads(user)["papers"]], "rejected": [], "uncertain": []}
+
+    async def scores(question, texts):
+        return [1.0 if "Backdoor" in t else 0.1 for t in texts]
+
+    async def broken(question, texts):
+        raise RuntimeError("down")
+
+    def run(rerank):
+        return asyncio.run(run_target_recall(
+            "few poisoned samples", ["poisoning attacks"], depth="quick", now_year=2026,
+            llm_cfg={"api_key": "k"}, search_one=index.as_search_one(), sources=(LOCAL_SOURCE,),
+            llm_json=llm_json, backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+            rerank_scores=rerank))
+
+    papers, audit = run(scores)
+    assert papers[0]["local_id"] == "2" and papers[0]["rerank_score"] == 1.0
+    assert audit["rerank"]["applied"] is True and {p["recall_pos"] for p in papers} == {0, 1}
+    rows = pb.match_local(["2"], papers)
+    assert rows[0]["rank"] == 1 and rows[0]["recall_rank"] == papers[0]["recall_pos"] + 1
+    # 重排失败：保持原裁剪与顺序，审计记录未生效
+    papers, audit = run(broken)
+    assert audit["rerank"] == {"applied": False, "requested": True}
+    assert all("rerank_score" not in p for p in papers)
+
+
+def test_listwise_rerank_reorders_head_only_and_survives_bad_output():
+    from backend.services.deep_research.recall_engine import listwise_rerank
+
+    papers = [{"key": k, "title": k} for k in "abcd"]
+
+    async def good(system, user):
+        return {"ranking": [2, 0, 2, 9]}  # 重复与越界编号忽略，漏掉的按原顺序补在后面
+
+    async def bad(system, user):
+        raise ValueError("bad json")
+
+    ranked, audit = asyncio.run(listwise_rerank("q", papers, good, top=3))
+    assert [p["key"] for p in ranked] == ["c", "a", "b", "d"] and audit["appended"] == 1
+    ranked, audit = asyncio.run(listwise_rerank("q", papers, bad, top=3))
+    assert ranked == papers and audit == {"applied": False, "reason": "ValueError"}
+
+
+def test_gap_search_reranks_per_query_and_skips_abstractless():
+    from backend.models.recall import RecallSource, build_recall_candidate
+    from backend.services.deep_research.explorer import gap_search
+
+    def cand(i, abstract="Some abstract about the topic."):
+        return build_recall_candidate(title=f"Paper {i}", arxiv_id=f"2401.0000{i}", abstract=abstract,
+                                      source=RecallSource.SEARCH, provenance=["provider:arxiv"])
+
+    async def search_one(source, kw, limit, order):
+        assert source == "arxiv"
+        if kw == "boom":
+            raise RuntimeError("down")
+        return [cand(1), cand(2, abstract=""), cand(3), cand(4)]
+
+    async def score(query, texts):
+        return [{"Paper 1": 0.1, "Paper 3": 0.9, "Paper 4": 0.5}[t.split(".")[0]] for t in texts]
+
+    out = asyncio.run(gap_search("q", ["boom", "alpha", "beta"], search_one=search_one, score=score))
+    # alpha：重排取前 2（3、4）；beta：已选的不重复，剩下 1
+    assert [p["title"] for p in out] == ["Paper 3", "Paper 4", "Paper 1"]
+    assert out[0]["source_query"] == "answer_gap:alpha"

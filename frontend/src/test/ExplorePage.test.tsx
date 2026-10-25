@@ -418,6 +418,20 @@ it('详情页展示检索与分析完整性提示', async () => {
   expect(notice).toHaveTextContent('arxiv 不可用')
 })
 
+it('详情页展示带引用与原文摘录的直接回答', async () => {
+  mockUse.mockReturnValue(IDLE)
+  const result = { ...makeResult(), answer: {
+    status: 'ok' as const, language: 'en' as const,
+    text: 'ManyTypes4Py is the most common benchmark [1].',
+    references: [{ n: 1, key: 'doi:10.1/mt4py', title: 'ManyTypes4Py', year: 2021, excerpt: 'It contains 5,382 Python projects.' }],
+  } }
+  vi.mocked(getExploration).mockResolvedValue({ id: 22, question: 'Answer question', depth: 'quick', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1', result })
+  renderPage('/explorer/22')
+  const card = await screen.findByRole('region', { name: '直接回答' })
+  expect(card).toHaveTextContent('ManyTypes4Py is the most common benchmark')
+  expect(screen.getByRole('list', { name: '直接回答的参考文献' })).toHaveTextContent('It contains 5,382 Python projects.')
+})
+
 it('勾选问题驱动研究时使用实验流程，深度提示不沿用旧召回数量', async () => {
   mockUse.mockReturnValue(IDLE)
   mockCreate.mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'academic_survey_v2' })

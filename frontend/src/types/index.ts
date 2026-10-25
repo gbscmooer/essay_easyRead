@@ -558,10 +558,22 @@ export interface RunIntegrity {
   items: { kind: string; severity: string; message: string }[]
 }
 
+/** 开放问答：依据提取证据的直接回答（后端 answer_writer.py） */
+export interface DirectAnswer {
+  status: 'ok' | 'needs_review' | 'insufficient' | 'failed'
+  language?: 'zh' | 'en'
+  text: string
+  references: { n: number; key: string; title: string; year?: number | null; excerpt: string; excerpts?: string[]; excerpt_source?: string }[]
+  materials?: number
+  check?: { cited_share: number; words: number; problems: string[] } | null
+  error?: string
+}
+
 export interface ExplorationResult {
   survey_report?: import('./survey').SurveyReport
   report_error?: string
   integrity?: RunIntegrity
+  answer?: DirectAnswer
   sources?: ResearchSourceOptions & {
     seed_count?: number
     warnings?: string[]

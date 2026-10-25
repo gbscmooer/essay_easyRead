@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import statistics
 import time
@@ -96,13 +97,11 @@ def _fresh_engine(td: str):
 _RESULT_DIR: Path | None = None   # 设置后每题完整 run.result 落盘（典型案例与离线复判用）
 
 
-async def run_system_arm(question: str, depth: str = "standard", save_as: Path | None = None) -> dict:
-    """真实跑一轮领域探索（真 LLM + 真检索源），提取可比字段。"""
+@contextlib.contextmanager
+def shared_engine():
+    """并发评测共用一个临时库：explorer.get_engine 只替换一次，各题各自建 run 行。"""
     import tempfile
 
-    from sqlmodel import Session
-
-    from backend.models.exploration import ExplorationRun
     from backend.services.deep_research import explorer
 
     with tempfile.TemporaryDirectory(prefix="explore_eval_") as td:
@@ -110,31 +109,48 @@ async def run_system_arm(question: str, depth: str = "standard", save_as: Path |
         original = explorer.get_engine
         explorer.get_engine = lambda: engine
         try:
-            with Session(engine) as s:
-                run = ExplorationRun(question=question, depth=depth or "standard")
-                s.add(run)
-                s.commit()
-                s.refresh(run)
-                run_id = run.id
-            t0 = time.monotonic()
-            await explorer.run_exploration(run_id)
-            wall = round(time.monotonic() - t0, 1)
-            with Session(engine) as s:
-                run = s.get(ExplorationRun, run_id)
-                result = run.result or {}
-                run_failed = run.status == "failed"
-                token_usage = ((run.result or {}).get("sources") or {}).get("token_usage") or {}
-                token_total = token_usage.get("total")
-                run_error = run.error_message
-                if save_as is not None:
-                    save_as.parent.mkdir(parents=True, exist_ok=True)
-                    save_as.write_text(json.dumps({
-                        "question": question, "depth": depth, "status": run.status,
-                        "error_message": run.error_message, "result": result,
-                    }, ensure_ascii=False, default=str), encoding="utf-8")
+            yield engine
         finally:
             explorer.get_engine = original
             engine.dispose()
+
+
+async def run_system_arm(question: str, depth: str = "standard", save_as: Path | None = None, *,
+                         options: dict | None = None, engine=None) -> dict:
+    """真实跑一轮领域探索（真 LLM + 真检索源），提取可比字段。
+
+    engine 给出时使用调用方的共享库（并发跑多题）；否则为本题建临时库。
+    """
+    from sqlmodel import Session
+
+    from backend.models.exploration import ExplorationRun
+    from backend.services.deep_research import explorer
+
+    with contextlib.ExitStack() as stack:
+        if engine is None:
+            engine = stack.enter_context(shared_engine())
+        with Session(engine) as s:
+            run = ExplorationRun(question=question, depth=depth or "standard", options=dict(options or {}))
+            s.add(run)
+            s.commit()
+            s.refresh(run)
+            run_id = run.id
+        t0 = time.monotonic()
+        await explorer.run_exploration(run_id)
+        wall = round(time.monotonic() - t0, 1)
+        with Session(engine) as s:
+            run = s.get(ExplorationRun, run_id)
+            result = run.result or {}
+            run_failed = run.status == "failed"
+            token_usage = ((run.result or {}).get("sources") or {}).get("token_usage") or {}
+            token_total = token_usage.get("total")
+            run_error = run.error_message
+            if save_as is not None:
+                save_as.parent.mkdir(parents=True, exist_ok=True)
+                save_as.write_text(json.dumps({
+                    "question": question, "depth": depth, "status": run.status,
+                    "error_message": run.error_message, "result": result,
+                }, ensure_ascii=False, default=str), encoding="utf-8")
 
     papers = result.get("papers") or []
     metrics = result.get("metrics") or {}

@@ -57,3 +57,35 @@ def test_match_targets_by_doi_arxiv_title_and_filter_rejection():
     assert summary["completed"] == 2 and summary["errors"] == 1 and summary["targets"] == 5
     assert summary["target_recall_corpus"] == 0.6 and summary["target_recall_confirmed"] == 0.4
     assert summary["target_rejected_by_filter"] == 1 and summary["query_any_found"] == 0.5
+
+
+def test_quota_watch_detects_rate_limit_and_parses_reset_time():
+    import logging
+
+    watch = pb.QuotaWatch.install()
+    try:
+        logging.getLogger("x").warning("relevance filter batch failed: LLM_RATE_LIMITED: {'code': '1308', "
+                                       "'message': '已达到 5 小时的使用上限。您的限额将在 2026-10-25 00:35:24 重置。'}")
+        assert watch.hits == 1 and watch.reset_at.isoformat() == "2026-10-25T00:35:24"
+        watch.clear()
+        logging.getLogger("x").warning("ordinary warning")
+        assert watch.hits == 0
+    finally:
+        logging.getLogger().removeHandler(watch)
+
+
+def test_quota_watch_stops_on_provider_block():
+    import asyncio
+    import logging
+
+    import pytest
+
+    watch = pb.QuotaWatch.install()
+    try:
+        logging.getLogger("x").warning('planner failed: LLM_PROVIDER_ERROR: upstream returned 405: '
+                                       '{"code":3012,"msg":"request has been blocked due to unusual activity."}')
+        assert watch.hits == 1 and watch.fatal
+        with pytest.raises(SystemExit):
+            asyncio.run(watch.wait_for_reset())
+    finally:
+        logging.getLogger().removeHandler(watch)

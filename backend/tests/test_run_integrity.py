@@ -98,3 +98,15 @@ def test_verdict_guard_and_report_error_are_listed():
         report_error="报告未完成（TimeoutError），可从已有材料重新生成。"))
     assert out["level"] == "partial"
     assert [item["kind"] for item in out["items"]] == ["synthesize", "verdict", "report"]
+
+
+def test_answer_status_is_reported():
+    from backend.services.deep_research.integrity import build_integrity
+
+    base = {"metrics": {"total": 30}, "synthesis": {"verdict": {"status": "done_partial"}}}
+    out = build_integrity({**base, "answer": {"status": "insufficient", "materials": 1}})
+    assert out["level"] == "insufficient" and any(i["kind"] == "answer" for i in out["items"])
+    out = build_integrity({**base, "answer": {"status": "needs_review",
+                                              "check": {"problems": ["有 3/8 句事实陈述没有 [n] 引用"]}}})
+    assert out["level"] == "partial" and "引用验收" in out["items"][-1]["message"]
+    assert build_integrity({**base, "answer": {"status": "ok"}})["level"] == "complete"

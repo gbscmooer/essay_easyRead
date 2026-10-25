@@ -578,6 +578,74 @@ def test_research_time_budget_freeze_does_not_stop_independent_extraction(agent_
     assert [e for e, _ in events][-1] == "done"
 
 
+def test_time_cap_writing_line_skips_unstarted_extraction_and_still_delivers(agent_env, monkeypatch):
+    """运行时长硬上限（非 enforce 档同样生效）：续跑前已累计时长越过写作预留线，
+    未开工的篇目不再提取（skipped_frozen），已缓存提取照常复用，run 正常交付。"""
+    engine, events, corpus = agent_env
+    run_id = _make_run(engine, depth="quick")
+
+    extracted: list[str] = []
+
+    async def extracting(question, paper, excerpt, kind, cfg, depth, iteration_progress, **kwargs):
+        extracted.append(paper["key"])
+        return _tasks_rows(paper), 0, {"status": "completed", "iterations": 1}
+
+    monkeypatch.setattr(survey_report, "extract_paper_with_agent", extracting)
+
+    def _cached_entry(p):
+        return {"key": p["key"], "status": "examined", "source_kind": "abstract",
+                "rejected_rows": 0,
+                "rows": {"tasks": [{"task": f"t-{p['key']}", "subtask": "", "dataset": "",
+                                    "method": "", "evidence": []}]}}
+
+    # quick 写作线 = 1200 − 240 = 960s；此前各阶段已累计 1000s（暂停不计，续跑沿用）
+    timeline = [{"stage": "recall", "started_at": "2026-10-25T00:00:00+00:00",
+                 "duration_s": 1000.0, "status": "completed"}]
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        run.status = "paused"
+        run.current_stage = "screen"
+        run.decompose = {"intent": "landscape", "en_queries": ["tumor detection"],
+                         "focus_terms": [], "fallback": False, "core_query": "tumor detection"}
+        run.result = {
+            "decompose": run.decompose, "provider": "stub",
+            "papers": [dict(p) for p in corpus], "metrics": {}, "graph": {},
+            "sources": {
+                "preflight": [{"name": "openalex", "role": "primary", "status": "ok",
+                               "detail": "t", "latency_ms": 1, "http_status": 200}],
+                "warnings": [], "stage_timeline": timeline, "agent_loops": {},
+            },
+        }
+        run.checkpoint = {
+            "checkpoint_schema_version": 2,
+            "workflow_revision": explorer.WORKFLOW_REVISION,
+            "completed_stages": ["preflight", "protocol", "recall"],
+            "report": {"selected_keys": [p["key"] for p in corpus],
+                       "extractions": {p["key"]: _cached_entry(p) for p in corpus[:2]}},
+            "updated_at": "2026-10-25T00:00:00",
+        }
+        s.add(run)
+        s.commit()
+
+    asyncio.run(run_exploration(run_id, resume=True))
+
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        assert run.status == "done"
+        sources = run.result.get("sources") or {}
+        assert extracted == []
+        report = run.result.get("survey_report") or {}
+        assert report["coverage"]["examined"] == 2
+        assert report["coverage"]["skipped_frozen"] == len(corpus) - 2
+        exhaustion = [row.get("resource") for row in
+                      (run.result.get("budget") or {}).get("exhaustion_log") or []]
+        assert "time_cap_writing" in exhaustion and "research_time" not in exhaustion
+        assert any("写作预留线" in str(w) for w in sources.get("warnings") or [])
+        cap = sources["execution_policy"]["time_cap"]
+        assert cap["seconds"] == 1200 and cap["elapsed_s"] >= 1000
+    assert [e for e, _ in events][-1] == "done"
+
+
 def test_read_papers_budget_does_not_cap_independent_extraction(agent_env, monkeypatch):
     """历史 read_papers 余额为零也不缩小独立 extract 域的档位选材。"""
     engine, events, corpus = agent_env
@@ -1194,3 +1262,24 @@ def test_pause_adjust_excludes_paper_and_reruns_downstream(resume_env, monkeypat
         assert "pending_user_queries" not in run.options and run.options["user_queries"] == ["tumor segmentation"]
         messages = [item["message"] for item in run.result["integrity"]["items"]]
         assert any("剔除 1 篇文献" in m and "tumor segmentation" in m for m in messages)
+
+
+def test_answer_only_mode_skips_synthesis_and_report(resume_env):
+    """开放问答模式：证据提取后只写答案，不生成领域综合与综述报告，run 正常完成。"""
+    engine, events, _ = resume_env
+    with Session(engine) as s:
+        run = ExplorationRun(question="tumor detection deep learning", depth="quick",
+                             options={"answer_only": True})
+        s.add(run)
+        s.commit()
+        s.refresh(run)
+        run_id = run.id
+    asyncio.run(run_exploration(run_id))
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        assert run.status == "done"
+        loops = run.result["sources"]["agent_loops"]
+        assert loops["synthesize"]["stop_reason"] == loops["report"]["stop_reason"] == "answer_only"
+        assert not run.result.get("survey_report") and not run.result.get("synthesis")
+    done = [d for name, d in events if name == "stage_done" and d.get("stage") in ("synthesize", "report")]
+    assert [d["summary"] for d in done] == [{"skipped": "answer_only"}] * 2

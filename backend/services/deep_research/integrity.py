@@ -154,6 +154,15 @@ def build_integrity(result: dict) -> dict:
                 f"程序复核把判定从「{guard['from']}」调整为「{guard['to']}」：引用证据中早于 "
                 f"{guard['cutoff_year']} 年的仅 {guard['early_evidence']} 篇。")
 
+    answer = result.get("answer") or {}
+    if answer.get("status") == "insufficient":
+        add("answer", "insufficient", f"可用材料只有 {answer.get('materials', 0)} 篇，未生成有引用支撑的直接回答。")
+    elif answer.get("status") == "failed":
+        add("answer", "partial", f"直接回答生成失败（{answer.get('error') or '未知原因'}），报告其余部分不受影响。")
+    elif answer.get("status") == "needs_review":
+        problems = (answer.get("check") or {}).get("problems") or []
+        add("answer", "partial", "直接回答未通过引用验收，需人工复核：" + (problems[0] if problems else "原因未记录"))
+
     if result.get("report_error"):
         add("report", "partial", str(result["report_error"]))
     elif report.get("quality_status") == "needs_review":

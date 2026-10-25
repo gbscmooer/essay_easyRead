@@ -51,7 +51,8 @@ from .literature_retrieval import paper_similarity, retrieve_materials
 from .citation_metrics import annotate_citation_metrics
 from .graphkit.backbone import mutual_knn
 from .survey_report import _stage_timeout, build_survey_report, redeliver_survey_report
-from .recall_engine import RECALL_TARGETS, run_target_recall
+from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, run_target_recall
+from .reranker import rerank_scores
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
 from ..research_exclusions import apply_exclusions, active_exclusions
@@ -1086,6 +1087,41 @@ def _dedupe_candidates(candidates: list) -> list[dict]:
                 cur[k] = v
         cur["citation_count"] = max(cur["citation_count"], getattr(cand, "citation_count", None) or 0)
     return list(by_key.values())
+
+
+GAP_PER_QUERY = 2   # 答案补检索：每个缺口方面取重排前 2 篇
+
+
+async def gap_search(question: str, queries: list[str], *, options: dict | None = None,
+                     search_one=None, score=None) -> list[dict]:
+    """开放问答写作前，为提纲中无材料支撑的方面补检索。
+
+    只走 arXiv 源（本地镜像可用时为镜像：摘要齐全、不限流；Scopus 无摘要，补来也无法引用）；
+    每个检索词下由重排模型按「问题 + 该方面检索词」排序，取前 GAP_PER_QUERY 篇。
+    """
+    from .recall_engine import _default_search_one, rerank_text
+
+    search_one = search_one or _default_search_one
+    score = score or rerank_scores
+    picked: list[dict] = []
+    seen: set[str] = set()
+    for kw in queries:
+        try:
+            rows = await search_one("arxiv", kw, 10, "relevance")
+        except Exception as exc:  # noqa: BLE001 —— 单个检索词失败跳过
+            logger.warning(f"gap search failed for {kw!r}: {exc}")
+            continue
+        cands = [p for p in _dedupe_candidates(rows) if (p.get("abstract") or "").strip() and p["key"] not in seen]
+        cands, _ = apply_exclusions(cands, options or {})
+        if not cands:
+            continue
+        scores = await score(f"{question} {kw}", [rerank_text(p) for p in cands])
+        if scores:
+            cands = [p for _, p in sorted(zip(scores, cands), key=lambda x: -x[0])]
+        for p in cands[:GAP_PER_QUERY]:
+            seen.add(p["key"])
+            picked.append({**p, "source_query": f"answer_gap:{kw}"})
+    return picked
 
 
 def _cap_papers(papers: list[dict], *, cap: int, now_year: int, recent_window: int = 3) -> list[dict]:
@@ -2202,6 +2238,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         # 成果、续跑恢复剩余额度不重置。
         from .run_budget import DEPTH_BUDGET_PRESETS, RunBudget
         budget_enforce = bool(options.get("budget_enforce")) or depth == "lite"
+        # 开放问答模式：证据提取后直接写答案，不生成领域综合与八阶段综述报告
+        answer_only = bool(options.get("answer_only"))
         budget_preset = DEPTH_BUDGET_PRESETS.get(depth) or DEPTH_BUDGET_PRESETS["standard"]
         migrated_baseline: dict[str, float] = {}
         if not resume:
@@ -2277,6 +2315,39 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 })
                 source_warnings.append(
                     "研究侧时间预算已耗尽：未开始的研究步骤已跳过，报告生成继续。")
+            return True
+
+        # 运行时长硬上限（所有档位，与 enforce 无关）：按阶段时间线累计运行时长（暂停区间
+        # 不计、续跑沿用），到研究线召回停止扩展，到「上限 − 写作预留」线证据提取不再开新篇目，
+        # 写作总会执行，保证一次运行在档位上限附近结束（deep 30 分钟）。
+        time_cap = float(options.get("time_cap_seconds") or budget_preset.get("time_cap_seconds") or 0.0)
+        time_cap_lines = {
+            "research": min(time_cap, float(budget_preset.get("time_cap_research_seconds") or time_cap)),
+            "writing": max(0.0, time_cap - float(budget_preset.get("time_cap_writing_seconds") or 0.0)),
+        }
+        _time_cap_logged: set[str] = set()
+
+        def _run_elapsed() -> float:
+            closed = sum(float(row.get("duration_s") or 0.0) for row in stage_timeline)
+            now = time.monotonic()
+            return closed + sum(now - started for started in _stage_clock.values())
+
+        def _time_cap_hit(line: str) -> bool:
+            if time_cap <= 0:
+                return False
+            elapsed = _run_elapsed()
+            if elapsed < time_cap_lines[line]:
+                return False
+            if line not in _time_cap_logged:
+                _time_cap_logged.add(line)
+                budget.exhaustion_log.append({
+                    "resource": f"time_cap_{line}", "limit": round(time_cap_lines[line], 1),
+                    "used": round(elapsed, 1), "reserved": 0.0, "baseline": 0.0,
+                    "at_active_seconds": round(budget.active_seconds(), 1),
+                })
+                source_warnings.append(
+                    "运行时长已到研究侧上限：召回不再扩展，用已有语料继续。" if line == "research" else
+                    "运行时长已到写作预留线：未开始的证据提取已跳过，直接写作。")
             return True
 
         def _budget_checkpoint() -> None:
@@ -2379,7 +2450,9 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 "execution_policy": {
                     "budgeted_stages": ["preflight", "protocol", "recall", "screen", "select"],
                     "unbounded_stages": ["extract", "synthesize", "report"],
-                    "unbounded_guards": ["request_timeout", "bounded_retry", "pause", "cancel"],
+                    "unbounded_guards": ["request_timeout", "bounded_retry", "pause", "cancel", "time_cap"],
+                    "time_cap": {"seconds": time_cap, "lines": time_cap_lines,
+                                 "elapsed_s": round(_run_elapsed(), 1)},
                 },
                 **({"recall": search_audit} if search_audit else {}),
             }
@@ -2604,9 +2677,10 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                             question, decompose["en_queries"], depth=depth, now_year=now_year,
                             llm_cfg=llm_cfg, progress=_recall_progress,
                             on_event=_engine_event, preflight_dead=preflight_dead,
-                            should_pause=_paused,
+                            should_pause=_paused, time_up=lambda: _time_cap_hit("research"),
                             protocol_dimensions=_protocol_dimensions_for_recall(
                                 decompose.get("coverage_protocol")),
+                            rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP,
                         )
                         search_audit.update(engine_audit)
                         provider_name = "multi:arxiv+scopus+openalex"
@@ -2664,7 +2738,9 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 try:
                     extra, extra_audit = await run_target_recall(
                         question, pending_queries, depth="lite", now_year=now_year, llm_cfg=llm_cfg,
-                        progress=_recall_progress, preflight_dead=preflight_dead, should_pause=_paused)
+                        progress=_recall_progress, preflight_dead=preflight_dead, should_pause=_paused,
+                        time_up=lambda: _time_cap_hit("research"),
+                        rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP)
                     extra, _ = apply_exclusions(extra, options)
                     before = len(papers)
                     papers = merge_corpus(seeds, [*papers, *extra], len(papers) + len(extra) + len(seeds))
@@ -3005,6 +3081,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
                     on_evidence=_on_evidence, should_pause=_paused,
                     stop_after="extract", paper_limit=read_cap,
+                    time_up=lambda: _time_cap_hit("writing"),
                 )
                 result["report_extract"] = extract_out
                 result["papers"] = [
@@ -3046,6 +3123,40 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         await emit("stage_start", stage="synthesize")
         draft_out: dict | None = None
         if "synthesize" not in completed:
+            # 开放问答：依据已提取证据直接回答学者的问题（每句带引用、附原文摘录）。
+            # 先于领域综合与报告初稿写作：答案只依赖论文与证据行，学者先拿到答案；
+            # answer_only（开放问答模式）下不再生成八阶段综述报告
+            extract_out = result.get("report_extract") or {}
+            if llm_cfg and llm_cfg.get("api_key"):
+                from .answer_writer import write_answer
+                from .domain_synthesizer import _llm_json as _answer_llm
+
+                async def _answer_json(system: str, user: str) -> dict:
+                    return await _answer_llm(llm_cfg, system, user, max_tokens=6000)
+
+                async def _plan_json(system: str, user: str) -> dict:
+                    return await _answer_llm(llm_cfg, system, user, max_tokens=2000)
+
+                async def _gap_search(q: str, queries: list[str]) -> list[dict]:
+                    return await gap_search(q, queries, options=options)
+
+                try:
+                    result["answer"] = await write_answer(
+                        question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],
+                        llm_json=_answer_json, plan_json=_plan_json,
+                        search_more=_gap_search if options.get("search_online", True) else None)
+                    await emit("answer_ready", **result["answer"])
+                except StagePausedError:
+                    raise
+                except Exception as ae:
+                    logger.warning(f"answer writer failed (non-fatal): {ae}")
+                    result["answer"] = {"status": "failed", "error": type(ae).__name__,
+                                        "text": "", "references": []}
+        if "synthesize" not in completed and answer_only:
+            agent_loops["synthesize"] = {"status": "skipped", "stop_reason": "answer_only",
+                                         "iterations": 0, "trace": []}
+            await emit("stage_done", stage="synthesize", summary={"skipped": "answer_only"})
+        elif "synthesize" not in completed:
             extract_tables = (result.get("report_extract") or {}).get("tables") or {}
             evidence_digest = _evidence_digest(extract_tables, papers)
             try:
@@ -3135,7 +3246,11 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         _set_stage(run_id, "report")
         _stage_begin("report")
         await emit("stage_start", stage="report")
-        if "report" not in completed:
+        if "report" not in completed and answer_only:
+            agent_loops["report"] = {"status": "skipped", "stop_reason": "answer_only",
+                                     "iterations": 0, "trace": []}
+            await emit("stage_done", stage="report", summary={"skipped": "answer_only"})
+        elif "report" not in completed:
             result.pop("report_error", None)  # 上次尝试的失败标记失效，按本次结果重写
             try:
                 # 迁移/重生成场景：result 里的旧报告先作为父 revision 保留再覆盖
@@ -3154,6 +3269,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     protocol=decompose.get("coverage_protocol") if decompose else None,
                     research_frozen=_research_frozen(),
                     paper_limit=read_cap,
+                    # 时长上限跳过的篇目在报告阶段同样不补提取
+                    time_up=lambda: _time_cap_hit("writing"),
                 )
                 _persist_legacy_report_revision(run_id, result["survey_report"],
                                                 previous_report=previous_report)
