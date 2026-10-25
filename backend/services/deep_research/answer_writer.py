@@ -327,6 +327,16 @@ def _references(text: str, materials: list[dict]) -> list[dict]:
     return refs
 
 
+_EXCERPT_CITE = re.compile(r"\s*\[\d+(?:\s*[,，–-]\s*\d+)*\]")
+
+
+def display_excerpt(text: str) -> str:
+    """摘录的展示形态：去掉原文自带的数字引用标记（如 [20, 26]，易与答案的 [n] 混淆），
+    内部双引号换成单引号（摘录整体加双引号展示）。存储的摘录仍是逐字原文。"""
+    t = _EXCERPT_CITE.sub("", text or "")
+    return t.replace('"', "'").replace("“", "‘").replace("”", "’").strip()
+
+
 def render_answer(answer: dict) -> str:
     """答案正文 + 参考文献（含原文摘录）的纯文本形态，用于展示与外部评测。"""
     text = answer.get("text") or ""
@@ -339,7 +349,7 @@ def render_answer(answer: dict) -> str:
         year = f" ({r['year']})" if r.get("year") else ""
         excerpts = r.get("excerpts") or [r["excerpt"]]
         label = "Excerpt" if len(excerpts) == 1 else "Excerpts"
-        quoted = " ".join(f"\"{e}\"" for e in excerpts)
+        quoted = " ".join(f"\"{display_excerpt(e)}\"" for e in excerpts)
         lines.append(f"[{r['n']}] {r['title']}{year}. {label}: {quoted}")
     return "\n".join(lines)
 

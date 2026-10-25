@@ -30,6 +30,8 @@ SEARCH_PER_QUERY = 4
 CLAIM_EVIDENCE = 3         # 每个论断交给模型的候选句数
 MAX_CLAIMS = 60
 MIN_CITED_SHARE = 0.75     # 低于此比例带反馈重写一次；公认背景知识允许不带指针
+MIN_DRAFT_WORDS = 250       # 草稿过短视为截断，重新起草一次（实测约 2% 的长答案被截断）
+SHORT_FINAL_RATIO = 0.4     # 定稿不足草稿 40% 视为截断或大段删改，带反馈重写
 ATTACH_MIN_CITED_SHARE = 0.5   # 以草稿为准时证据覆盖受检索所限，只防整篇几乎不引
 FETCH_CONCURRENCY = 3
 _FETCH_ORDER = {"named_work": 0, "answer_search": 1, "claim_search": 2, "recall": 3}   # 补全文的先后：点名代表作优先
@@ -238,13 +240,19 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         index.add_paper(p, origin="recall")
     audit["recall_papers"] = len(index.papers)
 
-    try:
-        data = await llm_json(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang, draft_titles))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("answer agent draft failed: %s", exc)
-        return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": 0,
-                "check": None, "error": type(exc).__name__, "agent": audit}
-    draft = str((data or {}).get("draft") or "").strip()
+    data, draft = None, ""
+    for draft_try in range(2):
+        try:
+            data = await llm_json(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang, draft_titles))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("answer agent draft failed: %s", exc)
+            return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": 0,
+                    "check": None, "error": type(exc).__name__, "agent": audit}
+        draft = str((data or {}).get("draft") or "").strip()
+        if aw._count_words(draft, lang) >= MIN_DRAFT_WORDS:
+            break
+        logger.warning("answer agent draft too short (%d words), retrying", aw._count_words(draft, lang))
+    audit["draft_tries"] = draft_try + 1
     works = [str(w.get("title") if isinstance(w, dict) else w).strip()
              for w in (data or {}).get("works") or []][:MAX_WORKS]
     works = [w for w in works if len(w) > 8]
@@ -320,6 +328,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         min_share = ATTACH_MIN_CITED_SHARE if final_mode == "attach" else MIN_CITED_SHARE
         check = aw.check_answer(text, [{"n": r["n"]} for r in refs], lang, min_share=min_share)
         feedback = _feedback(check, text, invalid, min_share)
+        if check["words"] < SHORT_FINAL_RATIO * aw._count_words(draft, lang):
+            feedback += ("\n- " if feedback else "- ") + (f"定稿只有约 {check['words']} 词，明显短于草稿，可能被截断或删去了大段内容；"
+                                                         "请输出完整答案，保留草稿的全部段落。")
         if not feedback:
             break
         feedback += "\n\n上一稿（供修改）：\n" + raw

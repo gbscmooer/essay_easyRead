@@ -2,8 +2,17 @@
 
 import asyncio
 
+import pytest
+
 from backend.services.deep_research import answer_agent as ag
 from backend.services.deep_research import evidence_search as es
+
+
+@pytest.fixture(autouse=True)
+def _short_texts_ok(monkeypatch):
+    """用例里的草稿与定稿都很短：关掉截断保护（另有专门用例测它）。"""
+    monkeypatch.setattr(ag, "MIN_DRAFT_WORDS", 0)
+    monkeypatch.setattr(ag, "SHORT_FINAL_RATIO", 0)
 
 _PAPERS = [
     {"key": "a", "title": "TypeEvalPy: A Micro-benchmarking Framework for Python Type Inference Tools", "year": 2024,
@@ -199,3 +208,25 @@ def test_inline_quotes_must_be_verbatim_or_lose_quote_marks():
     assert '"contains 5,382 Python projects with more than 869K type annotations"' in out     # 逐字可查：保留
     assert "a benchmark suite with thousands" in out and '"a benchmark suite' not in out          # 查不到：去引号
     assert '"short quote"' in out and audit == {"verified": 1, "unverified_stripped": 1}           # 太短不处理
+
+
+def test_truncated_draft_is_requested_again_and_short_final_gets_feedback(monkeypatch):
+    _no_rerank(monkeypatch)
+    monkeypatch.setattr(ag, "MIN_DRAFT_WORDS", 30)
+    monkeypatch.setattr(ag, "SHORT_FINAL_RATIO", 0.4)
+    long_draft = " ".join(["ManyTypes4Py is a large dataset for type inference."] * 8)
+    replies = iter([
+        {"draft": "ManyTypes4Py is", "works": [], "queries": []},           # 截断的草稿
+        {"draft": long_draft, "works": [], "queries": []},
+        {"answer": "ManyTypes4Py is large [S5]."},                          # 定稿过短
+        {"answer": " ".join(["ManyTypes4Py is a large dataset for type inference [S4]."] * 8)},
+    ])
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        return next(replies)
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets?", _PAPERS, llm_json=llm_json, mirror=None))
+    assert out["agent"]["draft_tries"] == 2 and out["attempts"] == 2
+    assert "明显短于草稿" in prompts[3]

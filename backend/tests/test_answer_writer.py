@@ -156,3 +156,16 @@ def test_knowledge_mode_lets_model_write_beyond_materials_without_fake_citations
     # 默认（只依据材料）模式下同样的答案不通过验收，会带反馈重写
     grounded = aw.check_answer(out["text"], aw.build_materials(_PAPERS, _RECORDS), "en")
     assert grounded["problems"]
+
+
+def test_rendered_excerpts_drop_source_citation_markers_and_inner_quotes():
+    answer = {"text": "Team cognition relies on implicit coordination [1].", "language": "en",
+              "references": [{"n": 1, "title": "Distributed Cognition for AI", "year": 2025, "excerpt": "x",
+                              "excerpts": ['Teams use "implicit coordination" without explicit communication [20, 26].',
+                                           "Examples include air traffic control [9] and plants [3–5]."]}]}
+    out = aw.render_answer(answer)
+    refs = out.split("References:")[1]
+    assert "[20, 26]" not in refs and "[9]" not in refs and "[3–5]" not in refs
+    assert "'implicit coordination'" in refs and refs.count('"') == 4
+    # 存储的摘录不变（逐字原文）
+    assert answer["references"][0]["excerpts"][1].endswith("plants [3–5].")
