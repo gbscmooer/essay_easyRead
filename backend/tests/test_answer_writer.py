@@ -134,3 +134,25 @@ def test_gap_retrieval_can_rescue_question_without_material():
     out = asyncio.run(aw.write_answer("Why do links fail?", [_PAPERS[2]], [], llm_json=llm_json,
                                       plan_json=plan_json, search_more=search_more))
     assert out["status"] == "ok" and out["materials"] == 3
+
+
+def test_knowledge_mode_lets_model_write_beyond_materials_without_fake_citations():
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append((system, user))
+        # 一半句子是公认知识、不带编号：知识主导模式下验收通过，不再要求逐句引用
+        return {"answer": "Type inference deduces the most general type of each expression. "
+                          "Python is dynamically typed, so types are only known at runtime. "
+                          "TypeEvalPy contains 154 code snippets [1]. ManyTypes4Py has 869K annotations [2]."}
+
+    out = asyncio.run(aw.write_answer("What datasets exist for type inference?", _PAPERS, _RECORDS,
+                                      llm_json=llm_json, knowledge=True))
+    system, user = prompts[0]
+    assert "资深研究者" in system and "只依据给定材料" not in system
+    assert "不得凭记忆补充事实" not in user and "不得编造引用" in user
+    assert out["status"] == "ok" and out["attempts"] == 1 and out["knowledge"] is True
+    assert out["check"]["cited_share"] == 0.5
+    # 默认（只依据材料）模式下同样的答案不通过验收，会带反馈重写
+    grounded = aw.check_answer(out["text"], aw.build_materials(_PAPERS, _RECORDS), "en")
+    assert grounded["problems"]

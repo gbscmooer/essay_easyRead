@@ -28,7 +28,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from backend.eval import ledger
+
+ROOT =Path(__file__).resolve().parents[2]
 DATA = ROOT / "data/eval/public/ScholarQABench/data/scholarqa_cs/test_configs_snippets.json"
 OUT_DIR = ROOT / "data/eval"
 JUDGE_MODEL = "glm-5.3"
@@ -231,7 +233,9 @@ async def run(args) -> Path:
     meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "system_model": system_cfg.get("model"),
             "judge_model": args.judge_model, "openalex": args.use_openalex, "started": stamp,
             "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"), "label": args.label,
-            "concurrency": args.concurrency, "answer_only": args.answer_only}
+            "concurrency": args.concurrency, "answer_only": args.answer_only,
+            "provenance": ledger.provenance(out)}
+    log = ledger.open_log(out)
     from backend.eval.public_benchmarks import QuotaWatch
 
     watch = QuotaWatch.install()
@@ -288,6 +292,7 @@ async def run(args) -> Path:
                 await watch.wait_for_reset()
                 continue
             break
+        rec["system"]["attempts"] = attempt + 1   # >1 表示限流后丢弃重跑过
         if scope["hits"]:
             rec["system"]["rate_limited"] = scope["sample"][:300]
         done[i] = rec
@@ -313,6 +318,8 @@ async def run(args) -> Path:
                                         "baseline": summarize(records, "baseline")}, "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
+    ledger.record(out, report)
+    log.close()
     return out
 
 
@@ -435,6 +442,7 @@ async def rewrite(args) -> Path:
     只隔离答案环节的改动（召回不重跑，单题约 2~3 分钟）；补检索走 arXiv 源（ARXIV_MIRROR 控制是否用本地镜像）。
     """
     from backend.eval.public_benchmarks import _llm_cfg
+    from backend.services.deep_research import answer_writer as aw
     from backend.services.deep_research.answer_writer import render_answer, write_answer
     from backend.services.deep_research.explorer import gap_search
 
@@ -458,47 +466,71 @@ async def rewrite(args) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     meta = {**data.get("meta", {}), "rewrite_of": str(src), "rewritten": stamp, "label": args.label,
             "plan": not args.no_plan, "gap": not (args.no_gap or args.no_plan), "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"),
-            "materials": args.materials}
-    records = []
-    for i, rec in enumerate(data["records"], 1):
+            "materials": args.materials, "quotes": args.quotes, "writer": args.writer,
+            "provenance": ledger.provenance(out)}
+    log = ledger.open_log(out)
+    total = len(data["records"])
+    done: list[dict | None] = [None] * total
+    sem = asyncio.Semaphore(max(1, args.concurrency))
+
+    async def one(i: int, rec: dict) -> None:
         row = rec.get("system") or {}
         saved = row.get("saved")
-        print(f"[{i}/{len(data['records'])}] {rec['question'][:100]}", flush=True)
         if not saved or not Path(saved).exists():
-            records.append(rec)
-            continue
-        blob = json.loads(Path(saved).read_text(encoding="utf-8"))
-        result = blob["result"]
-        evidence = ((result.get("report_extract") or {}).get("evidence_store") or {}).get("records") or []
-        t0 = time.monotonic()
-        try:
-            answer = await write_answer(rec["question"], result.get("papers") or [], evidence,
-                                        llm_json=answer_json, plan_json=None if args.no_plan else plan_json,
-                                        search_more=None if args.no_gap or args.no_plan else gap_search,
-                                        **({"material_limit": args.materials} if args.materials else {}))
-            response = render_answer(answer)
-            result["answer"] = answer
-            save = runs_dir / Path(saved).name
-            save.write_text(json.dumps(blob, ensure_ascii=False), encoding="utf-8")
-            new = {"status": answer.get("status"), "response": response, "words": len(response.split()),
-                   "check": answer.get("check"), "materials": answer.get("materials"),
-                   "gap_retrieval": answer.get("gap_retrieval"), "corpus": row.get("corpus"),
-                   "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
-            if response.strip():
-                new["scores"] = [await judge.score(c, response) for c in configs[rec["question"]]]
-        except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
-            new = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-        records.append({**rec, "system": new})
+            done[i] = rec
+            return
+        async with sem:
+            blob = json.loads(Path(saved).read_text(encoding="utf-8"))
+            result = blob["result"]
+            evidence = ((result.get("report_extract") or {}).get("evidence_store") or {}).get("records") or []
+            t0 = time.monotonic()
+            try:
+                if args.writer == "memory":   # 对照：同一写作要求，不给材料，只凭模型知识
+                    lang = aw.question_language(rec["question"])
+                    data_ = await answer_json(aw._KNOWLEDGE_SYSTEM,
+                                              aw._user_prompt(rec["question"], [], lang, knowledge=True))
+                    answer = {"status": "ok", "language": lang, "references": [], "materials": 0,
+                              "text": str((data_ or {}).get("answer") or "").strip(), "writer": "memory"}
+                else:
+                    answer = await write_answer(rec["question"], result.get("papers") or [], evidence,
+                                                llm_json=answer_json, plan_json=None if args.no_plan else plan_json,
+                                                search_more=None if args.no_gap or args.no_plan else gap_search,
+                                                aspect_quotes=args.quotes in ("pre", "both"),
+                                                verify_json=plan_json if args.quotes in ("verify", "both") else None,
+                                                knowledge=args.writer == "knowledge",
+                                                **({"material_limit": args.materials} if args.materials else {}))
+                response = render_answer(answer)
+                result["answer"] = answer
+                save = runs_dir / Path(saved).name
+                save.write_text(json.dumps(blob, ensure_ascii=False), encoding="utf-8")
+                new = {"status": answer.get("status"), "response": response, "words": len(response.split()),
+                       "check": answer.get("check"), "materials": answer.get("materials"),
+                       "gap_retrieval": answer.get("gap_retrieval"), "corpus": row.get("corpus"),
+                       "aspect_quotes": answer.get("aspect_quotes"),
+                       "verification": {k: v for k, v in (answer.get("verification") or {}).items()
+                                        if k != "unsupported"} or None,
+                       "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
+                if response.strip():
+                    new["scores"] = list(await asyncio.gather(*(judge.score(c, response)
+                                                                for c in configs[rec["question"]])))
+            except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
+                new = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+        done[i] = {**rec, "system": new}
         s = (new.get("scores") or [{}])[0]
-        print(f"    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，{new.get('words')} 词，"
-              f"{new.get('status') or new.get('error')}，补检索 {(new.get('gap_retrieval') or {}).get('added')}）",
-              flush=True)
-        out.write_text(json.dumps({"meta": meta, "partial": True, "records": records}, ensure_ascii=False,
-                                  indent=1), encoding="utf-8")
+        print(f"[{i + 1}/{total}] {rec['question'][:80]}\n    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
+              f"{new.get('words')} 词，{new.get('status') or new.get('error')}，"
+              f"补检索 {(new.get('gap_retrieval') or {}).get('added')}）", flush=True)
+        out.write_text(json.dumps({"meta": meta, "partial": True, "records": [r for r in done if r]},
+                                  ensure_ascii=False, indent=1), encoding="utf-8")
+
+    await asyncio.gather(*(one(i, rec) for i, rec in enumerate(data["records"])))
+    records = [r for r in done if r]
     report = {"meta": meta, "summary": {"system": summarize(records, "system"), "baseline": None},
               "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
+    ledger.record(out, report)
+    log.close()
     return out
 
 
@@ -532,6 +564,11 @@ def main() -> None:
     w.add_argument("--no-gap", action="store_true", help="只做要点规划，不补检索")
     w.add_argument("--no-plan", action="store_true", help="不做要点规划（对照组）")
     w.add_argument("--materials", type=int, default=None, help="送入写作的论文数上限（缺省沿用 MAX_MATERIALS）")
+    w.add_argument("--concurrency", type=int, default=4, help="同时重写的题数（共享全局模型并发上限）")
+    w.add_argument("--writer", choices=("grounded", "knowledge", "memory"), default="grounded",
+                   help="grounded 只依据材料；knowledge 知识主导、材料支撑处引用；memory 不给材料（对照）")
+    w.add_argument("--quotes", choices=("off", "pre", "verify", "both"), default="off",
+                   help="原文摘录检索：pre 写前按方面并入原文句，verify 写后逐句核查引用并取原句为摘录")
     w.add_argument("--label", default="")
     for p in (r, j, f, w):
         p.add_argument("--judge-model", default=JUDGE_MODEL)

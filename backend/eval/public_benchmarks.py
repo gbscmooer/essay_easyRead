@@ -302,6 +302,7 @@ class QuotaWatch(logging.Handler):
     _RESET = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*重置")
     # 限流与一般接口错误：本题作废，等待后重跑；被提供方拒绝/封禁：等待无用，停止评测
     _MARKERS = ("LLM_RATE_LIMITED", "LLM_PROVIDER_ERROR", "LLM_TIMEOUT", "'1308'", "'1310'", "使用上限")
+    _CONTENT_FILTER = ("contentFilter", "'1301'")
     _FATAL = ("unusual activity", '"code":3012', "LLM_AUTH_FAILED", "LLM_FORBIDDEN", "不支持关闭思考")
 
     def __init__(self):
@@ -334,6 +335,8 @@ class QuotaWatch(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         msg = record.getMessage()
+        if any(m in msg for m in self._CONTENT_FILTER):
+            return   # 内容审核拒绝单个请求：与额度无关，重跑同样内容也会被拒，不算限流
         if any(m in msg for m in self._FATAL):
             self.fatal = self.fatal or msg[:300]
         if any(m in msg for m in self._MARKERS) or any(m in msg for m in self._FATAL):

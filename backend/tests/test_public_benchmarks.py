@@ -70,6 +70,10 @@ def test_quota_watch_detects_rate_limit_and_parses_reset_time():
         watch.clear()
         logging.getLogger("x").warning("ordinary warning")
         assert watch.hits == 0
+        # 内容审核拒绝不是额度问题：不计入限流，不触发等待重跑
+        logging.getLogger("x").warning("relevance filter batch failed (fail-open as unknown): LLM_PROVIDER_ERROR: "
+                                       "Error code: 400 - {'contentFilter': [{'level': 1}], 'error': {'code': '1301'}}")
+        assert watch.hits == 0
     finally:
         logging.getLogger().removeHandler(watch)
 
