@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.8.0'
+const APP_VERSION = '9.8.1'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-10-26',
   changes: [
-    '新增指针式作答的独立评测入口：不走召回流程，按题起草、检索原文句并打分，可在新题上扩大验证样本',
+    '评测撞到模型额度上限时，从报错信息中读取重置时间并等到该时刻再重跑，不再盲等 10 分钟后反复失败',
   ],
 }
 

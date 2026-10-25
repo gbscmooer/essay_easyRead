@@ -297,6 +297,9 @@ async def run(args) -> Path:
                 rec, scope = await one(i, case, engine)
             judge_limited = any("RATE_LIMITED" in str((rec.get(arm) or {}).get(key) or "")
                                 for arm in ("system", "baseline") for key in ("judge_error", "error"))
+            if scope["hits"] or judge_limited:
+                watch.note(" ".join(str((rec.get(arm) or {}).get(key) or "")
+                                    for arm in ("system", "baseline") for key in ("judge_error", "error")))
             if (scope["hits"] or judge_limited) and attempt < QuotaWatch.MAX_RETRIES:
                 # 限流期间流程按失败降级（筛选 fail-open、规划停止），本题结果不可信：丢弃、等重置后重跑
                 print(f"[{i}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or 'judge')[:120]}）", flush=True)
@@ -558,6 +561,8 @@ async def rewrite(args) -> Path:
             async with sem:
                 new, scope = await attempt()
             limited = scope["hits"] or "RATE_LIMITED" in str(new.get("error") or "")
+            if limited:
+                watch.note(str(new.get("error") or "") + " " + str(scope.get("sample") or ""))
             if limited and n_try < QuotaWatch.MAX_RETRIES:
                 # 限流期间写作与评分会降级，本题结果不可信：丢弃、等额度重置后重跑
                 print(f"[{i + 1}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or new.get('error') or '')[:120]}）",
@@ -645,6 +650,8 @@ async def run_agent(args) -> Path:
             async with gate:
                 rec, scope = await attempt(i, case)
             limited = scope["hits"] or "RATE_LIMITED" in str(rec.get("error") or "")
+            if limited:
+                watch.note(str(rec.get("error") or "") + " " + str(scope.get("sample") or ""))
             if limited and n_try < QuotaWatch.MAX_RETRIES:
                 print(f"[{i}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or rec.get('error') or '')[:120]}）", flush=True)
                 await watch.wait_for_reset()

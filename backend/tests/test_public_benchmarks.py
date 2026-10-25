@@ -93,3 +93,26 @@ def test_quota_watch_stops_on_provider_block():
             asyncio.run(watch.wait_for_reset())
     finally:
         logging.getLogger().removeHandler(watch)
+
+
+def test_quota_watch_reads_reset_time_from_exception_text_and_keeps_future_reset(monkeypatch):
+    import asyncio
+    import logging
+    from datetime import datetime, timedelta
+
+    watch = pb.QuotaWatch.install()
+    try:
+        future = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        watch.note("LLMError: LLM_RATE_LIMITED: {'code': '1308', 'message': '已达到 5 小时的使用上限。"
+                   f"您的限额将在 {future} 重置。'}}")
+        assert watch.reset_at is not None and watch.reset_at.strftime("%Y-%m-%d %H:%M:%S") == future
+        slept = []
+
+        async def fake_sleep(sec):
+            slept.append(sec)
+        monkeypatch.setattr(pb.asyncio, "sleep", fake_sleep)
+        asyncio.run(watch.wait_for_reset())
+        assert slept and slept[0] > 3 * 3600 - 60          # 等到提示的重置时刻（另加 2 分钟）
+        assert watch.reset_at is not None                   # 尚未到达的重置时间保留给其他题
+    finally:
+        logging.getLogger().removeHandler(watch)

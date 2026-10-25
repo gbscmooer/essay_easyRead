@@ -323,6 +323,12 @@ class QuotaWatch(logging.Handler):
     def clear(self) -> None:
         self.hits, self.sample = 0, ""
 
+    def note(self, text: str) -> None:
+        """从异常信息等非日志文本里读取重置时间（评委等直接抛出的 1308 不经过日志）。"""
+        found = self._RESET.search(text or "")
+        if found:
+            self.reset_at = datetime.strptime(found.group(1), "%Y-%m-%d %H:%M:%S")
+
     @staticmethod
     def scope() -> dict:
         """在当前任务（及其子任务）内单独计数：并发跑多题时各题只看自己的限流。
@@ -362,7 +368,8 @@ class QuotaWatch(logging.Handler):
             wait = max(60.0, (self.reset_at - datetime.now()).total_seconds() + 120)
         print(f"    等待额度重置 {wait / 60:.0f} 分钟（至 {self.reset_at or '未知'}）", flush=True)
         await asyncio.sleep(wait)
-        self.reset_at = None
+        if self.reset_at is not None and self.reset_at <= datetime.now():
+            self.reset_at = None   # 已过的重置时间作废；未到的保留，其他题再撞限时直接等到该时刻
 
 
 def _llm_cfg(thinking_effort: str, model: str = "") -> dict:
