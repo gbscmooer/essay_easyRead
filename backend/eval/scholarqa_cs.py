@@ -587,6 +587,91 @@ async def rewrite(args) -> Path:
     return out
 
 
+async def run_agent(args) -> Path:
+    """指针式作答独立运行：不走召回流程，按题起草 → 本地镜像检索原文句（可补 arXiv 全文）→ 引用指针定稿，再打分。"""
+    from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
+    from backend.services.deep_research.answer_agent import RECOMMENDED, write_with_pointers
+    from backend.services.deep_research.answer_writer import render_answer
+    from backend.services.deep_research.arxiv_mirror import default_mirror
+    from backend.services.deep_research.domain_synthesizer import _llm_json
+    from backend.services.llm import model_limiter_stats
+
+    disable_openalex()
+    system_cfg = _llm_cfg(args.thinking_effort, args.model)
+
+    async def answer_json(system: str, user: str) -> dict:
+        return await _llm_json(system_cfg, system, user, max_tokens=6000)
+
+    picked = pick_cases(load_cases(), args.n, args.seed, exclude_seed=args.exclude_seed, exclude_n=args.exclude_n)
+    if args.first:
+        picked = picked[:args.first]
+    judge = make_judge(args)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = OUT_DIR / f"scholarqa_cs_agent_{stamp}.json"
+    runs_dir = OUT_DIR / f"scholarqa_cs_agent_{stamp}_runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    settings = {**RECOMMENDED, **({"final_mode": args.final} if args.final else {}),
+                **({"followup": args.followup} if args.followup is not None else {})}
+    meta = {"depth": "agent", "seed": args.seed, "n": len(picked), "exclude_seed": args.exclude_seed,
+            "system_model": system_cfg.get("model"), "judge_model": args.judge_model, "started": stamp,
+            "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
+            "agent_only": True, "agent": settings, "provenance": ledger.provenance(out)}
+    log = ledger.open_log(out)
+    watch = QuotaWatch.install()
+    mirror = default_mirror()
+    gate = asyncio.Semaphore(max(1, args.concurrency))
+    done: dict[int, dict] = {}
+    started = time.monotonic()
+
+    async def attempt(i: int, case: dict) -> tuple[dict, dict]:
+        scope = QuotaWatch.scope()
+        t0 = time.monotonic()
+        try:
+            answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror, **settings)
+            response = render_answer(answer)
+            save = runs_dir / f"q{i:03d}.json"
+            save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
+            rec = {"status": answer.get("status"), "response": response, "words": len(response.split()),
+                   "check": answer.get("check"), "materials": answer.get("materials"), "agent": answer.get("agent"),
+                   "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
+            if response.strip():
+                rec["scores"] = list(await asyncio.gather(*(judge.score(c, response) for c in case["configs"])))
+        except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
+            rec = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+        return rec, scope
+
+    async def worker(i: int, case: dict) -> None:
+        for n_try in range(QuotaWatch.MAX_RETRIES + 1):
+            async with gate:
+                rec, scope = await attempt(i, case)
+            limited = scope["hits"] or "RATE_LIMITED" in str(rec.get("error") or "")
+            if limited and n_try < QuotaWatch.MAX_RETRIES:
+                print(f"[{i}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or rec.get('error') or '')[:120]}）", flush=True)
+                await watch.wait_for_reset()
+                continue
+            break
+        rec["attempts"] = n_try + 1
+        done[i] = {"question": case["question"], "case_ids": [c["case_id"] for c in case["configs"]], "system": rec}
+        s = (rec.get("scores") or [{}])[0]
+        print(f"[{i}/{len(picked)}] {case['question'][:80]}\n    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
+              f"{rec.get('words')} 词，{rec.get('status') or rec.get('error')}，{rec.get('wall_s')} 秒）"
+              f"  [已完成 {len(done)}/{len(picked)}，用时 {round((time.monotonic() - started) / 60, 1)} 分，"
+              f"模型并发占用 {(model_limiter_stats() or {}).get('utilization')}]", flush=True)
+        out.write_text(json.dumps({"meta": meta, "partial": True, "records": [done[k] for k in sorted(done)]},
+                                  ensure_ascii=False, indent=1), encoding="utf-8")
+
+    await asyncio.gather(*(worker(i, c) for i, c in enumerate(picked, 1)))
+    records = [done[k] for k in sorted(done)]
+    meta["wall_min"] = round((time.monotonic() - started) / 60, 1)
+    report = {"meta": meta, "summary": {"system": summarize(records, "system"), "baseline": None},
+              "records": records}
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
+    ledger.record(out, report)
+    log.close()
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -643,14 +728,26 @@ def main() -> None:
     w.add_argument("--quotes", choices=("off", "pre", "verify", "both"), default="off",
                    help="原文摘录检索：pre 写前按方面并入原文句，verify 写后逐句核查引用并取原句为摘录")
     w.add_argument("--label", default="")
-    for p in (r, j, f, w):
+    ag = sub.add_parser("agent", help="指针式作答独立运行（不走召回流程）并打分")
+    ag.add_argument("--n", type=int, default=20)
+    ag.add_argument("--seed", type=int, default=0)
+    ag.add_argument("--exclude-seed", type=int, default=None)
+    ag.add_argument("--exclude-n", type=int, default=20)
+    ag.add_argument("--first", type=int, default=0)
+    ag.add_argument("--thinking-effort", default="off")
+    ag.add_argument("--model", default="")
+    ag.add_argument("--concurrency", type=int, default=4)
+    ag.add_argument("--final", choices=("revise", "attach", "enrich"), default=None, help="覆盖推荐配置的定稿方式")
+    ag.add_argument("--followup", type=int, default=None, help="覆盖推荐配置的第二轮检索句数")
+    ag.add_argument("--label", default="")
+    for p in (r, j, f, w, ag):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-tokens", type=int, default=4000)
         # 官方评委是非推理模型（gpt-4-turbo，打分输出上限 100 token）；默认关闭思考
         p.add_argument("--judge-thinking", default="off")
     args = parser.parse_args()
     asyncio.run({"run": run, "judge": rejudge, "refs": score_references, "rerender": rerender,
-                 "rewrite": rewrite}[args.cmd](args))
+                 "rewrite": rewrite, "agent": run_agent}[args.cmd](args))
 
 
 if __name__ == "__main__":

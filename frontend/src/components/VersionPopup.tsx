@@ -1,14 +1,13 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.7.2'
+const APP_VERSION = '9.8.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-10-26',
   changes: [
-    '指针式作答失败（如内容审核拒绝）时自动改为依据材料作答，并在完整性提示中说明',
-    '公开数据集评测可排除已评测的题目抽取新题，扩大样本时不重复',
+    '新增指针式作答的独立评测入口：不走召回流程，按题起草、检索原文句并打分，可在新题上扩大验证样本',
   ],
 }
 
