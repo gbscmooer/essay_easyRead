@@ -3069,7 +3069,15 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         _set_stage(run_id, "extract")
         _stage_begin("extract")
         await emit("stage_start", stage="extract")
-        if "extract" not in completed:
+        if "extract" not in completed and answer_only and options.get("answer_writer") == "agent":
+            # 指针式作答按论断自行检索原文句，不需要逐篇结构化提取；全文已在 select 阶段获取
+            agent_loops["extract"] = {"status": "skipped", "stop_reason": "answer_agent",
+                                      "iterations": 0, "trace": []}
+            await emit("stage_done", stage="extract", summary={"skipped": "answer_agent"})
+            _stage_end("extract", status="skipped")
+            completed.add("extract")
+            _merge_checkpoint(run_id, completed_stages=sorted(completed))
+        elif "extract" not in completed:
             result.pop("report_error", None)  # 上次尝试的失败标记失效，按本次结果重写
             try:
                 extract_out = await build_survey_report(
@@ -3143,12 +3151,13 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                 try:
                     if options.get("answer_writer") == "agent":
                         # 指针式作答：起草 → 按论断检索原文句 → 引用指针定稿（answer_agent）
-                        from .answer_agent import write_with_pointers
+                        from .answer_agent import RECOMMENDED, write_with_pointers
                         from .arxiv_mirror import default_mirror
 
                         result["answer"] = await write_with_pointers(
                             question, papers, llm_json=_answer_json,
-                            mirror=default_mirror() if options.get("search_online", True) else None)
+                            mirror=default_mirror() if options.get("search_online", True) else None,
+                            **{**RECOMMENDED, **(options.get("answer_agent") or {})})
                     else:
                         result["answer"] = await write_answer(
                             question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],

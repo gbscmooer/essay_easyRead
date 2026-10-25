@@ -37,6 +37,9 @@ FETCH_CONCURRENCY = 3
 _FETCH_ORDER = {"named_work": 0, "answer_search": 1, "claim_search": 2, "recall": 3}   # 补全文的先后：点名代表作优先
 
 # 指针写法：[S12]、[S12][S40]，也容忍 [S12, S40] / [S12，S40]
+# 实际流程（explorer 开放问答）使用的配置；评测 rewrite 显式传参做对照实验
+RECOMMENDED = {"fetch_full_text": 6, "draft_titles": 0, "claim_search": 2, "final_mode": "attach", "followup": 0}
+
 _POINTER_TOKEN = r"\[S\d+(?:\s*[,，;；]\s*S?\d+)*\]"
 _POINTER_GROUP = re.compile(rf"(?:[ \t]*{_POINTER_TOKEN})+")
 
@@ -118,7 +121,20 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
     lines += ["", "## 草稿各句的候选证据"]
     for i, (claim, cands) in enumerate(evidence, 1):
         lines.append(f"{i}. 「{aw._clip(claim, 160)}」→ " + ("、".join(p.pid for p in cands) or "（无）"))
-    if mode == "attach":
+    if mode == "enrich":
+        # 以草稿为准挂证据，并把证据库里草稿没写到的重要发现补成带指针的新句（内容更具体、引用比例更高，
+        # 新增的每句都有原文支撑）
+        rules = [
+            f"- 以草稿为准输出最终答案：保留草稿的结构、段落与每一句的内容；正文可比草稿略长（不超过 {aw.MAX_WORDS} 词）；"
+            "不要写参考文献列表。",
+            "- 逐句处理：候选证据支撑该句时，在句末加指针，如 [S12][S40]；证据给出更具体或更准确的信息"
+            "（数字、方法名、数据集、结论）时，可在该句中补充或修正，并加指针。",
+            "- 补充：证据库里与问题直接相关、草稿没有写到的重要发现（具体方法、数据集、数字、结论），"
+            "在相应段落补成新句并加指针；每段最多补 3 句，只补有证据的内容。",
+            "- 证据与草稿矛盾时按证据修正该句；除此之外不要删除草稿内容；没有证据的句子保留原样、不加指针。",
+            "- 只能使用证据库里出现的指针，不得编造；不要自己写引文或摘录（程序会按指针附上原文）。",
+        ]
+    elif mode == "attach":
         # 以草稿为准：逐句挂证据，不改写成对证据的转述（E12：材料在前会把内容拉向材料，覆盖面下降）
         rules = [
             f"- 以草稿为准输出最终答案：保留草稿的结构、段落与每一句的内容，正文 {_length(lang)}；不要写参考文献列表。",
@@ -378,7 +394,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
             feedback = "- 上一稿 answer 为空，请输出完整答案。"
             continue
         text, refs, invalid = render_pointers(raw, index)
-        min_share = ATTACH_MIN_CITED_SHARE if final_mode == "attach" else MIN_CITED_SHARE
+        min_share = ATTACH_MIN_CITED_SHARE if final_mode in ("attach", "enrich") else MIN_CITED_SHARE
         check = aw.check_answer(text, [{"n": r["n"]} for r in refs], lang, min_share=min_share)
         feedback = _feedback(check, text, invalid, min_share)
         if check["words"] < SHORT_FINAL_RATIO * aw._count_words(draft, lang):

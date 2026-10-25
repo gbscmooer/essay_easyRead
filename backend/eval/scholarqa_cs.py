@@ -615,8 +615,9 @@ def main() -> None:
                    help="agent 的初始论文：recall 用本次召回结果；none 不用（只靠点名代表作与镜像检索，衡量召回的贡献）")
     w.add_argument("--agent-draft-titles", type=int, default=30, help="agent 起草时展示的召回题名数（0=纯凭知识起草）")
     w.add_argument("--agent-claim-search", type=int, default=0, help="agent 草稿每句到镜像检索的论文数")
-    w.add_argument("--agent-final", choices=("revise", "attach"), default="revise",
-                   help="agent 定稿方式：revise 在草稿基础上改写；attach 以草稿为准逐句挂证据")
+    w.add_argument("--agent-final", choices=("revise", "attach", "enrich"), default="revise",
+                   help="agent 定稿方式：revise 在草稿基础上改写；attach 以草稿为准逐句挂证据；"
+                        "enrich 在 attach 基础上把证据里草稿没写到的重要发现补成带指针的新句")
     w.add_argument("--draft-thinking", default="off",
                    help="起草（agent 草稿 / memory 答案）的思考强度，off 表示不开")
     w.add_argument("--agent-followup", type=int, default=0,

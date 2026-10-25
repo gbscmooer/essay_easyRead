@@ -155,6 +155,14 @@ def build_integrity(result: dict) -> dict:
                 f"{guard['cutoff_year']} 年的仅 {guard['early_evidence']} 篇。")
 
     answer = result.get("answer") or {}
+    if answer.get("writer") == "agent" and answer.get("check"):
+        share = float(answer["check"].get("cited_share") or 0.0)
+        quotes = ((answer.get("agent") or {}).get("inline_quotes") or {}).get("unverified_stripped") or 0
+        msg = (f"直接回答由模型凭专业知识起草，再按论断检索论文原文：{round(share * 100)}% 的句子有原文证据并附摘录，"
+               "其余为未找到文献支撑的背景陈述，未加引用。")
+        if quotes:
+            msg += f"另有 {quotes} 处引号内容与原文对不上，已改为普通陈述。"
+        add("answer", "partial" if share < 0.5 else "complete", msg)
     if answer.get("status") == "insufficient":
         add("answer", "insufficient", f"可用材料只有 {answer.get('materials', 0)} 篇，未生成有引用支撑的直接回答。")
     elif answer.get("status") == "failed":

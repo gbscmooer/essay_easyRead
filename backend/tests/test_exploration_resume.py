@@ -1283,3 +1283,24 @@ def test_answer_only_mode_skips_synthesis_and_report(resume_env):
         assert not run.result.get("survey_report") and not run.result.get("synthesis")
     done = [d for name, d in events if name == "stage_done" and d.get("stage") in ("synthesize", "report")]
     assert [d["summary"] for d in done] == [{"skipped": "answer_only"}] * 2
+
+
+def test_answer_agent_mode_skips_per_paper_extraction(resume_env):
+    """开放问答 + 指针式作答：逐篇结构化提取不再需要（作答时按论断检索原文句），提取阶段跳过，run 正常完成。"""
+    engine, events, _ = resume_env
+    with Session(engine) as s:
+        run = ExplorationRun(question="tumor detection deep learning", depth="quick",
+                             options={"answer_only": True, "answer_writer": "agent"})
+        s.add(run)
+        s.commit()
+        s.refresh(run)
+        run_id = run.id
+    asyncio.run(run_exploration(run_id))
+    with Session(engine) as s:
+        run = s.get(ExplorationRun, run_id)
+        assert run.status == "done"
+        loops = run.result["sources"]["agent_loops"]
+        assert loops["extract"]["stop_reason"] == "answer_agent"
+        assert not run.result.get("report_extract")
+    done = [d for name, d in events if name == "stage_done" and d.get("stage") == "extract"]
+    assert [d["summary"] for d in done] == [{"skipped": "answer_agent"}]

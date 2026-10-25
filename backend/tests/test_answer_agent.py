@@ -252,3 +252,13 @@ def test_followup_round_searches_for_weakest_claims(monkeypatch):
     assert fu["claims"] == 1 and fu["titles"] == 1 and fu["added"] >= 1
     assert "还没有找到支撑它的论文原文" in prompts[1][1]
     assert any(r["origin"] == "followup" for r in out["references"])
+
+
+def test_enrich_mode_prompt_allows_evidence_backed_additions():
+    idx = es.EvidenceIndex()
+    for p in _PAPERS:
+        idx.add_paper(p)
+    evidence = [("ManyTypes4Py is large.", [idx.get("S4")])]
+    prompt = ag._write_prompt("q", "ManyTypes4Py is large.", evidence, "en", mode="enrich")
+    assert "草稿没有写到的重要发现" in prompt and "每段最多补 3 句" in prompt and "不要删除草稿内容" in prompt
+    assert "[S4]" in prompt and "候选证据" in prompt

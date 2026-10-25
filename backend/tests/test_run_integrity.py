@@ -110,3 +110,14 @@ def test_answer_status_is_reported():
                                               "check": {"problems": ["有 3/8 句事实陈述没有 [n] 引用"]}}})
     assert out["level"] == "partial" and "引用验收" in out["items"][-1]["message"]
     assert build_integrity({**base, "answer": {"status": "ok"}})["level"] == "complete"
+
+
+def test_pointer_answer_reports_citation_coverage_and_stripped_quotes():
+    answer = {"writer": "agent", "status": "ok", "check": {"cited_share": 0.68},
+              "agent": {"inline_quotes": {"verified": 3, "unverified_stripped": 2}}}
+    out = build_integrity(_result(answer=answer))
+    item = next(i for i in out["items"] if i["kind"] == "answer")
+    assert "68% 的句子有原文证据" in item["message"] and "2 处引号内容与原文对不上" in item["message"]
+    assert out["level"] == "complete"           # 说明性条目，不降级
+    low = build_integrity(_result(answer={**answer, "check": {"cited_share": 0.3}}))
+    assert low["level"] == "partial"
