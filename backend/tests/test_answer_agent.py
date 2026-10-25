@@ -230,3 +230,25 @@ def test_truncated_draft_is_requested_again_and_short_final_gets_feedback(monkey
     out = asyncio.run(ag.write_with_pointers("Which datasets?", _PAPERS, llm_json=llm_json, mirror=None))
     assert out["agent"]["draft_tries"] == 2 and out["attempts"] == 2
     assert "明显短于草稿" in prompts[3]
+
+
+def test_followup_round_searches_for_weakest_claims(monkeypatch):
+    _no_rerank(monkeypatch)
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append((system, user))
+        if len(prompts) == 1:
+            return {"draft": "Type4Py reaches an MRR of 77.1% on ManyTypes4Py. ManyTypes4Py has 869K annotations.",
+                    "works": [], "queries": []}
+        if system == ag._FOLLOWUP_SYSTEM:
+            return {"searches": [{"claim": 1, "query": "Type4Py deep similarity type inference MRR",
+                                  "title": "Type4Py: Practical Deep Similarity Learning-Based Type Inference for Python"}]}
+        return {"answer": "Type4Py reaches an MRR of 77.1% on ManyTypes4Py [S8]. ManyTypes4Py has 869K annotations [S5]."}
+
+    out = asyncio.run(ag.write_with_pointers("How good is Type4Py?", _PAPERS, llm_json=llm_json, mirror=_FakeMirror(),
+                                             followup=1, final_mode="attach"))
+    fu = out["agent"]["followup"]
+    assert fu["claims"] == 1 and fu["titles"] == 1 and fu["added"] >= 1
+    assert "还没有找到支撑它的论文原文" in prompts[1][1]
+    assert any(r["origin"] == "followup" for r in out["references"])

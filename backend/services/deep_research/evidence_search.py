@@ -198,6 +198,13 @@ class EvidenceIndex:
     async def find(self, query: str, *, k: int = 3, keys: set[str] | None = None,
                    sem: asyncio.Semaphore | None = None, use_entities: bool = True) -> list[Passage]:
         """BM25 预筛 + 专名/数字精确匹配补充 → 交叉编码器重排，取前 k 句（重排不可用时保留预筛顺序）。"""
+        found, _ = await self.find_scored(query, k=k, keys=keys, sem=sem, use_entities=use_entities)
+        return found
+
+    async def find_scored(self, query: str, *, k: int = 3, keys: set[str] | None = None,
+                          sem: asyncio.Semaphore | None = None,
+                          use_entities: bool = True) -> tuple[list[Passage], list[float]]:
+        """同 find，另返回对应的重排分（重排不可用时为空列表）；分数只用于排序与诊断。"""
         cands = self.bm25(query, PREFILTER, keys)
         if use_entities:
             seen = {p.pid for p in cands}
@@ -207,7 +214,7 @@ class EvidenceIndex:
                         seen.add(p.pid)
                         cands.append(p)
         if len(cands) <= 1:
-            return cands[:k]
+            return cands[:k], []
         docs = [f"{p.title}: {p.text}" for p in cands]
         if sem is None:
             scores = await rerank_scores(query, docs)
@@ -215,9 +222,9 @@ class EvidenceIndex:
             async with sem:
                 scores = await rerank_scores(query, docs)
         if scores is None:
-            return cands[:k]
-        order = sorted(range(len(cands)), key=lambda i: -scores[i])
-        return [cands[i] for i in order[:k]]
+            return cands[:k], []
+        order = sorted(range(len(cands)), key=lambda i: -scores[i])[:k]
+        return [cands[i] for i in order], [scores[i] for i in order]
 
 
 # ── 文献层：本地 arXiv 镜像 ─────────────────────────────────────────────────────

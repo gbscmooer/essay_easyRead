@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.5.1'
+const APP_VERSION = '9.6.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-10-26',
   changes: [
-    '答案参考文献的摘录展示时去掉原文自带的数字引用标记、统一引号，避免与答案的引用编号混淆',
-    '指针式作答遇到草稿或定稿被截断时自动重写',
+    '指针式作答新增第二轮检索（实验，默认关闭）：对证据最弱的论断，由模型写检索式或给出确切题名再查一轮',
+    '指针式作答起草可单独开启模型思考（实验，默认关闭）',
   ],
 }
 

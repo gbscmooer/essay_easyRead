@@ -463,6 +463,9 @@ async def rewrite(args) -> Path:
     async def plan_json(system: str, user: str) -> dict:
         return await _llm_json(system_cfg, system, user, max_tokens=2000)
 
+    async def draft_json(system: str, user: str) -> dict:   # 起草可单独开思考（思考 token 计入输出，预算放大）
+        return await _llm_json(system_cfg, system, user, max_tokens=16000, thinking_effort=args.draft_thinking)
+
     judge = make_judge(args)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = src.with_name(f"{src.stem}_rewrite_{stamp}.json")
@@ -472,7 +475,8 @@ async def rewrite(args) -> Path:
             "plan": not args.no_plan, "gap": not (args.no_gap or args.no_plan), "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"),
             "materials": args.materials, "quotes": args.quotes, "writer": args.writer, "agent_fetch": args.agent_fetch, "agent_pool": args.agent_pool,
             "agent_draft_titles": args.agent_draft_titles, "agent_claim_search": args.agent_claim_search,
-            "agent_final": args.agent_final,
+            "agent_final": args.agent_final, "agent_followup": args.agent_followup,
+            "draft_thinking": args.draft_thinking,
             "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
     from backend.eval.public_benchmarks import QuotaWatch
@@ -502,11 +506,13 @@ async def rewrite(args) -> Path:
                                                        fetch_full_text=args.agent_fetch,
                                                        draft_titles=args.agent_draft_titles,
                                                        claim_search=args.agent_claim_search,
-                                                       final_mode=args.agent_final)
+                                                       final_mode=args.agent_final,
+                                                       followup=args.agent_followup,
+                                                       draft_json=draft_json if args.draft_thinking != "off" else None)
                 elif args.writer == "memory":   # 对照：同一写作要求，不给材料，只凭模型知识
                     lang = aw.question_language(rec["question"])
-                    data_ = await answer_json(aw._KNOWLEDGE_SYSTEM,
-                                              aw._user_prompt(rec["question"], [], lang, knowledge=True))
+                    data_ = await (draft_json if args.draft_thinking != "off" else answer_json)(
+                        aw._KNOWLEDGE_SYSTEM, aw._user_prompt(rec["question"], [], lang, knowledge=True))
                     answer = {"status": "ok", "language": lang, "references": [], "materials": 0,
                               "text": str((data_ or {}).get("answer") or "").strip(), "writer": "memory"}
                 else:
@@ -611,6 +617,10 @@ def main() -> None:
     w.add_argument("--agent-claim-search", type=int, default=0, help="agent 草稿每句到镜像检索的论文数")
     w.add_argument("--agent-final", choices=("revise", "attach"), default="revise",
                    help="agent 定稿方式：revise 在草稿基础上改写；attach 以草稿为准逐句挂证据")
+    w.add_argument("--draft-thinking", default="off",
+                   help="起草（agent 草稿 / memory 答案）的思考强度，off 表示不开")
+    w.add_argument("--agent-followup", type=int, default=0,
+                   help="agent 第二轮检索：取证据最弱的若干句，由模型写检索式再查")
     w.add_argument("--quotes", choices=("off", "pre", "verify", "both"), default="off",
                    help="原文摘录检索：pre 写前按方面并入原文句，verify 写后逐句核查引用并取原句为摘录")
     w.add_argument("--label", default="")
