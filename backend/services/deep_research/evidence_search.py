@@ -80,6 +80,7 @@ class EvidenceIndex:
         self.papers: dict[str, dict] = {}
         self.by_key: dict[str, list[int]] = defaultdict(list)
         self._titles: dict[str, str] = {}
+        self._ids: set[str] = set()     # arXiv 编号与 DOI：同一篇论文从不同来源（召回用 DOI 主键、镜像用 arXiv 主键）只收一次
         self._post: dict[str, list[tuple[int, int]]] = defaultdict(list)
         self._len: list[int] = []
         self._total_len = 0
@@ -94,7 +95,12 @@ class EvidenceIndex:
         """收入一篇论文：有全文用全文句子，否则用摘要句子；同一主键或同题名只收一次。"""
         key = str(paper.get("key") or "")
         tkey = title_key(paper.get("title") or "")
-        if not key or key in self.papers or (tkey and tkey in self._titles):
+        ids = set()
+        if paper.get("arxiv_id"):
+            ids.add(f"arxiv:{str(paper['arxiv_id']).lower()}")
+        if paper.get("doi"):
+            ids.add(f"doi:{str(paper['doi']).lower()}")
+        if not key or key in self.papers or (tkey and tkey in self._titles) or ids & self._ids:
             return 0
         full = str(paper.get("source_text") or "")
         if len(full) >= FULL_TEXT_MIN_CHARS:
@@ -108,6 +114,7 @@ class EvidenceIndex:
         self.papers[key]["source"] = source
         if tkey:
             self._titles[tkey] = key
+        self._ids |= ids
         title = str(paper.get("title") or "")
         title_tokens = tokens(title)
         for ordinal, text in enumerate(sentences):

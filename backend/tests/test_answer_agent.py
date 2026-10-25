@@ -262,3 +262,11 @@ def test_enrich_mode_prompt_allows_evidence_backed_additions():
     prompt = ag._write_prompt("q", "ManyTypes4Py is large.", evidence, "en", mode="enrich")
     assert "草稿没有写到的重要发现" in prompt and "每段最多补 3 句" in prompt and "不要删除草稿内容" in prompt
     assert "[S4]" in prompt and "候选证据" in prompt
+
+
+def test_same_paper_from_recall_and_mirror_is_indexed_once():
+    idx = es.EvidenceIndex()
+    assert idx.add_paper({"key": "doi:10.1/x", "doi": "10.1/X", "arxiv_id": "2101.00001", "title": "Type4Py",
+                          "abstract": "Type4Py is a deep similarity learning model for type inference."})
+    assert idx.add_paper({"key": "arxiv:2101.00001", "arxiv_id": "2101.00001", "title": "Type4Py: Practical",
+                          "abstract": "Type4Py is a deep similarity learning model for type inference."}) == 0

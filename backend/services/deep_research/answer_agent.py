@@ -221,13 +221,16 @@ def verify_inline_quotes(text: str, index: EvidenceIndex) -> tuple[str, dict]:
     return out, {"verified": kept, "unverified_stripped": stripped}
 
 
-def _feedback(check: dict, text: str, invalid: list[str], min_share: float = MIN_CITED_SHARE) -> str:
+def _feedback(check: dict, text: str, invalid: list[str], min_share: float = MIN_CITED_SHARE,
+              keep_draft: bool = False) -> str:
     problems = []
     uncited = [s for s in aw._split_sentences(text) if not aw._CITE.search(s)]
     if check["cited_share"] < min_share and uncited:
+        # 以草稿为准的定稿方式不让删内容：只要求把候选证据里能支撑的指针挂上
+        tail = ("没有证据的句子保留原样。" if keep_draft
+                else "确实没有证据支撑的具体论断请删去或改为一般性表述。")
         problems.append(f"有 {len(uncited)}/{check['sentences']} 句没有指针。请为这些句子从候选证据中选择支撑的指针；"
-                        "确实没有证据支撑的具体论断请删去或改为一般性表述，例如："
-                        + "；".join(f"「{aw._clip(s, 60)}」" for s in uncited[:3]))
+                        + tail + "例如：" + "；".join(f"「{aw._clip(s, 60)}」" for s in uncited[:3]))
     if check["words"] > aw.MAX_WORDS:
         problems.append(f"正文约 {check['words']} 词，超过上限 {aw.MAX_WORDS}，请压缩到 {aw.TARGET_WORDS[1]} 词以内。")
     if invalid:
@@ -396,7 +399,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         text, refs, invalid = render_pointers(raw, index)
         min_share = ATTACH_MIN_CITED_SHARE if final_mode in ("attach", "enrich") else MIN_CITED_SHARE
         check = aw.check_answer(text, [{"n": r["n"]} for r in refs], lang, min_share=min_share)
-        feedback = _feedback(check, text, invalid, min_share)
+        feedback = _feedback(check, text, invalid, min_share, keep_draft=final_mode in ("attach", "enrich"))
         if check["words"] < SHORT_FINAL_RATIO * aw._count_words(draft, lang):
             feedback += ("\n- " if feedback else "- ") + (f"定稿只有约 {check['words']} 词，明显短于草稿，可能被截断或删去了大段内容；"
                                                          "请输出完整答案，保留草稿的全部段落。")
