@@ -233,7 +233,7 @@ async def run(args) -> Path:
     meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "system_model": system_cfg.get("model"),
             "judge_model": args.judge_model, "openalex": args.use_openalex, "started": stamp,
             "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"), "label": args.label,
-            "concurrency": args.concurrency, "answer_only": args.answer_only,
+            "concurrency": args.concurrency, "answer_only": args.answer_only, "answer_writer": args.answer_writer,
             "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
     from backend.eval.public_benchmarks import QuotaWatch
@@ -242,6 +242,8 @@ async def run(args) -> Path:
     done: dict[int, dict] = {}
     gate = asyncio.Semaphore(max(1, args.concurrency))
     options = {"answer_only": True} if args.answer_only else {}
+    if args.answer_writer != "grounded":
+        options["answer_writer"] = args.answer_writer
 
     async def one(i: int, case: dict, engine) -> dict:
         """单题：系统作答 + 评委打分。返回 (记录, 本题限流计数)。"""
@@ -443,7 +445,9 @@ async def rewrite(args) -> Path:
     """
     from backend.eval.public_benchmarks import _llm_cfg
     from backend.services.deep_research import answer_writer as aw
+    from backend.services.deep_research.answer_agent import write_with_pointers
     from backend.services.deep_research.answer_writer import render_answer, write_answer
+    from backend.services.deep_research.arxiv_mirror import default_mirror
     from backend.services.deep_research.explorer import gap_search
 
     src = Path(args.file)
@@ -466,9 +470,15 @@ async def rewrite(args) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     meta = {**data.get("meta", {}), "rewrite_of": str(src), "rewritten": stamp, "label": args.label,
             "plan": not args.no_plan, "gap": not (args.no_gap or args.no_plan), "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"),
-            "materials": args.materials, "quotes": args.quotes, "writer": args.writer,
+            "materials": args.materials, "quotes": args.quotes, "writer": args.writer, "agent_fetch": args.agent_fetch, "agent_pool": args.agent_pool,
+            "agent_draft_titles": args.agent_draft_titles, "agent_claim_search": args.agent_claim_search,
+            "agent_final": args.agent_final,
             "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
+    from backend.eval.public_benchmarks import QuotaWatch
+
+    watch = QuotaWatch.install()
+    mirror = default_mirror() if args.writer == "agent" else None
     total = len(data["records"])
     done: list[dict | None] = [None] * total
     sem = asyncio.Semaphore(max(1, args.concurrency))
@@ -479,13 +489,21 @@ async def rewrite(args) -> Path:
         if not saved or not Path(saved).exists():
             done[i] = rec
             return
-        async with sem:
+        async def attempt() -> tuple[dict, dict]:
+            scope = QuotaWatch.scope()   # 本任务内的限流单独计数（并发时不串题）
             blob = json.loads(Path(saved).read_text(encoding="utf-8"))
             result = blob["result"]
             evidence = ((result.get("report_extract") or {}).get("evidence_store") or {}).get("records") or []
             t0 = time.monotonic()
             try:
-                if args.writer == "memory":   # 对照：同一写作要求，不给材料，只凭模型知识
+                if args.writer == "agent":    # 指针式作答：起草 → 工具按论断检索原文句 → 引用指针定稿
+                    pool = (result.get("papers") or []) if args.agent_pool == "recall" else []
+                    answer = await write_with_pointers(rec["question"], pool, llm_json=answer_json, mirror=mirror,
+                                                       fetch_full_text=args.agent_fetch,
+                                                       draft_titles=args.agent_draft_titles,
+                                                       claim_search=args.agent_claim_search,
+                                                       final_mode=args.agent_final)
+                elif args.writer == "memory":   # 对照：同一写作要求，不给材料，只凭模型知识
                     lang = aw.question_language(rec["question"])
                     data_ = await answer_json(aw._KNOWLEDGE_SYSTEM,
                                               aw._user_prompt(rec["question"], [], lang, knowledge=True))
@@ -506,7 +524,7 @@ async def rewrite(args) -> Path:
                 new = {"status": answer.get("status"), "response": response, "words": len(response.split()),
                        "check": answer.get("check"), "materials": answer.get("materials"),
                        "gap_retrieval": answer.get("gap_retrieval"), "corpus": row.get("corpus"),
-                       "aspect_quotes": answer.get("aspect_quotes"),
+                       "aspect_quotes": answer.get("aspect_quotes"), "agent": answer.get("agent"),
                        "verification": {k: v for k, v in (answer.get("verification") or {}).items()
                                         if k != "unsupported"} or None,
                        "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
@@ -515,6 +533,22 @@ async def rewrite(args) -> Path:
                                                                 for c in configs[rec["question"]])))
             except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
                 new = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+            return new, scope
+
+        for n_try in range(QuotaWatch.MAX_RETRIES + 1):
+            async with sem:
+                new, scope = await attempt()
+            limited = scope["hits"] or "RATE_LIMITED" in str(new.get("error") or "")
+            if limited and n_try < QuotaWatch.MAX_RETRIES:
+                # 限流期间写作与评分会降级，本题结果不可信：丢弃、等额度重置后重跑
+                print(f"[{i + 1}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or new.get('error') or '')[:120]}）",
+                      flush=True)
+                await watch.wait_for_reset()
+                continue
+            break
+        new["attempts"] = n_try + 1
+        if scope["hits"]:
+            new["rate_limited"] = str(scope["sample"])[:300]
         done[i] = {**rec, "system": new}
         s = (new.get("scores") or [{}])[0]
         print(f"[{i + 1}/{total}] {rec['question'][:80]}\n    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
@@ -549,6 +583,8 @@ def main() -> None:
     r.add_argument("--label", default="", help="本次运行的改动说明（写入 meta）")
     r.add_argument("--concurrency", type=int, default=4, help="同时在跑的题数（共享全局模型并发上限）")
     r.add_argument("--answer-only", action="store_true", help="开放问答模式：不生成领域综合与综述报告")
+    r.add_argument("--answer-writer", choices=("grounded", "agent"), default="grounded",
+                   help="开放问答写作：grounded 只依据已提取材料；agent 指针式作答（起草→按论断检索原文句→引用指针）")
     rr = sub.add_parser("rerender", help="按当前 answer_writer 重建参考文献（不重跑系统）")
     rr.add_argument("file")
     j = sub.add_parser("judge")
@@ -565,8 +601,16 @@ def main() -> None:
     w.add_argument("--no-plan", action="store_true", help="不做要点规划（对照组）")
     w.add_argument("--materials", type=int, default=None, help="送入写作的论文数上限（缺省沿用 MAX_MATERIALS）")
     w.add_argument("--concurrency", type=int, default=4, help="同时重写的题数（共享全局模型并发上限）")
-    w.add_argument("--writer", choices=("grounded", "knowledge", "memory"), default="grounded",
-                   help="grounded 只依据材料；knowledge 知识主导、材料支撑处引用；memory 不给材料（对照）")
+    w.add_argument("--writer", choices=("grounded", "knowledge", "memory", "agent"), default="grounded",
+                   help="grounded 只依据材料；knowledge 知识主导、材料支撑处引用；memory 不给材料（对照）；"
+                        "agent 起草后按论断检索原文句、引用指针定稿")
+    w.add_argument("--agent-fetch", type=int, default=0, help="agent：为前若干篇只有摘要的 arXiv 论文下载全文")
+    w.add_argument("--agent-pool", choices=("recall", "none"), default="recall",
+                   help="agent 的初始论文：recall 用本次召回结果；none 不用（只靠点名代表作与镜像检索，衡量召回的贡献）")
+    w.add_argument("--agent-draft-titles", type=int, default=30, help="agent 起草时展示的召回题名数（0=纯凭知识起草）")
+    w.add_argument("--agent-claim-search", type=int, default=0, help="agent 草稿每句到镜像检索的论文数")
+    w.add_argument("--agent-final", choices=("revise", "attach"), default="revise",
+                   help="agent 定稿方式：revise 在草稿基础上改写；attach 以草稿为准逐句挂证据")
     w.add_argument("--quotes", choices=("off", "pre", "verify", "both"), default="off",
                    help="原文摘录检索：pre 写前按方面并入原文句，verify 写后逐句核查引用并取原句为摘录")
     w.add_argument("--label", default="")

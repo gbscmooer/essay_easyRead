@@ -176,6 +176,8 @@ def _run_details(saved: str | None) -> dict:
                    "gap_added": (answer.get("gap_retrieval") or {}).get("added"),
                    "problems": ((answer.get("check") or {}).get("problems") or [])[:5],
                    "aspect_quotes": answer.get("aspect_quotes"),
+                   "agent": {k: v for k, v in (answer.get("agent") or {}).items() if k not in ("works", "queries")}
+                   or None,
                    "verification": {k: v for k, v in (answer.get("verification") or {}).items()
                                     if k != "unsupported"} or None},
         "time_cap_hits": [e.get("resource") for e in exhaustion

@@ -3141,10 +3141,19 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     return await gap_search(q, queries, options=options)
 
                 try:
-                    result["answer"] = await write_answer(
-                        question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],
-                        llm_json=_answer_json, plan_json=_plan_json,
-                        search_more=_gap_search if options.get("search_online", True) else None)
+                    if options.get("answer_writer") == "agent":
+                        # 指针式作答：起草 → 按论断检索原文句 → 引用指针定稿（answer_agent）
+                        from .answer_agent import write_with_pointers
+                        from .arxiv_mirror import default_mirror
+
+                        result["answer"] = await write_with_pointers(
+                            question, papers, llm_json=_answer_json,
+                            mirror=default_mirror() if options.get("search_online", True) else None)
+                    else:
+                        result["answer"] = await write_answer(
+                            question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],
+                            llm_json=_answer_json, plan_json=_plan_json,
+                            search_more=_gap_search if options.get("search_online", True) else None)
                     await emit("answer_ready", **result["answer"])
                 except StagePausedError:
                     raise
