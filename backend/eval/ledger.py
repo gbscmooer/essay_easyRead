@@ -287,7 +287,8 @@ def _reference(out: Path, meta: dict, benchmark: str) -> Path | None:
         # 跳过大半题没答出的运行（如撞额度的那轮），否则配对题数太少
         complete = (entry.get("answered") or 0) >= 0.8 * (entry.get("of") or 1)
         same = (entry.get("benchmark") == benchmark and entry.get("kind") == "run" and complete
-                and entry.get("seed") == meta.get("seed") and entry.get("n") == meta.get("n"))
+                and entry.get("seed") == meta.get("seed") and entry.get("n") == meta.get("n")
+                and entry.get("exclude_seed") == meta.get("exclude_seed"))
         if same and entry.get("file") != out.name and (OUT_DIR / entry["file"]).exists():
             return OUT_DIR / entry["file"]
     return None
@@ -352,7 +353,8 @@ def record(out: Path, report: dict | None = None, *, benchmark: str = "scholarqa
 
     entry = {"time": _run_time(meta), "benchmark": benchmark,
              "kind": "rewrite" if meta.get("rewrite_of") else "run", "file": out.name,
-             "seed": meta.get("seed"), "n": meta.get("n"), "label": meta.get("label"),
+             "seed": meta.get("seed"), "n": meta.get("n"), "exclude_seed": meta.get("exclude_seed"),
+             "label": meta.get("label"),
              "commit": (meta.get("provenance") or {}).get("commit"),
              "score": agg.get("score"), "answered": agg["answered"], "of": agg["of"],
              "against": cmp["against"] if cmp else None,

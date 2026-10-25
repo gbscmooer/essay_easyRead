@@ -73,6 +73,15 @@ def load_cases(path: Path = DATA) -> list[dict]:
     return list(by_q.values())
 
 
+def pick_cases(cases: list[dict], n: int, seed: int, *, exclude_seed: int | None = None,
+               exclude_n: int = 20) -> list[dict]:
+    """按种子抽题；exclude_seed 给出时先去掉“该种子抽 exclude_n 题”的那批（扩充新题，不与已评测的题重叠）。"""
+    if exclude_seed is not None:
+        used = {c["question"] for c in random.Random(exclude_seed).sample(cases, min(exclude_n, len(cases)))}
+        cases = [c for c in cases if c["question"] not in used]
+    return random.Random(seed).sample(cases, min(n, len(cases)))
+
+
 def length_score(response: str, low: int = 300, high: int = 600) -> float:
     words = len(response.split())
     return 1 - (max(min(high, words), low) - low) / (high - low)
@@ -223,14 +232,14 @@ async def run(args) -> Path:
         disable_openalex()
     system_cfg = _llm_cfg(args.thinking_effort, args.model)
     cases = load_cases()
-    picked = random.Random(args.seed).sample(cases, min(args.n, len(cases)))
+    picked = pick_cases(cases, args.n, args.seed, exclude_seed=args.exclude_seed, exclude_n=args.exclude_n)
     if args.first:
         picked = picked[:args.first]   # 同一抽样的前 k 题（冒烟验证用，题目与全量运行一致）
     judge = make_judge(args)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = OUT_DIR / f"scholarqa_cs_{stamp}.json"
     runs_dir = OUT_DIR / f"scholarqa_cs_{stamp}_runs"
-    meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "system_model": system_cfg.get("model"),
+    meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "exclude_seed": args.exclude_seed, "system_model": system_cfg.get("model"),
             "judge_model": args.judge_model, "openalex": args.use_openalex, "started": stamp,
             "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"), "label": args.label,
             "concurrency": args.concurrency, "answer_only": args.answer_only, "answer_writer": args.answer_writer,
@@ -357,14 +366,17 @@ def reference_answers() -> dict[str, dict[str, str]]:
 async def score_references(args) -> Path:
     """同一评委给数据集自带的其他系统答案打分（同题、同评分脚本），作为同评委下的对照。"""
     cases = load_cases()
-    picked = random.Random(args.seed).sample(cases, min(args.n, len(cases)))
+    picked = pick_cases(cases, args.n, args.seed, exclude_seed=args.exclude_seed, exclude_n=args.exclude_n)
     refs = reference_answers()
     judge = make_judge(args)
-    out = OUT_DIR / f"scholarqa_cs_refs_seed{args.seed}_n{len(picked)}.json"
+    suffix = f"_ex{args.exclude_seed}" if args.exclude_seed is not None else ""
+    out = OUT_DIR / f"scholarqa_cs_refs_seed{args.seed}_n{len(picked)}{suffix}.json"
     records = []
     for i, case in enumerate(picked, 1):
         rec = {"question": case["question"]}
         for name, response in sorted((refs.get(case["question"]) or {}).items()):
+            if args.only and name not in args.only:
+                continue
             rec[name] = {"response": response, "words": len(response.split())}
             try:
                 rec[name]["scores"] = [await judge.score(c, response) for c in case["configs"]]
@@ -378,7 +390,8 @@ async def score_references(args) -> Path:
                        encoding="utf-8")
     systems = sorted({k for r in records for k in r if k != "question"})
     summary = {name: summarize(records, name) for name in systems}
-    out.write_text(json.dumps({"meta": {"seed": args.seed, "n": len(picked), "judge_model": args.judge_model},
+    out.write_text(json.dumps({"meta": {"seed": args.seed, "n": len(picked), "judge_model": args.judge_model,
+                                        "exclude_seed": args.exclude_seed},
                                "summary": summary, "records": records}, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False), flush=True)
@@ -580,6 +593,8 @@ def main() -> None:
     r = sub.add_parser("run")
     r.add_argument("--n", type=int, default=10)
     r.add_argument("--seed", type=int, default=0)
+    r.add_argument("--exclude-seed", type=int, default=None, help="排除该种子抽到的那批题（扩充新题时用）")
+    r.add_argument("--exclude-n", type=int, default=20)
     r.add_argument("--depth", default="quick")
     r.add_argument("--thinking-effort", default="off")
     r.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")
@@ -599,6 +614,9 @@ def main() -> None:
     f = sub.add_parser("refs", help="同一评委给数据集自带的其他系统答案打分")
     f.add_argument("--n", type=int, default=10)
     f.add_argument("--seed", type=int, default=0)
+    f.add_argument("--exclude-seed", type=int, default=None, help="排除该种子抽到的那批题")
+    f.add_argument("--exclude-n", type=int, default=20)
+    f.add_argument("--only", nargs="*", default=None, help="只给这些系统打分，如 OpenScholar-GPT4o")
     w = sub.add_parser("rewrite", help="复用保存的召回与阅读结果，只重跑答案环节并打分")
     w.add_argument("file")
     w.add_argument("--thinking-effort", default="off")

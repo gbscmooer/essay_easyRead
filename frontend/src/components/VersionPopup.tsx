@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.7.1'
+const APP_VERSION = '9.7.2'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-10-26',
   changes: [
-    '指针式作答：同一篇论文从不同来源检索到时只收一次，避免参考文献重复',
-    '指针式作答：以草稿为准的定稿方式在引用不足时只要求补挂证据，不再要求删去内容',
+    '指针式作答失败（如内容审核拒绝）时自动改为依据材料作答，并在完整性提示中说明',
+    '公开数据集评测可排除已评测的题目抽取新题，扩大样本时不重复',
   ],
 }
 

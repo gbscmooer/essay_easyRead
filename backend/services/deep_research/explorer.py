@@ -3158,6 +3158,14 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                             question, papers, llm_json=_answer_json,
                             mirror=default_mirror() if options.get("search_online", True) else None,
                             **{**RECOMMENDED, **(options.get("answer_agent") or {})})
+                        if result["answer"].get("status") == "failed":
+                            # 起草或定稿失败（如内容审核拒绝、模型出错）：退回只依据已提取材料作答，学者仍拿到答案
+                            failed = result["answer"]
+                            result["answer"] = await write_answer(
+                                question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],
+                                llm_json=_answer_json, plan_json=_plan_json,
+                                search_more=_gap_search if options.get("search_online", True) else None)
+                            result["answer"]["fallback_from"] = {"writer": "agent", "error": failed.get("error")}
                     else:
                         result["answer"] = await write_answer(
                             question, papers, (extract_out.get("evidence_store") or {}).get("records") or [],

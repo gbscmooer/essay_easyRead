@@ -121,3 +121,11 @@ def test_pointer_answer_reports_citation_coverage_and_stripped_quotes():
     assert out["level"] == "complete"           # 说明性条目，不降级
     low = build_integrity(_result(answer={**answer, "check": {"cited_share": 0.3}}))
     assert low["level"] == "partial"
+
+
+def test_agent_fallback_is_reported():
+    answer = {"status": "ok", "writer": None, "check": {"cited_share": 0.9},
+              "fallback_from": {"writer": "agent", "error": "LLMError"}}
+    out = build_integrity(_result(answer=answer))
+    item = next(i for i in out["items"] if i["kind"] == "answer")
+    assert "指针式作答未完成（LLMError）" in item["message"] and out["level"] == "partial"

@@ -33,3 +33,15 @@ def test_judge_zeroes_evidence_when_criterion_fails():
     # 0.05 长度 + 0.05 专业 + 0.2×0.5 + 0.1×1 + 0.2×1（nice_to_have）
     assert out["score"] == round(0.05 + 0.05 + 0.1 + 0.1 + 0.2, 4)
     assert out["ann_score"] == round(0.2 / 0.6, 4)
+
+
+def test_pick_cases_keeps_seed_sample_and_excludes_it_for_new_questions():
+    import random
+
+    from backend.eval.scholarqa_cs import pick_cases
+
+    cases = [{"question": f"q{i}"} for i in range(100)]
+    base = pick_cases(cases, 20, 0)
+    assert base == random.Random(0).sample(cases, 20)          # 不排除时与原抽样完全一致
+    fresh = pick_cases(cases, 20, 1, exclude_seed=0)
+    assert len(fresh) == 20 and not {c["question"] for c in base} & {c["question"] for c in fresh}

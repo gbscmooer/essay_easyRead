@@ -155,6 +155,9 @@ def build_integrity(result: dict) -> dict:
                 f"{guard['cutoff_year']} 年的仅 {guard['early_evidence']} 篇。")
 
     answer = result.get("answer") or {}
+    if answer.get("fallback_from"):
+        add("answer", "partial", f"指针式作答未完成（{answer['fallback_from'].get('error') or '未知原因'}），"
+            "已改为只依据已提取材料作答。")
     if answer.get("writer") == "agent" and answer.get("check"):
         share = float(answer["check"].get("cited_share") or 0.0)
         quotes = ((answer.get("agent") or {}).get("inline_quotes") or {}).get("unverified_stripped") or 0
