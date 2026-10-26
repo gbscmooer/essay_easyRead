@@ -251,8 +251,7 @@ async def run(args) -> Path:
     done: dict[int, dict] = {}
     gate = asyncio.Semaphore(max(1, args.concurrency))
     options = {"answer_only": True} if args.answer_only else {}
-    if args.answer_writer != "grounded":
-        options["answer_writer"] = args.answer_writer
+    options["answer_writer"] = args.answer_writer   # 显式写入：流程默认值变化不影响评测口径
 
     async def one(i: int, case: dict, engine) -> dict:
         """单题：系统作答 + 评委打分。返回 (记录, 本题限流计数)。"""
@@ -696,7 +695,7 @@ def main() -> None:
     r.add_argument("--label", default="", help="本次运行的改动说明（写入 meta）")
     r.add_argument("--concurrency", type=int, default=4, help="同时在跑的题数（共享全局模型并发上限）")
     r.add_argument("--answer-only", action="store_true", help="开放问答模式：不生成领域综合与综述报告")
-    r.add_argument("--answer-writer", choices=("grounded", "agent"), default="grounded",
+    r.add_argument("--answer-writer", choices=("grounded", "agent"), default="agent",
                    help="开放问答写作：grounded 只依据已提取材料；agent 指针式作答（起草→按论断检索原文句→引用指针）")
     rr = sub.add_parser("rerender", help="按当前 answer_writer 重建参考文献（不重跑系统）")
     rr.add_argument("file")

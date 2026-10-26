@@ -1,13 +1,15 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.8.1'
+const APP_VERSION = '9.9.0'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
   date: '2026-10-26',
   changes: [
-    '评测撞到模型额度上限时，从报错信息中读取重置时间并等到该时刻再重跑，不再盲等 10 分钟后反复失败',
+    '开放问答默认改用指针式作答：先凭专业知识写出完整答案，再逐句检索论文原文作证据，参考文献摘录逐字取自原文',
+    '开放问答不再做逐篇结构化提取，单题用时缩短；指针式作答失败时自动改为依据已检索材料作答',
+    '直接回答中引用的补充检索论文也可点击跳转到原文',
   ],
 }
 

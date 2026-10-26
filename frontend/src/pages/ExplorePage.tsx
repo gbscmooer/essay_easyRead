@@ -1257,6 +1257,8 @@ function IntegrityNotice({ integrity }: { integrity: RunIntegrity }) {
 /** 直接回答：每句以 [n] 引用材料，参考文献附原文摘录（便于逐句核查）。 */
 function DirectAnswerCard({ answer, papers }: { answer: DirectAnswer; papers: ExplorationPaper[] }) {
   const citations = Object.fromEntries(answer.references.map(r => [String(r.n), r.key]))
+  // 指针式作答会引用本次召回之外的论文（镜像检索、点名代表作）：参考文献本身也参与链接解析
+  const linkable = [...papers, ...answer.references.map(r => ({ key: r.key, title: r.title }))]
   const statusLabel = answer.status === 'needs_review' ? '引用待复核'
     : answer.status === 'insufficient' ? '资料不足' : answer.status === 'failed' ? '生成失败' : null
   return (
@@ -1266,7 +1268,7 @@ function DirectAnswerCard({ answer, papers }: { answer: DirectAnswer; papers: Ex
         {statusLabel && <span className="ex-integrity__badge">{statusLabel}</span>}
       </div>
       {answer.text
-        ? <div className="ex-answer__body"><EvidenceMarkdown text={answer.text} papers={papers} citations={citations} /></div>
+        ? <div className="ex-answer__body"><EvidenceMarkdown text={answer.text} papers={linkable} citations={citations} /></div>
         : <p className="ex-empty-warning__desc">未能生成直接回答{answer.error ? `（${answer.error}）` : ''}，请查看下方报告。</p>}
       {answer.references.length > 0 && (
         <ol className="ex-answer__refs" aria-label="直接回答的参考文献">

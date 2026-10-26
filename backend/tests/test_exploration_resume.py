@@ -1304,3 +1304,25 @@ def test_answer_agent_mode_skips_per_paper_extraction(resume_env):
         assert not run.result.get("report_extract")
     done = [d for name, d in events if name == "stage_done" and d.get("stage") == "extract"]
     assert [d["summary"] for d in done] == [{"skipped": "answer_agent"}]
+
+
+def test_answer_only_defaults_to_agent_and_grounded_keeps_extraction(resume_env):
+    """开放问答默认指针式作答（跳过逐篇提取）；显式指定 grounded 时照常逐篇提取。"""
+    engine, events, _ = resume_env
+    ids = {}
+    with Session(engine) as s:
+        for name, opts in (("default", {"answer_only": True}),
+                           ("grounded", {"answer_only": True, "answer_writer": "grounded"})):
+            run = ExplorationRun(question="tumor detection deep learning", depth="quick", options=opts)
+            s.add(run)
+            s.commit()
+            s.refresh(run)
+            ids[name] = run.id
+    for run_id in ids.values():
+        asyncio.run(run_exploration(run_id))
+    with Session(engine) as s:
+        default = s.get(ExplorationRun, ids["default"])
+        grounded = s.get(ExplorationRun, ids["grounded"])
+        assert default.status == grounded.status == "done"
+        assert default.result["sources"]["agent_loops"]["extract"]["stop_reason"] == "answer_agent"
+        assert (grounded.result["sources"]["agent_loops"].get("extract") or {}).get("stop_reason") != "answer_agent"

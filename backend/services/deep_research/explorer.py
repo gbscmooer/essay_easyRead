@@ -2240,6 +2240,9 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         budget_enforce = bool(options.get("budget_enforce")) or depth == "lite"
         # 开放问答模式：证据提取后直接写答案，不生成领域综合与八阶段综述报告
         answer_only = bool(options.get("answer_only"))
+        # 开放问答默认指针式作答（E12：40 题同评委比 OpenScholar 高 0.074，比只依据材料高约 0.03）；
+        # 八阶段查新模式仍只依据已提取材料作答；options.answer_writer 可显式指定
+        answer_writer = options.get("answer_writer") or ("agent" if answer_only else "grounded")
         budget_preset = DEPTH_BUDGET_PRESETS.get(depth) or DEPTH_BUDGET_PRESETS["standard"]
         migrated_baseline: dict[str, float] = {}
         if not resume:
@@ -3069,7 +3072,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
         _set_stage(run_id, "extract")
         _stage_begin("extract")
         await emit("stage_start", stage="extract")
-        if "extract" not in completed and answer_only and options.get("answer_writer") == "agent":
+        if "extract" not in completed and answer_only and answer_writer == "agent":
             # 指针式作答按论断自行检索原文句，不需要逐篇结构化提取；全文已在 select 阶段获取
             agent_loops["extract"] = {"status": "skipped", "stop_reason": "answer_agent",
                                       "iterations": 0, "trace": []}
@@ -3149,7 +3152,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     return await gap_search(q, queries, options=options)
 
                 try:
-                    if options.get("answer_writer") == "agent":
+                    if answer_writer == "agent":
                         # 指针式作答：起草 → 按论断检索原文句 → 引用指针定稿（answer_agent）
                         from .answer_agent import RECOMMENDED, write_with_pointers
                         from .arxiv_mirror import default_mirror
