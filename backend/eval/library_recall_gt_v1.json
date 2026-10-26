@@ -1,0 +1,331 @@
+{
+  "version": "v1",
+  "created": "2026-10-26",
+  "question": "What datasets are commonly used to evaluate methods for mitigating spurious correlations, and what spurious attribute does each one contain?",
+  "workspace": "虚假相关性与分布外鲁棒性",
+  "protocol": [
+    "语料：本地论文库（data/essay_read.db）里有全文的论文，不联网。",
+    "相关论文：标题与摘要以虚假相关、捷径学习、组鲁棒性、简单性偏差、背景/纹理依赖为主题的论文（按 spurious/shortcut/worst-group 等用语出现次数初筛，再人工核对）。",
+    "标准数据集：相关论文在实验里（表格中，或带 evaluate/use/train/results on 等实验用语的句子里）用到、且带有明确虚假特征的数据集；逐条看过原句后确定，不经过被测工具。",
+    "同一数据集的变体并为一项（如 Colored MNIST 与 biased MNIST、Dominoes 的 MNIST-CIFAR 与 MNIST-Fashion 版本）。",
+    "通用分布外基准（ImageNet-A/C/V2、ObjectNet、PACS、VLCS、Office-Home 等）另列，不计入主指标。",
+    "别名默认区分大小写（BAR、SIN、NICO、ISIC 等缩写须大写才算）；Waterbirds、Salient ImageNet、Collages 等常见大小写变体的名称忽略大小写。",
+    "第 4 轮后对照 #176 原文更正：它把 COCO 物体贴 Places 背景的数据集称为 SceneObject（补别名），并另用 ColoredObject（物体放在随机彩色背景上），原标准答案漏列，补为第 21 项。"
+  ],
+  "duplicates": {
+    "159": 6
+  },
+  "relevant_papers": [
+    1,
+    6,
+    7,
+    8,
+    9,
+    11,
+    12,
+    13,
+    14,
+    15,
+    19,
+    35,
+    36,
+    38,
+    39,
+    40,
+    41,
+    44,
+    45,
+    169,
+    170,
+    175,
+    176,
+    178
+  ],
+  "datasets": [
+    {
+      "name": "Waterbirds",
+      "core": true,
+      "alias": "Waterbirds?\\b",
+      "attribute": "background (water vs. land) spuriously correlated with bird type; CUB birds pasted on Places backgrounds",
+      "attribute_check": "background|water|land|Places",
+      "papers": [
+        1,
+        6,
+        9,
+        11,
+        12,
+        13,
+        14,
+        19,
+        35,
+        41,
+        44,
+        45,
+        170,
+        178
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "CelebA",
+      "core": true,
+      "alias": "CelebA",
+      "attribute": "gender spuriously correlated with blond hair (hair-color classification)",
+      "attribute_check": "gender|male|female|\\bsex\\b",
+      "papers": [
+        1,
+        6,
+        7,
+        9,
+        11,
+        12,
+        13,
+        19,
+        35,
+        41,
+        45,
+        170,
+        175,
+        178
+      ]
+    },
+    {
+      "name": "MultiNLI",
+      "core": true,
+      "alias": "MultiNLI|\\bMNLI\\b",
+      "attribute": "negation words spuriously correlated with the contradiction label",
+      "attribute_check": "negat|\\bnot\\b|\\bno\\b|never|nobody",
+      "papers": [
+        6,
+        11,
+        19,
+        35,
+        41,
+        170
+      ]
+    },
+    {
+      "name": "CivilComments",
+      "core": true,
+      "alias": "Civil ?Comments",
+      "attribute": "mentions of demographic identities spuriously correlated with toxicity",
+      "attribute_check": "identit|demographic|gender|race|religio|sexual|LGBT|Muslim|Black",
+      "papers": [
+        6,
+        11,
+        12,
+        19,
+        41
+      ]
+    },
+    {
+      "name": "Colored MNIST (incl. biased MNIST variants)",
+      "core": true,
+      "alias": "Colou?red[- ]?MNIST|ColorMNIST|\\bCMNIST\\b|C-MNIST|[Bb]iased[- ]MNIST|MNIST with (?:synthetic )?spurious",
+      "attribute": "digit color (or a synthetic patch) spuriously correlated with the label",
+      "attribute_check": "colou?r|patch",
+      "papers": [
+        6,
+        7,
+        9,
+        12,
+        13,
+        44,
+        175
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "Dominoes / MNIST-CIFAR",
+      "core": true,
+      "alias": "Dominoes|MNIST[- ]CIFAR|CIFAR[- ]MNIST|MNIST[- ]Fashion|M/F-D|M/C-D",
+      "attribute": "a simple MNIST half concatenated with a complex CIFAR/Fashion-MNIST half; the simple half is the shortcut",
+      "attribute_check": "MNIST|simple|concatenat|half|top|bottom",
+      "papers": [
+        6,
+        7,
+        39,
+        44,
+        170
+      ]
+    },
+    {
+      "name": "ImageNet-9 / Backgrounds Challenge",
+      "core": true,
+      "alias": "ImageNet-9|\\bIN-9|Backgrounds? Challenge|Mixed-Rand|MIXED-RAND",
+      "attribute": "image background (foreground/background recombinations such as Mixed-Rand)",
+      "attribute_check": "background",
+      "papers": [
+        6,
+        7,
+        13,
+        15,
+        38
+      ]
+    },
+    {
+      "name": "BAR (Biased Action Recognition)",
+      "core": true,
+      "alias": "\\bBAR\\b|Biased Action Recognition",
+      "attribute": "place/background context spuriously correlated with the action",
+      "attribute_check": "place|background|scene|context",
+      "papers": [
+        7,
+        169,
+        175
+      ]
+    },
+    {
+      "name": "ISIC skin lesions",
+      "core": true,
+      "alias": "\\bISIC\\b|skin lesion",
+      "attribute": "colored patches/bandages (image artifacts) spuriously correlated with the diagnosis",
+      "attribute_check": "patch|bandage|ruler|marker|artifact",
+      "papers": [
+        1,
+        14,
+        178
+      ]
+    },
+    {
+      "name": "Stylized ImageNet",
+      "core": true,
+      "alias": "Stylized[- ]?ImageNet",
+      "attribute": "texture replaced by style transfer to test the texture (vs. shape) shortcut",
+      "attribute_check": "texture|shape",
+      "papers": [
+        6,
+        15,
+        36
+      ],
+      "ignore_case": true,
+      "alias_cased": "\\bSIN\\b"
+    },
+    {
+      "name": "UrbanCars",
+      "core": false,
+      "alias": "UrbanCars",
+      "attribute": "background and a co-occurring object as two controlled spurious cues",
+      "attribute_check": "background|co-occurring|object",
+      "papers": [
+        15
+      ]
+    },
+    {
+      "name": "ImageNet-W",
+      "core": false,
+      "alias": "ImageNet-W\\b",
+      "attribute": "watermark shortcut",
+      "attribute_check": "watermark",
+      "papers": [
+        15
+      ]
+    },
+    {
+      "name": "NICO",
+      "core": false,
+      "alias": "\\bNICO\\b",
+      "attribute": "context/background of animals and vehicles",
+      "attribute_check": "context|background",
+      "papers": [
+        7
+      ]
+    },
+    {
+      "name": "Corrupted CIFAR-10",
+      "core": false,
+      "alias": "Corrupted CIFAR",
+      "attribute": "corruption type (texture bias) correlated with the class",
+      "attribute_check": "corrupt|texture",
+      "papers": [
+        175
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "Salient ImageNet",
+      "core": false,
+      "alias": "Salient ImageNet",
+      "attribute": "ImageNet subsets annotated with core vs. spurious visual features",
+      "attribute_check": "spurious|core|annotat",
+      "papers": [
+        40
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "Radiographs with injected spurious signals (bone-age hand, knee)",
+      "core": false,
+      "alias": "radiograph|bone[- ]age|\\bknee\\b",
+      "attribute": "hospital tag, stripe pattern or background blur added to one class",
+      "attribute_check": "tag|stripe|blur",
+      "papers": [
+        8
+      ]
+    },
+    {
+      "name": "Camelyon17-WILDS",
+      "core": false,
+      "alias": "Camelyon",
+      "attribute": "hospital (staining/domain) shift",
+      "attribute_check": "hospital",
+      "papers": [
+        44,
+        170
+      ]
+    },
+    {
+      "name": "Collages",
+      "core": false,
+      "alias": "Collages",
+      "attribute": "blocks from MNIST, Fashion-MNIST, CIFAR-10 and SVHN, each predictive of the label",
+      "attribute_check": "MNIST|block",
+      "papers": [
+        169
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "SceneObject (COCO objects on Places backgrounds)",
+      "core": false,
+      "alias": "SceneObject|Scene Object|COCO.{0,120}Places|Places.{0,120}COCO|COCO-on-Places",
+      "attribute": "MSCOCO objects pasted on Places scene backgrounds",
+      "attribute_check": "background|scen",
+      "papers": [
+        176
+      ],
+      "ignore_case": true
+    },
+    {
+      "name": "ImageNet-R (texture shortcut)",
+      "core": false,
+      "alias": "ImageNet-R\\b|\\bIN-R\\b",
+      "attribute": "renditions used to measure the texture shortcut",
+      "attribute_check": "texture|rendition",
+      "papers": [
+        6,
+        15
+      ]
+    },
+    {
+      "name": "ColoredObject",
+      "core": false,
+      "alias": "ColoredObject|Colou?red Object",
+      "ignore_case": true,
+      "attribute": "objects on randomly colored backgrounds; background color spuriously correlated with the class",
+      "attribute_check": "background|colou?r",
+      "papers": [
+        176
+      ]
+    }
+  ],
+  "general_ood": [
+    "ImageNet-A",
+    "ImageNet-C",
+    "ImageNetV2",
+    "ObjectNet",
+    "PACS",
+    "VLCS",
+    "Office-Home"
+  ]
+}

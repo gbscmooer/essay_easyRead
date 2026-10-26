@@ -44,8 +44,12 @@ READ_PER_PROBE = 10        # 原文阅读：每条探查提名的句数
 PAPER_WINDOW = 3           # 精读：一段 = 连续几句
 PAPER_WINDOW_STRIDE = 2
 PAPER_TABLE_LINKS = 4      # 精读（重排直选）：每篇随段落附上的表格块上限（段中提到 Table N 时）
-PAPER_SKIM = 12            # 精读（模型挑选）：每篇按问题重排后交给模型过目的段数，另附全部表格的表题
+PAPER_SKIM = 20            # 精读（模型挑选）：每篇按问题重排后交给模型过目的段数，另附全部表格的表题
+                           # （E15：12 段时 Whac-A-Mole 一文里纹理捷径的评测段排第 13，被挡在外面）
 PAPER_TABLE_PREVIEW = 160  # 过目时每张表展示的字符数（表题 + 开头几格）
+PAPER_READING_PAPERS = 12  # 精读的论文数上限：全文论文多于此数时按题名与摘要和问题的相关性取前几篇（库内作答时生效）
+PAPER_OBJECTS = 12         # 精读：每篇最多列出几个“问题所问对象”（每个附 1~2 个指针，不占挑选名额）
+SELECT_INSIDE = 3          # 选精读论文时，每篇附上文内与问题最相关的几句一起排序
 
 # 指针写法：[S12]、[S12][S40]，也容忍 [S12, S40] / [S12，S40]
 # 实际流程（explorer 开放问答）使用的配置；评测 rewrite 显式传参做对照实验
@@ -107,7 +111,8 @@ def _followup_prompt(question: str, claims: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _paper_read_prompt(question: str, title: str, year, passages: list, tables: list, picks: int) -> str:
+def _paper_read_prompt(question: str, title: str, year, passages: list, tables: list, picks: int,
+                       lang: str = "en") -> str:
     lines = [f"## 问题\n{question}", "", f"## 论文：{aw._clip(title, 200)}" + (f" ({year})" if year else ""),
              "以下是这篇论文里与问题可能相关的段落（按原文顺序）和全部表格的表题与开头几格；[S#] 为指针。"]
     lines += [f"[{p.pid}] {p.text}" for p in passages]
@@ -118,12 +123,84 @@ def _paper_read_prompt(question: str, title: str, year, passages: list, tables: 
         "", "## 任务",
         "找出这篇论文里能直接回答问题的具体信息在哪里：例如它使用或构建的数据集与基准（名称、来源、组成、规模、"
         "构建方式）、所用的开源项目或工具、评测设置与结果、定义、关键数字与结论。表格可以整张选（给表格的指针）。"
-        f"最多选 {picks} 处，按重要性排序；每处写一句要点（不超过 30 个英文词，只写原文给出的内容；"
-        "名称、数字和单位照原文写，表格里的数字要带上它所在的列名，如 2,329 functions）。"
-        "这篇论文与问题无关就返回空列表。",
-        '输出：{"picks": [{"pid": "S12", "note": "..."}]}',
+        "问题问到的对象（如数据集、方法）这篇论文用到了几个，就尽量每个都选到一处，不要只挑其中一两个反复选。"
+        f"最多选 {picks} 处，按重要性排序；每处写一句要点（用{'英文' if lang == 'en' else '中文'}，不超过 30 个词，"
+        "只写原文给出的内容；名称、数字和单位照原文写，表格里的数字要带上它所在的列名，如 2,329 functions）。"
+        f"另外列出 objects：这篇论文里用来回答这个问题的全部对象（例如问评测用哪些数据集，就列出这篇论文用来做评测的"
+        f"每个数据集，照原文名称；预训练数据、图片来源、只在相关工作里提到的都不要列；最多 {PAPER_OBJECTS} 个），"
+        "每个给 1~2 个最能说明它的指针（可以与 picks 重复）；问题不是在问一组对象时留空。"
+        "这篇论文与问题无关就都返回空列表。",
+        '输出：{"picks": [{"pid": "S12", "note": "..."}], "objects": [{"name": "...", "pids": ["S12"]}]}',
     ]
     return "\n".join(lines)
+
+
+_ITEM_GENERIC = frozenset("dataset datasets benchmark benchmarks data set sets the and with version variant subset split "
+                          "images image task tasks corpus".split())
+
+
+def _item_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").casefold())
+
+
+_ALIAS_GENERIC = frozenset("wilds dataset datasets benchmark benchmarks variant variants version synthetic subset "
+                           "split splits images".split())
+
+
+def _name_keys(name: str) -> set[str]:
+    """对象名的各种写法：整名，以及括号、斜杠两侧的别名（“CMNIST (Colored MNIST)”“ColorMNIST / CMNIST”）；
+    括号里是出处或泛称（“Halabi et al., 2019”“WILDS”）的不算别名，免得把不同对象并在一起。"""
+    keys = {_item_key(name)}
+    for part in re.split(r"\s*[/／]\s*|\s*[(（]\s*|\s*[)）]\s*", name):
+        k = _item_key(part)
+        if len(k) >= 4 and k not in _ALIAS_GENERIC and not re.search(r"et al|\b(?:19|20)\d{2}\b", part):
+            keys.add(k)
+    return {k for k in keys if len(k) >= 2}
+
+
+def _inventory(items: dict[str, list[str]], index: EvidenceIndex) -> list[dict]:
+    """精读标出的“问题所问对象” → 清单：写法相同（忽略大小写与符号）或共用括号/斜杠里的别名的合并，
+    记出处指针与论文数，按论文数排序。"""
+    groups: list[dict] = []
+    for pid, names in items.items():
+        p = index.get(pid)
+        for name in names:
+            keys = _name_keys(name)
+            if not keys:
+                continue
+            hit = [g for g in groups if g["keys"] & keys]
+            g = hit[0] if hit else {"keys": set(), "names": defaultdict(int), "pids": [], "papers": set()}
+            for other in hit[1:]:          # 新名字把几组连起来时并成一组
+                g["keys"] |= other["keys"]
+                for n, c in other["names"].items():
+                    g["names"][n] += c
+                g["pids"] += [x for x in other["pids"] if x not in g["pids"]]
+                g["papers"] |= other["papers"]
+                groups.remove(other)
+            if not hit:
+                groups.append(g)
+            g["keys"] |= keys
+            g["names"][name.strip()] += 1
+            if pid not in g["pids"]:
+                g["pids"].append(pid)
+            if p is not None:
+                g["papers"].add(p.key)
+    inv = [{"name": max(g["names"], key=lambda n: (g["names"][n], -len(n))), "pids": g["pids"], "papers": len(g["papers"])}
+           for g in groups]
+    return sorted(inv, key=lambda x: (-x["papers"], x["name"].casefold()))
+
+
+def _missing_items(text: str, inventory: list[dict]) -> list[str]:
+    """清单里答案没写到的对象：名称（去掉大小写与符号）原样出现，或名称里每个有辨识度的词都出现，才算写到。"""
+    flat, low = _item_key(text), (text or "").casefold()
+
+    def covered(name: str) -> bool:
+        if _item_key(name) in flat:
+            return True
+        toks = [t.casefold() for t in re.split(r"[^A-Za-z0-9]+", name) if len(t) >= 3 and t.casefold() not in _ITEM_GENERIC]
+        return bool(toks) and all(t in low for t in toks)
+
+    return [it["name"] for it in inventory if not covered(it["name"])]
 
 
 def _claims(draft: str) -> list[tuple[str, str]]:
@@ -160,7 +237,8 @@ def _passage_groups(passages: list, notes: dict | None = None) -> list[str]:
 
 def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], lang: str,
                   feedback: str = "", mode: str = "revise", reading: list | None = None,
-                  papers_read: list | None = None, notes: dict | None = None) -> str:
+                  papers_read: list | None = None, notes: dict | None = None,
+                  inventory: list | None = None) -> str:
     lines = [f"## 问题\n{question}", "", "## 草稿（来自你的专业知识）", draft, "",
              "## 证据库（检索工具从论文原文中找到的句子；[S#] 为指针）"]
     lines += _passage_groups([p for _, cands in evidence for p in cands])
@@ -172,6 +250,12 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
         lines += ["", "## 精读（逐篇精读已下载全文的论文，挑出的与问题直接相关的原文；要点是阅读笔记，写进答案的名称与数字"
                   "以原文为准，引用时用指针；表格块以“Table N: 表题 —”开头，格与格用 | 分隔）"]
         lines += _passage_groups(papers_read, notes)
+    if inventory:
+        # 问题所问对象清单：精读时逐篇标出的对象（如数据集）汇总，定稿须逐个写到（E15：以草稿为准的定稿
+        # 会沿用草稿的段落，草稿没写的数据集即使原文已送到也常被略过）
+        lines += ["", "## 问题所问对象清单（精读中找到的；括号里是出现的论文数与出处指针）"]
+        lines += [f"- {it['name']}（{it['papers']} 篇）：" + "".join(f"[{pid}]" for pid in it["pids"][:4])
+                  for it in inventory]
     if reading:
         # 原文阅读：按问题本身（而不是按草稿的句子）在已收集的原文里找到的相关句。逐句查证只能找到
         # “草稿已经写了的内容”的出处，原文里专家会写、而模型没想到的具体信息只能从这里进入答案
@@ -188,6 +272,8 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
             "（数据集与基准、方法与系统、定义、关键数字、结论、局限），补成带指针的新句，放进最相关的段落；"
             "问题直接问到的对象（例如问有哪些数据集、方法、指标）要尽量补全，并写出原文给出的名称、来源、规模、特点或结果"
             "（表格里的名称与数字可以直接写出）。只补原文支持的内容，每个新句都要带指针。",
+            *(["- 对象清单：清单里的每个对象都要写进答案，至少一句，写出原文给出的关键信息并带出处指针；"
+               "草稿里没有合适段落的对象，新增一段集中列出（每个一句），不要因为草稿没写就略过。"] if inventory else []),
             "- 证据与草稿矛盾时按证据修正该句；除此之外不要删除草稿内容，也不要把句子改写成对证据的转述；"
             "没有证据的句子保留原样、不加指针。",
             f"- 只能使用证据库与{where}里出现的指针，不得编造；不要自己写引文或摘录（程序会按指针附上原文）。",
@@ -223,6 +309,9 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
             "领域公认的背景知识可以保留，不加指针。",
             "- 只能使用证据库里出现的指针，不得编造；不要自己写引文或摘录（程序会按指针附上原文）。",
         ]
+    # 答案语言跟随问题：精读要点或证据是另一种语言时，模型容易被带着改用那种语言作答（E15 实测）
+    rules = [f"- 答案用{'英文' if lang == 'en' else '中文'}写（与问题一致）；要点或证据是别的语言时只作参考，不要跟着换语言。",
+             *rules]
     lines += ["", "## 写作要求", *rules]
     if feedback:
         lines += ["", "## 上一稿未通过程序验收，请按以下意见修改", feedback]
@@ -332,18 +421,43 @@ async def _read_sources(index: EvidenceIndex, question: str, probes: list[str], 
     return pool, {"probes": len(probes), "nominated": nominated, "shown": len(pool)}
 
 
+async def _select_papers(index: EvidenceIndex, question: str, keys: list[str], limit: int,
+                         sem: asyncio.Semaphore) -> list[str]:
+    """全文论文多于 limit 篇时，按“题名 + 摘要（缺摘要用开头几句）+ 文内与问题最相关的几句”与问题的
+    相关性取前 limit 篇。E15：只看题名与摘要时，摘要不提“数据集”“虚假相关”的论文（如讲背景依赖、
+    纹理偏差的）排得很后；附上文内 BM25 最相关的 3 句后，24 篇相关论文进前 25 的从 16 篇升到 21 篇。"""
+    if len(keys) <= limit:
+        return keys
+
+    def summary(key: str) -> str:
+        meta = index.papers[key]
+        text = meta.get("abstract") or " ".join(index.passages[i].text for i in index.by_key[key][:6])
+        inside = " ".join(p.text for p in index.bm25(question, SELECT_INSIDE, keys={key}))
+        return f"{meta.get('title') or ''}: {aw._clip(text, 1500)} | {aw._clip(inside, 900)}"
+
+    async with sem:
+        scores = await rerank_scores(question, [summary(k) for k in keys])
+    if not scores:
+        return keys[:limit]
+    return [keys[i] for i in sorted(range(len(keys)), key=lambda i: -scores[i])[:limit]]
+
+
 async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem: asyncio.Semaphore,
-                       llm_json: aw.LlmJson | None = None) -> tuple[list, dict, dict]:
-    """精读：已下载全文的论文逐篇按问题重排全部段落（连续 PAPER_WINDOW 句为一段），返回（原文，统计，要点）。
+                       llm_json: aw.LlmJson | None = None,
+                       max_papers: int = PAPER_READING_PAPERS) -> tuple[list, dict, dict, dict]:
+    """精读：已下载全文的论文逐篇按问题重排全部段落（连续 PAPER_WINDOW 句为一段），返回（原文，统计，要点，
+    问题所问对象：指针 → 对象名）。
     - llm_json 给出（模型挑选）：前 PAPER_SKIM 段与全部表格的表题交给模型过目，模型挑出直接回答问题的
       最多 per_paper 处（选中表格就给整张表）并写一句要点；调用失败的论文退回重排直选；
     - 否则（重排直选）：取前 per_paper 段，段中提到的本文表格（Table N）一并给出。
     E14：全证据库统一检索时，论文用自己的话描述的内容（如自建数据集的构建方式）与问题用词不同，
     在每条探查里都进不了 BM25 预筛；表格又在切句时丢失；逐篇重排后专家要的段落在该文 270 段里排
     第 4~39，表格排第 103——重排模型对“切题”的判断与专家不同，名额小时送不到，所以由模型过目挑选。
-    重排不可用时不精读（没有可依据的排序）。"""
-    keys = [k for k, m in index.papers.items() if m.get("source") == "full_text"]
-    stats = {"papers": len(keys), "mode": "llm" if llm_json else "rerank", "picked": 0, "fallback": 0}
+    重排不可用时不精读（没有可依据的排序）。全文论文多于 max_papers 篇时只精读最相关的 max_papers 篇。"""
+    full = [k for k, m in index.papers.items() if m.get("source") == "full_text"]
+    keys = await _select_papers(index, question, full, max_papers, sem)
+    stats = {"papers": len(keys), "candidates": len(full), "mode": "llm" if llm_json else "rerank",
+             "picked": 0, "fallback": 0, "selected": keys}
 
     def whole_table(t) -> list:
         return [index.passages[i] for i in index.by_key[t.key] if index.passages[i].table == t.table]
@@ -366,23 +480,39 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
             meta = index.papers[key]
             try:
                 data = await llm_json(_READ_SYSTEM, _paper_read_prompt(question, meta.get("title") or "",
-                                                                       meta.get("year"), skim, tables, per_paper))
+                                                                       meta.get("year"), skim, tables, per_paper,
+                                                                       aw.question_language(question)))
             except Exception as exc:  # noqa: BLE001 —— 精读是增益步骤，失败退回重排直选
                 logger.warning("answer agent paper reading failed: %s", exc)
                 data = None
             if data is not None:
                 allowed = {p.pid: p for p in skim + tables}
-                picked, notes = [], {}
-                items = data.get("picks") if isinstance(data, dict) else data if isinstance(data, list) else []
-                for item in items or []:
+                picked, notes, objects = [], {}, {}
+                raw = data.get("picks") if isinstance(data, dict) else data if isinstance(data, list) else []
+                for item in raw or []:
                     pid = str((item or {}).get("pid") if isinstance(item, dict) else item).strip().strip("[]")
                     p = allowed.get(pid)
                     if p is None or len(notes) >= per_paper or pid in notes:
                         continue
                     notes[pid] = str(item.get("note") or "").strip() if isinstance(item, dict) else ""
                     picked += [x for x in (whole_table(p) if p.table else [p]) if x not in picked]
+                # 问题所问的全部对象（每个 1~2 个指针）：覆盖面由格式保证，不靠挑选名额（E15：名额全给了
+                # 论文自己的数据集细节，同文用到的其他数据集被挤掉）
+                for obj in (data.get("objects") if isinstance(data, dict) else None) or []:
+                    if not isinstance(obj, dict) or len({n for v in objects.values() for n in v}) >= PAPER_OBJECTS:
+                        continue
+                    name = str(obj.get("name") or "").strip()
+                    pids = [str(x).strip().strip("[]") for x in (obj.get("pids") or [])][:2]
+                    pids = [x for x in pids if x in allowed]
+                    if not name or not pids:
+                        continue
+                    for x in pids:
+                        objects.setdefault(x, []).append(name)
+                        picked += [y for y in (whole_table(allowed[x]) if allowed[x].table else [allowed[x]])
+                                   if y not in picked]
                 stats["picked"] += len(notes)
-                return picked, notes
+                stats["objects"] = stats.get("objects", 0) + len({n for v in objects.values() for n in v})
+                return picked, notes, objects
             stats["fallback"] += 1
         picked, linked = [], 0
         for w in ranked[:per_paper]:
@@ -392,17 +522,18 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
                     if linked < PAPER_TABLE_LINKS and t not in picked:
                         picked.append(t)
                         linked += 1
-        return picked, {}
+        return picked, {}, {}
 
-    out, seen, notes = [], set(), {}
-    for group, group_notes in await asyncio.gather(*(one(k) for k in keys)):
+    out, seen, notes, objects = [], set(), {}, {}
+    for group, group_notes, group_objects in await asyncio.gather(*(one(k) for k in keys)):
         notes.update(group_notes)
+        objects.update(group_objects)
         for p in group:
             if p.pid not in seen:
                 seen.add(p.pid)
                 out.append(p)
     stats.update(shown=len(out), tables=sum(1 for p in out if p.table))
-    return out, stats, notes
+    return out, stats, notes, objects
 
 
 async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch) -> dict:
@@ -434,6 +565,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               claim_search: int = 0, final_mode: str = "revise", followup: int = 0,
                               reading: int = 0, question_search: int = 0, opening: bool = False,
                               paper_reading: int = 0, paper_reader: str = "llm",
+                              paper_reading_papers: int = PAPER_READING_PAPERS,
                               draft_json: aw.LlmJson | None = None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）。
@@ -446,7 +578,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     检索式与逐句查证都由草稿出发，专家引用的“直接回答这个问题的近期研究”只能这样找到。
     opening=True 时草稿第一段先交代背景（概念界定、重要性与难点）。
     paper_reading>0 时对已下载全文的论文逐篇精读，每篇最多 paper_reading 处（含表格）交给定稿：
-    paper_reader="llm" 由模型从按问题重排的前几段与全部表题里挑选，"rerank" 直接取重排前几段。
+    paper_reader="llm" 由模型从按问题重排的前几段与全部表题里挑选，"rerank" 直接取重排前几段；
+    全文论文多于 paper_reading_papers 篇时（如本地论文库作答）只精读最相关的这么多篇。
     draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
@@ -573,13 +706,16 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     audit.update(claims=len(claims), passages=len(index), papers=len(index.papers),
                  claims_with_evidence=sum(bool(f) for _, f in evidence))
     shown = {p.pid for f in found_lists for p in f}
-    papers_read, read_notes = [], {}
+    papers_read, read_notes, read_objects = [], {}, {}
     if paper_reading > 0 and len(index):
         t_r = time.monotonic()
-        papers_read, audit["paper_reading"], read_notes = await _read_papers(
-            index, question, paper_reading, sem, llm_json if paper_reader == "llm" else None)
+        papers_read, audit["paper_reading"], read_notes, read_objects = await _read_papers(
+            index, question, paper_reading, sem, llm_json if paper_reader == "llm" else None, paper_reading_papers)
         audit["paper_reading"]["notes"] = read_notes
         timing["paper_reading"] = round(time.monotonic() - t_r, 1)
+    inventory = _inventory(read_objects, index) if read_objects else []
+    if inventory:
+        audit["inventory"] = {"items": [it["name"] for it in inventory], "missing_by_attempt": []}
     reading_passages: list = []
     if reading > 0 and len(index):
         headings = list(dict.fromkeys(h for h, _ in claims if h))
@@ -596,7 +732,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     for attempts in range(1, max_attempts + 1):
         try:
             data = await llm_json(_WRITE_SYSTEM, _write_prompt(question, draft, evidence, lang, feedback, final_mode,
-                                                               reading_passages, papers_read, read_notes))
+                                                               reading_passages, papers_read, read_notes, inventory))
         except Exception as exc:  # noqa: BLE001
             logger.warning("answer agent write failed: %s", exc)
             if check is None and attempts == max_attempts:
@@ -614,6 +750,13 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         if check["words"] < SHORT_FINAL_RATIO * aw._count_words(draft, lang):
             feedback += ("\n- " if feedback else "- ") + (f"定稿只有约 {check['words']} 词，明显短于草稿，可能被截断或删去了大段内容；"
                                                          "请输出完整答案，保留草稿的全部段落。")
+        if inventory:
+            missing = _missing_items(text, inventory)
+            audit["inventory"]["missing_by_attempt"].append(missing)
+            if missing:
+                feedback += ("\n- " if feedback else "- ") + (
+                    f"对象清单里有 {len(missing)} 个没写到：" + "、".join(missing[:20])
+                    + "。请逐个补上（每个至少一句，写出原文给出的关键信息并带出处指针），不要删除已有内容。")
         if not feedback:
             break
         feedback += "\n\n上一稿（供修改）：\n" + raw

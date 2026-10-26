@@ -378,7 +378,7 @@ def test_paper_reading_model_picks_passages_whole_tables_and_falls_back_to_reran
                           {"pid": sent.pid, "note": "Instrumented programs compiled with MSVC."},
                           {"pid": "S999", "note": "not shown to the reader"}]}
 
-    out, stats, notes = asyncio.run(ag._read_papers(idx, "Which datasets?", 6, asyncio.Semaphore(2), reader))
+    out, stats, notes, objects = asyncio.run(ag._read_papers(idx, "Which datasets?", 6, asyncio.Semaphore(2), reader))
     assert prompts[0][0] == ag._READ_SYSTEM and "### 表格" in prompts[0][1] and f"[{table.pid}]" in prompts[0][1]
     assert {p.pid for p in out} == {table.pid, sent.pid}
     assert set(notes) == {table.pid, sent.pid} and stats["picked"] == 2 and stats["tables"] == 1
@@ -386,8 +386,27 @@ def test_paper_reading_model_picks_passages_whole_tables_and_falls_back_to_reran
     async def broken(system, user):
         raise RuntimeError("model down")
 
-    out, stats, notes = asyncio.run(ag._read_papers(idx, "Which datasets?", 1, asyncio.Semaphore(2), broken))
+    out, stats, notes, objects = asyncio.run(ag._read_papers(idx, "Which datasets?", 1, asyncio.Semaphore(2), broken))
     assert stats["fallback"] == 1 and not notes and 1 <= len(out) <= ag.PAPER_WINDOW + ag.PAPER_TABLE_LINKS
+
+
+def test_paper_reading_reads_only_the_most_relevant_papers_when_many_have_full_text(monkeypatch):
+    """库内作答时全文论文很多：只精读按题名与摘要和问题最相关的前几篇。"""
+    idx = es.EvidenceIndex()
+    for i, topic in enumerate(["spurious correlations in Waterbirds", "graph neural networks", "spurious features in CelebA"]):
+        idx.add_paper({"key": f"lib:{i}", "title": f"Paper about {topic}", "abstract": f"We study {topic}.",
+                       "source_text": (f"We study {topic} in detail with many experiments and analyses. " * 40)})
+
+    async def scores(query, documents):
+        return [float("spurious" in d) for d in documents]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+
+    async def reader(system, user):
+        return {"picks": []}
+
+    _, stats, _, _ = asyncio.run(ag._read_papers(idx, "Which datasets test spurious correlations?", 2,
+                                              asyncio.Semaphore(2), reader, max_papers=2))
+    assert stats["candidates"] == 3 and stats["papers"] == 2 and set(stats["selected"]) == {"lib:0", "lib:2"}
 
 
 def test_write_with_pointers_paper_reading_records_shown_and_cited(monkeypatch):
@@ -418,6 +437,41 @@ def test_write_with_pointers_paper_reading_records_shown_and_cited(monkeypatch):
     assert calls.count(ag._READ_SYSTEM) == 1 and pr["picked"] == 1 and pr["cited"] == 1
     assert shown["paper_reading"] and set(shown["paper_reading"]) & set(out["agent"]["cited_pids"])
     assert "arcadia" in out["references"][0]["excerpts"][0]
+
+
+def test_inventory_of_asked_objects_is_listed_and_missing_ones_trigger_one_rewrite(monkeypatch):
+    """精读标出问题所问的对象（如数据集）→ 清单交给定稿；定稿漏写的对象由程序核对后要求补上。"""
+    _no_rerank(monkeypatch)
+
+    async def scores(query, documents):
+        return [1.0 if "Table 3" in d else 0.5 for d in documents]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    paper = {"key": "e", "title": "Improving type information inferred by decompilers", "year": 2021,
+             "source_text": _TABLE_TEXT * 6}
+    prompts = []
+
+    async def llm_json(system, user):
+        if system == ag._DRAFT_SYSTEM:
+            return {"draft": "**Datasets.** Studies compile open-source C programs.", "works": [], "queries": []}
+        if system == ag._READ_SYSTEM:
+            pid = __import__("re").search(r"\[(S\d+)\] Table 3: Open-source", user).group(1)
+            return {"picks": [{"pid": pid, "note": "projects"}],
+                    "objects": [{"name": n, "pids": [pid]} for n in ("arcadia", "jansson", "bgrep")]}
+        prompts.append(user)
+        pid = __import__("re").search(r"\[(S\d+)\] \"Table 3: Open-source", user).group(1)
+        if len(prompts) == 1:
+            return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia and jansson [{pid}]."}
+        return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia, jansson and bgrep [{pid}]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
+                                             final_mode="attach", paper_reading=2))
+    inv = out["agent"]["inventory"]
+    assert set(inv["items"]) == {"arcadia", "jansson", "bgrep"} and "## 问题所问对象清单" in prompts[0]
+    assert inv["missing_by_attempt"] == [["bgrep"], []] and "对象清单里有 1 个没写到：bgrep" in prompts[1]
+    assert out["attempts"] == 2 and "bgrep" in out["text"]
+    assert ag._missing_items("We use CivilComments and Colored MNIST.",
+                             [{"name": "CivilComments-WILDS"}, {"name": "Colored MNIST"}, {"name": "MNIST-CIFAR"}]) \
+        == ["CivilComments-WILDS", "MNIST-CIFAR"]
 
 
 def test_opening_draft_prompt_asks_for_background_first():

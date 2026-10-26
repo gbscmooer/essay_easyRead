@@ -182,7 +182,7 @@ class EvidenceIndex:
             units, source = [(s, "") for s in split_sentences(paper.get("abstract") or "")], "abstract"
         if not units:
             return 0
-        self.papers[key] = {k: paper.get(k) for k in ("key", "title", "year", "doi", "arxiv_id", "authors")}
+        self.papers[key] = {k: paper.get(k) for k in ("key", "title", "year", "doi", "arxiv_id", "authors", "abstract")}
         self.papers[key]["origin"] = origin
         self.papers[key]["source"] = source
         if tkey:

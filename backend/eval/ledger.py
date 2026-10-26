@@ -360,6 +360,11 @@ def record(out: Path, report: dict | None = None, *, benchmark: str = "scholarqa
              "against": cmp["against"] if cmp else None,
              "diff": (cmp or {}).get("compare", {}).get("diff"), "se": (cmp or {}).get("compare", {}).get("se")}
     entry["md"] = _markdown({**entry, "meta": meta}, agg, cmp)
+    _append(entry, out)
+    return digest
+
+
+def _append(entry: dict, out: Path) -> None:
     entries = sorted([e for e in _entries() if e.get("file") != out.name] + [entry], key=lambda e: e["time"])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LEDGER_JSONL.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries), encoding="utf-8")
@@ -367,7 +372,19 @@ def record(out: Path, report: dict | None = None, *, benchmark: str = "scholarqa
     LEDGER_MD.write_text("# 评测台账（自动生成，勿手改；说明见 backend/eval/ledger.py）\n\n"
                          + "".join(e.get("md", "") for e in entries), encoding="utf-8")
     print(entry["md"], flush=True)
-    return digest
+
+
+def record_metrics(out: Path, report: dict, *, benchmark: str, lines: list[str]) -> None:
+    """不按 ScholarQA 打分的评测（如库内召回）：按评测自己给出的指标行登记台账。"""
+    meta = report.get("meta") or {}
+    p = meta.get("provenance") or {}
+    entry = {"time": _run_time(meta), "benchmark": benchmark, "kind": "run", "file": out.name,
+             "label": meta.get("label"), "commit": p.get("commit"), "metrics": report.get("summary")}
+    head = [f"## {entry['time']} {out.name}" + (f" — {meta.get('label')}" if meta.get("label") else ""), "",
+            f"- 代码：{p.get('commit') or '?'}" + (f"，未提交改动 {len(p.get('dirty_files') or [])} 个文件"
+                                                  f"（补丁 {p.get('patch')}）" if p.get("dirty_files") else "，无未提交改动")]
+    entry["md"] = "\n".join(head + [f"- {x}" for x in lines]) + "\n\n"
+    _append(entry, out)
 
 
 def main() -> None:
