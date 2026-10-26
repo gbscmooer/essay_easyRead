@@ -609,14 +609,22 @@ async def run_agent(args) -> Path:
     picked = pick_cases(load_cases(), args.n, args.seed, exclude_seed=args.exclude_seed, exclude_n=args.exclude_n)
     if args.first:
         picked = picked[:args.first]
+    # 编号沿用抽样里的位置（与全量运行日志的 [i/20] 一致）；--pick 只跑其中几题，--repeat 每题重复几次估计波动
+    numbered = [(i, c) for i, c in enumerate(picked, 1) if not args.pick or i in set(args.pick)]
+    jobs = [(i, rep, c) for i, c in numbered for rep in range(max(1, args.repeat))]
     judge = make_judge(args)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = OUT_DIR / f"scholarqa_cs_agent_{stamp}.json"
     runs_dir = OUT_DIR / f"scholarqa_cs_agent_{stamp}_runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     settings = {**RECOMMENDED, **({"final_mode": args.final} if args.final else {}),
-                **({"followup": args.followup} if args.followup is not None else {})}
-    meta = {"depth": "agent", "seed": args.seed, "n": len(picked), "exclude_seed": args.exclude_seed,
+                **({"followup": args.followup} if args.followup is not None else {}),
+                **({"reading": args.reading} if args.reading is not None else {}),
+                **({"question_search": args.question_search} if args.question_search is not None else {}),
+                **({"opening": True} if args.opening else {}),
+                **({"fetch_full_text": args.fetch} if args.fetch is not None else {})}
+    meta = {"depth": "agent", "seed": args.seed, "n": len(numbered), "exclude_seed": args.exclude_seed,
+            "pick": args.pick or None, "repeat": max(1, args.repeat),
             "system_model": system_cfg.get("model"), "judge_model": args.judge_model, "started": stamp,
             "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
             "agent_only": True, "agent": settings, "provenance": ledger.provenance(out)}
@@ -624,16 +632,16 @@ async def run_agent(args) -> Path:
     watch = QuotaWatch.install()
     mirror = default_mirror()
     gate = asyncio.Semaphore(max(1, args.concurrency))
-    done: dict[int, dict] = {}
+    done: dict[tuple[int, int], dict] = {}
     started = time.monotonic()
 
-    async def attempt(i: int, case: dict) -> tuple[dict, dict]:
+    async def attempt(i: int, rep: int, case: dict) -> tuple[dict, dict]:
         scope = QuotaWatch.scope()
         t0 = time.monotonic()
         try:
             answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror, **settings)
             response = render_answer(answer)
-            save = runs_dir / f"q{i:03d}.json"
+            save = runs_dir / (f"q{i:03d}.json" if args.repeat <= 1 else f"q{i:03d}_r{rep}.json")
             save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
             rec = {"status": answer.get("status"), "response": response, "words": len(response.split()),
                    "check": answer.get("check"), "materials": answer.get("materials"), "agent": answer.get("agent"),
@@ -644,10 +652,10 @@ async def run_agent(args) -> Path:
             rec = {"error": f"{type(exc).__name__}: {exc}"[:300]}
         return rec, scope
 
-    async def worker(i: int, case: dict) -> None:
+    async def worker(i: int, rep: int, case: dict) -> None:
         for n_try in range(QuotaWatch.MAX_RETRIES + 1):
             async with gate:
-                rec, scope = await attempt(i, case)
+                rec, scope = await attempt(i, rep, case)
             limited = scope["hits"] or "RATE_LIMITED" in str(rec.get("error") or "")
             if limited:
                 watch.note(str(rec.get("error") or "") + " " + str(scope.get("sample") or ""))
@@ -657,16 +665,18 @@ async def run_agent(args) -> Path:
                 continue
             break
         rec["attempts"] = n_try + 1
-        done[i] = {"question": case["question"], "case_ids": [c["case_id"] for c in case["configs"]], "system": rec}
+        done[(i, rep)] = {"question": case["question"], "case_ids": [c["case_id"] for c in case["configs"]],
+                          "index": i, "rep": rep, "system": rec}
         s = (rec.get("scores") or [{}])[0]
-        print(f"[{i}/{len(picked)}] {case['question'][:80]}\n    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
+        print(f"[{i}/{len(picked)}{f' 第{rep + 1}次' if args.repeat > 1 else ''}] {case['question'][:80]}\n"
+              f"    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
               f"{rec.get('words')} 词，{rec.get('status') or rec.get('error')}，{rec.get('wall_s')} 秒）"
-              f"  [已完成 {len(done)}/{len(picked)}，用时 {round((time.monotonic() - started) / 60, 1)} 分，"
+              f"  [已完成 {len(done)}/{len(jobs)}，用时 {round((time.monotonic() - started) / 60, 1)} 分，"
               f"模型并发占用 {(model_limiter_stats() or {}).get('utilization')}]", flush=True)
         out.write_text(json.dumps({"meta": meta, "partial": True, "records": [done[k] for k in sorted(done)]},
                                   ensure_ascii=False, indent=1), encoding="utf-8")
 
-    await asyncio.gather(*(worker(i, c) for i, c in enumerate(picked, 1)))
+    await asyncio.gather(*(worker(i, rep, c) for i, rep, c in jobs))
     records = [done[k] for k in sorted(done)]
     meta["wall_min"] = round((time.monotonic() - started) / 60, 1)
     report = {"meta": meta, "summary": {"system": summarize(records, "system"), "baseline": None},
@@ -745,6 +755,12 @@ def main() -> None:
     ag.add_argument("--concurrency", type=int, default=4)
     ag.add_argument("--final", choices=("revise", "attach", "enrich"), default=None, help="覆盖推荐配置的定稿方式")
     ag.add_argument("--followup", type=int, default=None, help="覆盖推荐配置的第二轮检索句数")
+    ag.add_argument("--reading", type=int, default=None, help="原文阅读：按问题从证据库再取几句交给模型补充（0 关）")
+    ag.add_argument("--question-search", type=int, default=None, help="按问题到镜像检索论文，每条探查取几篇（0 关）")
+    ag.add_argument("--opening", action="store_true", help="草稿第一段先交代背景（概念界定、重要性与难点）")
+    ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
+    ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")
+    ag.add_argument("--repeat", type=int, default=1, help="每题重复几次（估计同配置的波动）")
     ag.add_argument("--label", default="")
     for p in (r, j, f, w, ag):
         p.add_argument("--judge-model", default=JUDGE_MODEL)

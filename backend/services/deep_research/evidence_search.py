@@ -203,16 +203,18 @@ class EvidenceIndex:
         return [self.passages[i] for i in rows[lo:hi]]
 
     async def find(self, query: str, *, k: int = 3, keys: set[str] | None = None,
-                   sem: asyncio.Semaphore | None = None, use_entities: bool = True) -> list[Passage]:
+                   sem: asyncio.Semaphore | None = None, use_entities: bool = True,
+                   prefilter: int = PREFILTER) -> list[Passage]:
         """BM25 预筛 + 专名/数字精确匹配补充 → 交叉编码器重排，取前 k 句（重排不可用时保留预筛顺序）。"""
-        found, _ = await self.find_scored(query, k=k, keys=keys, sem=sem, use_entities=use_entities)
+        found, _ = await self.find_scored(query, k=k, keys=keys, sem=sem, use_entities=use_entities,
+                                          prefilter=prefilter)
         return found
 
     async def find_scored(self, query: str, *, k: int = 3, keys: set[str] | None = None,
-                          sem: asyncio.Semaphore | None = None,
-                          use_entities: bool = True) -> tuple[list[Passage], list[float]]:
+                          sem: asyncio.Semaphore | None = None, use_entities: bool = True,
+                          prefilter: int = PREFILTER) -> tuple[list[Passage], list[float]]:
         """同 find，另返回对应的重排分（重排不可用时为空列表）；分数只用于排序与诊断。"""
-        cands = self.bm25(query, PREFILTER, keys)
+        cands = self.bm25(query, prefilter, keys)
         if use_entities:
             seen = {p.pid for p in cands}
             for term in entities(query):

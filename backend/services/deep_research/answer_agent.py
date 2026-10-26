@@ -13,12 +13,15 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import re
 import time
+from collections import defaultdict
 
 from . import answer_writer as aw
 from .evidence_search import EvidenceIndex, fetch_arxiv_full_text, mirror_lookup_titles, mirror_search
+from .reranker import rerank_scores
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,10 @@ MIN_DRAFT_WORDS = 250       # 草稿过短视为截断，重新起草一次（�
 SHORT_FINAL_RATIO = 0.4     # 定稿不足草稿 40% 视为截断或大段删改，带反馈重写
 ATTACH_MIN_CITED_SHARE = 0.5   # 以草稿为准时证据覆盖受检索所限，只防整篇几乎不引
 FETCH_CONCURRENCY = 3
-_FETCH_ORDER = {"named_work": 0, "answer_search": 1, "claim_search": 2, "recall": 3}   # 补全文的先后：点名代表作优先
+_FETCH_ORDER = {"named_work": 0, "question_search": 1, "answer_search": 2, "claim_search": 3, "recall": 4}   # 补全文的先后
+QUESTION_PROBES = 6        # 按问题检索论文：问题本身 + 问题与草稿小标题的组合，共几条
+READ_PREFILTER = 120       # 原文阅读：每条探查进入重排的候选句数（问题级探查需要比逐句查证更宽的预筛）
+READ_PER_PROBE = 10        # 原文阅读：每条探查提名的句数
 
 # 指针写法：[S12]、[S12][S40]，也容忍 [S12, S40] / [S12，S40]
 # 实际流程（explorer 开放问答）使用的配置；评测 rewrite 显式传参做对照实验
@@ -58,7 +64,10 @@ def _length(lang: str) -> str:
     return f"{lo}~{hi} 个英文单词" if lang == "en" else f"{int(lo * 1.8)}~{int(hi * 1.8)} 个汉字"
 
 
-def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DRAFT_TITLES) -> str:
+def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DRAFT_TITLES,
+                  opening: bool = False) -> str:
+    """opening=True：第一段先交代背景（概念界定、重要性与难点）再概括答案——专家细则里约三成的必备项
+    要求“开头先定义/介绍/说明重要性”，直接给结论的开头在这些项上平均只得 0.54（其余必备项 0.80）。"""
     lines = [f"## 问题\n{question}"]
     if titles > 0:
         lines += ["", "## 本次已检索到的部分文献（仅供定位，不要求引用）"]
@@ -68,7 +77,9 @@ def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DR
         "", "## 任务",
         "先凭你的专业知识写一份完整的专家答案草稿，再列出为它查找证据所需的文献与检索式。",
         f"- draft：{_length(lang)} 的 Markdown 答案，用{'英文' if lang == 'en' else '中文'}（与问题一致）。"
-        "先用 1~2 句直接回答；随后分 4~7 段，每段以 **粗体小标题** 开头。写出专家会写的："
+        + ("第一段（不加小标题，3~5 句）先交代背景：界定问题里的核心概念，说明它为什么重要、难在哪里"
+           "（主要挑战、现有做法的局限），最后一句直接概括答案；" if opening else "先用 1~2 句直接回答；")
+        + "随后分 4~7 段，每段以 **粗体小标题** 开头。写出专家会写的："
         "核心概念的定义与重要性、经典与代表性工作（点名方法、模型、数据集、作者与年份）、关键数字与结论、"
         "方法之间的比较与取舍、局限与开放问题。草稿里不写引用编号。",
         f"- works：草稿中点名的代表性论文，给出你确信的准确英文题名与年份（最多 {MAX_WORKS} 篇，不确定的不要列）。",
@@ -104,24 +115,49 @@ def _claims(draft: str) -> list[tuple[str, str]]:
     return out[:MAX_CLAIMS]
 
 
-def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], lang: str,
-                  feedback: str = "", mode: str = "revise") -> str:
+def _passage_groups(passages: list) -> list[str]:
+    """句子按论文分组列出（组内按原文顺序），每组带题名与年份。"""
     papers: dict[str, list] = {}
-    for _, cands in evidence:
-        for p in cands:
-            papers.setdefault(p.key, [])
-            if p not in papers[p.key]:
-                papers[p.key].append(p)
-    lines = [f"## 问题\n{question}", "", "## 草稿（来自你的专业知识）", draft, "",
-             "## 证据库（检索工具从论文原文中找到的句子；[S#] 为指针）"]
+    for p in passages:
+        papers.setdefault(p.key, [])
+        if p not in papers[p.key]:
+            papers[p.key].append(p)
+    lines = []
     for group in papers.values():
         head = group[0]
         lines.append(f"### {aw._clip(head.title, 200)}" + (f" ({head.year})" if head.year else ""))
         lines += [f"[{p.pid}] \"{p.brief()['text']}\"" for p in sorted(group, key=lambda x: x.ordinal)]
+    return lines
+
+
+def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], lang: str,
+                  feedback: str = "", mode: str = "revise", reading: list | None = None) -> str:
+    lines = [f"## 问题\n{question}", "", "## 草稿（来自你的专业知识）", draft, "",
+             "## 证据库（检索工具从论文原文中找到的句子；[S#] 为指针）"]
+    lines += _passage_groups([p for _, cands in evidence for p in cands])
     lines += ["", "## 草稿各句的候选证据"]
     for i, (claim, cands) in enumerate(evidence, 1):
         lines.append(f"{i}. 「{aw._clip(claim, 160)}」→ " + ("、".join(p.pid for p in cands) or "（无）"))
-    if mode == "enrich":
+    if reading:
+        # 原文阅读：按问题本身（而不是按草稿的句子）在已收集的原文里找到的相关句。逐句查证只能找到
+        # “草稿已经写了的内容”的出处，原文里专家会写、而模型没想到的具体信息只能从这里进入答案
+        lines += ["", "## 原文阅读（按问题在已收集论文的原文中检索到、不在上面候选里的句子）"]
+        lines += _passage_groups(reading)
+    if reading and mode in ("attach", "enrich"):
+        rules = [
+            f"- 以草稿为准输出最终答案：保留草稿的结构、段落与每一句的内容；正文可比草稿长（不超过 {aw.MAX_WORDS} 词）；"
+            "不要写参考文献列表。",
+            "- 逐句处理：候选证据支撑该句时，在句末加指针，如 [S12][S40]；证据给出更具体或更准确的信息"
+            "（数字、方法名、数据集、结论）时，可在该句中补充或修正，并加指针。",
+            "- 补充（原文阅读）：逐条看「原文阅读」里的句子，凡与问题直接相关、草稿没有写到的具体信息"
+            "（数据集与基准、方法与系统、定义、关键数字、结论、局限），补成带指针的新句，放进最相关的段落；"
+            "问题直接问到的对象（例如问有哪些数据集、方法、指标）要尽量补全，并写出原文给出的规模、特点或结果。"
+            "只补原文支持的内容，每个新句都要带指针。",
+            "- 证据与草稿矛盾时按证据修正该句；除此之外不要删除草稿内容，也不要把句子改写成对证据的转述；"
+            "没有证据的句子保留原样、不加指针。",
+            "- 只能使用证据库与原文阅读里出现的指针，不得编造；不要自己写引文或摘录（程序会按指针附上原文）。",
+        ]
+    elif mode == "enrich":
         # 以草稿为准挂证据，并把证据库里草稿没写到的重要发现补成带指针的新句（内容更具体、引用比例更高，
         # 新增的每句都有原文支撑）
         rules = [
@@ -238,11 +274,41 @@ def _feedback(check: dict, text: str, invalid: list[str], min_share: float = MIN
     return "\n".join(f"- {p}" for p in problems)
 
 
+async def _read_sources(index: EvidenceIndex, question: str, probes: list[str], exclude: set[str], limit: int,
+                        sem: asyncio.Semaphore) -> tuple[list, dict]:
+    """原文阅读：问题、模型检索式与草稿小标题作探查，各自在证据库中提名相关句；去掉已作为逐句候选
+    出现的句子后，统一按与问题的相关性重排，取前 limit 句。"""
+    found = await asyncio.gather(*(index.find(q, k=READ_PER_PROBE, sem=sem, prefilter=READ_PREFILTER)
+                                   for q in probes))
+    pool, seen = [], set(exclude)
+    for group in found:
+        for p in group:
+            if p.pid not in seen:
+                seen.add(p.pid)
+                pool.append(p)
+    nominated = len(pool)
+    if len(pool) > limit:
+        async with sem:
+            scores = await rerank_scores(question, [f"{p.title}: {p.text}" for p in pool])
+        if scores:
+            order = sorted(range(len(pool)), key=lambda i: -scores[i])
+            pool = [pool[i] for i in order]
+    pool = pool[:limit]
+    return pool, {"probes": len(probes), "nominated": nominated, "shown": len(pool)}
+
+
 async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch) -> dict:
-    """为只有摘要、带 arXiv 编号的论文补全文（只走 arXiv 开放全文），按来源优先级取前 limit 篇。"""
+    """为只有摘要、带 arXiv 编号的论文补全文（只走 arXiv 开放全文），按来源优先级取前 limit 篇：
+    点名代表作与按问题检索到的论文轮流取（前者支撑草稿论断，后者是原文阅读的主要来源），其余按来源先后。"""
     keys = [k for k, m in index.papers.items() if m.get("source") == "abstract" and m.get("arxiv_id")]
-    keys.sort(key=lambda k: _FETCH_ORDER.get(index.papers[k].get("origin"), 9))
-    keys = keys[:limit]
+    by_origin: dict[str, list[str]] = defaultdict(list)
+    for k in keys:
+        by_origin[index.papers[k].get("origin")].append(k)
+    lead = [k for pair in itertools.zip_longest(by_origin["named_work"], by_origin["question_search"])
+            for k in pair if k]
+    rest = sorted((k for k in keys if index.papers[k].get("origin") not in ("named_work", "question_search")),
+                  key=lambda k: _FETCH_ORDER.get(index.papers[k].get("origin"), 9))
+    keys = (lead + rest)[:limit]
     sem = asyncio.Semaphore(FETCH_CONCURRENCY)
 
     async def one(key: str) -> int:
@@ -258,12 +324,18 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               mirror=None, max_attempts: int = 2, fetch_full_text: int = 0,
                               fetch=fetch_arxiv_full_text, draft_titles: int = DRAFT_TITLES,
                               claim_search: int = 0, final_mode: str = "revise", followup: int = 0,
+                              reading: int = 0, question_search: int = 0, opening: bool = False,
                               draft_json: aw.LlmJson | None = None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）。
     draft_titles：起草时展示的召回题名数（0 = 纯凭知识起草）；claim_search>0 时草稿每句再到镜像检索
     若干篇论文；final_mode="attach" 时以草稿为准逐句挂证据，"revise" 时在草稿基础上改写。
     followup>0 时取证据最弱的若干句，由模型写检索式（可给确切题名）再查一轮，然后重新找证据。
+    reading>0 时按问题本身（问题、检索式、草稿小标题）在证据库原文中再取若干句交给模型，
+    让它把草稿没写到、原文里有的具体信息补成带指针的新句。
+    question_search>0 时再用问题本身（及问题 + 草稿小标题）到镜像检索论文，每条取若干篇——
+    检索式与逐句查证都由草稿出发，专家引用的“直接回答这个问题的近期研究”只能这样找到。
+    opening=True 时草稿第一段先交代背景（概念界定、重要性与难点）。
     draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
@@ -278,7 +350,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     data, draft = None, ""
     for draft_try in range(2):
         try:
-            data = await (draft_json or llm_json)(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang, draft_titles))
+            data = await (draft_json or llm_json)(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang, draft_titles,
+                                                                               opening))
         except Exception as exc:  # noqa: BLE001
             logger.warning("answer agent draft failed: %s", exc)
             return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": 0,
@@ -311,6 +384,15 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
             if index.add_paper(p, origin="named_work"):
                 audit["works_found"] += 1
                 budget -= 1
+        if question_search > 0:
+            headings = list(dict.fromkeys(h for h, _ in _claims(draft) if h))
+            probes = [question, *(f"{question} {h}" for h in headings[:QUESTION_PROBES - 1])]
+            try:
+                q_found = await mirror_search(probes, mirror, per_query=question_search)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("answer agent question search failed: %s", exc)
+                q_found = []
+            audit["question_search_added"] = sum(1 for p in q_found if index.add_paper(p, origin="question_search"))
         try:
             searched = await mirror_search(queries, mirror, per_query=SEARCH_PER_QUERY) if queries else []
         except Exception as exc:  # noqa: BLE001
@@ -379,13 +461,20 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     evidence = [(c, f) for (_, c), f in zip(claims, found_lists)]
     audit.update(claims=len(claims), passages=len(index), papers=len(index.papers),
                  claims_with_evidence=sum(bool(f) for _, f in evidence))
+    reading_passages: list = []
+    if reading > 0 and len(index):
+        headings = list(dict.fromkeys(h for h, _ in claims if h))
+        probes = [question, *queries, *(f"{question} — {h}" for h in headings)]
+        shown = {p.pid for f in found_lists for p in f}
+        reading_passages, audit["reading"] = await _read_sources(index, question, probes, shown, reading, sem)
     timing["evidence"] = round(time.monotonic() - t2, 1)
 
     t3 = time.monotonic()
     feedback, check, refs, text, attempts, raw = "", None, [], "", 0, ""
     for attempts in range(1, max_attempts + 1):
         try:
-            data = await llm_json(_WRITE_SYSTEM, _write_prompt(question, draft, evidence, lang, feedback, final_mode))
+            data = await llm_json(_WRITE_SYSTEM, _write_prompt(question, draft, evidence, lang, feedback, final_mode,
+                                                               reading_passages))
         except Exception as exc:  # noqa: BLE001
             logger.warning("answer agent write failed: %s", exc)
             if check is None and attempts == max_attempts:
@@ -411,6 +500,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": attempts,
                 "check": None, "error": "empty_answer", "agent": {**audit, "timing": timing}}
     text, audit["inline_quotes"] = verify_inline_quotes(check.pop("text"), index)
+    if reading_passages:
+        used = {d for g in _POINTER_GROUP.findall(raw) for d in re.findall(r"\d+", g)}
+        audit["reading"]["cited"] = sum(1 for p in reading_passages if p.pid[1:] in used)
     by_origin: dict[str, int] = {}
     for r in refs:
         by_origin[r["origin"]] = by_origin.get(r["origin"], 0) + 1

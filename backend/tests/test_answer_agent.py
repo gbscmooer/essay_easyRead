@@ -270,3 +270,66 @@ def test_same_paper_from_recall_and_mirror_is_indexed_once():
                           "abstract": "Type4Py is a deep similarity learning model for type inference."})
     assert idx.add_paper({"key": "arxiv:2101.00001", "arxiv_id": "2101.00001", "title": "Type4Py: Practical",
                           "abstract": "Type4Py is a deep similarity learning model for type inference."}) == 0
+
+
+def _no_rerank_anywhere(monkeypatch):
+    async def none(query, documents):
+        return None
+    monkeypatch.setattr(es, "rerank_scores", none)
+    monkeypatch.setattr(ag, "rerank_scores", none)
+
+
+def test_reading_shows_question_relevant_passages_beyond_claim_candidates(monkeypatch):
+    """原文阅读：按问题检索到、但不在逐句候选里的原文句交给模型补充；模型引用了几句记入审计。"""
+    _no_rerank_anywhere(monkeypatch)
+    prompts = []
+    papers = _PAPERS[:2] + [{
+        "key": "d", "title": "Typilus: Neural Type Hints", "year": 2020,
+        "abstract": "Typilus is accompanied by a dataset that contains 600 Python projects. "
+                    "Raychev et al. published the Python-150K dataset, which contains 8,422 Python projects."}]
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        if len(prompts) == 1:
+            return {"draft": "**Datasets.** TypeEvalPy is a micro-benchmark with 154 snippets.", "works": [],
+                    "queries": ["Python type inference dataset projects"]}
+        return {"answer": "**Datasets.** TypeEvalPy is a micro-benchmark with 154 snippets [S2]. "
+                          "Python-150K contains 8,422 Python projects [S8]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets are used to evaluate Python type inference?", papers,
+                                             llm_json=llm_json, mirror=None, final_mode="attach", reading=4))
+    write_prompt = prompts[1]
+    assert "## 原文阅读" in write_prompt and "补充（原文阅读）" in write_prompt
+    reading_block = write_prompt.split("## 原文阅读", 1)[1].split("## 写作要求", 1)[0]
+    candidates = write_prompt.split("## 草稿各句的候选证据", 1)[1].split("## 原文阅读", 1)[0]
+    shown = {pid for pid in __import__("re").findall(r"\[(S\d+)\]", reading_block)}
+    assert shown and not shown & set(__import__("re").findall(r"S\d+", candidates))   # 不重复逐句候选
+    assert "S8" in shown and out["agent"]["reading"]["cited"] == 1 and out["agent"]["reading"]["shown"] == 4
+
+
+def test_question_search_adds_papers_and_full_text_alternates_with_named_works(monkeypatch):
+    _no_rerank_anywhere(monkeypatch)
+    fetched = []
+
+    async def fake_fetch(arxiv_id):
+        fetched.append(arxiv_id)
+        return ""
+
+    async def llm_json(system, user):
+        if "## 任务" in user:
+            return {"draft": "**Tools.** Type4Py reaches an MRR of 77.1%.",
+                    "works": [{"title": "Type4Py: Practical Deep Similarity Learning-Based Type Inference"}],
+                    "queries": ["type inference tools"]}
+        return {"answer": "**Tools.** Type4Py reaches an MRR of 77.1% [S1]."}
+
+    out = asyncio.run(ag.write_with_pointers("How are Python type checkers evaluated?", [], llm_json=llm_json,
+                                             mirror=_FakeMirror(), final_mode="attach", question_search=2,
+                                             fetch_full_text=2, fetch=fake_fetch))
+    assert out["agent"]["question_search_added"] == 1 and out["agent"]["search_added"] == 0   # 同一篇只收一次
+    assert fetched == ["2401.00001", "2402.00002"]           # 点名代表作与按问题检索的论文轮流补全文
+
+
+def test_opening_draft_prompt_asks_for_background_first():
+    with_opening = ag._draft_prompt("What is RMQ?", [], "en", 0, opening=True)
+    assert "先交代背景" in with_opening and "先用 1~2 句直接回答" not in with_opening
+    assert "先用 1~2 句直接回答" in ag._draft_prompt("What is RMQ?", [], "en", 0)
