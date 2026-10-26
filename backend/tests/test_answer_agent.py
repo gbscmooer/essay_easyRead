@@ -329,6 +329,97 @@ def test_question_search_adds_papers_and_full_text_alternates_with_named_works(m
     assert fetched == ["2401.00001", "2402.00002"]           # 点名代表作与按问题检索的论文轮流补全文
 
 
+_BODY = [f"Section {i} explains how the {w} programs were compiled with the Microsoft C compiler and labeled with types."
+         for i, w in enumerate(["open-source", "synthetic", "instrumented", "balanced", "real", "generated"])]
+_TABLE_TEXT = ("\n".join(_BODY[:3]) + "\nProject\nFunctions\nLoC\narcadia\n121\n3,590\nbgrep\n5\n252\njansson\n176\n7,020\n"
+               "a https://github.com/kimtg/arcadia\nTable 3: Open-source C projects used.\n"
+               "Table 3 shows the different open source C projects we used to create the dataset of decompiled code.\n"
+               + "\n".join(_BODY[3:]) + "\n")
+
+
+def _table_index():
+    idx = es.EvidenceIndex(tables=True)
+    idx.add_paper({"key": "e", "title": "Improving type information inferred by decompilers", "year": 2021,
+                   "abstract": "We improve the type information inferred by decompilers with machine learning."})
+    idx.add_full_text("e", _TABLE_TEXT)
+    return idx
+
+
+def test_full_text_tables_become_passages_linked_from_mentions():
+    """表格在切句时会被当作碎片丢掉：按表题取一侧的短行拼成表格块，正文提到 Table N 时能找到它。"""
+    blocks = es.table_blocks(_TABLE_TEXT)
+    assert [no for no, _ in blocks] == ["3"]
+    assert blocks[0][1].startswith("Table 3: Open-source C projects used. — Project | Functions")
+    assert "arcadia | 121 | 3,590" in blocks[0][1] and "https://github.com/kimtg/arcadia" in blocks[0][1]
+    idx = _table_index()
+    table = [p for p in idx.passages if p.table]
+    mention = next(p for p in idx.passages if p.text.startswith("Table 3 shows"))
+    assert len(table) == 1 and table[0].table == "3" and idx.tables_mentioned(mention) == table
+    assert idx.tables_mentioned(table[0]) == []
+    plain = es.EvidenceIndex()                       # 默认不收表格：现行作答的证据库与之前一致
+    plain.add_paper({"key": "e", "title": "x paper", "abstract": "We improve the type information of decompilers."})
+    plain.add_full_text("e", _TABLE_TEXT)
+    assert not any(p.table for p in plain.passages)
+
+
+def test_paper_reading_model_picks_passages_whole_tables_and_falls_back_to_rerank(monkeypatch):
+    idx = _table_index()
+
+    async def scores(query, documents):
+        return [float(i % 3) for i in range(len(documents))]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    table = next(p for p in idx.passages if p.table)
+    sent = next(p for p in idx.passages if "instrumented programs" in p.text)
+    prompts = []
+
+    async def reader(system, user):
+        prompts.append((system, user))
+        return {"picks": [{"pid": table.pid, "note": "Projects used: arcadia, bgrep, jansson."},
+                          {"pid": sent.pid, "note": "Instrumented programs compiled with MSVC."},
+                          {"pid": "S999", "note": "not shown to the reader"}]}
+
+    out, stats, notes = asyncio.run(ag._read_papers(idx, "Which datasets?", 6, asyncio.Semaphore(2), reader))
+    assert prompts[0][0] == ag._READ_SYSTEM and "### 表格" in prompts[0][1] and f"[{table.pid}]" in prompts[0][1]
+    assert {p.pid for p in out} == {table.pid, sent.pid}
+    assert set(notes) == {table.pid, sent.pid} and stats["picked"] == 2 and stats["tables"] == 1
+
+    async def broken(system, user):
+        raise RuntimeError("model down")
+
+    out, stats, notes = asyncio.run(ag._read_papers(idx, "Which datasets?", 1, asyncio.Semaphore(2), broken))
+    assert stats["fallback"] == 1 and not notes and 1 <= len(out) <= ag.PAPER_WINDOW + ag.PAPER_TABLE_LINKS
+
+
+def test_write_with_pointers_paper_reading_records_shown_and_cited(monkeypatch):
+    """精读的原文交给定稿；审计记录送到模型面前的指针与定稿引用的指针，区分“没送到”与“送到没用”。"""
+    _no_rerank(monkeypatch)
+
+    async def scores(query, documents):
+        return [1.0 if "Table 3" in d else 0.0 for d in documents]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    paper = {"key": "e", "title": "Improving type information inferred by decompilers", "year": 2021,
+             "source_text": _TABLE_TEXT * 6}
+    calls = []
+
+    async def llm_json(system, user):
+        calls.append(system)
+        if system == ag._DRAFT_SYSTEM:
+            return {"draft": "**Datasets.** Decompiler studies compile open-source C programs.", "works": [],
+                    "queries": []}
+        if system == ag._READ_SYSTEM:
+            pid = __import__("re").search(r"\[(S\d+)\] Table 3: Open-source", user).group(1)
+            return {"picks": [{"pid": pid, "note": "arcadia, bgrep and jansson"}]}
+        pid = __import__("re").search(r"\[(S\d+)\] \"Table 3: Open-source", user).group(1)
+        return {"answer": f"**Datasets.** Decompiler studies compile open-source C programs such as arcadia [{pid}]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
+                                             final_mode="attach", paper_reading=2))
+    pr, shown = out["agent"]["paper_reading"], out["agent"]["shown"]
+    assert calls.count(ag._READ_SYSTEM) == 1 and pr["picked"] == 1 and pr["cited"] == 1
+    assert shown["paper_reading"] and set(shown["paper_reading"]) & set(out["agent"]["cited_pids"])
+    assert "arcadia" in out["references"][0]["excerpts"][0]
+
+
 def test_opening_draft_prompt_asks_for_background_first():
     with_opening = ag._draft_prompt("What is RMQ?", [], "en", 0, opening=True)
     assert "先交代背景" in with_opening and "先用 1~2 句直接回答" not in with_opening

@@ -622,9 +622,24 @@ async def run_agent(args) -> Path:
                 **({"reading": args.reading} if args.reading is not None else {}),
                 **({"question_search": args.question_search} if args.question_search is not None else {}),
                 **({"opening": True} if args.opening else {}),
+                **({"paper_reading": args.paper_reading} if args.paper_reading is not None else {}),
+                **({"paper_reader": args.paper_reader} if args.paper_reader else {}),
                 **({"fetch_full_text": args.fetch} if args.fetch is not None else {})}
+    # --draft-from：沿用另一次运行保存的草稿（含 works/queries），只重跑检索与定稿——
+    # 固定草稿后，两次运行的差别只来自证据环节与定稿，不混入起草的波动
+    fixed: dict[str, dict[int, dict]] = {}
+    if args.draft_from:
+        for r in json.loads(Path(args.draft_from).read_text(encoding="utf-8"))["records"]:
+            saved = (r.get("system") or {}).get("saved")
+            if not saved or not Path(saved).exists():
+                continue
+            a = json.loads(Path(saved).read_text(encoding="utf-8"))["result"]["answer"]
+            if a.get("draft"):
+                fixed.setdefault(r["question"], {})[r.get("rep", 0)] = {
+                    "draft": a["draft"], "works": [{"title": w} for w in (a.get("agent") or {}).get("works") or []],
+                    "queries": (a.get("agent") or {}).get("queries") or []}
     meta = {"depth": "agent", "seed": args.seed, "n": len(numbered), "exclude_seed": args.exclude_seed,
-            "pick": args.pick or None, "repeat": max(1, args.repeat),
+            "pick": args.pick or None, "repeat": max(1, args.repeat), "draft_from": args.draft_from or None,
             "system_model": system_cfg.get("model"), "judge_model": args.judge_model, "started": stamp,
             "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
             "agent_only": True, "agent": settings, "provenance": ledger.provenance(out)}
@@ -639,7 +654,17 @@ async def run_agent(args) -> Path:
         scope = QuotaWatch.scope()
         t0 = time.monotonic()
         try:
-            answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror, **settings)
+            draft_json = None
+            if args.draft_from:
+                drafts = fixed.get(case["question"]) or {}
+                stored = drafts.get(rep) or drafts.get(0)
+                if stored is None:
+                    raise RuntimeError("--draft-from 里没有这道题的草稿")
+
+                async def draft_json(system: str, user: str, stored=stored) -> dict:
+                    return stored
+            answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror,
+                                               draft_json=draft_json, **settings)
             response = render_answer(answer)
             save = runs_dir / (f"q{i:03d}.json" if args.repeat <= 1 else f"q{i:03d}_r{rep}.json")
             save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
@@ -758,6 +783,10 @@ def main() -> None:
     ag.add_argument("--reading", type=int, default=None, help="原文阅读：按问题从证据库再取几句交给模型补充（0 关）")
     ag.add_argument("--question-search", type=int, default=None, help="按问题到镜像检索论文，每条探查取几篇（0 关）")
     ag.add_argument("--opening", action="store_true", help="草稿第一段先交代背景（概念界定、重要性与难点）")
+    ag.add_argument("--paper-reading", type=int, default=None, help="精读：已下载全文的论文每篇最多取几处（0 关）")
+    ag.add_argument("--paper-reader", choices=("llm", "rerank"), default="",
+                    help="精读方式：llm 由模型从重排前几段与全部表题里挑选（默认），rerank 直接取重排前几段")
+    ag.add_argument("--draft-from", default="", help="沿用这次评测结果里保存的草稿，只重跑检索与定稿（固定草稿对照）")
     ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
     ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")
     ag.add_argument("--repeat", type=int, default=1, help="每题重复几次（估计同配置的波动）")

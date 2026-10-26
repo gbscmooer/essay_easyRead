@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from .quote_finder import FULL_TEXT_MIN_CHARS, split_sentences
+from .quote_finder import _PAGE, _REFS_HEAD, FULL_TEXT_MIN_CHARS, split_sentences
 from .reranker import rerank_scores
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,9 @@ PREFILTER = 40                 # 每次检索进入重排的候选句数
 GREP_PER_TERM = 8              # 每个名称/数字精确匹配补充的候选句数
 RERANK_CONCURRENCY = 8
 TITLE_MATCH_RATIO = 0.85       # 模型给出的题名与镜像题名视为同一篇的词序相似度下限（身份核对）
+TABLE_MIN_CELLS = 6            # 表题旁至少这么多行短行才当作表格
+TABLE_BLOCK_CHARS = 600        # 每个表格块的字符上限（大表切成几块，每块都带表题）
+TABLE_MAX_BLOCKS = 3           # 每张表最多几块
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = frozenset("a an and are as at be by for from has have in into is it its of on or that the their "
@@ -57,6 +60,73 @@ def title_key(title: str) -> str:
     return " ".join(_TOKEN.findall((title or "").lower()))
 
 
+_CAPTION = re.compile(r"^(?:table|tab\.)\s*([0-9]+|[ivxl]+)\s*[.:|]\s*\S", re.IGNORECASE)
+_TABLE_MENTION = re.compile(r"\b(?:table|tab\.)\s*([0-9]+|[IVXL]+)\b", re.IGNORECASE)
+_URL_LINE = re.compile(r"^(?:[a-z\d*†‡§]\s*)?https?://\S+$", re.IGNORECASE)
+
+
+def table_blocks(text: str) -> list[tuple[str, str]]:
+    """全文里的表格 → [(表号, 表格块文本)]。PDF 抽出的表格是一串短行（每格一行），切句时会被当作
+    碎片丢掉，而论文自建数据集的组成、来源项目、规模与结果常常只写在表里。按表题（Table N:）定位，
+    取表题一侧连续的短行（含表注里的网址）拼成“表题 — 格 | 格 | …”；表题在表上方还是下方按整篇
+    论文的多数排版统一取一侧，避免把相邻表格的内容配到错的表题下。"""
+    text = str(text or "")
+    heads = list(_REFS_HEAD.finditer(text))
+    if heads and heads[-1].start() > len(text) * 0.3:
+        text = text[:heads[-1].start()]
+    lines = [ln.strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln and not _PAGE.fullmatch(ln)]
+    widths = sorted(len(ln) for ln in lines if len(ln) > 20)
+    full = widths[len(widths) // 2] if widths else 80
+
+    def cell(ln: str) -> bool:
+        return (len(ln) < 0.75 * full or bool(_URL_LINE.match(ln))) and not _CAPTION.match(ln)
+
+    found = []
+    for i, ln in enumerate(lines):
+        m = _CAPTION.match(ln)
+        if not m:
+            continue
+        cap, j = ln, i + 1
+        while j < len(lines) and not re.search(r"[.:]$", cap) and len(cap) < 300 and not cell(lines[j]):
+            cap += " " + lines[j]
+            j += 1
+        k, before = i - 1, []
+        while k >= 0 and cell(lines[k]):
+            before.append(lines[k])
+            k -= 1
+        k, after = j, []
+        while k < len(lines) and cell(lines[k]):
+            after.append(lines[k])
+            k += 1
+        found.append((m.group(1).upper(), cap, before[::-1], after))
+    below = sum(len(b) > len(a) for _, _, b, a in found) > len(found) / 2   # 表题在表下方的论文
+    out = []
+    for no, cap, before, after in found:
+        cells = before if below else after
+        if len(cells) < TABLE_MIN_CELLS:
+            continue
+        head = f"{cap.rstrip()} —"
+        blocks, cur = [], head
+        for c in cells:
+            if len(cur) + len(c) + 3 > TABLE_BLOCK_CHARS and cur != head:
+                blocks.append(cur)
+                cur = head
+                if len(blocks) == TABLE_MAX_BLOCKS:
+                    break
+            cur += (" " if cur == head else " | ") + c
+        if cur != head and len(blocks) < TABLE_MAX_BLOCKS:
+            blocks.append(cur)
+        out += [(no, b) for b in blocks]
+    return out
+
+
+def _full_text_units(text: str, tables: bool = True) -> list[tuple[str, str]]:
+    """全文 → [(文本, 表号)]：正文句在前（表号为空），tables=True 时表格块接在后面。"""
+    units = [(s, "") for s in split_sentences(text)]
+    return units + [(b, no) for no, b in table_blocks(text)] if tables else units
+
+
 @dataclass(frozen=True)
 class Passage:
     pid: str
@@ -66,6 +136,7 @@ class Passage:
     text: str
     source: str        # full_text | abstract
     ordinal: int       # 在该论文句子序列中的位置（read 取前后文用）
+    table: str = ""    # 表格块的表号（正文句为空）
 
     def brief(self, limit: int = 420) -> dict:
         return {"pid": self.pid, "title": self.title, "year": self.year, "source": self.source,
@@ -73,9 +144,11 @@ class Passage:
 
 
 class EvidenceIndex:
-    """一次作答的证据库：收入论文 → 句子指针；BM25 倒排索引支持增量收入。"""
+    """一次作答的证据库：收入论文 → 句子指针；BM25 倒排索引支持增量收入。
+    tables=True 时全文里的表格也按块收入（精读用；默认关，现行作答的证据库与之前一致）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, tables: bool = False) -> None:
+        self.tables = tables
         self.passages: list[Passage] = []
         self.papers: dict[str, dict] = {}
         self.by_key: dict[str, list[int]] = defaultdict(list)
@@ -104,10 +177,10 @@ class EvidenceIndex:
             return 0
         full = str(paper.get("source_text") or "")
         if len(full) >= FULL_TEXT_MIN_CHARS:
-            sentences, source = split_sentences(full), "full_text"
+            units, source = _full_text_units(full, self.tables), "full_text"
         else:
-            sentences, source = split_sentences(paper.get("abstract") or ""), "abstract"
-        if not sentences:
+            units, source = [(s, "") for s in split_sentences(paper.get("abstract") or "")], "abstract"
+        if not units:
             return 0
         self.papers[key] = {k: paper.get(k) for k in ("key", "title", "year", "doi", "arxiv_id", "authors")}
         self.papers[key]["origin"] = origin
@@ -115,42 +188,41 @@ class EvidenceIndex:
         if tkey:
             self._titles[tkey] = key
         self._ids |= ids
-        title = str(paper.get("title") or "")
+        self._append(key, str(paper.get("title") or ""), paper.get("year"), units, source)
+        return len(units)
+
+    def add_full_text(self, key: str, text: str) -> int:
+        """为已收入（只有摘要）的论文补全文句子与表格块；已有指针不变，新句接在后面编号。"""
+        if key not in self.papers or self.papers[key].get("source") == "full_text":
+            return 0
+        meta = self.papers[key]
+        have = {self.passages[i].text.casefold() for i in self.by_key[key]}
+        units = [(s, t) for s, t in _full_text_units(text, self.tables) if s.casefold() not in have]
+        if not units:
+            return 0
+        meta["source"] = "full_text"
+        self._append(key, meta.get("title") or "", meta.get("year"), units, "full_text")
+        return len(units)
+
+    def _append(self, key: str, title: str, year, units: list[tuple[str, str]], source: str) -> None:
         title_tokens = tokens(title)
-        for ordinal, text in enumerate(sentences):
+        start = len(self.by_key[key])
+        for offset, (text, table) in enumerate(units):
             idx = len(self.passages)
-            self.passages.append(Passage(f"S{idx + 1}", key, title, paper.get("year"), text, source, ordinal))
+            self.passages.append(Passage(f"S{idx + 1}", key, title, year, text, source, start + offset, table))
             self.by_key[key].append(idx)
             doc = tokens(text) + title_tokens   # 题名词并入每句：点名某篇论文的陈述能命中该文的句子
             for term, tf in Counter(doc).items():
                 self._post[term].append((idx, tf))
             self._len.append(len(doc))
             self._total_len += len(doc)
-        return len(sentences)
 
-    def add_full_text(self, key: str, text: str) -> int:
-        """为已收入（只有摘要）的论文补全文句子；已有指针不变，新句接在后面编号。"""
-        if key not in self.papers or self.papers[key].get("source") == "full_text":
-            return 0
-        meta = self.papers[key]
-        have = {self.passages[i].text.casefold() for i in self.by_key[key]}
-        sentences = [s for s in split_sentences(text) if s.casefold() not in have]
-        if not sentences:
-            return 0
-        meta["source"] = "full_text"
-        title_tokens = tokens(meta.get("title") or "")
-        start = len(self.by_key[key])
-        for offset, sentence in enumerate(sentences):
-            idx = len(self.passages)
-            self.passages.append(Passage(f"S{idx + 1}", key, meta.get("title") or "", meta.get("year"), sentence,
-                                         "full_text", start + offset))
-            self.by_key[key].append(idx)
-            doc = tokens(sentence) + title_tokens
-            for term, tf in Counter(doc).items():
-                self._post[term].append((idx, tf))
-            self._len.append(len(doc))
-            self._total_len += len(doc)
-        return len(sentences)
+    def tables_mentioned(self, passage: Passage) -> list[Passage]:
+        """句中提到的本文表格（Table 3 / Table III）对应的表格块。"""
+        nos = {m.upper() for m in _TABLE_MENTION.findall(passage.text)}
+        if not nos or passage.table:
+            return []
+        return [self.passages[i] for i in self.by_key[passage.key] if self.passages[i].table in nos]
 
     def get(self, pid: str) -> Passage | None:
         m = re.fullmatch(r"S(\d+)", str(pid).strip())
