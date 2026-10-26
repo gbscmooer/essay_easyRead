@@ -8,7 +8,8 @@ import hashlib
 import os
 import time
 import weakref
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -142,6 +143,16 @@ def start_token_ledger() -> dict:
 def set_llm_stage(stage: str) -> None:
     """标记后续调用归属的工作流阶段（空串表示未标注）。"""
     _stage_var.set(str(stage or ""))
+
+
+@contextmanager
+def llm_stage(stage: str) -> Iterator[None]:
+    """块内的调用记到 stage 名下，退出时恢复调用方原来的阶段（流程内部的细分标注不串到外层）。"""
+    token = _stage_var.set(str(stage or ""))
+    try:
+        yield
+    finally:
+        _stage_var.reset(token)
 
 
 def set_llm_scope(category: str, run_id: str | None = None, *,

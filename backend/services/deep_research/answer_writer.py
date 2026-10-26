@@ -258,8 +258,9 @@ def _count_words(text: str, lang: str) -> int:
     return len(clean.split())
 
 
-def check_answer(text: str, materials: list[dict], lang: str, *, min_share: float = MIN_CITED_SHARE) -> dict:
-    """确定性验收：剔除不存在的编号，统计句子引用率与篇幅。"""
+def check_answer(text: str, materials: list[dict], lang: str, *, min_share: float = MIN_CITED_SHARE,
+                 max_words: int = MAX_WORDS) -> dict:
+    """确定性验收：剔除不存在的编号，统计句子引用率与篇幅（max_words：篇幅上限，补写了题目所问对象的答案按补写放宽）。"""
     valid = {m["n"] for m in materials}
     invalid: list[int] = []
 
@@ -281,8 +282,8 @@ def check_answer(text: str, materials: list[dict], lang: str, *, min_share: floa
         uncited = [s for s in sentences if not _CITE.search(s)][:3]
         problems.append(f"有 {len(sentences) - len(cited)}/{len(sentences)} 句事实陈述没有 [n] 引用，"
                         "每句句末都要标注，如：" + "；".join(f"「{_clip(s, 60)}」" for s in uncited))
-    if words > MAX_WORDS:
-        problems.append(f"正文约 {words} 词，超过上限 {MAX_WORDS}，请压缩到 {TARGET_WORDS[1]} 词以内。")
+    if words > max_words:
+        problems.append(f"正文约 {words} 词，超过上限 {max_words}，请压缩到 {TARGET_WORDS[1]} 词以内。")
     if invalid:
         problems.append(f"引用了不存在的编号 {sorted(set(invalid))}，只能使用材料给出的编号。")
     return {"text": cleaned, "sentences": len(sentences), "cited_share": round(share, 3), "words": words,

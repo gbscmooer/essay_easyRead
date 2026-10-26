@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import patch
 
 from backend.services.llm import (
-    LLMResponse, set_llm_stage, start_token_ledger, token_ledger_report,
+    LLMResponse, llm_stage, set_llm_stage, start_token_ledger, token_ledger_report,
 )
 from backend.services.llm import client as llm_client
 
@@ -64,6 +64,28 @@ def test_ledger_accepts_anthropic_usage_keys():
     report = token_ledger_report(ledger)
     assert report["report"]["input_tokens"] == 7
     assert report["total"]["output_tokens"] == 3
+
+
+def test_llm_stage_labels_calls_inside_the_block_and_restores_the_outer_stage():
+    # 流程内部的细分标注（如作答的精读/定稿）只记块内的调用，块外仍记到调用方的阶段
+    ledger = start_token_ledger()
+    cfg = {"api_format": "openai_chat", "api_key": "k", "base_url": "https://x", "model": "m"}
+
+    class _Stub:
+        async def complete_once(self, *a, **k):
+            return _resp("a", {"prompt_tokens": 10, "completion_tokens": 2})
+
+    async def flow():
+        await llm_client.complete(cfg, system="s", user="u", max_tokens=10)
+        with llm_stage("answer_write"):
+            await llm_client.complete(cfg, system="s", user="u", max_tokens=10)
+        await llm_client.complete(cfg, system="s", user="u", max_tokens=10)
+
+    with patch.object(llm_client, "get_adapter", lambda fmt: _Stub()):
+        set_llm_stage("synthesis")
+        asyncio.run(flow())
+    report = token_ledger_report(ledger)
+    assert report["synthesis"]["calls"] == 2 and report["answer_write"]["calls"] == 1
 
 
 def test_no_ledger_active_is_zero_overhead():

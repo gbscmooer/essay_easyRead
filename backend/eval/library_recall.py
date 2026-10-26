@@ -8,10 +8,14 @@
   v0  只按草稿逐句找证据（现行推荐配置的证据环节）
   v1  v0 + 原文阅读（按问题从证据库取若干句）
   v2  v1 + 逐篇精读（全文论文按题名与摘要和问题的相关性取前 K 篇，每篇由模型挑最多 N 处，含表格）
+  v3  v0 + 逐篇精读（不做原文阅读；E16：开精读时原文阅读没有独有的送达）
+  精读的两个开关对 v2/v3 生效：--paper-notes on|off（挑选时是否写要点）、--missing-fix supplement|rewrite
+  （定稿漏写清单对象时只补句还是整篇重写）
 指标：
   送达召回  标准数据集里有原文送到定稿模型面前的比例；另算“论文 × 数据集”用法、相关论文两个口径
   答案召回  定稿正文写出的标准数据集比例；写出的数据集里虚假特征写对的比例（关键词核对，原句另存供人工复核）
   草稿召回  只凭模型知识起草的草稿写出的比例（对照：不用任何工具能写出多少）
+  用量      每组配置按阶段记模型调用次数、输入（其中缓存命中）与输出 token（草稿固定时起草不计）
 用法：
   python -m backend.eval.library_recall --variants v0,v1,v2 --write v2
   python -m backend.eval.library_recall --draft-from data/eval/library_recall_<stamp>.json ...   # 复用草稿
@@ -119,7 +123,10 @@ def mentions(text: str, datasets: list[dict]) -> dict:
 VARIANTS = {
     "v0": {},
     "v1": {"reading": "READING"},
-    "v2": {"reading": "READING", "paper_reading": "PAPER_READING", "paper_reading_papers": "READ_PAPERS"},
+    "v2": {"reading": "READING", "paper_reading": "PAPER_READING", "paper_reading_papers": "READ_PAPERS",
+           "paper_notes": "NOTES", "missing_fix": "FIX"},
+    "v3": {"paper_reading": "PAPER_READING", "paper_reading_papers": "READ_PAPERS", "paper_notes": "NOTES",
+           "missing_fix": "FIX"},
 }
 
 
@@ -128,6 +135,7 @@ async def run(args) -> Path:
     from backend.services.deep_research import answer_agent as ag
     from backend.services.deep_research.domain_synthesizer import _llm_json
     from backend.services.deep_research.evidence_search import EvidenceIndex
+    from backend.services.llm import start_token_ledger, token_ledger_report
 
     gt = json.loads(Path(args.gt).read_text(encoding="utf-8"))
     datasets, dups = compile_gt(gt), gt.get("duplicates") or {}
@@ -157,7 +165,8 @@ async def run(args) -> Path:
     async def draft_json(system: str, user: str) -> dict:
         return stored
 
-    knobs = {"READING": args.reading, "PAPER_READING": args.paper_reading, "READ_PAPERS": args.read_papers}
+    knobs = {"READING": args.reading, "PAPER_READING": args.paper_reading, "READ_PAPERS": args.read_papers,
+             "NOTES": args.paper_notes == "on", "FIX": args.missing_fix}
     write = set(filter(None, args.write.split(",")))
     results = {}
     for name in filter(None, args.variants.split(",")):
@@ -175,6 +184,7 @@ async def run(args) -> Path:
             return await model(system, user)
 
         t0 = time.monotonic()
+        tokens = start_token_ledger()      # 按阶段记这组配置的模型用量（起草固定、不计）
         real, ag.EvidenceIndex = ag.EvidenceIndex, Spy
         try:
             answer = await ag.write_with_pointers(question, papers, llm_json=routed, draft_json=draft_json, mirror=None,
@@ -184,13 +194,13 @@ async def run(args) -> Path:
             ag.EvidenceIndex = real
         audit, index = answer.get("agent") or {}, created[-1]
         shown = audit.get("shown") or {}
-        rec = {"settings": settings, "wall_s": round(time.monotonic() - t0, 1),
+        rec = {"settings": settings, "wall_s": round(time.monotonic() - t0, 1), "tokens": token_ledger_report(tokens),
                "delivery": delivery(index, [p for ch in ("claim", "paper_reading", "reading") for p in shown.get(ch, [])],
                                     datasets, relevant, dups),
                "by_channel": {ch: delivery(index, shown.get(ch, []), datasets, relevant, dups)["dataset_recall"]
                               for ch in ("claim", "paper_reading", "reading")},
                "audit": {k: audit.get(k) for k in ("claims", "passages", "papers", "paper_reading", "reading", "timing",
-                                                    "cited_papers", "inventory")}}
+                                                    "cited_papers", "inventory", "supplement", "write_problems")}}
         # 送到模型面前的原句全文存档：标准答案修订后可 --rescore 离线重算，不必重跑模型
         rec["shown"] = {ch: shown.get(ch, []) for ch in ("claim", "paper_reading", "reading")}
         rec["shown_passages"] = [{"pid": p.pid, "paper": _paper_id(p.key, {}), "text": p.text}
@@ -221,7 +231,9 @@ async def run(args) -> Path:
               + (f"\n      答案：数据集 {rec['answer']['dataset_recall']}（核心 {rec['answer']['core_recall']}），"
                  f"特征写对 {rec['answer']['attribute_ok']}；未写 {rec['answer']['missed']}" if "answer" in rec else "")
               + (f"\n      精读选文召回 {rec['selection_recall']}，漏选 {rec['selection_missed']}"
-                 if "selection_recall" in rec else "") + f"（{rec['wall_s']} 秒）", flush=True)
+                 if "selection_recall" in rec else "") + f"（{rec['wall_s']} 秒）"
+              + "\n      用量：" + "；".join(f"{k} {v['calls']} 次 输入 {v['input_tokens']}（缓存 {v['cached_input_tokens']}）"
+                                    f" 输出 {v['output_tokens']}" for k, v in rec["tokens"].items()), flush=True)
     draft_m = mentions(stored["draft"], datasets)
     meta = {"started": stamp, "label": args.label, "question": question, "gt": str(args.gt), "library_papers": len(papers),
             "system_model": cfg.get("model"), "draft_from": args.draft_from or None,
@@ -230,7 +242,7 @@ async def run(args) -> Path:
                **{n: {"delivery": {k: r["delivery"][k] for k in ("dataset_recall", "core_recall", "pair_recall",
                                                                  "paper_recall")},
                       **({"answer": {k: r["answer"][k] for k in ("dataset_recall", "core_recall", "attribute_ok")}}
-                         if "answer" in r else {})} for n, r in results.items()}}
+                         if "answer" in r else {}), "tokens": r["tokens"]["total"]} for n, r in results.items()}}
     report = {"meta": meta, "summary": summary, "draft": stored, "draft_mentions": draft_m, "variants": results}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     lines = [f"题目：{question}", f"草稿召回 {draft_m['dataset_recall']}（核心 {draft_m['core_recall']}）"]
@@ -240,7 +252,9 @@ async def run(args) -> Path:
         lines.append(f"{n} 送达 数据集/核心/用法/论文 = {s['delivery']['dataset_recall']}/{s['delivery']['core_recall']}/"
                      f"{s['delivery']['pair_recall']}/{s['delivery']['paper_recall']}"
                      + (f"；答案 数据集/核心/特征 = {s['answer']['dataset_recall']}/{s['answer']['core_recall']}/"
-                        f"{s['answer']['attribute_ok']}" if "answer" in s else ""))
+                        f"{s['answer']['attribute_ok']}" if "answer" in s else "")
+                     + f"；用量 {s['tokens']['calls']} 次 输入 {s['tokens']['input_tokens']}"
+                       f"（缓存 {s['tokens']['cached_input_tokens']}）输出 {s['tokens']['output_tokens']}")
     ledger.record_metrics(out, report, benchmark="library_recall", lines=lines)
     log.close()
     return out
@@ -278,6 +292,9 @@ def main() -> None:
     p.add_argument("--reading", type=int, default=30)
     p.add_argument("--paper-reading", type=int, default=6, help="精读：每篇最多挑几处")
     p.add_argument("--read-papers", type=int, default=20, help="精读：最多读几篇（按题名与摘要的相关性选）")
+    p.add_argument("--paper-notes", choices=["on", "off"], default="off", help="精读挑选时是否每处写一句要点")
+    p.add_argument("--missing-fix", choices=["supplement", "rewrite"], default="supplement",
+                   help="定稿漏写对象清单里的对象时：只补句插回（supplement）或带反馈整篇重写（rewrite）")
     p.add_argument("--thinking-effort", default="off")
     p.add_argument("--model", default="")
     p.add_argument("--label", default="")

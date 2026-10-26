@@ -598,7 +598,7 @@ async def run_agent(args) -> Path:
     from backend.services.deep_research.answer_writer import render_answer
     from backend.services.deep_research.arxiv_mirror import default_mirror
     from backend.services.deep_research.domain_synthesizer import _llm_json
-    from backend.services.llm import model_limiter_stats
+    from backend.services.llm import model_limiter_stats, start_token_ledger, token_ledger_report
 
     disable_openalex()
     system_cfg = _llm_cfg(args.thinking_effort, args.model)
@@ -624,6 +624,8 @@ async def run_agent(args) -> Path:
                 **({"opening": True} if args.opening else {}),
                 **({"paper_reading": args.paper_reading} if args.paper_reading is not None else {}),
                 **({"paper_reader": args.paper_reader} if args.paper_reader else {}),
+                **({"paper_notes": args.paper_notes == "on"} if args.paper_notes else {}),
+                **({"missing_fix": args.missing_fix} if args.missing_fix else {}),
                 **({"fetch_full_text": args.fetch} if args.fetch is not None else {})}
     # --draft-from：沿用另一次运行保存的草稿（含 works/queries），只重跑检索与定稿——
     # 固定草稿后，两次运行的差别只来自证据环节与定稿，不混入起草的波动
@@ -653,6 +655,7 @@ async def run_agent(args) -> Path:
     async def attempt(i: int, rep: int, case: dict) -> tuple[dict, dict]:
         scope = QuotaWatch.scope()
         t0 = time.monotonic()
+        tokens = start_token_ledger()    # 本题作答的模型用量（按阶段；评委打分不计）
         try:
             draft_json = None
             if args.draft_from:
@@ -665,12 +668,13 @@ async def run_agent(args) -> Path:
                     return stored
             answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror,
                                                draft_json=draft_json, **settings)
+            used = token_ledger_report(tokens)
             response = render_answer(answer)
             save = runs_dir / (f"q{i:03d}.json" if args.repeat <= 1 else f"q{i:03d}_r{rep}.json")
             save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
             rec = {"status": answer.get("status"), "response": response, "words": len(response.split()),
                    "check": answer.get("check"), "materials": answer.get("materials"), "agent": answer.get("agent"),
-                   "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
+                   "tokens": used, "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
             if response.strip():
                 rec["scores"] = list(await asyncio.gather(*(judge.score(c, response) for c in case["configs"])))
         except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
@@ -786,6 +790,9 @@ def main() -> None:
     ag.add_argument("--paper-reading", type=int, default=None, help="精读：已下载全文的论文每篇最多取几处（0 关）")
     ag.add_argument("--paper-reader", choices=("llm", "rerank"), default="",
                     help="精读方式：llm 由模型从重排前几段与全部表题里挑选（默认），rerank 直接取重排前几段")
+    ag.add_argument("--paper-notes", choices=("on", "off"), default="", help="精读挑选时是否每处写一句要点")
+    ag.add_argument("--missing-fix", choices=("supplement", "rewrite"), default="",
+                    help="定稿漏写精读列出的对象时：只补句插回（supplement）或带反馈整篇重写（rewrite）")
     ag.add_argument("--draft-from", default="", help="沿用这次评测结果里保存的草稿，只重跑检索与定稿（固定草稿对照）")
     ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
     ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")

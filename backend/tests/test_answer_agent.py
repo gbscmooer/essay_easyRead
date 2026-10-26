@@ -1,6 +1,8 @@
 """指针式作答：证据库（BM25/grep/read/find）、指针还原为逐字摘录、起草→检索→定稿全流程。"""
 
 import asyncio
+import os
+import re
 
 import pytest
 
@@ -440,7 +442,7 @@ def test_write_with_pointers_paper_reading_records_shown_and_cited(monkeypatch):
 
 
 def test_inventory_of_asked_objects_is_listed_and_missing_ones_trigger_one_rewrite(monkeypatch):
-    """精读标出问题所问的对象（如数据集）→ 清单交给定稿；定稿漏写的对象由程序核对后要求补上。"""
+    """精读标出问题所问的对象（如数据集）→ 清单交给定稿；定稿漏写的对象由程序核对后要求补上（整篇重写方式）。"""
     _no_rerank(monkeypatch)
 
     async def scores(query, documents):
@@ -464,14 +466,105 @@ def test_inventory_of_asked_objects_is_listed_and_missing_ones_trigger_one_rewri
         return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia, jansson and bgrep [{pid}]."}
 
     out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
-                                             final_mode="attach", paper_reading=2))
+                                             final_mode="attach", paper_reading=2, missing_fix="rewrite"))
     inv = out["agent"]["inventory"]
     assert set(inv["items"]) == {"arcadia", "jansson", "bgrep"} and "## 问题所问对象清单" in prompts[0]
     assert inv["missing_by_attempt"] == [["bgrep"], []] and "对象清单里有 1 个没写到：bgrep" in prompts[1]
+    assert out["agent"]["write_problems"] == [["missing_items"], []]
     assert out["attempts"] == 2 and "bgrep" in out["text"]
     assert ag._missing_items("We use CivilComments and Colored MNIST.",
                              [{"name": "CivilComments-WILDS"}, {"name": "Colored MNIST"}, {"name": "MNIST-CIFAR"}]) \
         == ["CivilComments-WILDS", "MNIST-CIFAR"]
+
+
+def test_missing_inventory_items_are_supplemented_into_paragraphs_without_rewrite(monkeypatch):
+    """定稿只差清单里的对象时：只把漏写的对象和出处原文交给模型补句，接回指定段落，不整篇重写。"""
+    _no_rerank(monkeypatch)
+
+    async def scores(query, documents):
+        return [1.0 if "Table 3" in d else 0.5 for d in documents]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    paper = {"key": "e", "title": "Improving type information inferred by decompilers", "year": 2021,
+             "source_text": _TABLE_TEXT * 6}
+    calls = []
+
+    async def llm_json(system, user):
+        calls.append((system, user))
+        if system == ag._DRAFT_SYSTEM:
+            return {"draft": "**Datasets.** Studies compile open-source C programs.\n\n**Limits.** Labels are noisy.",
+                    "works": [], "queries": []}
+        if system == ag._READ_SYSTEM:
+            pid = re.search(r"\[(S\d+)\] Table 3: Open-source", user).group(1)
+            return {"picks": [pid], "objects": [{"name": n, "pids": [pid]} for n in ("arcadia", "jansson", "bgrep")]}
+        pid = re.search(r"\[(S\d+)\] \"Table 3: Open-source", user).group(1)
+        if system == ag._SUPPLEMENT_SYSTEM:
+            return {"add": [{"item": "bgrep", "para": 1, "sentence": f"bgrep has 5 functions [{pid}]."}]}
+        return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia and jansson [{pid}]."
+                          f"\n\n**Limits.** Labels of these projects are noisy [{pid}]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
+                                             final_mode="attach", paper_reading=2))
+    systems = [s for s, _ in calls]
+    assert systems.count(ag._WRITE_SYSTEM) == 1 and systems.count(ag._SUPPLEMENT_SYSTEM) == 1
+    sup = next(u for s, u in calls if s == ag._SUPPLEMENT_SYSTEM)
+    assert "### bgrep" in sup and "### arcadia" not in sup and "1. **Datasets.**" in sup
+    assert out["agent"]["inventory"]["missing_by_attempt"] == [["bgrep"], []] and out["attempts"] == 1
+    assert out["agent"]["supplement"] == {"missing": 1, "added": 1, "words": 5, "still_missing": 0}
+    assert out["agent"]["write_problems"] == [["missing_items"]]
+    first, second = out["text"].split("\n\n")
+    assert "bgrep has 5 functions" in first and "noisy" in second
+
+
+def test_apply_supplement_appends_to_lists_headings_or_a_new_paragraph():
+    raw = "## Datasets\n\n- **Waterbirds**: birds [S1].\n- **CelebA**: hair [S2].\n\nPlain paragraph [S3]."
+    out, added = ag._apply_supplement(raw, {"add": [
+        {"item": "MultiNLI", "para": 2, "sentence": "**MultiNLI**: negation words [S4]."},
+        {"item": "BAR", "para": 1, "sentence": "Action recognition data [S5]."},
+        {"item": "NICO", "para": 9, "sentence": "NICO varies contexts [S6]."},
+        {"item": "x", "para": 3, "sentence": "  "}], "heading": "**Other datasets**", "after": 2})
+    paras = out.split("\n\n")
+    assert len(added) == 3 and paras[0] == "## Datasets\nAction recognition data [S5]."
+    assert paras[1].endswith("\n- **MultiNLI**: negation words [S4].") and paras[3] == "Plain paragraph [S3]."
+    assert paras[2] == "**Other datasets.** NICO varies contexts [S6]."
+
+
+def test_paper_reading_prompts_share_a_cacheable_opening_and_can_skip_notes(monkeypatch):
+    """各篇精读提示的开头（任务说明 + 问题）相同，能命中前缀缓存；notes=False 时只要指针，定稿提示里也没有要点。"""
+    idx = _table_index()
+    rows = [p for p in idx.passages if not p.table]
+    a = ag._paper_read_prompt("Which datasets?", "Paper A", 2020, rows[:2], [], 6)
+    b = ag._paper_read_prompt("Which datasets?", "Paper B", 2021, rows[2:4], [], 6)
+    shared = os.path.commonprefix([a, b])
+    assert shared.startswith("## 任务") and "## 问题\nWhich datasets?" in shared and "Paper A" not in shared
+    assert "写一句要点" not in a and '"picks": ["S12", "S40"]' in a
+    noted = ag._paper_read_prompt("Which datasets?", "Paper A", 2020, rows[:2], [], 6, notes=True)
+    assert "写一句要点" in noted and '"note": "..."' in noted
+
+    async def scores(query, documents):
+        return [float(i % 3) for i in range(len(documents))]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    table = next(p for p in idx.passages if p.table)
+
+    async def reader(system, user):
+        assert "写一句要点" not in user
+        return {"picks": [table.pid], "objects": [{"name": "arcadia", "pids": [table.pid]}]}
+
+    out, stats, notes, objects = asyncio.run(ag._read_papers(idx, "Which datasets?", 6, asyncio.Semaphore(2), reader,
+                                                             write_notes=False))
+    assert stats["picked"] == 1 and notes == {table.pid: ""} and objects == {table.pid: ["arcadia"]}
+    prompt = ag._write_prompt("Which datasets?", "Draft.", [], "en", mode="attach", papers_read=out, notes=notes)
+    assert "（要点：" not in prompt and "要点是阅读笔记" not in prompt and f"[{table.pid}]" in prompt
+
+
+def test_write_prompt_lists_passages_picked_by_paper_reading_once():
+    """逐句候选里也被精读挑中的句子只在精读里列一次，候选对应关系照列。"""
+    idx = _table_index()
+    sent = next(p for p in idx.passages if "instrumented programs" in p.text)
+    other = next(p for p in idx.passages if "synthetic programs" in p.text)
+    prompt = ag._write_prompt("Which datasets?", "Draft.", [("Claim one.", [sent, other])], "en", mode="attach",
+                              papers_read=[sent])
+    assert prompt.count(f"[{sent.pid}] \"") == 1 and prompt.count(f"[{other.pid}] \"") == 1
+    assert f"「Claim one.」→ {sent.pid}、{other.pid}" in prompt
 
 
 def test_opening_draft_prompt_asks_for_background_first():
