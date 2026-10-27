@@ -96,6 +96,48 @@ async def rerank(query: str, documents: list[str], top_n: int | None = None) -> 
     return out
 
 
+_SCORE_CHUNK = 64
+
+
+async def rerank_scores(query: str, documents: list[str]) -> list[float] | None:
+    """逐条相关性分数（与 documents 对齐）；未启用、缺配置或任一批失败时返回 None。
+
+    交叉编码器分数是逐条独立的绝对分，可分批请求后直接合并比较。
+    """
+    if not documents:
+        return []
+    cfg = get_reranker_config()
+    api_key = (cfg.get("api_key") or "").strip()
+    base_url = (cfg.get("base_url") or "").rstrip("/")
+    if not cfg.get("enabled", True) or not api_key or not base_url:
+        return None
+    model = cfg.get("model") or "BAAI/bge-reranker-v2-m3"
+    scores: list[float | None] = [None] * len(documents)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for start in range(0, len(documents), _SCORE_CHUNK):
+                chunk = documents[start:start + _SCORE_CHUNK]
+                r = await client.post(
+                    f"{base_url}/rerank",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"model": model, "query": query, "documents": chunk,
+                          "top_n": len(chunk), "return_documents": False},
+                )
+                r.raise_for_status()
+                for item in r.json().get("results") or []:
+                    idx = item.get("index") if isinstance(item, dict) else None
+                    if isinstance(idx, int) and not isinstance(idx, bool) and 0 <= idx < len(chunk):
+                        score = float(item.get("relevance_score") or 0.0)
+                        if math.isfinite(score):
+                            scores[start + idx] = score
+    except Exception as e:
+        logger.warning(f"Rerank scoring failed ({e}) — keeping recall order")
+        return None
+    if any(s is None for s in scores):
+        return None
+    return [float(s) for s in scores]
+
+
 def _fallback(documents: list[str], top_n: int | None) -> list[dict]:
     n = len(documents) if top_n is None else min(top_n, len(documents))
     return [

@@ -8,7 +8,8 @@ import hashlib
 import os
 import time
 import weakref
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -33,8 +34,20 @@ class _ModelLimiter:
     def __init__(self, limit):
         self.limit, self.active = limit, 0
         self.waiters = set()
+        # 占用统计：在途名额×秒的积分与排队总时长，用于判断全局并发是否成为瓶颈
+        self.started = self._mark = time.monotonic()
+        self.busy_slot_seconds = self.wait_seconds = 0.0
+        self.acquired = self.queued = 0
+
+    def _tick(self):
+        now = time.monotonic()
+        self.busy_slot_seconds += self.active * (now - self._mark)
+        self._mark = now
 
     async def acquire(self):
+        entered = time.monotonic()
+        if self.active >= self.limit:
+            self.queued += 1
         while self.active >= self.limit:
             waiter = asyncio.get_running_loop().create_future()
             self.waiters.add(waiter)
@@ -42,8 +55,19 @@ class _ModelLimiter:
                 await waiter
             finally:
                 self.waiters.discard(waiter)
+        self._tick()
         self.active += 1
+        self.acquired += 1
+        self.wait_seconds += time.monotonic() - entered
         return True
+
+    def stats(self) -> dict:
+        self._tick()
+        span = max(1e-9, self._mark - self.started)
+        return {"limit": self.limit, "acquired": self.acquired, "queued": self.queued,
+                "wait_seconds": round(self.wait_seconds, 1),
+                "busy_slot_seconds": round(self.busy_slot_seconds, 1),
+                "utilization": round(self.busy_slot_seconds / (span * self.limit), 3)}
 
     def _wake(self):
         for waiter in tuple(self.waiters):
@@ -51,6 +75,7 @@ class _ModelLimiter:
                 waiter.set_result(None)
 
     def release(self):
+        self._tick()
         self.active -= 1
         self._wake()
 
@@ -74,6 +99,12 @@ def set_model_concurrency(limit: int) -> int:
 
 def model_concurrency() -> int:
     return _MODEL_CONCURRENCY
+
+
+def model_limiter_stats() -> dict | None:
+    """当前事件循环的全局并发占用统计（未发过模型请求时为 None）。"""
+    limiter = _concurrency_semaphores.get(asyncio.get_running_loop())
+    return limiter.stats() if limiter is not None else None
 
 
 def _model_semaphore():
@@ -112,6 +143,16 @@ def start_token_ledger() -> dict:
 def set_llm_stage(stage: str) -> None:
     """标记后续调用归属的工作流阶段（空串表示未标注）。"""
     _stage_var.set(str(stage or ""))
+
+
+@contextmanager
+def llm_stage(stage: str) -> Iterator[None]:
+    """块内的调用记到 stage 名下，退出时恢复调用方原来的阶段（流程内部的细分标注不串到外层）。"""
+    token = _stage_var.set(str(stage or ""))
+    try:
+        yield
+    finally:
+        _stage_var.reset(token)
 
 
 def set_llm_scope(category: str, run_id: str | None = None, *,

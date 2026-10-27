@@ -84,6 +84,59 @@ async def _rate_limited_get(url: str, params: dict, timeout: float = 15.0) -> di
     raise httpx.HTTPStatusError("Rate limited after 3 retries", request=None, response=response)
 
 
+_BATCH_CHUNK = 400   # S2 批量接口单次上限 500
+# 批量接口退避用尽仍 429：冷却期内直接跳过，不再每批重复退避。
+# 无 key 共享池常年拥挤，实测一批要退避约 80 秒才失败，且多题共用同一把锁排队
+_BATCH_COOLDOWN = 600.0
+_batch_cooldown_until = 0.0
+
+
+async def get_abstracts_by_dois(dois: list[str]) -> dict[str, str]:
+    """DOI → 摘要（S2 批量接口，每 400 个一次请求）。
+
+    召回摘要补全的后备通道：OpenAlex 不可用（无 key 每日额度用完）时，Scopus 搜索
+    结果没有摘要，相关性筛选只能看标题。查不到的 DOI 不出现在结果里。
+    """
+    global _last_request_time, _batch_cooldown_until
+    out: dict[str, str] = {}
+    if time.monotonic() < _batch_cooldown_until:
+        return out
+    client = _get_http_client()
+    api_key = _s2_api_key()
+    headers = {"x-api-key": api_key} if api_key else {}
+    min_interval = _RATE_WITH_KEY if api_key else _RATE_NO_KEY
+    # 退避 5/10/20/40 秒；无 key 时只重试一次（5 秒），多等几乎换不来结果
+    attempts = 5 if api_key else 2
+    unique = list(dict.fromkeys(d.strip() for d in dois if d and d.strip()))
+    for start in range(0, len(unique), _BATCH_CHUNK):
+        chunk = unique[start:start + _BATCH_CHUNK]
+        for attempt in range(attempts):
+            async with _rate_lock:
+                if time.monotonic() < _batch_cooldown_until:
+                    return out
+                elapsed = time.monotonic() - _last_request_time
+                if elapsed < min_interval:
+                    await asyncio.sleep(min_interval - elapsed)
+                _last_request_time = time.monotonic()
+            response = await client.post(f"{S2_BASE}/paper/batch", params={"fields": "abstract"},
+                                         json={"ids": [f"DOI:{d}" for d in chunk]}, headers=headers,
+                                         timeout=60.0)
+            if response.status_code != 429 or attempt == attempts - 1:
+                break
+            await asyncio.sleep(5.0 * 2 ** attempt)
+        if response.status_code == 429:
+            _batch_cooldown_until = time.monotonic() + _BATCH_COOLDOWN
+            logger.warning("Semantic Scholar batch still 429 after %d attempts; skipping it for %.0fs",
+                           attempts, _BATCH_COOLDOWN)
+            return out
+        response.raise_for_status()
+        for doi, paper in zip(chunk, response.json() or []):
+            abstract = (paper or {}).get("abstract")
+            if abstract:
+                out[doi] = abstract
+    return out
+
+
 def _map_s2_paper(s2_paper: dict) -> dict:
     """将 S2 API 响应映射为 RelatedPaper 格式"""
     # 作者列表：取前 3 个，超过加 "et al."

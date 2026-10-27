@@ -623,6 +623,142 @@ def test_normalize_synthesis_downgrades_gap_on_fallback_retrieval():
     assert s2.verdict.status == "gap"
 
 
+# ── 6b) 判定规则复核：检索未命中 / 成熟度（2026-10-23，对应评测 Q10 / Q6）──────
+
+from backend.models.exploration import ExplorationSynthesis, ExplorationVerdict  # noqa: E402
+from backend.services.deep_research.explorer import (  # noqa: E402
+    _normalize_decompose, apply_verdict_guards, concept_coverage, concept_grounded,
+)
+
+_UNICORN = [{"name": "独角兽", "terms": ["unicorn"]}, {"name": "角蛋白", "terms": ["keratin"]},
+            {"name": "纠缠谱", "terms": ["entanglement spectrum", "entanglement spectra"]}]
+_METRICS_2026 = {"citation_method": {"recent_years": [2024, 2025]}, "recent_share": 0.854}
+
+
+def _synth(status, keys):
+    return ExplorationSynthesis(verdict=ExplorationVerdict(
+        status=status, confidence=0.85, explanation="模型判定。", evidence_keys=keys))
+
+
+def test_normalize_decompose_keeps_english_core_concepts():
+    out = _normalize_decompose({"en_queries": ["surgical video multimodal llm"], "core_concepts": [
+        {"name": "手术视频", "terms": ["Surgical video", "surgery", "手术"]},
+        {"name": "空", "terms": ["中文"]}, "bad"]}, "q", 4)
+    assert out["core_concepts"] == [{"name": "手术视频", "terms": ["surgical video", "surgery"]}]
+
+
+def test_concept_coverage_distinguishes_missing_object_from_empty_intersection():
+    physics = [_paper(f"Entanglement spectrum of spin chain {i}", 2023, 5) for i in range(6)]
+    miss = concept_coverage(physics, _UNICORN)
+    assert miss["missing"] == ["独角兽", "角蛋白"] and miss["all_concepts_hits"] == 0
+    # 跨界构造题：两个概念各有材料、无交集 → 不是检索未命中
+    cross = [_paper("Quantum entanglement in photonic qubits", 2022, 3),
+             _paper("Color preference in user interface design", 2021, 4)]
+    cov = concept_coverage(cross, [{"name": "量子纠缠", "terms": ["entanglement"]},
+                                   {"name": "界面配色", "terms": ["color preference", "colour preference"]}])
+    assert cov["missing"] == [] and cov["all_concepts_hits"] == 0
+
+
+def test_derived_concept_miss_is_not_retrieval_miss():
+    # 真实回归（20261023_205637 Q4#2）：拆解延伸的「神经符号证明智能体」0 命中，整题被误判检索未命中
+    question = "强化学习用于自动定理证明，做到什么程度了？"
+    papers = [_paper(f"Reinforcement learning for automated theorem proving {i}", 2020, 5) for i in range(6)]
+    concepts = [{"name": "强化学习", "terms": ["reinforcement learning"]},
+                {"name": "自动定理证明", "terms": ["automated theorem proving"]},
+                {"name": "神经符号证明智能体", "terms": ["neuro symbolic reasoning"]}]
+    cov = concept_coverage(papers, concepts, question)
+    assert cov["missing"] == [] and cov["missing_derived"] == ["神经符号证明智能体"]
+    assert [row["grounded"] for row in cov["concepts"]] == [True, True, False]
+    synth = _synth("done_partial", [p["key"] for p in papers[:2]])
+    assert apply_verdict_guards(synth, papers, _METRICS_2026, cov) == []
+    assert synth.verdict.status == "done_partial"
+    # 问题原有对象仍按检索未命中处理；英文写法出现在问题里也算出处
+    physics = [_paper(f"Entanglement spectrum {i}", 2023, 5) for i in range(6)]
+    assert concept_coverage(physics, _UNICORN, "独角兽角蛋白的量子纠缠谱研究进展如何？")["missing"] == ["独角兽", "角蛋白"]
+    assert concept_grounded({"name": "视觉语言模型", "terms": ["vlm"]}, "VLM 用于手术视频")
+
+
+def test_guard_retrieval_miss_forbids_gap():
+    physics = [_paper(f"Entanglement spectrum {i}", 2023, 5) for i in range(6)]
+    synth = _synth("gap", [])
+    guards = apply_verdict_guards(synth, physics, _METRICS_2026, concept_coverage(physics, _UNICORN))
+    assert synth.verdict.status == "unclear" and synth.verdict.confidence <= 0.3
+    assert synth.verdict.explanation.startswith("检索未命中")
+    assert guards[0]["rule"] == "retrieval_miss" and guards[0]["from"] == "gap"
+
+
+def test_guard_downgrades_extensive_when_evidence_all_recent():
+    """Q6 形态：证据全部 2024 年后、样本近期占比 85% → 近期新兴。"""
+    subset = [_paper(f"surgical vlm {y}", y, 3) for y in (2024, 2024, 2025, 2025, 2026, 2026)]
+    synth = _synth("done_extensively", [p["key"] for p in subset])
+    guards = apply_verdict_guards(synth, subset, _METRICS_2026, None)
+    assert synth.verdict.status == "emerging"
+    assert guards == [{"rule": "maturity_early_evidence", "from": "done_extensively", "to": "emerging",
+                       "early_evidence": 0, "cutoff_year": 2024, "recent_share": 0.854}]
+    # 样本近期占比不高时降为部分实现
+    synth2 = _synth("done_extensively", [p["key"] for p in subset])
+    apply_verdict_guards(synth2, subset, {**_METRICS_2026, "recent_share": 0.4}, None)
+    assert synth2.verdict.status == "done_partial"
+
+
+def test_guard_moves_partial_to_emerging_when_evidence_all_recent():
+    """真实回归（20261023_205637 Q6#1/#3）：证据全在 2024–2026、近期占比 80–95%，模型判 done_partial。"""
+    subset = [_paper(f"surgical vlm {y}", y, 3) for y in (2024, 2025, 2025, 2026)]
+    synth = _synth("done_partial", [p["key"] for p in subset])
+    guards = apply_verdict_guards(synth, subset, {**_METRICS_2026, "recent_share": 0.795}, None)
+    assert synth.verdict.status == "emerging" and guards[0]["from"] == "done_partial"
+    assert "程序复核" in synth.verdict.explanation
+    # Q4 形态：证据含 2019–2021 年工作 → 保留部分实现
+    mixed = [_paper(f"rl prover {y}", y, 30) for y in (2019, 2021, 2025, 2026)]
+    keep = _synth("done_partial", [p["key"] for p in mixed])
+    assert apply_verdict_guards(keep, mixed, _METRICS_2026, None) == []
+    # 样本近期占比不高（方向有长期积累、只是模型挑了新论文）→ 不改判
+    low = _synth("done_partial", [p["key"] for p in subset])
+    assert apply_verdict_guards(low, subset, {**_METRICS_2026, "recent_share": 0.5}, None) == []
+    assert low.verdict.status == "done_partial"
+
+
+def test_guard_keeps_extensive_with_sustained_evidence():
+    """Q7 形态：近期占比高但证据含多篇 2023 年工作 → 保留充分实现。"""
+    subset = [_paper(f"long context {i}", y, 30) for i, y in enumerate((2024, 2023, 2023, 2023))]
+    synth = _synth("done_extensively", [p["key"] for p in subset])
+    assert apply_verdict_guards(synth, subset, {**_METRICS_2026, "recent_share": 0.879}, None) == []
+    assert synth.verdict.status == "done_extensively"
+
+
+def test_synthesize_records_retrieval_miss(monkeypatch):
+    papers = [_paper(f"Entanglement spectrum {i}", 2023, 5) for i in range(4)]
+    decisions = iter([
+        {"action": "inspect_evidence", "arguments": {}},
+        {"action": "submit_synthesis", "arguments": {
+            "verdict": {"status": "gap", "confidence": 0.85, "explanation": "未见实现。", "evidence": []},
+            "landscape_summary": "材料是物理论文。"}},
+        {"action": "finish", "finish": True},
+    ])
+    prompts = []
+
+    async def fake_llm(cfg, system, user, **kwargs):
+        prompts.append(user)
+        return next(decisions)
+
+    async def fake_retrieve(items, *args, **kwargs):
+        return items, {"method": "fixture"}
+
+    async def no_paradigms(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr("backend.services.deep_research.domain_synthesizer._llm_json", fake_llm)
+    monkeypatch.setattr(explorer, "retrieve_materials", fake_retrieve)
+    monkeypatch.setattr(explorer, "_task_paradigms", no_paradigms)
+    out = asyncio.run(synthesize_exploration(
+        "独角兽角蛋白的量子纠缠谱", {"en_queries": ["unicorn keratin"], "core_concepts": _UNICORN},
+        papers, _METRICS_2026, {"api_key": "k", "model": "m"}, max_papers=4, depth="quick"))
+    assert out.verdict.status == "unclear"
+    assert out.stats["retrieval_miss"] is True
+    assert out.stats["concept_coverage"]["missing"] == ["独角兽", "角蛋白"]
+    assert "检索未命中提示" in prompts[0]
+
+
 # ── 7) run_exploration 端到端（stub provider + 无 Key）───────────────────────
 
 class _StubProvider:

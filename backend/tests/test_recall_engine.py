@@ -259,6 +259,33 @@ def test_filter_shortfall_triggers_topup_within_budget():
     assert audit["stop_reason"] == "planner_stop"
 
 
+def test_time_up_stops_expansion_but_keeps_filtering_collected_papers():
+    """运行时长到研究线：首轮后不再规划/补搜，已收集语料照常筛选，分段计时入审计。"""
+    calls = {"planner": 0, "filter": 0}
+
+    async def search_one(source, keyword, limit, order):
+        return [_cand(f"{keyword} {source} {i}", key=f"k:{keyword}:{source}:{i}",
+                      abstract=f"about {keyword}") for i in range(3)]
+
+    async def llm_seq(system, user):
+        if "检索规划员" in system:
+            calls["planner"] += 1
+            return {"next_keywords": ["beta words"], "done": False, "reason": "继续"}
+        calls["filter"] += 1
+        return _accept_all(user)
+
+    papers, audit = asyncio.run(run_target_recall(
+        "q", ["alpha query"], depth="quick", now_year=2026, llm_cfg={"api_key": "k"},
+        search_one=search_one, llm_json=llm_seq, time_up=lambda: True,
+        backfill_abstracts=lambda dois: asyncio.sleep(0, result={}),
+    ))
+    assert audit["stop_reason"] == "time_budget"
+    assert audit["supplement_budget_stop"] == "time_budget"
+    assert calls["planner"] == 0 and calls["filter"] > 0
+    assert len(audit["rounds"]) == 1 and papers
+    assert {"search", "filter", "backfill"} <= set(audit["timing_s"])
+
+
 def test_classic_channel_fired_once_per_round():
     cited_calls = []
 
@@ -478,8 +505,35 @@ def test_doi_backfill_batches_of_50_and_fills_abstracts():
         search_one=search_one, backfill_abstracts=backfill,
     ))
     assert [len(c) for c in backfill_calls] == [50, 10]
-    assert audit["abstract_backfill"] == {"needed": 60, "filled": 60}
+    assert audit["abstract_backfill"] == {"needed": 60, "filled": 60, "topup_needed": 0, "topup_filled": 0,
+                                          "retry_needed": 0, "retry_filled": 0, "local_filled": 0}
     assert all(p.get("abstract") for p in papers)
+
+
+def test_local_mirror_match_fills_abstract_and_arxiv_id_before_doi_backfill():
+    asked = []
+
+    async def search_one(source, keyword, limit, order):
+        return [_cand("On arXiv", doi="10.1/a", key="doi:10.1/a", abstract=None),
+                _cand("Not on arXiv", doi="10.1/b", key="doi:10.1/b", abstract=None)]
+
+    def match_local(items):
+        return [{"abstract": "mirror abstract", "arxiv_id": "2401.00001"} if title == "On arXiv" else None
+                for _doi, title in items]
+
+    async def backfill(dois):
+        asked.append(list(dois))
+        return {}
+
+    papers, audit = asyncio.run(run_target_recall(
+        "q", ["alpha"], depth="quick", now_year=2026, llm_cfg=None,
+        search_one=search_one, backfill_abstracts=backfill, match_local=match_local,
+    ))
+    hit = next(p for p in papers if p["key"] == "doi:10.1/a")
+    assert hit["abstract"] == "mirror abstract" and hit["arxiv_id"] == "2401.00001"
+    assert hit["pdf_url"] == "https://arxiv.org/pdf/2401.00001"
+    assert asked[0] == ["10.1/b"]  # 镜像已补到的不再走 DOI 反查
+    assert audit["abstract_backfill"]["local_filled"] == 1
 
 
 def test_coverage_dimensions_drive_planner_and_topup():

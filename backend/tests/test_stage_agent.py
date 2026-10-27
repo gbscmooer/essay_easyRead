@@ -78,6 +78,23 @@ def test_model_error_returns_auditable_partial_result():
     assert result.trace[0]["observation"]["code"] == "RuntimeError"
 
 
+def test_llm_error_code_is_kept_in_stop_reason_and_logged(caplog):
+    from backend.services.llm.errors import LLMError
+
+    async def model_step(_view):
+        raise LLMError("LLM_RATE_LIMITED", "Error code: 429 - 已达到 5 小时的使用上限", status_code=429)
+
+    with caplog.at_level("WARNING"):
+        result = asyncio.run(run_stage_agent(
+            stage="decompose", state={}, model_step=model_step, tools={},
+            validator=lambda _state: StageValidation(True), max_iterations=3,
+        ))
+    # 错误码进入停止原因 → 运行失败信息带 LLM_RATE_LIMITED，评测层据此等待重置后重跑
+    assert result.stop_reason == "model_error:LLM_RATE_LIMITED"
+    assert result.trace[0]["observation"]["code"] == "LLM_RATE_LIMITED"
+    assert "使用上限" in caplog.text
+
+
 def test_model_timeout_stops_and_preserves_partial_state():
     async def model_step(_view):
         await asyncio.sleep(.05)

@@ -404,6 +404,11 @@ async def _extract_paper_once(
     return rows, int(rejected), audit
 
 
+# 单次结构化提取的档位：quick 自 2026-10-23 起与 lite 一致（run59/61 quick 逐篇多轮
+# 提取 13 篇中 11~12 篇因单轮模型超时失败，判定实际只用上摘要）
+ONE_SHOT_EXTRACT_DEPTHS = ("lite", "quick")
+
+
 async def extract_paper_with_agent(
     question: str, paper: dict, excerpt: str, kind: str, cfg: dict, depth: str,
     on_iteration=None, reader: DocumentEvidenceReader | None = None,
@@ -415,7 +420,7 @@ async def extract_paper_with_agent(
     避免 ReAct 固定五步的重复决策开销。"""
     subquestions = subquestions or report_subquestions(question)
     full_source = reader.text if reader is not None else excerpt
-    if depth == "lite":
+    if depth in ONE_SHOT_EXTRACT_DEPTHS:
         return await _extract_paper_once(
             question, paper, excerpt, kind, cfg, subquestions,
             reader=reader, on_iteration=on_iteration,
@@ -687,7 +692,8 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                               draft_state: dict | None = None,
                               protocol: dict | None = None,
                               paper_limit: int | None = None,
-                              research_frozen: bool = False) -> dict:
+                              research_frozen: bool = False,
+                              time_up=None) -> dict:
     """构建证据表报告。
 
     断点续传缝（explorer 编排层接线）：
@@ -708,6 +714,8 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
     - paper_limit：编排层传入的选材上限（enforce 档按 read_papers 剩余额度收缩）；
       None 时沿用档位默认 LIMITS[depth]；**显式 0 合法**——read_papers 额度耗尽时
       跳过选材与提取，产出带说明的受限报告。
+    - time_up()：运行时长到达写作预留线时为真——每篇开工前检查，未开工篇目按
+      skipped_frozen 记账（不提取），已开工篇目照常完成；
     - research_frozen：研究侧时间预算已耗尽（enforce 档交付预留接线）——本调用
       只做交付侧工作：选材复用冻结清单（无清单时跳过语义选材），提取只复用
       resume_state 缓存，不为未提取篇目发起新的研究侧提取/下载/补位。
@@ -797,7 +805,10 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             return
         from .pdf_downloader import download_pdf_detailed
         from ..pdf_parser import extract_pdf_content
+        from ..paper_download import _get_institutional_publisher_pdf_url
+        # 有正式发表版（出版社机构订阅直链）时优先下正式版，arXiv 预印本作为后备
         urls = list(dict.fromkeys(u for u in [
+            _get_institutional_publisher_pdf_url(paper["doi"]) if paper.get("doi") else None,
             f"https://arxiv.org/pdf/{paper['arxiv_id']}" if paper.get("arxiv_id") else None,
             paper.get("pdf_url"),
         ] if u))
@@ -902,6 +913,9 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             if should_pause is not None and await _maybe_await(should_pause()):
                 return {"key": paper["key"], "status": "deferred", "source_kind": "",
                         "rejected_rows": 0, "rows": {}}
+            if time_up is not None and time_up():
+                return {"key": paper["key"], "status": "skipped_frozen", "source_kind": "",
+                        "rejected_rows": 0, "rows": {}}
             locate_started = time.monotonic()
             diagnostics["locate"]["calls"] += 1
             await full_text(paper)
@@ -912,8 +926,12 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             diagnostics["locate"]["duration_ms"] += round((time.monotonic() - locate_started) * 1000)
             extract_started = time.monotonic()
 
-            async def _run_extraction(excerpt_text: str):
+            async def _run_extraction(excerpt_text: str, *, one_shot: bool = False):
                 nonlocal rate_limit_cooldowns
+                if one_shot:
+                    return await _extract_paper_once(
+                        question, paper, excerpt_text, kind, cfg, subquestions,
+                        reader=reader, on_iteration=iteration_progress)
                 parameters = inspect.signature(extract_paper_with_agent).parameters
                 reader_kwargs = ({"reader": reader} if "reader" in parameters else {})
                 if "subquestions" in parameters:
@@ -948,15 +966,24 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                     # 缩小上下文重试：长全文（18k 片段）超时 / 输出被截断导致
                     # 非法 JSON 时，先怀疑载荷而不是放弃该篇（run6 教训：MVTec
                     # 数据集论文提取超时直接让框架表清零）。半量再试一次。
-                    if (kind == "full_text_excerpt" and len(excerpt) > 4200
-                            and not isinstance(first_exc, asyncio.CancelledError)):
+                    if isinstance(first_exc, asyncio.CancelledError):
+                        raise
+                    if kind == "full_text_excerpt" and len(excerpt) > 4200:
                         shrunk = excerpt[:8000]
                         diagnostics["extract"]["failures"].append({
                             "paper_key": paper.get("key"), "code": "CONTEXT_SHRUNK_RETRY",
                             "detail": f"{type(first_exc).__name__}: {len(excerpt)}→{len(shrunk)} chars",
                         })
-                        rows, rejected, loop_audit = await _run_extraction(shrunk)
+                        # 多轮循环失败后不再重跑多轮：改为单次结构化提取（半量上下文）
+                        rows, rejected, loop_audit = await _run_extraction(shrunk, one_shot=True)
                         loop_audit = {**loop_audit, "context_shrunk_retry": True}
+                    elif depth not in ONE_SHOT_EXTRACT_DEPTHS:
+                        diagnostics["extract"]["failures"].append({
+                            "paper_key": paper.get("key"), "code": "ONE_SHOT_RETRY",
+                            "detail": f"{type(first_exc).__name__}: {str(first_exc)[:120]}",
+                        })
+                        rows, rejected, loop_audit = await _run_extraction(excerpt, one_shot=True)
+                        loop_audit = {**loop_audit, "one_shot_retry": True}
                     else:
                         raise
                 diagnostics["extract"]["calls"] += loop_audit.get("model_calls", 0)
@@ -997,6 +1024,10 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                     "rejected_rows": 0, "rows": {}} for p in pending]
     else:
         results = list(await asyncio.gather(*(one(p) for p in pending)))
+        timed_out = sum(x.get("status") == "skipped_frozen" for x in results)
+        if timed_out:
+            warnings.append(f"运行时长已到写作预留线：{timed_out} 篇已选材料未做证据提取，"
+                            f"答案基于其余 {len(results) - timed_out + len(cached)} 篇。")
     if any(x.get("status") == "deferred" for x in results):
         raise StagePausedError("report extraction paused at safe point")
 
@@ -1505,6 +1536,8 @@ def render_markdown(report: dict) -> str:
     lines = [f"# {report['title']}", "", "## 摘要", "", report["summary"] or "暂无跨文献摘要。", "",
              "## 研究范围与材料", "", f"检索材料 {coverage['corpus']} 篇；已完成表格提取 {coverage['examined']} 篇，"
              f"其中全文片段 {coverage['full_text']} 篇、仅摘要 {coverage['abstract_only']} 篇。", ""]
+    from .integrity import render_integrity_markdown
+    lines += render_integrity_markdown(report.get("integrity"))
     search = report.get("search_summary") or {}
     if search:
         lines += ["## 已执行的搜索", ""]
@@ -1624,6 +1657,11 @@ def render_html(report: dict) -> str:
            "<h2>摘要</h2><p>" + esc(report["summary"] or "暂无跨文献摘要") + "</p>",
            f"<p>材料 {report['coverage']['corpus']} 篇 · 已完成表格提取 {report['coverage']['examined']} 篇 · "
            f"全文片段 {report['coverage']['full_text']} 篇 · 仅摘要 {report['coverage']['abstract_only']} 篇</p>"]
+    integrity = report.get("integrity") or {}
+    if integrity:
+        out.append(f"<h2>检索与分析完整性</h2><p><strong>{esc(integrity.get('label'))}</strong></p><ul>"
+                   + "".join(f"<li>{esc(item.get('message'))}</li>" for item in integrity.get("items") or [])
+                   + "</ul>")
     search = report.get("search_summary") or {}
     if search:
         out.append("<h2>已执行的搜索</h2><div class='scroll'><table><thead><tr><th>阶段</th><th>轮次</th><th>数据源</th><th>检索式</th><th>排序</th><th>上限</th><th>命中</th></tr></thead><tbody>")

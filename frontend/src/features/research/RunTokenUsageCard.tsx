@@ -21,6 +21,12 @@ const STAGE_LABELS: Record<string, string> = {
   report_final_audit: '旧版终稿核验',
   report_regen: '报告重生成',
   chat: '连续追问',
+  answer_draft: '作答起草',
+  answer_followup: '作答补检索',
+  answer_paper_read: '逐篇精读',
+  answer_write: '作答定稿',
+  answer_rewrite: '定稿重写',
+  answer_supplement: '漏项补写',
   unlabeled: '未标注',
 }
 

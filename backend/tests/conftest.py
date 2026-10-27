@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 os.environ.setdefault("LLM_API_KEY", "test-key-for-ci")
 os.environ.setdefault("URL_PUBLIC_ADDRESS_CHECK", "1")
+os.environ["ARXIV_MIRROR"] = "off"  # 测试不接本机 arXiv 镜像（镜像测试用 tmp_path 显式构造）
 
 
 @pytest.fixture(scope="session")

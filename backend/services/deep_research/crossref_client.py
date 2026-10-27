@@ -6,7 +6,10 @@ CrossRef 是免费公开的学术元数据 API，无需 API key。
 文档: https://api.crossref.org/swagger-ui/index.html
 """
 import asyncio
+import html
 import logging
+import re
+import time
 import urllib.parse
 from typing import Optional
 
@@ -22,6 +25,9 @@ USER_AGENT = "AcademicPaperReader/1.0 (personal research use)"
 # 串行限速：CrossRef polite pool ~50 req/s，保守取 1 秒间隔
 _RATE_LIMIT = 1.0
 _last_req_time: float = 0.0
+# DOI 批量反查摘要被 429 后的暂停截止（monotonic），只影响摘要反查
+_ABSTRACT_COOLDOWN = 120.0
+_abstract_cooldown_until: float = 0.0
 _req_lock: Optional[asyncio.Lock] = None
 _client: Optional[httpx.AsyncClient] = None
 
@@ -153,6 +159,48 @@ async def get_pdf_url_by_doi(doi: str) -> Optional[str]:
 
     # 兜底：直接用 doi.org 重定向
     return f"https://doi.org/{doi}"
+
+
+def jats_to_text(raw: str) -> str:
+    """Crossref 摘要是出版社存缴的 JATS XML：去标签与“Abstract”小标题，留纯文本。"""
+    text = re.sub(r"<jats:title>.*?</jats:title>", " ", raw or "", flags=re.S)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    text = re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"^(abstract|summary)\b[\s.:]*", "", text, flags=re.I)
+
+
+async def get_abstracts_by_dois(dois: list[str], *, chunk: int = 20) -> dict[str, str]:
+    """DOI 批量查 Crossref 摘要（filter=doi:a,doi:b）。覆盖率取决于出版社是否存缴摘要；无需 key。"""
+    global _abstract_cooldown_until
+    found: dict[str, str] = {}
+    usable = [d for d in dict.fromkeys(dois) if d and "," not in d]  # filter 参数以逗号分隔
+    for i in range(0, len(usable), chunk):
+        if time.monotonic() < _abstract_cooldown_until:
+            break
+        part = usable[i:i + chunk]
+        try:
+            data = await _crossref_get(CROSSREF_API, params={
+                "filter": ",".join(f"doi:{d}" for d in part), "rows": len(part), "select": "DOI,abstract"})
+        except httpx.HTTPStatusError as exc:
+            if exc.response is not None and exc.response.status_code == 429:
+                # 被限流：按 Retry-After（缺省 2 分钟）暂停摘要反查，不再逐批撞限
+                from ..rate_limiter import parse_retry_after
+
+                wait = parse_retry_after(exc.response.headers, default_wait=_ABSTRACT_COOLDOWN)
+                _abstract_cooldown_until = time.monotonic() + max(wait, _ABSTRACT_COOLDOWN)
+                logger.warning("Crossref abstract lookup rate limited; pausing it for %.0fs",
+                               max(wait, _ABSTRACT_COOLDOWN))
+                break
+            logger.warning("Crossref abstract lookup failed (non-fatal): %s", exc)
+            continue
+        except Exception as exc:  # noqa: BLE001 —— 单批失败不影响其余批次
+            logger.warning("Crossref abstract lookup failed (non-fatal): %s", exc)
+            continue
+        for item in (data.get("message") or {}).get("items") or []:
+            text = jats_to_text(item.get("abstract") or "")
+            if item.get("DOI") and text:
+                found[str(item["DOI"]).lower()] = text
+    return found
 
 
 def _extract_pdf_link(item: dict, doi: str) -> Optional[str]:

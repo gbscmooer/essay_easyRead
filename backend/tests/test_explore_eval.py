@@ -104,6 +104,26 @@ def test_build_report_counts_and_rates():
     assert s["median_corpus_year_avg"] == 2025.0 and b["median_cited_year_avg"] == 2021.0
 
 
+def test_stability_summary_groups_repeats():
+    def run(rid, verdict, keys, wall, error=None):
+        return {"id": rid, "expected": "emerging", "system": {
+            "verdict": verdict, "evidence_keys": keys, "wall_s": wall, "error": error,
+            "extract_coverage": {"selected": 10, "examined": 9}}}
+
+    records = [run("Q6#1", "emerging", ["a", "b"], 100), run("Q6#2", "emerging", ["a", "c"], 200),
+               run("Q6#3", None, [], 300, error="TimeoutError"), run("Q7", "gap", ["x"], 50)]
+    (row,) = ee.stability_summary(records)
+    assert row["id"] == "Q6" and row["runs"] == 3
+    assert row["majority"] == "emerging" and row["agreement"] == round(2 / 3, 3)
+    assert row["correct_runs"] == 2 and row["failed_runs"] == 1
+    # 两两 Jaccard：{a,b}/{a,c}=1/3，与空集的两对 =0
+    assert row["evidence_jaccard_mean"] == round((1 / 3) / 3, 3)
+    assert row["wall_s"] == {"mean": 200.0, "max": 300}
+    rep = ee.build_report({"date": "t", "questions_version": "v", "model": "m"}, records)
+    rep["stability"] = [row]
+    assert "## 稳定性（同题重复运行）" in ee.render_markdown(rep)
+
+
 def test_render_markdown_contains_key_columns():
     records = [_rec("A", "done_extensively", "done_extensively", "gap",
                     sys_dois=["10.1/a"], base_dois=["10.2/x"])]
@@ -159,7 +179,7 @@ def test_invalid_baseline_verdict_does_not_become_correct_unclear(monkeypatch):
 # ── evaluate 编排（桩掉两臂与 DOI 核验）────────────────────────────────────
 
 def test_evaluate_scoring_and_nonfatal_errors(monkeypatch):
-    async def fake_system(question, depth="standard"):
+    async def fake_system(question, depth="standard", save_as=None):
         if "炸" in question:
             raise RuntimeError("boom")
         return {"verdict": "done_extensively", "confidence": 0.9, "total": 100,
@@ -203,7 +223,7 @@ def test_evaluate_without_llm_key_skips_baseline(monkeypatch):
         "backend.services.ai_config.get_analysis_config",
         lambda: {"api_key": "", "model": ""},
     )
-    async def fake_system(question, depth="standard"):
+    async def fake_system(question, depth="standard", save_as=None):
         return {"verdict": "emerging", "confidence": 0.5, "total": 5, "provider": "stub",
                 "median_year": 2025.0, "evidence_n": 0, "evidence_dois": [],
                 "partial": False, "fallback_decompose": False, "wall_s": 1.0, "error": None}

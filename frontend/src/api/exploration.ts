@@ -50,6 +50,22 @@ export function getResearchVersions(runId: number, signal?: AbortSignal) {
   return get<import('@/types/researchRevision').ResearchVersions>(`/exploration/runs/${runId}/versions`, signal)
 }
 
+export function getLegacyVersions(runId: number, signal?: AbortSignal) {
+  return get<import('@/types/researchRevision').LegacyVersions>(`/exploration/runs/${runId}/versions`, signal)
+}
+
+export interface RunAdjustInput { exclude_keys: string[]; add_queries: string[]; note?: string }
+export interface RunAdjustResponse {
+  run_id: number
+  status: string
+  completed_stages: string[]
+  intervention: { at: string; stage: string | null; excluded: string[]; queries: string[]; note: string; invalidated_stages: string[] }
+}
+
+export function adjustExploration(runId: number, input: RunAdjustInput) {
+  return post<RunAdjustResponse>(`/exploration/runs/${runId}/adjust`, input)
+}
+
 export function reviseResearch(runId: number, input: import('@/types/researchRevision').ResearchRevisionInput) {
   return post<ExplorationRun>(`/exploration/runs/${runId}/revise`, input)
 }

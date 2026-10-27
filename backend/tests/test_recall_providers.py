@@ -357,6 +357,26 @@ async def test_scopus_search_works_passes_quality_params(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scopus_zero_hit_long_query_relaxes_to_or_first_page(monkeypatch):
+    from backend.services.deep_research.providers.scopus import ScopusProvider, relaxed_queries
+    p = ScopusProvider(api_key="")
+    queries: list[tuple[str, int]] = []
+
+    async def fake_get(path, params=None):
+        queries.append((params["query"], params["count"]))
+        if " OR " not in params["query"]:
+            return {"search-results": {"entry": [{"error": "Result set was empty"}]}}
+        return {"search-results": {"entry": [
+            {"dc:title": "BLE ranging", "citedby-count": "3", "dc:identifier": "SCOPUS_ID:2"}]}}
+
+    monkeypatch.setattr(p, "_get", fake_get)
+    out = await p.search_works("BLE RSSI to distance mapping path loss", limit=50)
+    assert [c.title for c in out] == ["BLE ranging"]
+    assert queries[-1] == ("TITLE-ABS-KEY(BLE OR RSSI OR distance OR mapping OR path OR loss)", 25)
+    assert relaxed_queries("RRT narrow") == ["RRT narrow"]  # 短式不放宽
+
+
+@pytest.mark.asyncio
 async def test_openalex_search_works_type_filter(monkeypatch):
     from backend.services.deep_research.providers.openalex import OpenAlexProvider
     p = OpenAlexProvider()

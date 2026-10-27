@@ -229,10 +229,11 @@ async def resolve_candidate_pdf_urls(work: PaperWork) -> list[str]:
             seen.add(u)
             urls.append(u)
 
-    # 1. arXiv ID 直接构造
+    # 1. arXiv ID 直接构造；同时有正式发表版的机构直链时，正式版优先、预印本后备
     if work.arxiv_id:
         from .deep_research.arxiv_client import ARXIV_PDF_BASE
-        return [ARXIV_PDF_BASE.format(work.arxiv_id)]
+        inst_url = _get_institutional_publisher_pdf_url(doi) if doi else None
+        return [u for u in (inst_url, ARXIV_PDF_BASE.format(work.arxiv_id)) if u]
 
     # 2. Provider 已明确挂到该候选的 PDF URL
     if work.url and str(work.url).startswith(("http://", "https://")):

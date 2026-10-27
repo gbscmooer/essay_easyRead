@@ -470,7 +470,7 @@ class ResearchGraphResponse(BaseModel):
 class ExplorationRunCreate(BaseModel):
     """创建领域探索任务的请求体（问句驱动，见 GOAL.md）
 
-    academic_survey_v2 契约字段：全部可选，省略/null 版本创建 question_loop_v20；
+    academic_survey_v2 契约字段：全部可选，省略/null 创建 legacy_v1（exploration_v8）；academic_survey_v2 显式选择 question_loop_v20；
     显式 legacy_v1 保留旧流程；字段和未实现边界见
     document.md 与 docs/workflow_refactor/STATUS.md。
     """
@@ -486,7 +486,7 @@ class ExplorationRunCreate(BaseModel):
     exclude_titles: Optional[list[str]] = Field(None, max_length=50)
     # ── academic_survey_v2 输入（随 options["workflow"] 快照落盘）──
     workflow_version: Optional[str] = Field(None, pattern=r"^(legacy_v1|academic_survey_v2)$",
-        description="省略或 null 使用 academic_survey_v2；legacy_v1 显式选择旧流程")
+        description="省略或 null 使用 legacy_v1；academic_survey_v2 显式选择实验流程")
     protocol_options: Optional[dict] = None   # answer_criteria/expected_evidence/questions；路由验证
     budget: Optional[dict] = None             # resource -> limit 覆盖；不得由 agent 自行放宽
     content_cutoff: Optional[datetime] = None  # 内容时间门禁（含当日；历史轨道）
@@ -683,6 +683,14 @@ class RunBudgetResponse(BaseModel):
     legacy: bool = True
     resources: list[BudgetResourceEntry] = []
     stop_reason: Optional[str] = None
+
+
+class RunAdjustRequest(BaseModel):
+    """八阶段研究暂停时的过程干预：剔除文献、追加检索式（续跑时生效）。"""
+    model_config = ConfigDict(extra="forbid")
+    exclude_keys: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=240)
+    add_queries: list[Annotated[str, Field(min_length=3, max_length=200, pattern=r"\S")]] = Field(default_factory=list, max_length=5)
+    note: str = Field("", max_length=500)
 
 
 class RunControlRequest(BaseModel):

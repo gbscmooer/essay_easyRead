@@ -291,8 +291,8 @@ def test_create_explicit_v1_still_works(client, monkeypatch, engine):
         assert "workflow" not in (row.options or {})
 
 
-@pytest.mark.parametrize("version", [{}, {"workflow_version": None}, {"workflow_version": "academic_survey_v2"}])
-def test_create_defaults_to_v19_with_frozen_options(client, monkeypatch, engine, version):
+def test_create_explicit_v2_with_frozen_options(client, monkeypatch, engine):
+    version = {"workflow_version": "academic_survey_v2"}
     from backend.routers import exploration
     from backend.services.deep_research.research_loop.contracts import LOOP_VERSION
     from backend.config import settings
@@ -321,13 +321,35 @@ def test_create_defaults_to_v19_with_frozen_options(client, monkeypatch, engine,
 
 
 @pytest.mark.parametrize("version", [{}, {"workflow_version": None}])
-def test_default_create_disabled_has_no_legacy_fallback(client, monkeypatch, engine, version):
+def test_default_create_uses_legacy_v1(client, monkeypatch, engine, version):
+    """2026-10-23 起省略版本默认八阶段流程（毕设主流程），与实验执行器开关无关。"""
+    from backend.routers import exploration
+
+    monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "false")
+    monkeypatch.setattr(exploration, "get_engine", lambda: engine)
+    monkeypatch.setattr(exploration.loop_worker, "start", lambda *args: pytest.fail("Default must not start v2 loop"))
+
+    async def fake_run(run_id):
+        return None
+
+    monkeypatch.setattr(exploration, "run_exploration", fake_run)
+    response = client.post("/api/exploration/runs", json={"question": "默认八阶段", **version})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workflow_version"] == "legacy_v1" and body["state_version"] == 0
+    with Session(engine) as session:
+        row = session.get(ExplorationRun, body["id"])
+        assert row.workflow_version == "legacy_v1"
+        assert "workflow" not in (row.options or {})
+
+
+def test_explicit_v2_disabled_has_no_legacy_fallback(client, monkeypatch, engine):
     from backend.routers import exploration
 
     monkeypatch.setenv("RESEARCH_LOOP_ENABLED", "false")
     monkeypatch.setattr(exploration, "get_engine", lambda: engine)
     monkeypatch.setattr(exploration.loop_worker, "start", lambda *args: pytest.fail("Disabled loop must not start"))
-    response = client.post("/api/exploration/runs", json={"question": "默认新版关闭", **version})
+    response = client.post("/api/exploration/runs", json={"question": "新版关闭", "workflow_version": "academic_survey_v2"})
     assert response.status_code == 400 and response.json()["code"] == "WORKFLOW_NOT_IMPLEMENTED"
     with Session(engine) as session:
         assert session.exec(select(ExplorationRun)).all() == []

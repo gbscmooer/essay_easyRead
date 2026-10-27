@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import statistics
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -92,13 +94,14 @@ def _fresh_engine(td: str):
     return engine
 
 
-async def run_system_arm(question: str, depth: str = "standard") -> dict:
-    """真实跑一轮领域探索（真 LLM + 真检索源），提取可比字段。"""
+_RESULT_DIR: Path | None = None   # 设置后每题完整 run.result 落盘（典型案例与离线复判用）
+
+
+@contextlib.contextmanager
+def shared_engine():
+    """并发评测共用一个临时库：explorer.get_engine 只替换一次，各题各自建 run 行。"""
     import tempfile
 
-    from sqlmodel import Session
-
-    from backend.models.exploration import ExplorationRun
     from backend.services.deep_research import explorer
 
     with tempfile.TemporaryDirectory(prefix="explore_eval_") as td:
@@ -106,24 +109,48 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
         original = explorer.get_engine
         explorer.get_engine = lambda: engine
         try:
-            with Session(engine) as s:
-                run = ExplorationRun(question=question, depth=depth or "standard")
-                s.add(run)
-                s.commit()
-                s.refresh(run)
-                run_id = run.id
-            t0 = time.monotonic()
-            await explorer.run_exploration(run_id)
-            wall = round(time.monotonic() - t0, 1)
-            with Session(engine) as s:
-                run = s.get(ExplorationRun, run_id)
-                result = run.result or {}
-                run_failed = run.status == "failed"
-                token_total = (((run.result or {}).get("sources") or {}).get("token_usage") or {}).get("total")
-                run_error = run.error_message
+            yield engine
         finally:
             explorer.get_engine = original
             engine.dispose()
+
+
+async def run_system_arm(question: str, depth: str = "standard", save_as: Path | None = None, *,
+                         options: dict | None = None, engine=None) -> dict:
+    """真实跑一轮领域探索（真 LLM + 真检索源），提取可比字段。
+
+    engine 给出时使用调用方的共享库（并发跑多题）；否则为本题建临时库。
+    """
+    from sqlmodel import Session
+
+    from backend.models.exploration import ExplorationRun
+    from backend.services.deep_research import explorer
+
+    with contextlib.ExitStack() as stack:
+        if engine is None:
+            engine = stack.enter_context(shared_engine())
+        with Session(engine) as s:
+            run = ExplorationRun(question=question, depth=depth or "standard", options=dict(options or {}))
+            s.add(run)
+            s.commit()
+            s.refresh(run)
+            run_id = run.id
+        t0 = time.monotonic()
+        await explorer.run_exploration(run_id)
+        wall = round(time.monotonic() - t0, 1)
+        with Session(engine) as s:
+            run = s.get(ExplorationRun, run_id)
+            result = run.result or {}
+            run_failed = run.status == "failed"
+            token_usage = ((run.result or {}).get("sources") or {}).get("token_usage") or {}
+            token_total = token_usage.get("total")
+            run_error = run.error_message
+            if save_as is not None:
+                save_as.parent.mkdir(parents=True, exist_ok=True)
+                save_as.write_text(json.dumps({
+                    "question": question, "depth": depth, "status": run.status,
+                    "error_message": run.error_message, "result": result,
+                }, ensure_ascii=False, default=str), encoding="utf-8")
 
     papers = result.get("papers") or []
     metrics = result.get("metrics") or {}
@@ -139,6 +166,7 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
         "median_year": median_year([p.get("year") for p in papers]),
         "recent_share": metrics.get("recent_share"),
         "evidence_n": len(verdict.get("evidence_keys") or []),
+        "evidence_keys": list(verdict.get("evidence_keys") or []),
         "evidence_dois": [
             d for d in (doi_by_key.get(k) for k in (verdict.get("evidence_keys") or [])) if d
         ],
@@ -147,6 +175,14 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
         "wall_s": wall,
         "tokens": token_total,
         "error": None,
+        "tokens_by_stage": {k: v for k, v in token_usage.items() if k != "total"},
+        "extract_coverage": (result.get("report_extract") or {}).get("coverage"),
+        "extract_failures": [f.get("code") + (":" + str(f.get("detail"))[:60] if f.get("code") == "ValueError" else "") for f in ((((result.get("report_extract") or {})
+                             .get("diagnostics") or {}).get("extract") or {}).get("failures") or [])],
+        "report_coverage": (result.get("survey_report") or {}).get("coverage"),
+        "saved_result": str(save_as) if save_as else None,
+        "verdict_guards": (synthesis.get("stats") or {}).get("verdict_guards") or [],
+        "concept_coverage": (synthesis.get("stats") or {}).get("concept_coverage"),
     }
     # 运行失败（如检索式规划超时）不是「检索未命中」：记错误，不映射为 no_recall
     if run_failed:
@@ -154,6 +190,9 @@ async def run_system_arm(question: str, depth: str = "standard") -> dict:
         return rec
     # 零召回题：系统应如实走「检索未命中」通道（无 verdict），不算综合失败
     if total <= 3 and not rec["verdict"]:
+        rec["verdict"] = NO_RECALL
+    # 有召回但核心概念 0 命中：系统已显式报告「检索未命中」（判定降级为 unclear）
+    if (synthesis.get("stats") or {}).get("retrieval_miss"):
         rec["verdict"] = NO_RECALL
     return rec
 
@@ -309,6 +348,44 @@ def build_report(meta: dict, records: list[dict]) -> dict:
     }
 
 
+def _jaccard(a: set, b: set) -> float | None:
+    return len(a & b) / len(a | b) if (a or b) else None
+
+
+def stability_summary(records: list[dict]) -> list[dict]:
+    """同题重复运行（--repeat，题号形如 Q6#2）的稳定性：判定一致率、证据重合度、失败率与耗时。"""
+    groups: dict[str, list[dict]] = {}
+    for record in records:
+        base, sep, _ = str(record.get("id") or "").partition("#")
+        if sep:
+            groups.setdefault(base, []).append(record)
+    rows = []
+    for base, items in groups.items():
+        systems = [r.get("system") or {} for r in items]
+        verdicts = [s.get("verdict") for s in systems]
+        counted = Counter(v for v in verdicts if v)
+        majority, majority_n = counted.most_common(1)[0] if counted else (None, 0)
+        evidence = [set(s.get("evidence_keys") or s.get("evidence_dois") or []) for s in systems]
+        pairs = [_jaccard(evidence[i], evidence[j])
+                 for i in range(len(evidence)) for j in range(i + 1, len(evidence))]
+        pairs = [p for p in pairs if p is not None]
+        walls = [s["wall_s"] for s in systems if s.get("wall_s") is not None]
+        coverage = [s.get("extract_coverage") or {} for s in systems]
+        rows.append({
+            "id": base, "expected": items[0].get("expected"), "runs": len(items),
+            "verdicts": verdicts, "majority": majority,
+            "agreement": round(majority_n / len(items), 3),
+            "correct_runs": sum(score_verdict(items[0].get("expected"), v) in ("exact", "correct")
+                                for v in verdicts),
+            "failed_runs": sum(bool(s.get("error")) or not s.get("verdict") for s in systems),
+            "evidence_jaccard_mean": round(sum(pairs) / len(pairs), 3) if pairs else None,
+            "wall_s": {"mean": round(sum(walls) / len(walls), 1), "max": max(walls)} if walls else None,
+            "extract_examined": [c.get("examined") for c in coverage],
+            "extract_selected": [c.get("selected") for c in coverage],
+        })
+    return rows
+
+
 def render_markdown(report: dict) -> str:
     m, s = report["meta"], report["summary"]
     sys_, base = s["system"], s["baseline"]
@@ -369,6 +446,17 @@ def render_markdown(report: dict) -> str:
         lines.append(
             f"| {r['id']} | {r['expected']} | {sys_cell} | {base_cell} | {corpus} | {sys_ev} | {base_ev} | {note} |"
         )
+    if report.get("stability"):
+        lines += ["", "## 稳定性（同题重复运行）", "",
+                  "| 题号 | 预期 | 次数 | 各次判定 | 一致率 | 判对次数 | 失败次数 | 证据 Jaccard 均值 | 平均/最长耗时(s) | 精读成功/选中 |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+        for row in report["stability"]:
+            wall = row["wall_s"] or {}
+            reads = "、".join(f"{e}/{s}" for e, s in zip(row["extract_examined"], row["extract_selected"]))
+            lines.append(
+                f"| {row['id']} | {row['expected']} | {row['runs']} | {'、'.join(v or '—' for v in row['verdicts'])} | "
+                f"{row['agreement']} | {row['correct_runs']} | {row['failed_runs']} | {row['evidence_jaccard_mean']} | "
+                f"{wall.get('mean', '—')}/{wall.get('max', '—')} | {reads} |")
     return "\n".join(lines) + "\n"
 
 
@@ -389,7 +477,9 @@ async def evaluate(
                      "category": q.get("category", ""), "note": ""}
         if not skip_system:
             try:
-                rec["system"] = await run_system_arm(q["question"], q.get("depth") or "standard")
+                rec["system"] = await run_system_arm(
+                    q["question"], q.get("depth") or "standard",
+                    save_as=(_RESULT_DIR / f"{q['id']}.json") if _RESULT_DIR else None)
                 # 瞬时抖动重跑：① decompose 连接失败→回退中文原句→Scopus 400 零召回；
                 # ② 有真实召回（total>3）但综合被服务端劣化打死（无 verdict）。
                 # 两种都是环境故障而非系统真实表现，有 Key 时重跑一次（记录在案）
@@ -397,7 +487,9 @@ async def evaluate(
                 if (not sys0.get("verdict") and (sys0.get("fallback_decompose") or (sys0.get("total") or 0) > 3)
                         and llm_cfg.get("api_key")):
                     rec["note"] = "系统臂重试 1 次（拆解回退/综合失败）"
-                    rec["system"] = await run_system_arm(q["question"], q.get("depth") or "standard")
+                    rec["system"] = await run_system_arm(
+                    q["question"], q.get("depth") or "standard",
+                    save_as=(_RESULT_DIR / f"{q['id']}.json") if _RESULT_DIR else None)
             except Exception as e:  # noqa: BLE001 —— 单题失败不中断评测
                 rec["system"] = {"error": f"{type(e).__name__}: {e}"[:300]}
         if not skip_baseline:
@@ -454,6 +546,7 @@ def _parse_args(argv: list[str] | None = None):
     p.add_argument("--skip-system", action="store_true")
     p.add_argument("--skip-baseline", action="store_true")
     p.add_argument("--list", action="store_true", help="列出题集后退出")
+    p.add_argument("--repeat", type=int, default=1, help="每题重复运行次数（>1 时输出稳定性汇总）")
     p.add_argument("--thinking-effort", default="", choices=["", "off", "low", "medium", "high"],
                    help="覆盖全局 LLM 思考强度（两臂同时生效），用于模型能力降级的消融实验")
     return p.parse_args(argv)
@@ -486,11 +579,15 @@ async def main_async(argv: list[str] | None = None) -> int:
             print(f"--only 未匹配任何题号（可用：{','.join(q['id'] for q in questions)}）")
             return 2
         questions = selected
+    if args.repeat > 1:
+        questions = [{**q, "id": f"{q['id']}#{i}"} for q in questions for i in range(1, args.repeat + 1)]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_json = args.out_dir / f"explore_eval_{stamp}.json"
     out_md = args.out_dir / f"explore_eval_{stamp}.md"
+    global _RESULT_DIR
+    _RESULT_DIR = args.out_dir / f"explore_eval_{stamp}_runs"
 
     def _flush(all_records: list[dict]) -> None:
         out_json.write_text(
@@ -518,6 +615,8 @@ async def main_async(argv: list[str] | None = None) -> int:
         },
         records,
     )
+    if args.repeat > 1:
+        report["stability"] = stability_summary(records)
     out_json.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     out_md.write_text(render_markdown(report), encoding="utf-8")
     print(f"完成（{report['meta']['duration_s']}s）：{out_md}")

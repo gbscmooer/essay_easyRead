@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
+logger = logging.getLogger(__name__)
 
 ToolHandler = Callable[[dict, dict], dict | Awaitable[dict]]
 ModelStep = Callable[[dict], dict | Awaitable[dict]]
@@ -199,15 +201,19 @@ async def run_stage_agent(
         try:
             decision = await asyncio.wait_for(_resolve(model_step(view)), timeout=turn_timeout)
         except Exception as exc:
+            # LLMError 带错误码（LLM_RATE_LIMITED 等）：写进停止原因与日志，
+            # 调用方和评测层才能区分“额度/限流”和其他模型失败
+            code = str(getattr(exc, "code", "") or type(exc).__name__)
+            logger.warning("stage agent %s model step failed: %s", stage, str(exc)[:500])
             turn = {
                 "iteration": iteration,
                 "action": "model_error",
-                "observation": {"ok": False, "code": type(exc).__name__, "detail": str(exc)[:500]},
+                "observation": {"ok": False, "code": code, "detail": str(exc)[:500]},
             }
             trace.append(turn)
             await emit({"iteration": iteration, "phase": "observe", "action": "model_error",
                         "observation": turn["observation"]})
-            return finish("partial", f"model_error:{type(exc).__name__}", iteration)
+            return finish("partial", f"model_error:{code}", iteration)
         if not isinstance(decision, dict):
             raise ValueError("stage agent decision must be a JSON object")
 

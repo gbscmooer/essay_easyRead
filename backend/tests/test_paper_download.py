@@ -480,3 +480,17 @@ async def test_success_records_ok_attempt_and_wrapper_returns_path(monkeypatch, 
     assert wrapper_path and os.path.isfile(wrapper_path)
     os.remove(result.path)
     os.remove(wrapper_path)
+
+
+def test_version_of_record_preferred_over_arxiv_preprint():
+    import asyncio
+
+    from backend.services.paper_download import resolve_candidate_pdf_urls
+    from backend.services.paper_identity import PaperWork
+
+    urls = asyncio.run(resolve_candidate_pdf_urls(PaperWork(title="T", doi="10.1016/j.robot.2020.1", arxiv_id="2001.00001")))
+    assert urls == ["https://api.elsevier.com/content/article/doi/10.1016%2Fj.robot.2020.1",
+                    "https://arxiv.org/pdf/2001.00001.pdf"]
+    # 没有机构直链的出版社（如 arXiv 自己的 DOI）：仍直接用 arXiv
+    urls = asyncio.run(resolve_candidate_pdf_urls(PaperWork(title="T", doi="10.48550/arXiv.2001.00001", arxiv_id="2001.00001")))
+    assert urls == ["https://arxiv.org/pdf/2001.00001.pdf"]
