@@ -52,10 +52,15 @@ PAPER_READING_PAPERS = 12  # 精读的论文数上限：全文论文多于此数
 PAPER_OBJECTS = 12         # 精读：每篇最多列出几个“问题所问对象”（每个附 1~2 个指针，不占挑选名额）
 SELECT_INSIDE = 3          # 选精读论文时，每篇附上文内与问题最相关的几句一起排序
 SUPPLEMENT_PIDS = 3        # 补写漏项：每个漏写的对象附上的出处原文数
+SUPPORT_LENGTH_RATIO = 1.15   # 精读支撑用法：定稿篇幅不超过草稿的这么多倍
+SUPPORT_NEW_SENTENCES = 6     # 精读支撑用法：全篇最多补的新句数（按精读论文数取，至少 2 句）
 
 # 指针写法：[S12]、[S12][S40]，也容忍 [S12, S40] / [S12，S40]
 # 实际流程（explorer 开放问答）使用的配置；评测 rewrite 显式传参做对照实验
-RECOMMENDED = {"fetch_full_text": 6, "draft_titles": 0, "claim_search": 2, "final_mode": "attach", "followup": 0}
+# question_search=3（E17，ScholarQA 40 题固定草稿）：专家细则 +0.025（SE 0.012），必备依据 +0.043（SE 0.022），
+# 两组题方向一致，用量不变；综合分 +0.010（SE 0.008），差在评委抄摘录的波动（参考文献条条附有摘录）
+RECOMMENDED = {"fetch_full_text": 6, "draft_titles": 0, "claim_search": 2, "final_mode": "attach", "followup": 0,
+               "question_search": 3}
 
 _POINTER_TOKEN = r"\[S\d+(?:\s*[,，;；]\s*S?\d+)*\]"
 _POINTER_GROUP = re.compile(rf"(?:[ \t]*{_POINTER_TOKEN})+")
@@ -115,25 +120,27 @@ def _followup_prompt(question: str, claims: list[str]) -> str:
 
 
 def _paper_read_prompt(question: str, title: str, year, passages: list, tables: list, picks: int,
-                       lang: str = "en", notes: bool = False) -> str:
+                       lang: str = "en", notes: bool = False, objects: bool = True) -> str:
     """任务说明在前、论文原文在后：同一次作答逐篇精读的各次调用开头（说明 + 问题）完全相同，能命中供应商的
     前缀缓存（智谱按 128 token 一块计缓存命中；说明放在原文后面时，各次调用相同的开头只有问题一句，不到一块）。
-    默认只给指针、不写要点：定稿看的就是原文，要点只是把原文再转述一遍；notes=True 时每处再写一句要点。"""
+    默认只给指针、不写要点：定稿看的就是原文，要点只是把原文再转述一遍；notes=True 时每处再写一句要点。
+    objects=False（支撑用法）时不列问题所问对象、也不要求每个对象都选到，只挑最能回答问题的原文。"""
     pick = (f"最多选 {picks} 处，按重要性排序；每处写一句要点（用{'英文' if lang == 'en' else '中文'}，不超过 30 个词，"
             "只写原文给出的内容；名称、数字和单位照原文写，表格里的数字要带上它所在的列名，如 2,329 functions）。"
             if notes else f"最多选 {picks} 处，按重要性排序，只给指针。")
-    shape = (('{"picks": [{"pid": "S12", "note": "..."}], ' if notes else '{"picks": ["S12", "S40"], ')
-             + '"objects": [{"name": "...", "pids": ["S12"]}]}')
+    shape = (('{"picks": [{"pid": "S12", "note": "..."}]' if notes else '{"picks": ["S12", "S40"]')
+             + (', "objects": [{"name": "...", "pids": ["S12"]}]}' if objects else "}"))
+    cover = ("问题问到的对象（如数据集、方法）这篇论文用到了几个，就尽量每个都选到一处，不要只挑其中一两个反复选。"
+             if objects else "")
+    listing = (f"另外列出 objects：这篇论文里用来回答这个问题的全部对象（例如问评测用哪些数据集，就列出这篇论文用来做评测的"
+               f"每个数据集，照原文名称；预训练数据、图片来源、只在相关工作里提到的都不要列；最多 {PAPER_OBJECTS} 个），"
+               "每个给 1~2 个最能说明它的指针（可以与 picks 重复）；问题不是在问一组对象时留空。" if objects else "")
     lines = [
         "## 任务",
         "材料是一篇论文里与问题可能相关的段落（按原文顺序）和全部表格的表题与开头几格，[S#] 为指针。"
         "找出这篇论文里能直接回答问题的具体信息在哪里：例如它使用或构建的数据集与基准（名称、来源、组成、规模、"
         "构建方式）、所用的开源项目或工具、评测设置与结果、定义、关键数字与结论。表格可以整张选（给表格的指针）。"
-        "问题问到的对象（如数据集、方法）这篇论文用到了几个，就尽量每个都选到一处，不要只挑其中一两个反复选。"
-        + pick +
-        f"另外列出 objects：这篇论文里用来回答这个问题的全部对象（例如问评测用哪些数据集，就列出这篇论文用来做评测的"
-        f"每个数据集，照原文名称；预训练数据、图片来源、只在相关工作里提到的都不要列；最多 {PAPER_OBJECTS} 个），"
-        "每个给 1~2 个最能说明它的指针（可以与 picks 重复）；问题不是在问一组对象时留空。"
+        + cover + pick + listing +
         "这篇论文与问题无关就都返回空列表。",
         f"输出：{shape}",
         "", f"## 问题\n{question}",
@@ -319,18 +326,48 @@ def _passage_groups(passages: list, notes: dict | None = None) -> list[str]:
     return lines
 
 
+_CANDIDATE_MARK = re.compile(r"[ \t]*⟦[^⟧\n]*⟧")   # 草稿里的候选标记（含模型抄回时的变体，如 ⟦S12⟧）
+
+
+def _inline_candidates(draft: str, evidence: list[tuple[str, list]]) -> tuple[str, list[tuple[str, list]]]:
+    """在草稿每句末尾就地标出候选证据指针（⟦候选 S12、S40⟧），省掉把草稿逐句再抄一遍的候选列表。
+    没有候选的句子不标；在草稿里找不到原句位置的（如跨行拼接的句子）返回给调用方照旧另列。"""
+    parts, cursor, unplaced = [], 0, []
+    for claim, cands in evidence:
+        pos = draft.find(claim, cursor)
+        if pos < 0:
+            if cands:
+                unplaced.append((claim, cands))
+            continue
+        end = pos + len(claim)
+        parts.append(draft[cursor:end] + (" ⟦候选 " + "、".join(p.pid for p in cands) + "⟧" if cands else ""))
+        cursor = end
+    parts.append(draft[cursor:])
+    return "".join(parts), unplaced
+
+
 def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], lang: str,
                   feedback: str = "", mode: str = "revise", reading: list | None = None,
                   papers_read: list | None = None, notes: dict | None = None,
-                  inventory: list | None = None) -> str:
-    lines = [f"## 问题\n{question}", "", "## 草稿（来自你的专业知识）", draft, "",
+                  inventory: list | None = None, paper_use: str = "support", claim_map: str = "list") -> str:
+    listed = evidence
+    if claim_map == "inline":
+        # 候选指针就地标在草稿句末：候选列表不再把草稿逐句抄一遍（E16：约 2k token）
+        shown_draft, listed = _inline_candidates(draft, evidence)
+        head = ("## 草稿（来自你的专业知识；句末 ⟦候选 S#⟧ 是检索工具为该句找到的候选证据指针，原文在下面的证据库里；"
+                "没有标记的句子没有候选证据；定稿时不要保留 ⟦⟧ 标记）")
+    else:
+        shown_draft, head = draft, "## 草稿（来自你的专业知识）"
+    lines = [f"## 问题\n{question}", "", head, shown_draft, "",
              "## 证据库（检索工具从论文原文中找到的句子；[S#] 为指针）"]
     # 精读也挑中的句子只在精读里列一次（E16：约四分之一的逐句候选同时被精读挑中，原样列两遍）
     read_ids = {p.pid for p in papers_read or []}
     lines += _passage_groups([p for _, cands in evidence for p in cands if p.pid not in read_ids])
-    lines += ["", "## 草稿各句的候选证据" + ("（指针的原文在证据库或精读里）" if read_ids else "")]
-    for i, (claim, cands) in enumerate(evidence, 1):
-        lines.append(f"{i}. 「{aw._clip(claim, 160)}」→ " + ("、".join(p.pid for p in cands) or "（无）"))
+    if listed:
+        lines += ["", "## 草稿各句的候选证据" + ("（指针的原文在证据库或精读里）" if read_ids else "")
+                  + ("（以下几句没能在草稿里就地标注）" if claim_map == "inline" else "")]
+        for i, (claim, cands) in enumerate(listed, 1):
+            lines.append(f"{i}. 「{aw._clip(claim, 160)}」→ " + ("、".join(p.pid for p in cands) or "（无）"))
     if papers_read:
         # 精读：已下载全文的论文逐篇按问题取最相关的段落与表格（每篇都有名额）
         noted = any((notes or {}).get(p.pid) for p in papers_read)
@@ -349,7 +386,25 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
         # “草稿已经写了的内容”的出处，原文里专家会写、而模型没想到的具体信息只能从这里进入答案
         lines += ["", "## 原文阅读（按问题在已收集论文的原文中检索到、不在上面候选里的句子）"]
         lines += _passage_groups(reading)
-    if (reading or papers_read) and mode in ("attach", "enrich"):
+    if papers_read and mode in ("attach", "enrich") and paper_use == "support":
+        # 支撑用法（开放问答）：精读原文先用来支撑、改准草稿已有的句子，只补少量关键新句，篇幅与草稿相当
+        # （E17：按“全覆盖”补写时正文长 35%，20 题里 14 题超长重写，评委对上摘录的比例 0.93→0.78，依据分也没涨）
+        where = "、".join(x for x, on in (("精读", papers_read), ("原文阅读", reading)) if on)
+        draft_words = aw._count_words(draft, lang)
+        cap = min(aw.MAX_WORDS, round(draft_words * SUPPORT_LENGTH_RATIO))
+        n_new = max(2, min(SUPPORT_NEW_SENTENCES, len({p.key for p in papers_read})))
+        rules = [
+            f"- 以草稿为准输出最终答案：保留草稿的结构、段落与每一句的内容；正文与草稿篇幅相当（草稿约 {draft_words} 词，"
+            f"定稿不超过 {cap} 词）；不要写参考文献列表。",
+            f"- 逐句处理：候选证据或{where}里的原文支撑该句时，在句末加指针，如 [S12][S40]；原文给出更具体或更准确的信息"
+            "（数字、方法名、数据集、结论）时，在该句中补充或修正，并加指针。",
+            f"- {where}的用法：优先用来支撑和改准草稿已有的句子；只有问题直接要求、草稿完全没写到的关键信息才补成新句，"
+            f"全篇最多补 {n_new} 句，放进最相关的段落，每句带指针；不要逐条转述{where}的内容。",
+            "- 证据与草稿矛盾时按证据修正该句；除此之外不要删除草稿内容，也不要把句子改写成对证据的转述；"
+            "没有证据的句子保留原样、不加指针。",
+            f"- 只能使用证据库与{where}里出现的指针，不得编造；不要自己写引文或摘录（程序会按指针附上原文）。",
+        ]
+    elif (reading or papers_read) and mode in ("attach", "enrich"):
         where = "、".join(x for x, on in (("精读", papers_read), ("原文阅读", reading)) if on)
         rules = [
             f"- 以草稿为准输出最终答案：保留草稿的结构、段落与每一句的内容；正文可比草稿长（不超过 {aw.MAX_WORDS} 词）；"
@@ -532,7 +587,8 @@ async def _select_papers(index: EvidenceIndex, question: str, keys: list[str], l
 
 async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem: asyncio.Semaphore,
                        llm_json: aw.LlmJson | None = None,
-                       max_papers: int = PAPER_READING_PAPERS, write_notes: bool = False) -> tuple[list, dict, dict, dict]:
+                       max_papers: int = PAPER_READING_PAPERS, write_notes: bool = False,
+                       list_objects: bool = True) -> tuple[list, dict, dict, dict]:
     """精读：已下载全文的论文逐篇按问题重排全部段落（连续 PAPER_WINDOW 句为一段），返回（原文，统计，要点，
     问题所问对象：指针 → 对象名）。
     - llm_json 给出（模型挑选）：前 PAPER_SKIM 段与全部表格的表题交给模型过目，模型挑出直接回答问题的
@@ -570,7 +626,8 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
                 with llm_stage("answer_paper_read"):
                     data = await llm_json(_READ_SYSTEM, _paper_read_prompt(question, meta.get("title") or "",
                                                                            meta.get("year"), skim, tables, per_paper,
-                                                                           aw.question_language(question), write_notes))
+                                                                           aw.question_language(question), write_notes,
+                                                                           list_objects))
             except Exception as exc:  # noqa: BLE001 —— 精读是增益步骤，失败退回重排直选
                 logger.warning("answer agent paper reading failed: %s", exc)
                 data = None
@@ -587,7 +644,7 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
                     picked += [x for x in (whole_table(p) if p.table else [p]) if x not in picked]
                 # 问题所问的全部对象（每个 1~2 个指针）：覆盖面由格式保证，不靠挑选名额（E15：名额全给了
                 # 论文自己的数据集细节，同文用到的其他数据集被挤掉）
-                for obj in (data.get("objects") if isinstance(data, dict) else None) or []:
+                for obj in (data.get("objects") if isinstance(data, dict) and list_objects else None) or []:
                     if not isinstance(obj, dict) or len({n for v in objects.values() for n in v}) >= PAPER_OBJECTS:
                         continue
                     name = str(obj.get("name") or "").strip()
@@ -655,8 +712,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               reading: int = 0, question_search: int = 0, opening: bool = False,
                               paper_reading: int = 0, paper_reader: str = "llm",
                               paper_reading_papers: int = PAPER_READING_PAPERS, paper_notes: bool = False,
-                              missing_fix: str = "supplement",
-                              draft_json: aw.LlmJson | None = None) -> dict:
+                              missing_fix: str = "supplement", paper_use: str = "support",
+                              claim_map: str = "list", draft_json: aw.LlmJson | None = None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）。
     draft_titles：起草时展示的召回题名数（0 = 纯凭知识起草）；claim_search>0 时草稿每句再到镜像检索
@@ -673,6 +730,10 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     paper_notes=True 时每处再写一句要点。定稿漏写了精读列出的对象、又没有别的问题时，missing_fix="supplement"
     只让模型为漏写的对象补句并插回相应段落，"rewrite" 带反馈整篇重写。
     E16（库内召回题，同一草稿）：不写要点 + 补句代替重写后，召回不变，输入 token 少 48%、输出少 57%、用时少一半。
+    paper_use 决定精读原文怎么用：“support”（默认，开放问答）先支撑、改准草稿已有的句子，只补少量关键新句，
+    篇幅与草稿相当，不列对象清单；“cover”（库内列举题，如 E15 问有哪些数据集）列出题目所问的全部对象并逐个写到。
+    E17（ScholarQA 新 20 题，同一草稿）：按 cover 用法开精读时正文长 35%、14 题超长重写，综合分 −0.029。
+    claim_map="inline" 时草稿各句的候选指针就地标在句末，不再另列一份逐句抄写草稿的候选清单。
     draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
@@ -806,8 +867,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         t_r = time.monotonic()
         papers_read, audit["paper_reading"], read_notes, read_objects = await _read_papers(
             index, question, paper_reading, sem, llm_json if paper_reader == "llm" else None, paper_reading_papers,
-            paper_notes)
-        audit["paper_reading"]["notes"] = read_notes
+            paper_notes, list_objects=paper_use == "cover")
+        audit["paper_reading"].update(notes=read_notes, use=paper_use)
         timing["paper_reading"] = round(time.monotonic() - t_r, 1)
     inventory = _inventory(read_objects, index) if read_objects else []
     if inventory:
@@ -830,14 +891,14 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
             with llm_stage("answer_write" if attempts == 1 else "answer_rewrite"):
                 data = await llm_json(_WRITE_SYSTEM, _write_prompt(question, draft, evidence, lang, feedback,
                                                                    final_mode, reading_passages, papers_read,
-                                                                   read_notes, inventory))
+                                                                   read_notes, inventory, paper_use, claim_map))
         except Exception as exc:  # noqa: BLE001
             logger.warning("answer agent write failed: %s", exc)
             if check is None and attempts == max_attempts:
                 return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": attempts,
                         "check": None, "error": type(exc).__name__, "agent": {**audit, "timing": timing}}
             continue
-        raw = str((data or {}).get("answer") or "").strip()
+        raw = _CANDIDATE_MARK.sub("", str((data or {}).get("answer") or "")).strip()   # 模型抄回来的候选标记
         if not raw:
             audit.setdefault("write_problems", []).append(["empty"])
             feedback = "- 上一稿 answer 为空，请输出完整答案。"
