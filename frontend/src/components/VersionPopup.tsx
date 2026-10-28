@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.16.0'
+const APP_VERSION = '9.16.1'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {

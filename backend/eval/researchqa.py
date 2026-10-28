@@ -208,6 +208,26 @@ def resume_items(items: list[dict], meta: dict, records: list[dict], subset_arg:
     return picked + [{**r["item"], "group": r["group"]} for r in records if r["id"] not in ids]
 
 
+async def scopus_remaining() -> int | None:
+    """Scopus 周配额剩余（一次 count=1 的检索看响应头）；查不到时返回 None。"""
+    import httpx
+
+    from backend.config import settings
+    from backend.services.ai_config import get_research_config
+
+    key = settings.elsevier_api_key or get_research_config().get("elsevier_api_key", "")
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get("https://api.elsevier.com/content/search/scopus",
+                            params={"query": "TITLE-ABS-KEY(retrieval)", "count": 1, "field": "dc:identifier"},
+                            headers={"X-ELS-APIKey": key, "Accept": "application/json"})
+        return int(r.headers.get("x-ratelimit-remaining")) if r.headers.get("x-ratelimit-remaining") else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def parse_labels(text: str, n: int) -> list[str] | None:
     """评委输出 → n 个档位；行首编号、项目符号、标点与大小写不计。条数或档位不对时返回 None（重试）。"""
     out = []
@@ -496,6 +516,13 @@ async def run(args) -> Path:
         first = [a for a in todo if ARM_SPECS[a][0] not in ("reuse", "draft_of")]
         later = [a for a in todo if ARM_SPECS[a][0] in ("reuse", "draft_of")]
         async with gate:
+            if args.scopus_reserve and any(ARM_SPECS[a][0] == "pipeline" for a in first):
+                # 配额耗尽时 Scopus 静默失败、召回退化成只剩 arXiv：剩余低于预留就留到配额重置后 --resume 续跑
+                left = await scopus_remaining()
+                if left is not None and left < args.scopus_reserve:
+                    print(f"    ⏸ Scopus 周配额只剩 {left}（预留 {args.scopus_reserve}），{item['id']} 留待配额重置后续跑",
+                          flush=True)
+                    return
             res = dict(zip(first, await asyncio.gather(*(one_arm(a, item, engine) for a in first))))   # 各组同时提交
             got = {**old, **res}
             res |= dict(zip(later, await asyncio.gather(*(
@@ -571,6 +598,8 @@ def main() -> None:
     r.add_argument("--thinking-effort", default="off")
     r.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")
     r.add_argument("--concurrency", type=int, default=3, help="同时在跑的题数（每题各组同时提交）")
+    r.add_argument("--scopus-reserve", type=int, default=0,
+                   help="每题跑完整流程前查 Scopus 周配额，低于此数就跳过（留待重置后 --resume），0 不检查")
     r.add_argument("--resume", default="", help="沿用这次结果，只补跑缺失或出错的组")
     r.add_argument("--add-arms", nargs="+", choices=list(ARM_SPECS), default=[],
                    help="与 --resume 合用：在已有结果上补跑这些组（同时带一个复本组作同时段对照）")
