@@ -63,6 +63,7 @@ ARM_SPECS = {
     # 另加：起草前先读召回论文中最相关的 15 篇的题名与摘要
     "pipeline_ctx": ("pipeline", {**_FT, "web_search": "scopus", "draft_context": 15}, {"api_full_text": True}),
     # 复用召回：在 base 组同一次召回与选材得到的论文上只重跑作答（隔离作答环节的差别，省一次完整流程）
+    "ft_answer": ("reuse", _FT, {"base": "pipeline_all"}),   # 去掉 Scopus 提名通道
     "all_answer": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "ctx_answer": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15}, {"base": "pipeline_all"}),
 }
@@ -248,7 +249,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
     for a, b in (("pipeline", "agent"), ("pipeline_ft", "pipeline"), ("pipeline_web", "pipeline_ft"),
                  ("agent_web", "agent"), ("pipeline_web", "agent_web"), ("pipeline_all", "pipeline_web"),
                  ("pipeline_all", "pipeline_ft"), ("pipeline_ctx", "pipeline_all"), ("pipeline_ctx", "bare"),
-                 ("all_answer", "pipeline_all"), ("ctx_answer", "all_answer"), ("ctx_answer", "bare")):
+                 ("all_answer", "pipeline_all"), ("ctx_answer", "all_answer"), ("ctx_answer", "bare"),
+                 ("all_answer", "ft_answer"), ("pipeline_all", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out

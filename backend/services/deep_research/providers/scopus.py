@@ -319,13 +319,17 @@ class ScopusProvider:
         entries: list[dict] = []
         sort = "-citedby-count" if order == "cited" else "-relevancy"
         fields, view = await self._search_fields()
-        # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时多数 0 命中（E10：
-        # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
-        # （OR 按相关度排序，命中词越多越靠前；只取第一页）
+        # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时命中很少或为 0（E10：Q3 前三条检索式 arXiv 与
+        # Scopus 全 0；ResearchQA 医学题每条只命中 4~6 篇，而本地镜像每条给 45 篇 cs 论文）。原式不足名额时用去停用词
+        # 的 OR 补满（OR 按相关度排序，命中词越多越靠前；只取第一页），原式结果排在前面
+        want = min(limit, 100)
         for i, variant in enumerate(relaxed_queries(query)):
-            remaining = min(limit, 100) if i == 0 else 25  # 放宽式只取第一页
-            # 放宽式（去停用词 OR）几乎命中全库：按被引降序会排出 GLOBOCAN、t-SNE 这类与题无关的全库高被引论文
-            # （ResearchQA 实测）；放宽式一律按相关度取一页，order="cited" 时再在本地按被引重排
+            if i > 0 and len(entries) >= want:
+                break
+            got: list[dict] = []
+            remaining = want if i == 0 else 25  # 放宽式只取第一页
+            # 放宽式几乎命中全库：按被引降序会排出 GLOBOCAN、t-SNE 这类与题无关的全库高被引论文（ResearchQA 实测）；
+            # 放宽式一律按相关度取一页，order="cited" 时再在本地按被引重排
             page_sort = sort if i == 0 else "-relevancy"
             start = 0
             while remaining > 0:
@@ -339,15 +343,17 @@ class ScopusProvider:
                     **view,
                 })
                 page = self._search_entries(data)
-                entries.extend(page)
+                got.extend(page)
                 if len(page) < count:  # 没有更多结果
                     break
                 remaining -= count
                 start += count
-            if entries:
-                if i > 0 and order == "cited":
-                    entries.sort(key=lambda e: -int(e.get("citedby-count") or 0))
-                break
+            if i > 0:
+                seen = {self._entry_eid(e) for e in entries}
+                got = [e for e in got if self._entry_eid(e) not in seen]
+                if order == "cited":
+                    got.sort(key=lambda e: -int(e.get("citedby-count") or 0))
+            entries.extend(got[: max(0, want - len(entries))] if i > 0 else got)
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )

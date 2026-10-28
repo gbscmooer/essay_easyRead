@@ -417,6 +417,28 @@ async def test_scopus_cited_order_on_relaxed_query_ranks_relevant_page_locally(m
 
 
 @pytest.mark.asyncio
+async def test_scopus_strict_query_short_of_limit_tops_up_from_relaxed(monkeypatch):
+    """原式命中不足名额时用放宽式补满：原式结果在前，重复的不再收。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    p = ScopusProvider(api_key="")
+
+    async def no_complete():
+        return False
+
+    async def fake_get(path, params=None):
+        if " OR " in params["query"]:
+            ids = [2, 3, 4, 5]
+        else:
+            ids = [1, 2]
+        return {"search-results": {"entry": [{"dc:title": f"Paper {i}", "dc:identifier": f"SCOPUS_ID:{i}"} for i in ids]}}
+
+    monkeypatch.setattr(p, "_complete_view_ok", no_complete)
+    monkeypatch.setattr(p, "_get", fake_get)
+    out = await p.search_works("extracorporeal membrane oxygenation infection risk factors", limit=4)
+    assert [c.title for c in out] == ["Paper 1", "Paper 2", "Paper 3", "Paper 4"]
+
+
+@pytest.mark.asyncio
 async def test_scopus_complete_view_probe_401_does_not_trip_breaker(monkeypatch):
     import httpx
 
