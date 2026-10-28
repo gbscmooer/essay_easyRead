@@ -85,8 +85,24 @@ ARM_SPECS = {
     "all_answer5": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "strong_read": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
     "strong_read2": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_read3": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_read4": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_read16": ("reuse", {**_FT, "web_search": "scopus", "reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_read16b": ("reuse", {**_FT, "web_search": "scopus", "reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
     "all_answer6": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "all_answer7": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
+    # 不开 Scopus 通道（不耗 Scopus 配额）：默认作答选项 vs 强模型起草 + 原文阅读 8/16 句，均在 pipeline_all 的论文上
+    "nw_def": ("reuse", {}, {"base": "pipeline_all"}),
+    "nw_def2": ("reuse", {}, {"base": "pipeline_all"}),
+    "nw_sr8": ("reuse", {"reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr8b": ("reuse", {"reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr16": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr16b": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    # 全集用：以默认配置的 pipeline 为 base（默认指针式作答选项），候选改进只重跑作答
+    "def_rep": ("reuse", {}, {"base": "pipeline"}),
+    "def_read": ("reuse", {"reading": 8}, {"base": "pipeline"}),
+    "def_strong": ("reuse", {}, {"base": "pipeline", "draft_model": "glm-5.3"}),
+    "def_strong_read": ("reuse", {"reading": 8}, {"base": "pipeline", "draft_model": "glm-5.3"}),
     "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
                  {"base": "pipeline_all"}),
 }
@@ -291,7 +307,9 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("pipeline_all", "pipeline_draft"), ("pipeline_draft", "bare"),
                  ("mark_answer", "all_answer2"), ("ctx_mark", "mark_answer"), ("mark_answer", "pipeline_draft"),
                  ("ctx_mark", "bare"), ("all_answer2", "all_answer"), ("mark_answer2", "all_answer3"),
-                 ("strong_draft", "all_answer2"), ("strong_draft2", "all_answer3")):
+                 ("strong_draft", "all_answer2"), ("strong_draft2", "all_answer3"),
+                 ("def_rep", "bare"), ("def_read", "def_rep"), ("def_strong", "def_rep"),
+                 ("def_strong_read", "def_rep"), ("def_read", "bare"), ("def_strong_read", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out

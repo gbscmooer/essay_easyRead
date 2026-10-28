@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.15.5'
+const APP_VERSION = '9.15.6'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
@@ -14,6 +14,7 @@ const CURRENT_RELEASE = {
     '新增 ResearchQA 评测（75 个领域、按综述提炼的细则打分），可按学科大类分层抽题，先跑小子集，再跑全部题目',
     '开放问答新增几项可选增强（默认关）：在线 Scopus 与本地论文库一起找论文、草稿点名的期刊论文可到 Scopus 按题名查找；选材阶段可先走官方全文接口；起草前可先读召回论文中最相关的若干篇',
     '开放问答新增“保留草稿”定稿方式（默认关）：草稿原文由程序保留，模型只为每句挑证据、改正与证据矛盾的句子，不再整篇改写；输出用量大幅减少',
+    '开放问答可单独指定起草用的模型（其余步骤仍用当前模型）：在模型不熟悉的学科，更强的起草模型配合原文阅读能写得更全',
   ],
 }
 

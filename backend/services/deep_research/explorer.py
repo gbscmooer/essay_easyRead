@@ -3164,9 +3164,18 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         online = options.get("search_online", True)
                         # web_search="scopus"：在线 Scopus 与本地镜像一起提名论文（镜像只覆盖 cs）
                         web = ScopusSearch() if agent_opts.pop("web_search", None) == "scopus" and online else None
+                        # draft_model：只把起草换成另一个模型（同一服务商），其余步骤仍用当前模型
+                        draft_model = agent_opts.pop("draft_model", None)
+                        _draft_json = None
+                        if draft_model and draft_model != llm_cfg.get("model"):
+                            draft_cfg = {**llm_cfg, "model": draft_model}
+
+                            async def _draft_json(system: str, user: str) -> dict:
+                                return await _answer_llm(draft_cfg, system, user, max_tokens=6000)
                         result["answer"] = await write_with_pointers(
                             question, papers, llm_json=_answer_json,
-                            mirror=default_mirror() if online else None, web_search=web, **agent_opts)
+                            mirror=default_mirror() if online else None, web_search=web,
+                            draft_json=_draft_json, **agent_opts)
                         if result["answer"].get("status") == "failed":
                             # 起草或定稿失败（如内容审核拒绝、模型出错）：退回只依据已提取材料作答，学者仍拿到答案
                             failed = result["answer"]
