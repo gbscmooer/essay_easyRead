@@ -71,8 +71,22 @@ ARM_SPECS = {
     "all_answer": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "ctx_answer": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15}, {"base": "pipeline_all"}),
     "all_answer2": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),   # 补跑时的同时段对照
+    "all_answer3": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     # mark 定稿：草稿原文由程序保留，模型只挑指针、改正与证据矛盾的句子
     "mark_answer": ("reuse", {**_FT, "web_search": "scopus", "final_mode": "mark"}, {"base": "pipeline_all"}),
+    "mark_answer2": ("reuse", {**_FT, "web_search": "scopus", "final_mode": "mark"}, {"base": "pipeline_all"}),
+    # 起草换 glm-5.3（其余步骤仍用 flash）：模型不熟悉的学科，草稿的知识面可能更关键（E19 在 CS 上无差别）
+    "strong_draft": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_draft2": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    # 原文阅读：按问题本身从已收集原文中另取 8 句交给定稿补充（召回对题时补具体细节；CS 上默认关）
+    "read_answer": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all"}),
+    "read_answer2": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all"}),
+    "all_answer4": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
+    "all_answer5": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
+    "strong_read": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "strong_read2": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "all_answer6": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
+    "all_answer7": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
                  {"base": "pipeline_all"}),
 }
@@ -276,7 +290,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("all_answer", "ft_answer"), ("pipeline_all", "bare"),
                  ("pipeline_all", "pipeline_draft"), ("pipeline_draft", "bare"),
                  ("mark_answer", "all_answer2"), ("ctx_mark", "mark_answer"), ("mark_answer", "pipeline_draft"),
-                 ("ctx_mark", "bare"), ("all_answer2", "all_answer")):
+                 ("ctx_mark", "bare"), ("all_answer2", "all_answer"), ("mark_answer2", "all_answer3"),
+                 ("strong_draft", "all_answer2"), ("strong_draft2", "all_answer3")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -327,7 +342,16 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
             papers = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("papers") or []
         opts = {**RECOMMENDED, **extra}
         web = ScopusSearch() if opts.pop("web_search", None) == "scopus" else None
-        answer = await write_with_pointers(query, papers, llm_json=answer_json, mirror=mirror, web_search=web, **opts)
+        draft_json = None
+        if run_opts.get("draft_model"):
+            from backend.eval.scholarqa_cs import judge_cfg
+
+            draft_cfg = {**judge_cfg(run_opts["draft_model"]), "thinking_effort": "off"}
+
+            async def draft_json(system: str, user: str) -> dict:
+                return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
+        answer = await write_with_pointers(query, papers, llm_json=answer_json, mirror=mirror, web_search=web,
+                                           draft_json=draft_json, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
     else:
         options = {"answer_only": True, "answer_writer": "agent", **run_opts,
