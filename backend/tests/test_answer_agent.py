@@ -768,3 +768,43 @@ def test_draft_context_shows_most_relevant_recall_abstracts(monkeypatch):
                                              mirror=None, draft_context=1))
     assert out["agent"]["draft_context"] == 1
     assert "duration was the main risk factor" in prompts[0] and "imitate clinicians" not in prompts[0]
+
+
+def test_mark_mode_keeps_draft_verbatim_and_attaches_pointers(monkeypatch):
+    _no_rerank(monkeypatch)
+    draft = ("**Datasets.** ManyTypes4Py is a large dataset with 869K annotations. "
+             "TypeEvalPy is a micro-benchmark with 999 snippets.\n\n"
+             "**Limitations.** Type inference for Python remains hard because of dynamic features.")
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        if "## 任务" in user and "draft" in user:
+            return {"draft": draft, "works": [], "queries": []}
+        assert "已按句编号" in user and "[2] TypeEvalPy is a micro-benchmark with 999 snippets." in user
+        return {"marks": [{"i": 1, "pointers": ["S5"], "fix": ""},
+                          {"i": 2, "pointers": ["S2", "S99"], "fix": "TypeEvalPy is a micro-benchmark with 154 snippets."}]}
+
+    out = asyncio.run(ag.write_with_pointers("What datasets evaluate Python type inference?", _PAPERS,
+                                             llm_json=llm_json, mirror=None, final_mode="mark"))
+    assert out["status"] == "ok" and len(prompts) == 2              # 起草 + 一次挑指针，不进入重写
+    assert "**Datasets.** ManyTypes4Py is a large dataset with 869K annotations [1]." in out["text"]
+    assert "154 snippets [2]." in out["text"] and "999" not in out["text"]   # 矛盾句按证据改正
+    assert "Type inference for Python remains hard because of dynamic features." in out["text"]   # 无证据句原样保留
+    assert out["agent"]["mark"] == {"sentences": 3, "marked": 2, "fixed": 1}
+
+
+def test_mark_mode_falls_back_to_attach_when_no_marks(monkeypatch):
+    _no_rerank(monkeypatch)
+
+    async def llm_json(system, user):
+        if "## 任务" in user and "draft" in user:
+            return {"draft": "ManyTypes4Py is a large dataset with 869K annotations for type inference.",
+                    "works": [], "queries": []}
+        if "已按句编号" in user:
+            return {"marks": "oops"}
+        return {"answer": "ManyTypes4Py is a large dataset with 869K annotations for type inference [S5]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets?", _PAPERS, llm_json=llm_json, mirror=None,
+                                             final_mode="mark"))
+    assert out["status"] == "ok" and out["agent"]["mark_fallback"] and "[1]" in out["text"]

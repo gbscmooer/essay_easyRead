@@ -18,6 +18,8 @@ Mostly / Completely，映射 1~5 后归一化到 0~1 取平均（细则覆盖率
   pipeline_all 同 pipeline_web，另让选材阶段先走官方全文接口（Europe PMC / ScienceDirect）
   pipeline_ctx 同 pipeline_all，另让起草前先读召回论文中最相关的 15 篇（题名与摘要）
   agent_web    指针式作答单独运行（不走召回），镜像 + Scopus 提名，多来源全文
+  pipeline_draft  pipeline_all 的草稿本身（同一份草稿不加检索与证据），区分“写得全”与“检索和证据”的作用
+  mark_answer / ctx_mark  复用召回，mark 定稿（草稿原文保留，只挂指针、改正矛盾句）；all_answer2 为补跑时的同时段复本
   all_answer / ctx_answer  复用 pipeline_all 同一次召回与选材的论文，只重跑作答（前者同配置复本，后者加起草参考文献）
 
 用法：
@@ -63,9 +65,16 @@ ARM_SPECS = {
     # 另加：起草前先读召回论文中最相关的 15 篇的题名与摘要
     "pipeline_ctx": ("pipeline", {**_FT, "web_search": "scopus", "draft_context": 15}, {"api_full_text": True}),
     # 复用召回：在 base 组同一次召回与选材得到的论文上只重跑作答（隔离作答环节的差别，省一次完整流程）
+    # 同一份草稿、不加检索与证据：拆开“写得长、写得全”与“检索和证据”各自的作用（草稿已保存，不另生成）
+    "pipeline_draft": ("draft_of", {}, {"base": "pipeline_all"}),
     "ft_answer": ("reuse", _FT, {"base": "pipeline_all"}),   # 去掉 Scopus 提名通道
     "all_answer": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
     "ctx_answer": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15}, {"base": "pipeline_all"}),
+    "all_answer2": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),   # 补跑时的同时段对照
+    # mark 定稿：草稿原文由程序保留，模型只挑指针、改正与证据矛盾的句子
+    "mark_answer": ("reuse", {**_FT, "web_search": "scopus", "final_mode": "mark"}, {"base": "pipeline_all"}),
+    "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
+                 {"base": "pipeline_all"}),
 }
 ARMS = ("bare", "agent", "pipeline", "pipeline_ft")   # 默认组
 
@@ -142,6 +151,20 @@ def subset(picked: list[dict], k: int) -> list[dict]:
             if queues[key] and len(out) < k:
                 out.append(queues[key].pop(0))
     return out
+
+
+def resume_items(items: list[dict], meta: dict, records: list[dict], subset_arg: int = 0) -> list[dict]:
+    """续跑：按原抽样参数重新抽题，再并入已保存但不在抽样里的题。
+    只取已保存的记录会漏掉中途停下时还没跑到的题（10-28 实测：子集跑到 4/10 被停后续跑直接结束）。"""
+    sub = subset_arg or meta.get("subset") or 0
+    picked = pick_items(items, seed=meta["seed"], n_noncs=meta["n_noncs"], n_cs=meta["n_cs"])
+    if sub:
+        picked = subset(picked, sub)
+    if meta.get("first"):
+        picked = picked[:meta["first"]]
+    meta["subset"] = sub
+    ids = {x["id"] for x in picked}
+    return picked + [{**r["item"], "group": r["group"]} for r in records if r["id"] not in ids]
 
 
 def parse_labels(text: str, n: int) -> list[str] | None:
@@ -250,7 +273,10 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("agent_web", "agent"), ("pipeline_web", "agent_web"), ("pipeline_all", "pipeline_web"),
                  ("pipeline_all", "pipeline_ft"), ("pipeline_ctx", "pipeline_all"), ("pipeline_ctx", "bare"),
                  ("all_answer", "pipeline_all"), ("ctx_answer", "all_answer"), ("ctx_answer", "bare"),
-                 ("all_answer", "ft_answer"), ("pipeline_all", "bare")):
+                 ("all_answer", "ft_answer"), ("pipeline_all", "bare"),
+                 ("pipeline_all", "pipeline_draft"), ("pipeline_draft", "bare"),
+                 ("mark_answer", "all_answer2"), ("ctx_mark", "mark_answer"), ("mark_answer", "pipeline_draft"),
+                 ("ctx_mark", "bare"), ("all_answer2", "all_answer")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -284,6 +310,11 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
         base = await make_llm_json(system_cfg, max_tokens=4000)(_BASELINE_SYSTEM, query)
         return {"response": str(base.get("answer") or ""), "status": "ok"}
     save = runs_dir / f"{item['id']}_{arm}.json"
+    if mode == "draft_of":
+        if not base_saved or not Path(base_saved).exists():
+            raise RuntimeError(f"草稿组：{run_opts.get('base')} 组没有可用结果")
+        base = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("answer") or {}
+        return {"response": str(base.get("draft") or ""), "status": "ok" if base.get("draft") else "no_draft"}
     if mode in ("agent", "reuse"):
         from backend.services.deep_research.evidence_search import ScopusSearch
 
@@ -314,7 +345,7 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
 
 async def run(args) -> Path:
     from backend.eval import explore_eval
-    from backend.eval.public_benchmarks import _llm_cfg
+    from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
     from backend.eval.scholarqa_cs import disable_openalex
     from backend.services.deep_research.arxiv_mirror import default_mirror
     from backend.services.llm import start_token_ledger, token_ledger_report
@@ -328,8 +359,10 @@ async def run(args) -> Path:
         prev = {r["id"]: r for r in old["records"]}
         meta = old["meta"]
         out = Path(args.resume)
-        picked = [{**r["item"], "group": r["group"]} for r in old["records"]]
         arms = meta["arms"]
+        picked = resume_items(load_items(), meta, old["records"], args.subset)
+        if args.add_arms:   # 在已有结果上补跑新组（复用召回的组用已保存的 base 组论文）
+            arms = meta["arms"] = list(dict.fromkeys([*arms, *args.add_arms]))
     else:
         picked = pick_items(load_items(), seed=args.seed, n_noncs=args.n_noncs, n_cs=args.n_cs)
         if args.subset:
@@ -340,6 +373,7 @@ async def run(args) -> Path:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = OUT_DIR / f"researchqa_{stamp}.json"
         meta = {"seed": args.seed, "n": len(picked), "n_noncs": args.n_noncs, "n_cs": args.n_cs, "arms": arms,
+                "subset": args.subset, "first": args.first,
                 "depth": args.depth, "system_model": system_cfg.get("model"), "judge_model": args.judge_model,
                 "judge_repeats": args.judge_repeats,
                 "started": stamp, "label": args.label, "concurrency": args.concurrency,
@@ -348,8 +382,8 @@ async def run(args) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     log = ledger.open_log(out)
     mirror = default_mirror() if any(ARM_SPECS[a][0] in ("agent", "reuse") for a in arms) else None
-    for a in arms:   # 复用召回的组必须带上它的 base 组
-        if ARM_SPECS[a][0] == "reuse" and ARM_SPECS[a][2]["base"] not in arms:
+    for a in arms:   # 复用召回、草稿组必须带上它的 base 组
+        if ARM_SPECS[a][0] in ("reuse", "draft_of") and ARM_SPECS[a][2]["base"] not in arms:
             raise SystemExit(f"{a} 需要同时跑 {ARM_SPECS[a][2]['base']} 组")
     gate = asyncio.Semaphore(max(1, args.concurrency))
     done: dict[str, dict] = dict(prev)
@@ -360,7 +394,28 @@ async def run(args) -> Path:
         out.write_text(json.dumps({"meta": meta, "partial": True, "records": records}, ensure_ascii=False,
                                   indent=1), encoding="utf-8")
 
+    watch = QuotaWatch.install()
+
     async def one_arm(arm: str, item: dict, engine, base_saved: str | None = None) -> dict:
+        """限流期间流程按失败降级（筛选放行、规划停止）而不报错：本组结果作废，等额度重置后重跑。"""
+        for n_try in range(QuotaWatch.MAX_RETRIES + 1):
+            scope = QuotaWatch.scope()   # 本任务内单独计数（并发时不串组）
+            rec = await _one_arm(arm, item, engine, base_saved)
+            limited = scope["hits"] or "RATE_LIMITED" in str(rec.get("error") or "")
+            if limited:
+                watch.note(f"{rec.get('error') or ''} {scope.get('sample') or ''}")
+            if limited and n_try < QuotaWatch.MAX_RETRIES:
+                print(f"    ⚠ {item['id']} {arm} 模型限流，作废重跑（{(scope['sample'] or rec.get('error') or '')[:100]}）",
+                      flush=True)
+                await watch.wait_for_reset()
+                continue
+            break
+        rec["attempts"] = n_try + 1
+        if limited:
+            rec |= {"rate_limited": (scope["sample"] or rec.get("error") or "")[:300], "coverage": None}
+        return rec
+
+    async def _one_arm(arm: str, item: dict, engine, base_saved: str | None = None) -> dict:
         t0 = time.monotonic()
         tokens = start_token_ledger()
         try:
@@ -383,8 +438,8 @@ async def run(args) -> Path:
         todo = [a for a in arms if (old.get(a) or {}).get("coverage") is None]
         if not todo:
             return
-        first = [a for a in todo if ARM_SPECS[a][0] != "reuse"]
-        later = [a for a in todo if ARM_SPECS[a][0] == "reuse"]
+        first = [a for a in todo if ARM_SPECS[a][0] not in ("reuse", "draft_of")]
+        later = [a for a in todo if ARM_SPECS[a][0] in ("reuse", "draft_of")]
         async with gate:
             res = dict(zip(first, await asyncio.gather(*(one_arm(a, item, engine) for a in first))))   # 各组同时提交
             got = {**old, **res}
@@ -462,6 +517,8 @@ def main() -> None:
     r.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")
     r.add_argument("--concurrency", type=int, default=3, help="同时在跑的题数（每题各组同时提交）")
     r.add_argument("--resume", default="", help="沿用这次结果，只补跑缺失或出错的组")
+    r.add_argument("--add-arms", nargs="+", choices=list(ARM_SPECS), default=[],
+                   help="与 --resume 合用：在已有结果上补跑这些组（同时带一个复本组作同时段对照）")
     r.add_argument("--label", default="")
     j = sub.add_parser("judge")
     j.add_argument("file")

@@ -468,6 +468,88 @@ def _write_prompt(question: str, draft: str, evidence: list[tuple[str, list]], l
     return "\n".join(lines)
 
 
+_MARK_SPLIT = re.compile(r"(?<=[.!?。！？])(\s+)")
+_HEADING_LINE = re.compile(r"\s*(#+\s.*|\*\*[^*]+\*\*[:：]?)\s*")
+
+
+def _norm_claim(text: str) -> str:
+    return re.sub(r"\s+", " ", aw._INLINE_HEADING.sub("", text or "")).strip().casefold()[:80]
+
+
+def _mark_units(draft: str) -> list[list]:
+    """草稿 → [文本片段, 句号或 None] 列表：可挂指针的句子编号（从 1 起），标题行、分隔符与短句原样保留；
+    按顺序拼回去就是草稿原文。"""
+    pieces: list[list] = []
+    n = 0
+    for line in (draft or "").splitlines(keepends=True):
+        if not line.strip() or _HEADING_LINE.fullmatch(line.rstrip("\n")):
+            pieces.append([line, None])
+            continue
+        for j, part in enumerate(_MARK_SPLIT.split(line)):
+            if j % 2 == 0 and len(aw._CJK.sub("xx", part.strip())) >= 12:
+                n += 1
+                pieces.append([part, n])
+            else:
+                pieces.append([part, None])
+    return pieces
+
+
+def _mark_prompt(question: str, pieces: list[list], evidence: list[tuple[str, list]], lang: str,
+                 reading: list | None = None, papers_read: list | None = None) -> str:
+    """mark 定稿：草稿原文由程序保留，模型只为每句挑支撑它的指针，与证据矛盾的句子给出改正句。"""
+    cands = {_norm_claim(c): ps for c, ps in evidence}
+    lines = [f"## 问题\n{question}", "", "## 草稿（来自你的专业知识；已按句编号，原文由程序保留）"]
+    numbered = [(i, text) for text, i in pieces if i]
+    lines += [f"[{i}] {text.strip()}" for i, text in numbered]
+    lines += ["", "## 证据库（检索工具从论文原文中找到的句子；[S#] 为指针）"]
+    read_ids = {p.pid for p in papers_read or []}
+    lines += _passage_groups([p for _, ps in evidence for p in ps if p.pid not in read_ids])
+    if papers_read:
+        lines += ["", "## 精读（已下载全文的论文中与问题最相关的段落）", *_passage_groups(papers_read)]
+    if reading:
+        lines += ["", "## 原文阅读（按问题在已收集原文中找到的相关句）", *_passage_groups(reading)]
+    hint = [f"{i} → " + "、".join(p.pid for p in cands.get(_norm_claim(text), [])) for i, text in numbered
+            if cands.get(_norm_claim(text))]
+    if hint:
+        lines += ["", "## 各句的候选证据（只是检索提示，不支撑就不选）", *hint]
+    lines += [
+        "", "## 任务",
+        "草稿每一句都会原样保留，你只做两件事：",
+        "- marks：为每句列出原文确实支撑它的指针（只能用证据库、精读或原文阅读里出现的 [S#]，不得编造；"
+        "没有支撑的句子不列）。",
+        f"- fix：某句的数字、结论与证据矛盾时，给出按证据改正后的整句（用{'英文' if lang == 'en' else '中文'}，"
+        "保持原句长度与语气，不加指针）；不矛盾的句子 fix 留空。不要为了能引用而改写句子。",
+        '输出：{"marks": [{"i": 1, "pointers": ["S12", "S40"], "fix": ""}]}',
+    ]
+    return "\n".join(lines)
+
+
+def _apply_marks(pieces: list[list], data: dict, index: EvidenceIndex) -> tuple[str, int, int]:
+    """把模型挑的指针挂回草稿原句句末（矛盾句换成改正句）；返回 (带指针的草稿, 挂上指针的句数, 改正句数)。"""
+    by_i: dict[int, dict] = {}
+    for m in (data or {}).get("marks") or []:
+        try:
+            by_i[int(m.get("i"))] = m
+        except (TypeError, ValueError, AttributeError):
+            continue
+    out, marked, fixed = [], 0, 0
+    for text, i in pieces:
+        m = by_i.get(i) if i else None
+        if not m:
+            out.append(text)
+            continue
+        body, tail = text.rstrip(), text[len(text.rstrip()):]
+        fix = str(m.get("fix") or "").strip()
+        if fix and 0.5 <= len(fix) / max(len(body), 1) <= 2.0:   # 改正句篇幅与原句相当才用，防止整段改写
+            body, fixed = fix, fixed + 1
+        ptrs = [str(x).strip().strip("[]") for x in m.get("pointers") or []]
+        ptrs = [x for x in dict.fromkeys(ptrs) if re.fullmatch(r"S\d+", x) and index.get(x) is not None]
+        if ptrs:
+            body, marked = body + " " + "".join(f"[{x}]" for x in ptrs), marked + 1
+        out.append(body + tail)
+    return "".join(out), marked, fixed
+
+
 def render_pointers(text: str, index: EvidenceIndex) -> tuple[str, list[dict], list[str]]:
     """[S#] → 按论文首次出现顺序编号的 [n]；参考文献摘录 = 指针指向的原句（逐字）。返回（正文，参考文献，无效指针）。"""
     order: dict[str, int] = {}
@@ -941,7 +1023,26 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
 
     t3 = time.monotonic()
     feedback, check, refs, text, attempts, raw = "", None, [], "", 0, ""
-    for attempts in range(1, max_attempts + 1):
+    if final_mode == "mark":
+        # 草稿原文由程序保留，模型只挑指针与改正矛盾句；挑不出来（输出无法解析）时退回 attach 定稿
+        pieces = _mark_units(draft)
+        try:
+            with llm_stage("answer_write"):
+                marks = await llm_json(_WRITE_SYSTEM, _mark_prompt(question, pieces, evidence, lang,
+                                                                   reading_passages, papers_read))
+            raw, n_marked, n_fixed = _apply_marks(pieces, marks, index)
+            audit["mark"] = {"sentences": sum(1 for _, i in pieces if i), "marked": n_marked, "fixed": n_fixed}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("answer agent mark failed, falling back to attach: %s", exc)
+            n_marked = 0
+        if n_marked:
+            text, refs, invalid = render_pointers(raw, index)
+            check = aw.check_answer(text, [{"n": r["n"]} for r in refs], lang, min_share=0.0)
+            attempts, max_attempts = 1, 0   # 不进入重写循环
+        else:
+            audit["mark_fallback"] = True
+            final_mode = "attach"
+    for attempts in range(attempts + 1, max_attempts + 1):
         try:
             with llm_stage("answer_write" if attempts == 1 else "answer_rewrite"):
                 data = await llm_json(_WRITE_SYSTEM, _write_prompt(question, draft, evidence, lang, feedback,

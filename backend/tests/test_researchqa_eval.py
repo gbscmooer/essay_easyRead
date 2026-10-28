@@ -83,3 +83,12 @@ def test_repeated_judging_averages_each_item():
     judged = asyncio.run(rq.CoverageJudge(complete_text, repeats=2).judge("answer", rubric))
     assert [j["score"] for j in judged] == [(1.0 + 0.75) / 2, 0.0]
     assert judged[0]["labels"] == ["completely", "mostly"]
+
+
+def test_resume_rederives_unfinished_questions_from_sample_params():
+    items = _items()
+    full = rq.subset(rq.pick_items(items, seed=0), 10)
+    meta = {"seed": 0, "n_noncs": 40, "n_cs": 10}
+    saved = [{"id": x["id"], "group": x["group"], "item": x} for x in full[:4]]
+    out = rq.resume_items(items, meta, saved, subset_arg=10)
+    assert [x["id"] for x in out] == [x["id"] for x in full] and meta["subset"] == 10
