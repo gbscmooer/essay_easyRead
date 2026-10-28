@@ -395,6 +395,45 @@ async def mirror_search(queries: list[str], mirror, *, per_query: int = 4) -> li
     return out
 
 
+class ScopusSearch:
+    """在线 Scopus 检索，作为本地镜像之外的提名通道：接口与镜像的 as_search_one 一致，可直接交给 mirror_search。
+    本地镜像约 98% 是 cs 论文，非 CS 学科的问题在镜像里只能搜到不对题的 CS 论文；Scopus 覆盖各学科，
+    校园网下检索结果带摘要（校外没有摘要，mirror_search 不收无摘要的论文，等于不起作用）。"""
+
+    def __init__(self, provider=None):
+        if provider is None:
+            from ...config import settings
+            from ..ai_config import get_research_config
+            from .providers.scopus import ScopusProvider
+
+            provider = ScopusProvider(settings.elsevier_api_key or get_research_config().get("elsevier_api_key", ""))
+        self.provider = provider
+
+    def as_search_one(self):
+        async def search_one(source: str, query: str, limit: int, order: str) -> list:
+            cands = await self.provider.search_works(query, limit=limit)
+            for c in cands:
+                c.provenance = [*(c.provenance or []), "channel:scopus"]
+            return cands
+        return search_one
+
+    async def lookup_titles(self, titles: list[str]) -> list[dict]:
+        """按模型点名的题名在 Scopus 找同一篇论文（同题且有摘要才收，不用相近论文顶替）。"""
+        from .explorer import _dedupe_candidates
+
+        async def one(title: str) -> dict | None:
+            try:
+                cands = await self.provider.search_titles(title, 3)
+            except Exception as exc:  # noqa: BLE001 —— 单篇查找失败跳过
+                logger.warning("scopus title lookup failed for %r: %s", title, exc)
+                return None
+            row = next((p for p in _dedupe_candidates(cands)
+                        if _same_title(title, p.get("title") or "") and (p.get("abstract") or "").strip()), None)
+            return {**row, "requested_title": title, "source_query": "method:title_lookup"} if row else None
+
+        return [p for p in await asyncio.gather(*(one(t) for t in titles)) if p]
+
+
 FULL_TEXT_SOURCES = ("arxiv",)          # 默认只用 arXiv 开放全文；"pmc"、"elsevier" 需显式开启
 _EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 _ELS_NS = "{http://www.elsevier.com/xml/common/dtd}"

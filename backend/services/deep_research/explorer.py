@@ -3030,6 +3030,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     search_context=search_context,
                     resume_state=_fresh_resume_state(), on_selected=_on_selected,
                     should_pause=_paused, stop_after="select", paper_limit=read_cap,
+                    api_full_text=bool(options.get("api_full_text")),
                 )
                 result["report_plan"] = plan
                 # 全文获取结果已就地写入 papers（source_text），快照随阶段落库
@@ -3087,6 +3088,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     question, papers, metrics, synthesis_dict, llm_cfg, depth=depth,
                     progress=report_progress,
                     fetch_full_text=options.get("search_online", True),
+                    api_full_text=bool(options.get("api_full_text")),
                     search_context=search_context,
                     iteration_progress=_loop_event,
                     resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
@@ -3156,11 +3158,15 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         # 指针式作答：起草 → 按论断检索原文句 → 引用指针定稿（answer_agent）
                         from .answer_agent import RECOMMENDED, write_with_pointers
                         from .arxiv_mirror import default_mirror
+                        from .evidence_search import ScopusSearch
 
+                        agent_opts = {**RECOMMENDED, **(options.get("answer_agent") or {})}
+                        online = options.get("search_online", True)
+                        # web_search="scopus"：在线 Scopus 与本地镜像一起提名论文（镜像只覆盖 cs）
+                        web = ScopusSearch() if agent_opts.pop("web_search", None) == "scopus" and online else None
                         result["answer"] = await write_with_pointers(
                             question, papers, llm_json=_answer_json,
-                            mirror=default_mirror() if options.get("search_online", True) else None,
-                            **{**RECOMMENDED, **(options.get("answer_agent") or {})})
+                            mirror=default_mirror() if online else None, web_search=web, **agent_opts)
                         if result["answer"].get("status") == "failed":
                             # 起草或定稿失败（如内容审核拒绝、模型出错）：退回只依据已提取材料作答，学者仍拿到答案
                             failed = result["answer"]
@@ -3290,6 +3296,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     progress=report_progress,
                     # 研究侧时间耗尽：报告阶段不再下载全文（提取回退摘要）。
                     fetch_full_text=options.get("search_online", True) and not _research_frozen(),
+                    api_full_text=bool(options.get("api_full_text")),
                     search_context=search_context,
                     iteration_progress=_loop_event,
                     resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
@@ -3531,6 +3538,7 @@ async def rebuild_survey_report(run_id: int) -> None:
                 question, result.get("papers", []), result.get("metrics", {}),
                 result.get("synthesis"), get_analysis_config(), depth=depth,
                 progress=progress, fetch_full_text=options.get("search_online", True),
+                api_full_text=bool(options.get("api_full_text")),
                 search_context={
                     "decompose": result.get("decompose") or {},
                     "provider": result.get("provider") or "",

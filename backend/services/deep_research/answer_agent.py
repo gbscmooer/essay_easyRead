@@ -22,7 +22,7 @@ from collections import defaultdict
 from ..llm import llm_stage
 from . import answer_writer as aw
 from .evidence_search import (FULL_TEXT_SOURCES, EvidenceIndex, fetch_arxiv_full_text, fetch_full_text_any,
-                              mirror_lookup_titles, mirror_search)
+                              mirror_lookup_titles, mirror_search, title_key)
 from .reranker import rerank_scores
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ DRAFT_TITLES = 30          # 起草时列出的召回论文题名数（帮助模
 MAX_WORKS = 12
 MAX_QUERIES = 8
 MAX_NEW_PAPERS = 60        # 镜像补充的论文上限（题名查找 + 检索式）
+DRAFT_CONTEXT_CHARS = 450   # 起草参考文献（draft_context）每篇摘要的截断长度
 SEARCH_PER_QUERY = 4
 CLAIM_EVIDENCE = 3         # 每个论断交给模型的候选句数
 MAX_CLAIMS = 60
@@ -84,10 +85,15 @@ def _length(lang: str) -> str:
 
 
 def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DRAFT_TITLES,
-                  opening: bool = False) -> str:
+                  opening: bool = False, context: list[dict] | None = None) -> str:
     """opening=True：第一段先交代背景（概念界定、重要性与难点）再概括答案——专家细则里约三成的必备项
     要求“开头先定义/介绍/说明重要性”，直接给结论的开头在这些项上平均只得 0.54（其余必备项 0.80）。"""
     lines = [f"## 问题\n{question}"]
+    if context:
+        # 起草前先读召回到的相关文献（按与问题的相关度取前若干篇）：模型不熟悉的学科，凭记忆起草容易空泛或写错
+        lines += ["", "## 本次检索到的相关文献（题名与摘要；起草时吸收其中的具体发现、对象与数字，不确定的不要写）"]
+        lines += [f"- {aw._clip(p.get('title') or '', 160)}" + (f" ({p['year']})" if p.get("year") else "")
+                  + f"：{aw._clip(p.get('abstract') or '', DRAFT_CONTEXT_CHARS)}" for p in context]
     if titles > 0:
         lines += ["", "## 本次已检索到的部分文献（仅供定位，不要求引用）"]
         lines += [f"- {aw._clip(p.get('title') or '', 160)}" + (f" ({p['year']})" if p.get("year") else "")
@@ -683,6 +689,16 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
     return out, stats, notes, objects
 
 
+async def _draft_context(question: str, papers: list[dict], k: int) -> list[dict]:
+    """起草参考文献：有摘要的召回论文按与问题的相关度（重排模型）取前 k 篇；重排不可用时按召回顺序。"""
+    pool = [p for p in papers if (p.get("abstract") or "").strip() and p.get("title")]
+    if len(pool) > k:
+        scores = await rerank_scores(question, [f"{p['title']}: {aw._clip(p['abstract'], 1200)}" for p in pool])
+        if scores:
+            pool = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -scores[i])]
+    return pool[:k]
+
+
 async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch, sources=FULL_TEXT_SOURCES, *,
                             question: str = "", order: str = "origin") -> dict:
     """为只有摘要的论文补全文，按来源优先级取前 limit 篇：点名代表作与按问题检索到的论文轮流取
@@ -732,7 +748,7 @@ async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch, sources=FUL
 async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw.LlmJson,
                               mirror=None, max_attempts: int = 2, fetch_full_text: int = 0,
                               fetch=fetch_arxiv_full_text, full_text_sources=FULL_TEXT_SOURCES,
-                              fetch_order: str = "origin",
+                              fetch_order: str = "origin", web_search=None, draft_context: int = 0,
                               draft_titles: int = DRAFT_TITLES,
                               claim_search: int = 0, final_mode: str = "revise", followup: int = 0,
                               reading: int = 0, question_search: int = 0, opening: bool = False,
@@ -743,6 +759,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
+    draft_context>0 时起草前先把召回论文按与问题的相关度排序，取前若干篇的题名与摘要给模型参考（默认 0 = 纯凭知识起草）。
+    web_search 为在线检索通道（如 evidence_search.ScopusSearch）：与镜像一起提名论文（交替排列），
+    镜像里找不到的点名论文再到这里按题名查；镜像只覆盖 cs，非 CS 学科主要靠它。
     draft_titles：起草时展示的召回题名数（0 = 纯凭知识起草）；claim_search>0 时草稿每句再到镜像检索
     若干篇论文；final_mode="attach" 时以草稿为准逐句挂证据，"revise" 时在草稿基础上改写。
     followup>0 时取证据最弱的若干句，由模型写检索式（可给确切题名）再查一轮，然后重新找证据。
@@ -772,12 +791,14 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         index.add_paper(p, origin="recall")
     audit["recall_papers"] = len(index.papers)
 
+    context = await _draft_context(question, papers or [], draft_context) if draft_context > 0 else []
+    audit["draft_context"] = len(context)
     data, draft = None, ""
     for draft_try in range(2):
         try:
             with llm_stage("answer_draft"):
                 data = await (draft_json or llm_json)(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang,
-                                                                                   draft_titles, opening))
+                                                                                   draft_titles, opening, context))
         except Exception as exc:  # noqa: BLE001
             logger.warning("answer agent draft failed: %s", exc)
             return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": 0,
@@ -798,14 +819,32 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                 "check": None, "error": "empty_draft", "agent": audit}
 
     t1 = time.monotonic()
-    if mirror is not None:
+
+    async def search(queries: list[str], per_query: int) -> list[dict]:
+        # 镜像与在线通道各自提名，交替排列（各通道只提名，证据先后由后面的重排决定）
+        lists = []
+        for src in (mirror, web_search):
+            if src is not None and queries:
+                try:
+                    lists.append(await mirror_search(queries, src, per_query=per_query))
+                except Exception as exc:  # noqa: BLE001 —— 单个通道失败不影响作答
+                    logger.warning("answer agent search failed: %s", exc)
+        return [p for group in itertools.zip_longest(*lists) for p in group if p]
+
+    if mirror is not None or web_search is not None:
         budget = MAX_NEW_PAPERS
         missing = [w for w in works if not index.has_title(w)]
+        found = []
         try:
-            found = await mirror_lookup_titles(missing, mirror) if missing else []
+            found = await mirror_lookup_titles(missing, mirror) if missing and mirror is not None else []
+            if web_search is not None:
+                got = {title_key(p.get("requested_title") or "") for p in found}
+                rest = [w for w in missing if title_key(w) not in got]
+                found += await web_search.lookup_titles(rest) if rest else []
+            audit["works_web_found"] = sum(1 for p in found if p.get("source_query") == "method:title_lookup"
+                                             and not p.get("arxiv_id"))
         except Exception as exc:  # noqa: BLE001 —— 文献补充失败不影响作答
             logger.warning("answer agent title lookup failed: %s", exc)
-            found = []
         for p in found[:budget]:
             if index.add_paper(p, origin="named_work"):
                 audit["works_found"] += 1
@@ -813,17 +852,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         if question_search > 0:
             headings = list(dict.fromkeys(h for h, _ in _claims(draft) if h))
             probes = [question, *(f"{question} {h}" for h in headings[:QUESTION_PROBES - 1])]
-            try:
-                q_found = await mirror_search(probes, mirror, per_query=question_search)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("answer agent question search failed: %s", exc)
-                q_found = []
+            q_found = await search(probes, question_search)
             audit["question_search_added"] = sum(1 for p in q_found if index.add_paper(p, origin="question_search"))
-        try:
-            searched = await mirror_search(queries, mirror, per_query=SEARCH_PER_QUERY) if queries else []
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("answer agent mirror search failed: %s", exc)
-            searched = []
+        searched = await search(queries, SEARCH_PER_QUERY)
         for p in searched:
             if budget <= 0:
                 break
@@ -832,11 +863,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                 budget -= 1
         if claim_search > 0:
             claim_texts = [f"{h}: {c}" if h else c for h, c in _claims(draft)]
-            try:
-                per_claim = await mirror_search(claim_texts, mirror, per_query=claim_search)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("answer agent claim search failed: %s", exc)
-                per_claim = []
+            per_claim = await search(claim_texts, claim_search)
             audit["claim_search_added"] = sum(1 for p in per_claim if index.add_paper(p, origin="claim_search"))
     if fetch_full_text > 0:
         audit["full_text"] = await _fetch_full_texts(index, fetch_full_text, fetch, full_text_sources,

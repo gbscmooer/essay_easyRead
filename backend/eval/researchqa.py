@@ -14,6 +14,10 @@ Mostly / Completely，映射 1~5 后归一化到 0~1 取平均（细则覆盖率
   pipeline  八阶段流程的开放问答模式（Scopus + arXiv 召回 → 指针式作答；评测不用 OpenAlex）
   pipeline_ft  同 pipeline，补全文时依次试 arXiv → Europe PMC 开放获取 → ScienceDirect 订阅全文（校园网），
                补全文的 6 个名额由重排模型按与问题的相关度分配
+  pipeline_web 同 pipeline_ft，另加在线 Scopus 与镜像一起提名论文、按题名查找点名论文
+  pipeline_all 同 pipeline_web，另让选材阶段先走官方全文接口（Europe PMC / ScienceDirect）
+  pipeline_ctx 同 pipeline_all，另让起草前先读召回论文中最相关的 15 篇（题名与摘要）
+  agent_web    指针式作答单独运行（不走召回），镜像 + Scopus 提名，多来源全文
 
 用法：
   python -m backend.eval.researchqa run --subset 10 [--arms bare agent pipeline]   # 先跑分层子集
@@ -43,8 +47,22 @@ DATA = ROOT / "data/eval/public/researchqa_test.json"
 OUT_DIR = ROOT / "data/eval"
 JUDGE_MODEL = "glm-5.3-flash"
 BATCH = 8
-ARMS = ("bare", "agent", "pipeline", "pipeline_ft")
-FT_SOURCES = ["arxiv", "pmc", "elsevier"]   # pipeline_ft 组的全文来源
+FT_SOURCES = ["arxiv", "pmc", "elsevier"]
+_FT = {"full_text_sources": FT_SOURCES, "fetch_order": "rerank"}
+# 组名 → （作答方式, 指针式作答的额外选项）；bare 不检索
+ARM_SPECS = {
+    "bare": ("bare", {}),
+    "agent": ("agent", {}),
+    "agent_web": ("agent", {**_FT, "web_search": "scopus"}),
+    "pipeline": ("pipeline", {}),
+    "pipeline_ft": ("pipeline", _FT),
+    "pipeline_web": ("pipeline", {**_FT, "web_search": "scopus"}),
+    # 另加：选材阶段先走官方全文接口（Europe PMC / ScienceDirect），再走网页 PDF
+    "pipeline_all": ("pipeline", {**_FT, "web_search": "scopus"}, {"api_full_text": True}),
+    # 另加：起草前先读召回论文中最相关的 15 篇的题名与摘要
+    "pipeline_ctx": ("pipeline", {**_FT, "web_search": "scopus", "draft_context": 15}, {"api_full_text": True}),
+}
+ARMS = ("bare", "agent", "pipeline", "pipeline_ft")   # 默认组
 
 # 与 CS 直接相关的领域：非 CS 组整体排除，CS 对照组只从这里抽
 CS_FIELDS = frozenset({"Artificial Intelligence", "Natural Language Processing",
@@ -143,28 +161,35 @@ def coverage(judged: list[dict]) -> dict:
 
 
 class CoverageJudge:
-    def __init__(self, complete_text):
+    """repeats>1 时同一批细则独立打分 repeats 次，每条取平均（压低评委噪声；官方只打一次）。"""
+
+    def __init__(self, complete_text, repeats: int = 1):
         self.complete_text = complete_text   # async (prompt) -> str
+        self.repeats = max(1, repeats)
+
+    async def _labels(self, prompt: str, n: int, batch_no: int) -> list[str]:
+        for _ in range(3):   # 官方同样重试 3 次；仍不对就整题记评委出错，不计 0 分
+            with llm_stage("judge_rubric"):
+                labels = parse_labels(await self.complete_text(prompt), n)
+            if labels:
+                return labels
+        raise ValueError(f"评委输出条数或档位不符（第 {batch_no} 批）")
 
     async def judge(self, response: str, rubric: list[dict]) -> list[dict]:
         out: list[dict] = []
         for i in range(0, len(rubric), BATCH):
             batch = rubric[i:i + BATCH]
             prompt = _JUDGE_PROMPT.format(response=response, questions="\n".join(r["rubric_item"] for r in batch))
-            labels = None
-            for _ in range(3):   # 官方同样重试 3 次；仍不对就整题记评委出错，不计 0 分
-                with llm_stage("judge_rubric"):
-                    labels = parse_labels(await self.complete_text(prompt), len(batch))
-                if labels:
-                    break
-            if not labels:
-                raise ValueError(f"评委输出条数或档位不符（第 {i // BATCH + 1} 批）")
-            out += [{"rubric_item": r["rubric_item"], "types": _types(r), "label": lab,
-                     "score": (LABELS[lab] - 1) / 4} for r, lab in zip(batch, labels)]
+            runs = await asyncio.gather(*(self._labels(prompt, len(batch), i // BATCH + 1)
+                                          for _ in range(self.repeats)))
+            for j, r in enumerate(batch):
+                labs = [run[j] for run in runs]
+                out.append({"rubric_item": r["rubric_item"], "types": _types(r), "label": labs[0], "labels": labs,
+                            "score": sum((LABELS[x] - 1) / 4 for x in labs) / len(labs)})
         return out
 
 
-def make_judge(model: str) -> CoverageJudge:
+def make_judge(model: str, repeats: int = 1) -> CoverageJudge:
     from backend.eval.scholarqa_cs import judge_cfg
     from backend.services.llm import complete_text
 
@@ -174,7 +199,7 @@ def make_judge(model: str) -> CoverageJudge:
         # 官方只发一条用户消息；system 置空
         return await complete_text(cfg, system="", user=prompt, max_tokens=300, temperature=0.0,
                                    thinking_effort="off", max_retries=2)
-    return CoverageJudge(call)
+    return CoverageJudge(call, repeats)
 
 
 def _paired(records: list[dict], a: str, b: str, group: str | None = None) -> dict | None:
@@ -216,7 +241,9 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
     for a in arms:
         if a != "bare" and "bare" in arms:
             out["paired"][f"{a}-bare"] = {g: _paired(records, a, "bare", g) for g in ("non_cs", "cs")}
-    for a, b in (("pipeline", "agent"), ("pipeline_ft", "pipeline")):
+    for a, b in (("pipeline", "agent"), ("pipeline_ft", "pipeline"), ("pipeline_web", "pipeline_ft"),
+                 ("agent_web", "agent"), ("pipeline_web", "agent_web"), ("pipeline_all", "pipeline_web"),
+                 ("pipeline_all", "pipeline_ft"), ("pipeline_ctx", "pipeline_all"), ("pipeline_ctx", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -243,30 +270,33 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
     from backend.services.deep_research.domain_synthesizer import _llm_json
 
     query = item["query"]
-    if arm == "bare":
+    mode, extra, *rest = ARM_SPECS[arm]
+    run_opts = rest[0] if rest else {}
+    if mode == "bare":
         base = await make_llm_json(system_cfg, max_tokens=4000)(_BASELINE_SYSTEM, query)
         return {"response": str(base.get("answer") or ""), "status": "ok"}
-    if arm == "agent":
+    save = runs_dir / f"{item['id']}_{arm}.json"
+    if mode == "agent":
+        from backend.services.deep_research.evidence_search import ScopusSearch
+
         async def answer_json(system: str, user: str) -> dict:
             return await _llm_json(system_cfg, system, user, max_tokens=6000)
-        answer = await write_with_pointers(query, [], llm_json=answer_json, mirror=mirror, **RECOMMENDED)
-        save = runs_dir / f"{item['id']}_agent.json"
+        opts = {**RECOMMENDED, **extra}
+        web = ScopusSearch() if opts.pop("web_search", None) == "scopus" else None
+        answer = await write_with_pointers(query, [], llm_json=answer_json, mirror=mirror, web_search=web, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
-        return {"response": render_answer(answer), "status": answer.get("status"), "check": answer.get("check"),
-                "materials": answer.get("materials"), "saved": str(save),
-                "full_text": (answer.get("agent") or {}).get("full_text")}
-    if arm in ("pipeline", "pipeline_ft"):
-        save = runs_dir / f"{item['id']}_{arm}.json"
-        options = {"answer_only": True, "answer_writer": "agent"}
-        if arm == "pipeline_ft":
-            options["answer_agent"] = {"full_text_sources": FT_SOURCES, "fetch_order": "rerank"}
+    else:
+        options = {"answer_only": True, "answer_writer": "agent", **run_opts,
+                   **({"answer_agent": extra} if extra else {})}
         sysrec = await explore_eval.run_system_arm(query, depth, save_as=save, engine=engine, options=options)
         if sysrec.get("error"):
             raise RuntimeError(sysrec["error"])
         answer = json.loads(save.read_text(encoding="utf-8"))["result"].get("answer") or {}
-        return {"response": render_answer(answer), "status": answer.get("status"), "check": answer.get("check"),
-                "materials": answer.get("materials"), "corpus": sysrec.get("total"), "saved": str(save),
-                "full_text": (answer.get("agent") or {}).get("full_text")}
+    ag = answer.get("agent") or {}
+    return {"response": render_answer(answer), "status": answer.get("status"), "check": answer.get("check"),
+            "materials": answer.get("materials"), "saved": str(save), "full_text": ag.get("full_text"),
+            "found": {k: ag.get(k) for k in ("recall_papers", "works_found", "works_web_found", "search_added",
+                                              "question_search_added", "claim_search_added")}}
     raise ValueError(arm)
 
 
@@ -279,7 +309,7 @@ async def run(args) -> Path:
 
     disable_openalex()
     system_cfg = _llm_cfg(args.thinking_effort, args.model)
-    judge = make_judge(args.judge_model)
+    judge = make_judge(args.judge_model, args.judge_repeats)
     prev: dict[str, dict] = {}
     if args.resume:
         old = json.loads(Path(args.resume).read_text(encoding="utf-8"))
@@ -299,12 +329,13 @@ async def run(args) -> Path:
         out = OUT_DIR / f"researchqa_{stamp}.json"
         meta = {"seed": args.seed, "n": len(picked), "n_noncs": args.n_noncs, "n_cs": args.n_cs, "arms": arms,
                 "depth": args.depth, "system_model": system_cfg.get("model"), "judge_model": args.judge_model,
+                "judge_repeats": args.judge_repeats,
                 "started": stamp, "label": args.label, "concurrency": args.concurrency,
                 "openalex": False, "provenance": ledger.provenance(out)}
     runs_dir = out.with_name(out.stem + "_runs")
     runs_dir.mkdir(parents=True, exist_ok=True)
     log = ledger.open_log(out)
-    mirror = default_mirror() if "agent" in arms else None
+    mirror = default_mirror() if any(ARM_SPECS[a][0] == "agent" for a in arms) else None
     gate = asyncio.Semaphore(max(1, args.concurrency))
     done: dict[str, dict] = dict(prev)
     started = time.monotonic()
@@ -368,7 +399,7 @@ async def rejudge(args) -> Path:
     """换评委重打已有答案（答案不变），写到新文件。"""
     src = Path(args.file)
     report = json.loads(src.read_text(encoding="utf-8"))
-    judge = make_judge(args.judge_model)
+    judge = make_judge(args.judge_model, args.judge_repeats)
     gate = asyncio.Semaphore(max(1, args.concurrency))
 
     async def one(rec: dict, arm: str) -> None:
@@ -385,10 +416,11 @@ async def rejudge(args) -> Path:
 
     arms = report["meta"]["arms"]
     await asyncio.gather(*(one(r, a) for r in report["records"] for a in arms))
-    report["meta"] = {**report["meta"], "judge_model": args.judge_model, "rejudged_from": src.name,
+    report["meta"] = {**report["meta"], "judge_model": args.judge_model, "judge_repeats": args.judge_repeats,
+                      "rejudged_from": src.name,
                       "provenance": ledger.provenance(src)}
     report["summary"] = summarize(report["records"], arms)
-    out = src.with_name(f"{src.stem}_judge-{args.judge_model}.json")
+    out = src.with_name(f"{src.stem}_judge-{args.judge_model}x{args.judge_repeats}.json")
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
     ledger.record_metrics(out, report, benchmark="researchqa", lines=_ledger_lines(report["summary"]))
@@ -402,7 +434,7 @@ def main() -> None:
     r.add_argument("--n-noncs", type=int, default=40)
     r.add_argument("--n-cs", type=int, default=10)
     r.add_argument("--seed", type=int, default=0)
-    r.add_argument("--arms", nargs="+", choices=ARMS, default=list(ARMS))
+    r.add_argument("--arms", nargs="+", choices=list(ARM_SPECS), default=list(ARMS))
     r.add_argument("--subset", type=int, default=0, help="分层子集：各学科大类轮流取，共 k 题（先子集、后全量）")
     r.add_argument("--first", type=int, default=0, help="只跑抽样中的前 k 题（冒烟验证）")
     r.add_argument("--depth", default="quick", help="pipeline 组的研究深度")
@@ -416,6 +448,7 @@ def main() -> None:
     j.add_argument("--concurrency", type=int, default=6)
     for p in (r, j):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
+        p.add_argument("--judge-repeats", type=int, default=1, help="同一答案独立打分几次取平均（压低评委噪声）")
     args = parser.parse_args()
     asyncio.run({"run": run, "judge": rejudge}[args.cmd](args))
 

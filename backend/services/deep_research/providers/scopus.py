@@ -317,12 +317,7 @@ class ScopusProvider:
             return []
         entries: list[dict] = []
         sort = "-citedby-count" if order == "cited" else "-relevancy"
-        fields = "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription"
-        view: dict = {}
-        if await self._complete_view_ok():
-            # 校园网/机构 IP 下 COMPLETE 视图带摘要：非 arXiv 论文（期刊为主的学科）不再只有题名
-            view = {"view": "COMPLETE"}
-            fields += ",dc:description,openaccessFlag"
+        fields, view = await self._search_fields()
         # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时多数 0 命中（E10：
         # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
         # （OR 按相关度排序，命中词越多越靠前；只取第一页）
@@ -350,6 +345,25 @@ class ScopusProvider:
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )
+
+    async def _search_fields(self) -> tuple[str, dict]:
+        """检索返回的字段与视图：校园网/机构 IP 下 COMPLETE 视图带摘要，非 arXiv 论文（期刊为主的学科）不再只有题名。"""
+        fields = ("dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,"
+                  "dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription")
+        if await self._complete_view_ok():
+            return fields + ",dc:description,openaccessFlag", {"view": "COMPLETE"}
+        return fields, {}
+
+    async def search_titles(self, title: str, limit: int = 3) -> list[RecallCandidate]:
+        """按题名精确检索（TITLE 短语），用于查找模型点名的论文；同题判定由调用方做。"""
+        clean = re.sub(r'["(){}\[\]]', " ", title or "").strip()
+        if not clean:
+            return []
+        fields, view = await self._search_fields()
+        data = await self._get("/content/search/scopus", {"query": f'TITLE("{clean}")', "count": max(1, min(limit, 25)),
+                                                          "field": fields, **view})
+        return self._entries_to_candidates(self._search_entries(data), source=RecallSource.SEARCH,
+                                           seed_relation="title_lookup", limit=limit)
 
     async def _complete_view_ok(self) -> bool:
         """COMPLETE 视图（含摘要）是否可用：取决于出口 IP 是否在机构订阅内，每个实例只探测一次。

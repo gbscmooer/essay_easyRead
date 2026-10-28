@@ -71,3 +71,15 @@ def test_paired_summary_by_group():
     assert p["n"] == 2 and p["wins"] == 2 and abs(p["diff"] - 0.15) < 1e-9
     assert s["paired"]["pipeline-bare"]["cs"] is None
     assert s["arms"]["pipeline"]["non_cs"]["coverage"] == 0.6
+
+
+def test_repeated_judging_averages_each_item():
+    answers = iter(["Completely\nNot at all", "Mostly\nNot at all"])
+
+    async def complete_text(prompt):
+        return next(answers)
+
+    rubric = [{"rubric_item": "r1", "type": ["Other"]}, {"rubric_item": "r2", "type": ["Other"]}]
+    judged = asyncio.run(rq.CoverageJudge(complete_text, repeats=2).judge("answer", rubric))
+    assert [j["score"] for j in judged] == [(1.0 + 0.75) / 2, 0.0]
+    assert judged[0]["labels"] == ["completely", "mostly"]

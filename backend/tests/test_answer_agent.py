@@ -107,6 +107,50 @@ class _FakeMirror:
         return search_one
 
 
+class _FakeWeb:
+    """在线通道：as_search_one 返回一篇期刊论文；lookup_titles 只认镜像里找不到的点名论文。"""
+
+    def __init__(self):
+        self.looked_up = []
+
+    def as_search_one(self):
+        from backend.models.recall import RecallSource, build_recall_candidate
+
+        async def search_one(source, keyword, limit, order):
+            return [build_recall_candidate(
+                title="Nosocomial infections during extracorporeal membrane oxygenation", doi="10.1016/x.9", year=2022,
+                abstract="Nosocomial infection occurs in a large share of adults supported by extracorporeal membrane "
+                         "oxygenation.", source=RecallSource.SEARCH, provenance=["channel:scopus"])]
+        return search_one
+
+    async def lookup_titles(self, titles):
+        self.looked_up += titles
+        return [{"key": "doi:10.1097/x", "title": t, "year": 2006, "doi": "10.1097/x", "requested_title": t,
+                 "source_query": "method:title_lookup",
+                 "abstract": "This meta-analysis of 32 studies reports elevated prostate cancer risk among firefighters."}
+                for t in titles if "firefighters" in t]
+
+
+def test_web_search_channel_nominates_alongside_mirror_and_finds_named_journal_papers(monkeypatch):
+    _no_rerank(monkeypatch)
+
+    async def llm_json(system, user):
+        if "## 任务" in user and "draft" in user:
+            return {"draft": "**Evidence.** Firefighters show an elevated prostate cancer risk in meta-analyses. "
+                             "Type inference tools such as PyType are evaluated on real projects.",
+                    "works": [{"title": "Type4Py: Practical Deep Similarity Learning-Based Type Inference"},
+                              {"title": "Cancer risk among firefighters: a review and meta-analysis of 32 studies"}],
+                    "queries": ["firefighter prostate cancer meta-analysis"]}
+        return {"answer": "**Evidence.** Firefighters show an elevated prostate cancer risk [S1]."}
+
+    web = _FakeWeb()
+    out = asyncio.run(ag.write_with_pointers("Which occupations raise prostate cancer risk?", [], llm_json=llm_json,
+                                             mirror=_FakeMirror(), web_search=web, claim_search=1))
+    assert web.looked_up == ["Cancer risk among firefighters: a review and meta-analysis of 32 studies"]   # 镜像找到的不再查
+    assert out["agent"]["works_found"] == 2 and out["agent"]["works_web_found"] == 1
+    assert out["agent"]["search_added"] == 2      # 镜像与在线通道各提名一篇
+
+
 def test_write_with_pointers_end_to_end(monkeypatch):
     _no_rerank(monkeypatch)
     calls = []
@@ -703,3 +747,24 @@ def test_opening_draft_prompt_asks_for_background_first():
     with_opening = ag._draft_prompt("What is RMQ?", [], "en", 0, opening=True)
     assert "先交代背景" in with_opening and "先用 1~2 句直接回答" not in with_opening
     assert "先用 1~2 句直接回答" in ag._draft_prompt("What is RMQ?", [], "en", 0)
+
+
+def test_draft_context_shows_most_relevant_recall_abstracts(monkeypatch):
+    async def fake_rerank(query, docs):
+        return [0.9 if "Nosocomial" in d else 0.1 for d in docs]
+
+    monkeypatch.setattr(ag, "rerank_scores", fake_rerank)
+    papers = [{"key": "x", "title": "Imitation learning in the ICU", "abstract": "We train an agent to imitate clinicians."},
+              {"key": "m", "title": "Nosocomial infections during ECMO", "year": 2022,
+               "abstract": "Infection occurred in 20% of adult ECMO runs; duration was the main risk factor."},
+              {"key": "n", "title": "No abstract paper"}]
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        return {"draft": "", "works": [], "queries": []}
+
+    out = asyncio.run(ag.write_with_pointers("How does ECMO affect infection risk?", papers, llm_json=llm_json,
+                                             mirror=None, draft_context=1))
+    assert out["agent"]["draft_context"] == 1
+    assert "duration was the main risk factor" in prompts[0] and "imitate clinicians" not in prompts[0]

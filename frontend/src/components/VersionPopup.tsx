@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import '@/styles/overlays.css'
 
-const APP_VERSION = '9.15.0'
+const APP_VERSION = '9.15.1'
 const GITHUB_URL = ''
 
 const CURRENT_RELEASE = {
@@ -10,6 +10,7 @@ const CURRENT_RELEASE = {
     '在校园网下，Scopus 检索结果会带回摘要，非 arXiv 的期刊论文不再只有题名；校外照旧，不受影响',
     '开放问答补全文时可以选用更多来源：arXiv 之外，还能用 Europe PMC 开放获取全文，以及校园网下的 ScienceDirect 订阅全文；补全文的名额可交给重排模型按与问题的相关度分配（均默认关）',
     '新增 ResearchQA 评测（75 个领域、按综述提炼的细则打分），可按学科大类分层抽题，先跑小子集，再跑全部题目',
+    '开放问答新增几项可选增强（默认关）：在线 Scopus 与本地论文库一起找论文、草稿点名的期刊论文可到 Scopus 按题名查找；选材阶段可先走官方全文接口；起草前可先读召回论文中最相关的若干篇',
   ],
 }
 

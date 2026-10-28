@@ -693,7 +693,7 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
                               protocol: dict | None = None,
                               paper_limit: int | None = None,
                               research_frozen: bool = False,
-                              time_up=None) -> dict:
+                              time_up=None, api_full_text: bool = False) -> dict:
     """构建证据表报告。
 
     断点续传缝（explorer 编排层接线）：
@@ -803,6 +803,18 @@ async def build_survey_report(question: str, papers: list[dict], metrics: dict,
             return
         if excluded(paper):
             return
+        if api_full_text and paper.get("doi"):
+            # 官方全文接口优先（Europe PMC 开放获取 JATS、校园网下 ScienceDirect 订阅全文）：返回结构化正文，
+            # 不碰出版社网页的反爬（ResearchQA 冒烟：doi.org / europepmc / mdpi 网页 PDF 大量 403）
+            from .evidence_search import fetch_full_text_any
+            text, src = await fetch_full_text_any(paper, ("pmc", "elsevier"))
+            if text:
+                paper["source_text"] = text
+                paper["source_kind"] = f"api_full_text:{src}"
+                paper["full_text_status"] = "available"
+                download_audit.append({"key": paper["key"], "status": "available", "attempts": 1,
+                                       "attempt_log": [{"url": f"api:{src}", "result": "ok"}]})
+                return
         from .pdf_downloader import download_pdf_detailed
         from ..pdf_parser import extract_pdf_content
         from ..paper_download import _get_institutional_publisher_pdf_url
