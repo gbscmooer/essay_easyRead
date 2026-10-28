@@ -75,6 +75,7 @@ class ScopusProvider:
         self._auth_fails = 0
         self._disabled = False
         self.last_request_status = "unknown"
+        self._complete_view: bool | None = None   # 机构订阅可达时检索可带摘要（COMPLETE 视图），首次检索时探测
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -177,9 +178,12 @@ class ScopusProvider:
                 "publication_type": entry.get("prism:aggregationType") or entry.get("subtypeDescription"),
                 "publisher": entry.get("dc:publisher"),
             }
+            flag = entry.get("openaccessFlag")
             cand = build_recall_candidate(
                 title=title,
                 doi=cls._entry_doi(entry),
+                abstract=(entry.get("dc:description") or "").strip() or None,   # 仅 COMPLETE 视图有
+                is_open_access=flag if isinstance(flag, bool) else None,
                 year=cls._entry_year(entry),
                 authors=f"{authors} et al." if authors else None,
                 source=source,
@@ -313,6 +317,12 @@ class ScopusProvider:
             return []
         entries: list[dict] = []
         sort = "-citedby-count" if order == "cited" else "-relevancy"
+        fields = "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription"
+        view: dict = {}
+        if await self._complete_view_ok():
+            # 校园网/机构 IP 下 COMPLETE 视图带摘要：非 arXiv 论文（期刊为主的学科）不再只有题名
+            view = {"view": "COMPLETE"}
+            fields += ",dc:description,openaccessFlag"
         # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时多数 0 命中（E10：
         # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
         # （OR 按相关度排序，命中词越多越靠前；只取第一页）
@@ -326,7 +336,8 @@ class ScopusProvider:
                     "count": count,
                     "start": start,
                     "sort": sort,
-                    "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
+                    "field": fields,
+                    **view,
                 })
                 page = self._search_entries(data)
                 entries.extend(page)
@@ -339,6 +350,28 @@ class ScopusProvider:
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )
+
+    async def _complete_view_ok(self) -> bool:
+        """COMPLETE 视图（含摘要）是否可用：取决于出口 IP 是否在机构订阅内，每个实例只探测一次。
+        不走 _get——普通 Key 在校外会 401，这是预期的降级，不能计入鉴权熔断。"""
+        if self._complete_view is not None:
+            return self._complete_view
+        self._complete_view = False
+        if not self.api_key or self._disabled:
+            return False
+        self._throttle = self._throttle or _shared_throttle()
+        from ...rate_limiter import account_source_request
+        try:
+            async with self._throttle:
+                account_source_request()
+                r = await self._http().get(f"{SCOPUS_BASE}/content/search/scopus", params={
+                    "query": "TITLE-ABS-KEY(retrieval)", "count": 1, "view": "COMPLETE",
+                    "field": "dc:identifier,dc:description"}, timeout=15.0)
+            self._complete_view = r.status_code == 200
+        except httpx.HTTPError:
+            pass
+        logger.info("Scopus COMPLETE 视图（摘要）%s", "可用" if self._complete_view else "不可用，检索不带摘要")
+        return self._complete_view
 
     async def health_check(self, *, timeout: float = 10.0) -> dict:
         """权限体检：带 Key 发一次最小真实 Scopus Search（count=1），不是 ping 可达。

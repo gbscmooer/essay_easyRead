@@ -21,7 +21,8 @@ from collections import defaultdict
 
 from ..llm import llm_stage
 from . import answer_writer as aw
-from .evidence_search import EvidenceIndex, fetch_arxiv_full_text, mirror_lookup_titles, mirror_search
+from .evidence_search import (FULL_TEXT_SOURCES, EvidenceIndex, fetch_arxiv_full_text, fetch_full_text_any,
+                              mirror_lookup_titles, mirror_search)
 from .reranker import rerank_scores
 
 logger = logging.getLogger(__name__)
@@ -682,10 +683,18 @@ async def _read_papers(index: EvidenceIndex, question: str, per_paper: int, sem:
     return out, stats, notes, objects
 
 
-async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch) -> dict:
-    """为只有摘要、带 arXiv 编号的论文补全文（只走 arXiv 开放全文），按来源优先级取前 limit 篇：
-    点名代表作与按问题检索到的论文轮流取（前者支撑草稿论断，后者是原文阅读的主要来源），其余按来源先后。"""
-    keys = [k for k, m in index.papers.items() if m.get("source") == "abstract" and m.get("arxiv_id")]
+async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch, sources=FULL_TEXT_SOURCES, *,
+                            question: str = "", order: str = "origin") -> dict:
+    """为只有摘要的论文补全文，按来源优先级取前 limit 篇：点名代表作与按问题检索到的论文轮流取
+    （前者支撑草稿论断，后者是原文阅读的主要来源），其余按来源先后。
+    sources 默认只用 arXiv 开放全文（只取带 arXiv 编号的论文）；加上 "pmc"、"elsevier" 后，有 DOI 的论文
+    依次试 arXiv → Europe PMC 开放获取 → ScienceDirect 订阅全文（非 CS 学科以期刊论文为主，arXiv 覆盖不到）。
+    order="rerank" 时不按来源先后，所有候选一起由重排模型按“题名 + 摘要”与问题的相关度排序取前 limit 篇
+    （各通道只提名、交给一个重排模型排序）；冒烟题（ECMO 感染）上按来源先后时 6 个名额全给了镜像里的 CS 论文，
+    Scopus 召回的对题期刊论文一篇没轮到。重排不可用时退回来源先后。"""
+    multi = tuple(sources) != ("arxiv",)
+    keys = [k for k, m in index.papers.items()
+            if m.get("source") == "abstract" and (m.get("arxiv_id") or (multi and m.get("doi")))]
     by_origin: dict[str, list[str]] = defaultdict(list)
     for k in keys:
         by_origin[index.papers[k].get("origin")].append(k)
@@ -693,21 +702,38 @@ async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch) -> dict:
             for k in pair if k]
     rest = sorted((k for k in keys if index.papers[k].get("origin") not in ("named_work", "question_search")),
                   key=lambda k: _FETCH_ORDER.get(index.papers[k].get("origin"), 9))
-    keys = (lead + rest)[:limit]
+    keys = lead + rest
+    if order == "rerank" and question and len(keys) > limit:
+        docs = [f"{index.papers[k].get('title') or ''}: {aw._clip(index.papers[k].get('abstract') or '', 1500)}"
+                for k in keys]
+        scores = await rerank_scores(question, docs)
+        if scores:
+            keys = [keys[i] for i in sorted(range(len(keys)), key=lambda i: -scores[i])]
+    keys = keys[:limit]
     sem = asyncio.Semaphore(FETCH_CONCURRENCY)
+
+    by_source: dict[str, int] = defaultdict(int)
 
     async def one(key: str) -> int:
         async with sem:
-            text = await fetch(index.papers[key]["arxiv_id"])
+            if multi:
+                text, src = await fetch_full_text_any(index.papers[key], sources, arxiv_fetch=fetch)
+            else:
+                text, src = await fetch(index.papers[key]["arxiv_id"]), "arxiv"
+        if text:
+            by_source[src] += 1
         return index.add_full_text(key, text) if text else 0
 
     added = await asyncio.gather(*(one(k) for k in keys))
-    return {"tried": len(keys), "ok": sum(1 for a in added if a), "sentences": sum(added)}
+    return {"tried": len(keys), "ok": sum(1 for a in added if a), "sentences": sum(added),
+            "by_source": dict(by_source)}
 
 
 async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw.LlmJson,
                               mirror=None, max_attempts: int = 2, fetch_full_text: int = 0,
-                              fetch=fetch_arxiv_full_text, draft_titles: int = DRAFT_TITLES,
+                              fetch=fetch_arxiv_full_text, full_text_sources=FULL_TEXT_SOURCES,
+                              fetch_order: str = "origin",
+                              draft_titles: int = DRAFT_TITLES,
                               claim_search: int = 0, final_mode: str = "revise", followup: int = 0,
                               reading: int = 0, question_search: int = 0, opening: bool = False,
                               paper_reading: int = 0, paper_reader: str = "llm",
@@ -715,7 +741,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               missing_fix: str = "supplement", paper_use: str = "support",
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
-    只有摘要的 arXiv 论文下载全文（点名代表作优先）。
+    只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
+    期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
     draft_titles：起草时展示的召回题名数（0 = 纯凭知识起草）；claim_search>0 时草稿每句再到镜像检索
     若干篇论文；final_mode="attach" 时以草稿为准逐句挂证据，"revise" 时在草稿基础上改写。
     followup>0 时取证据最弱的若干句，由模型写检索式（可给确切题名）再查一轮，然后重新找证据。
@@ -812,7 +839,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                 per_claim = []
             audit["claim_search_added"] = sum(1 for p in per_claim if index.add_paper(p, origin="claim_search"))
     if fetch_full_text > 0:
-        audit["full_text"] = await _fetch_full_texts(index, fetch_full_text, fetch)
+        audit["full_text"] = await _fetch_full_texts(index, fetch_full_text, fetch, full_text_sources,
+                                                     question=question, order=fetch_order)
     timing["literature"] = round(time.monotonic() - t1, 1)
 
     t2 = time.monotonic()

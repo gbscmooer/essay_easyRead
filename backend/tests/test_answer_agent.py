@@ -156,6 +156,87 @@ def test_low_citation_share_triggers_one_rewrite_with_pointer_feedback(monkeypat
     assert "没有指针" in prompts[2] and "上一稿（供修改）" in prompts[2]
 
 
+def test_full_text_sources_default_arxiv_only_and_multi_source_uses_doi(monkeypatch):
+    """默认只给带 arXiv 编号的论文补全文；开启 pmc/elsevier 后只有 DOI 的期刊论文也按顺序试各来源。"""
+    body = "Firefighting is associated with prostate cancer risk in several cohorts.\n\n" * 40
+    calls = []
+
+    async def fake_pmc(doi):
+        calls.append(("pmc", doi))
+        return ""
+
+    async def fake_els(doi):
+        calls.append(("elsevier", doi))
+        return body
+
+    monkeypatch.setattr(es, "fetch_pmc_full_text", fake_pmc)
+    monkeypatch.setattr(es, "fetch_elsevier_full_text", fake_els)
+
+    def index():
+        idx = es.EvidenceIndex()
+        idx.add_paper({"key": "j1", "title": "Cancer risk among firefighters", "year": 2006, "doi": "10.1016/x.1",
+                       "abstract": "This meta-analysis of 32 studies reports elevated prostate cancer risk among firefighters."}, origin="recall")
+        return idx
+
+    async def no_arxiv(arxiv_id):
+        raise AssertionError("不应请求 arXiv")
+
+    out = asyncio.run(ag._fetch_full_texts(index(), 3, no_arxiv))
+    assert out["tried"] == 0 and calls == []
+    idx = index()
+    out = asyncio.run(ag._fetch_full_texts(idx, 3, no_arxiv, ("arxiv", "pmc", "elsevier")))
+    assert calls == [("pmc", "10.1016/x.1"), ("elsevier", "10.1016/x.1")]
+    assert out["ok"] == 1 and out["by_source"] == {"elsevier": 1} and idx.papers["j1"]["source"] == "full_text"
+
+
+def test_full_text_rerank_order_lets_relevant_recall_papers_in(monkeypatch):
+    """order="rerank"：名额按与问题的相关度分配，不再先给镜像检索到的论文；重排不可用时退回来源先后。"""
+    def index():
+        idx = es.EvidenceIndex()
+        idx.add_paper({"key": "cs1", "title": "Imitation learning for clinical decision support", "arxiv_id": "2601.0001",
+                       "abstract": "We train a reinforcement learning agent to imitate clinicians in the intensive care unit."},
+                      origin="question_search")
+        idx.add_paper({"key": "med", "title": "Nosocomial infections during extracorporeal membrane oxygenation",
+                       "doi": "10.1016/x.2",
+                       "abstract": "Nosocomial infection affects many adults supported by extracorporeal membrane oxygenation."},
+                      origin="recall")
+        return idx
+
+    fetched = []
+
+    async def fake_any(meta, sources, arxiv_fetch=None):
+        fetched.append(meta["key"])
+        return "", ""
+
+    async def fake_rerank(query, docs):
+        return [0.9 if "Nosocomial" in d else 0.1 for d in docs]
+
+    monkeypatch.setattr(ag, "fetch_full_text_any", fake_any)
+    monkeypatch.setattr(ag, "rerank_scores", fake_rerank)
+    srcs = ("arxiv", "pmc", "elsevier")
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="origin"))
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="rerank"))
+
+    async def no_rerank(query, docs):
+        return None
+
+    monkeypatch.setattr(ag, "rerank_scores", no_rerank)
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="rerank"))
+    assert fetched == ["cs1", "med", "cs1"]
+
+
+def test_publisher_xml_parsers_keep_body_only():
+    jats = ("<article><front><abstract><p>Abstract text.</p></abstract></front><body><sec><title>Introduction</title>"
+            "<p>ECMO raises <italic>infection</italic> risk.</p></sec></body><back><ref-list><p>Ref</p></ref-list></back></article>")
+    assert es.jats_body_text(jats) == "Introduction\n\nECMO raises infection risk."
+    ns = 'xmlns:ce="http://www.elsevier.com/xml/common/dtd"'
+    els = (f'<full-text-retrieval-response {ns}><ce:abstract><ce:para>Abstract.</ce:para></ce:abstract>'
+           "<body><ce:sections><ce:section><ce:section-title>Methods</ce:section-title>"
+           "<ce:para>We enrolled 40 patients.</ce:para></ce:section></ce:sections></body></full-text-retrieval-response>")
+    assert es.elsevier_body_text(els) == "Methods\n\nWe enrolled 40 patients."
+    assert es.elsevier_body_text(f"<r {ns}><ce:abstract><ce:para>Only abstract.</ce:para></ce:abstract></r>") == ""
+
+
 def test_full_text_upgrade_keeps_pointers_and_prefers_named_works():
     idx = es.EvidenceIndex()
     idx.add_paper({**_PAPERS[0], "arxiv_id": "2312.0001"}, origin="recall")
@@ -171,7 +252,8 @@ def test_full_text_upgrade_keeps_pointers_and_prefers_named_works():
                 "On the ManyTypes4Py dataset, Type4Py achieves an MRR of 77.1% for all types.\n") * 1
 
     out = asyncio.run(ag._fetch_full_texts(idx, 1, fake_fetch))
-    assert fetched == ["2101.0001"] and out == {"tried": 1, "ok": 1, "sentences": 1}   # 点名代表作优先；重复句不再收
+    assert fetched == ["2101.0001"] and out == {"tried": 1, "ok": 1, "sentences": 1,   # 点名代表作优先；重复句不再收
+                                                 "by_source": {"arxiv": 1}}
     assert idx.get("S1").text == before                                                  # 已有指针不变
     new = idx.passages[-1]
     assert new.source == "full_text" and "77.1%" in new.text and idx.papers["t4"]["source"] == "full_text"

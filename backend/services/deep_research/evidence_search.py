@@ -395,6 +395,100 @@ async def mirror_search(queries: list[str], mirror, *, per_query: int = 4) -> li
     return out
 
 
+FULL_TEXT_SOURCES = ("arxiv",)          # 默认只用 arXiv 开放全文；"pmc"、"elsevier" 需显式开启
+_EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest"
+_ELS_NS = "{http://www.elsevier.com/xml/common/dtd}"
+_SOURCE_GATES: dict[str, asyncio.Semaphore] = {}
+
+
+def _gate(source: str) -> asyncio.Semaphore:
+    # 每个全文来源最多 2 个并发请求（官方接口礼貌速率）
+    return _SOURCE_GATES.setdefault(source, asyncio.Semaphore(2))
+
+
+def _xml_text(el) -> str:
+    return re.sub(r"\s+", " ", "".join(el.itertext())).strip()
+
+
+def jats_body_text(xml: str) -> str:
+    """JATS 全文 XML → 正文（小节标题与段落，按文档顺序）；摘要与参考文献不在 <body> 里。"""
+    import xml.etree.ElementTree as ET
+
+    body = ET.fromstring(xml).find(".//body")
+    if body is None:
+        return ""
+    parts = [t for el in body.iter() if el.tag in ("title", "p") and (t := _xml_text(el))]
+    return "\n\n".join(parts)[:100000]
+
+
+def elsevier_body_text(xml: str) -> str:
+    """ScienceDirect 全文 XML → 正文：只取 ce:sections 下的小节标题与段落。
+    无订阅权限时接口只返回题录与摘要，没有 ce:sections，结果为空串（判为取不到全文）。"""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml)
+    parts = [t for sec in root.iter(f"{_ELS_NS}sections") for el in sec.iter()
+             if el.tag in (f"{_ELS_NS}section-title", f"{_ELS_NS}para") and (t := _xml_text(el))]
+    return "\n\n".join(parts)[:100000]
+
+
+async def fetch_pmc_full_text(doi: str, *, timeout: float = 20.0) -> str:
+    """Europe PMC 开放获取全文（免 Key）：DOI → 开放获取的 PMCID → fullTextXML。失败返回空串。"""
+    import httpx
+
+    try:
+        async with _gate("pmc"), httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(f"{_EPMC}/search", params={"query": f'DOI:"{doi}"', "format": "json",
+                                                       "resultType": "lite"})
+            hits = ((r.json() if r.status_code == 200 else {}).get("resultList") or {}).get("result") or []
+            pmcid = next((h["pmcid"] for h in hits if h.get("pmcid") and h.get("isOpenAccess") == "Y"), None)
+            if not pmcid:
+                return ""
+            r = await c.get(f"{_EPMC}/{pmcid}/fullTextXML")
+            return jats_body_text(r.text) if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001 —— 全文是增益，失败只记日志
+        logger.warning("Europe PMC full text fetch failed for %s: %s", doi, exc)
+        return ""
+
+
+async def fetch_elsevier_full_text(doi: str, *, timeout: float = 30.0) -> str:
+    """ScienceDirect 全文（官方 Article Retrieval API）：需 Elsevier Key，且出口 IP 在机构订阅内
+    （校园网；代理须把 elsevier.com 设为直连）。只处理 10.1016 开头的 DOI，失败返回空串。"""
+    if not str(doi).lower().startswith("10.1016/"):
+        return ""
+    import httpx
+
+    from ...config import settings
+    from ..ai_config import get_research_config
+
+    key = settings.elsevier_api_key or get_research_config().get("elsevier_api_key", "")
+    if not key:
+        return ""
+    try:
+        async with _gate("elsevier"), httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(f"https://api.elsevier.com/content/article/doi/{doi}", params={"view": "FULL"},
+                            headers={"X-ELS-APIKey": key, "Accept": "text/xml"})
+            return elsevier_body_text(r.text) if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Elsevier full text fetch failed for %s: %s", doi, exc)
+        return ""
+
+
+async def fetch_full_text_any(paper: dict, sources=FULL_TEXT_SOURCES, *, arxiv_fetch=None) -> tuple[str, str]:
+    """按 sources 的顺序取全文，返回 (正文, 来源)；都取不到返回 ("", "")。"""
+    for src in sources:
+        text = ""
+        if src == "arxiv" and paper.get("arxiv_id"):
+            text = await (arxiv_fetch or fetch_arxiv_full_text)(paper["arxiv_id"])
+        elif src == "pmc" and paper.get("doi"):
+            text = await fetch_pmc_full_text(paper["doi"])
+        elif src == "elsevier" and paper.get("doi"):
+            text = await fetch_elsevier_full_text(paper["doi"])
+        if len(text) >= FULL_TEXT_MIN_CHARS:
+            return text, src
+    return "", ""
+
+
 async def fetch_arxiv_full_text(arxiv_id: str, *, timeout: float = 25.0) -> str:
     """按 arXiv 编号下载官方 PDF 并抽取正文（只用 arXiv 开放全文；失败返回空串）。"""
     import os

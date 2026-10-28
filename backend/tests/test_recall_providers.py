@@ -357,6 +357,54 @@ async def test_scopus_search_works_passes_quality_params(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scopus_search_uses_complete_view_for_abstracts_when_entitled(monkeypatch):
+    """机构订阅可达（COMPLETE 视图探测 200）时检索带摘要；不可达时照旧只取基础字段，且不计入鉴权熔断。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    for entitled in (True, False):
+        p = ScopusProvider(api_key="k")
+        captured: dict = {}
+
+        async def probe(entitled=entitled):
+            return entitled
+
+        async def fake_get(path, params=None):
+            captured["params"] = dict(params or {})
+            entry = {"dc:title": "Biochar pyrolysis", "dc:identifier": "SCOPUS_ID:1", "openaccessFlag": True}
+            if params.get("view") == "COMPLETE":
+                entry["dc:description"] = "We study pyrolysis temperature."
+            return {"search-results": {"entry": [entry]}}
+
+        monkeypatch.setattr(p, "_complete_view_ok", probe)
+        monkeypatch.setattr(p, "_get", fake_get)
+        out = await p.search_works("biochar pyrolysis", limit=5)
+        assert (captured["params"].get("view") == "COMPLETE") is entitled
+        assert ("dc:description" in captured["params"]["field"]) is entitled
+        assert out[0].abstract == ("We study pyrolysis temperature." if entitled else None)
+        assert p._auth_fails == 0
+
+
+@pytest.mark.asyncio
+async def test_scopus_complete_view_probe_401_does_not_trip_breaker(monkeypatch):
+    import httpx
+
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.params.get("view"))
+        return httpx.Response(401, json={"service-error": {}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await p._complete_view_ok() is False
+    assert await p._complete_view_ok() is False   # 只探测一次
+    assert calls == ["COMPLETE"] and p._auth_fails == 0 and not p._disabled
+    await p.aclose()
+
+
+@pytest.mark.asyncio
 async def test_scopus_zero_hit_long_query_relaxes_to_or_first_page(monkeypatch):
     from backend.services.deep_research.providers.scopus import ScopusProvider, relaxed_queries
     p = ScopusProvider(api_key="")
