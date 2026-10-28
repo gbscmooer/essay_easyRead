@@ -98,6 +98,12 @@ ARM_SPECS = {
     "nw_sr8b": ("reuse", {"reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
     "nw_sr16": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
     "nw_sr16b": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr16c": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr16d": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr24": ("reuse", {"reading": 24}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_sr24b": ("reuse", {"reading": 24}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
+    "nw_r16": ("reuse", {"reading": 16}, {"base": "pipeline_all"}),     # flash 起草 + 原文阅读 16 句
+    "nw_r16b": ("reuse", {"reading": 16}, {"base": "pipeline_all"}),
     # 全集用：以默认配置的 pipeline 为 base（默认指针式作答选项），候选改进只重跑作答
     "def_rep": ("reuse", {}, {"base": "pipeline"}),
     "def_read": ("reuse", {"reading": 8}, {"base": "pipeline"}),

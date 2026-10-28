@@ -683,12 +683,16 @@ async def run_agent(args) -> Path:
     async def answer_json(system: str, user: str) -> dict:
         return await _llm_json(system_cfg, system, user, max_tokens=6000)
 
+    draft_cfg = judge_cfg(args.draft_model) if args.draft_model else None
     picked = pick_cases(load_cases(), args.n, args.seed, exclude_seed=args.exclude_seed, exclude_n=args.exclude_n)
     if args.first:
         picked = picked[:args.first]
     # 编号沿用抽样里的位置（与全量运行日志的 [i/20] 一致）；--pick 只跑其中几题，--repeat 每题重复几次估计波动
     numbered = [(i, c) for i, c in enumerate(picked, 1) if not args.pick or i in set(args.pick)]
-    jobs = [(i, rep, c) for i, c in numbered for rep in range(max(1, args.repeat))]
+    # --variant 名称=JSON：同一进程里每题同时跑几种作答配置（同时段对比，只占一个模型进程）；配合 --draft-from 共用同一份草稿
+    variants = [(v.split("=", 1)[0], json.loads(v.split("=", 1)[1]) if "=" in v else {}) for v in args.variant]
+    reps = len(variants) if variants else max(1, args.repeat)
+    jobs = [(i, rep, c) for i, c in numbered for rep in range(reps)]
     judge = make_judge(args)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = OUT_DIR / f"scholarqa_cs_agent_{stamp}.json"
@@ -721,6 +725,7 @@ async def run_agent(args) -> Path:
                     "queries": (a.get("agent") or {}).get("queries") or []}
     meta = {"depth": "agent", "seed": args.seed, "n": len(numbered), "exclude_seed": args.exclude_seed,
             "pick": args.pick or None, "repeat": max(1, args.repeat), "draft_from": args.draft_from or None,
+            "draft_model": args.draft_model or None,
             "system_model": system_cfg.get("model"), "judge_model": args.judge_model,
             "claims_model": args.claims_model or args.judge_model, "started": stamp,
             "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
@@ -746,11 +751,17 @@ async def run_agent(args) -> Path:
 
                 async def draft_json(system: str, user: str, stored=stored) -> dict:
                     return stored
+            elif args.draft_model:
+                # 只把起草换成另一个模型（其余步骤仍用系统模型）
+                async def draft_json(system: str, user: str) -> dict:
+                    return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
             answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror,
-                                               draft_json=draft_json, **settings)
+                                               draft_json=draft_json,
+                                               **({**settings, **variants[rep][1]} if variants else settings))
             used = token_ledger_report(tokens)
             response = render_answer(answer)
-            save = runs_dir / (f"q{i:03d}.json" if args.repeat <= 1 else f"q{i:03d}_r{rep}.json")
+            save = runs_dir / (f"q{i:03d}_{variants[rep][0]}.json" if variants
+                               else f"q{i:03d}.json" if args.repeat <= 1 else f"q{i:03d}_r{rep}.json")
             save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
             rec = {"status": answer.get("status"), "response": response, "words": len(response.split()),
                    "check": answer.get("check"), "materials": answer.get("materials"), "agent": answer.get("agent"),
@@ -777,7 +788,8 @@ async def run_agent(args) -> Path:
             break
         rec["attempts"] = n_try + 1
         done[(i, rep)] = {"question": case["question"], "case_ids": [c["case_id"] for c in case["configs"]],
-                          "index": i, "rep": rep, "system": rec}
+                          "index": i, "rep": rep, "system": rec,
+                          **({"variant": variants[rep][0]} if variants else {})}
         s = (rec.get("scores") or [{}])[0]
         print(f"[{i}/{len(picked)}{f' 第{rep + 1}次' if args.repeat > 1 else ''}] {case['question'][:80]}\n"
               f"    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
@@ -790,6 +802,28 @@ async def run_agent(args) -> Path:
     await asyncio.gather(*(worker(i, rep, c) for i, rep, c in jobs))
     records = [done[k] for k in sorted(done)]
     meta["wall_min"] = round((time.monotonic() - started) / 60, 1)
+    if variants:
+        meta["variants"] = dict(variants)
+        by_v = {name: [r for r in records if r.get("variant") == name] for name, _ in variants}
+        summary = {name: summarize(rs, "system") for name, rs in by_v.items()}
+        base_name = variants[0][0]
+        lines = [f"{name}：综合 {(sm or {}).get('score')}，细则 {(sm or {}).get('ann_score')}，引用 {(sm or {}).get('citations')}，"
+                 f"摘录 {(sm or {}).get('excerpts')}（{(sm or {}).get('answered')} 题）" for name, sm in summary.items()]
+        for name, _ in variants[1:]:
+            pairs = [(a["system"]["scores"][0], b["system"]["scores"][0]) for a in by_v[name] for b in by_v[base_name]
+                     if a["index"] == b["index"] and a["system"].get("scores") and b["system"].get("scores")]
+            for key in ("score", "ann_score"):
+                ds = [x[key] - y[key] for x, y in pairs]
+                if len(ds) >= 2:
+                    se = (sum((d - sum(ds) / len(ds)) ** 2 for d in ds) / (len(ds) - 1)) ** 0.5 / len(ds) ** 0.5
+                    lines.append(f"配对 {name} − {base_name} {key}：{sum(ds) / len(ds):+.4f}（SE {se:.4f}，"
+                                 f"{sum(d > 0 for d in ds)}/{len(ds)}）")
+        report = {"meta": meta, "summary": summary, "records": records}
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("\n".join(lines), flush=True)
+        ledger.record_metrics(out, report, benchmark="scholarqa_cs_variants", lines=lines)
+        log.close()
+        return out
     report = {"meta": meta, "summary": {"system": summarize(records, "system"), "baseline": None},
               "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -884,6 +918,9 @@ def main() -> None:
     ag.add_argument("--claim-map", choices=("list", "inline"), default="",
                     help="草稿各句的候选证据：list 另列一份逐句清单（默认）；inline 就地标在草稿句末（省 token）")
     ag.add_argument("--draft-from", default="", help="沿用这次评测结果里保存的草稿，只重跑检索与定稿（固定草稿对照）")
+    ag.add_argument("--draft-model", default="", help="只把起草换成这个模型（如 glm-5.3），其余步骤仍用系统模型")
+    ag.add_argument("--variant", action="append", default=[],
+                    help='同时段对比的作答配置，如 --variant default --variant read16=\'{"reading": 16}\'（第一个为对照）')
     ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
     ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")
     ag.add_argument("--repeat", type=int, default=1, help="每题重复几次（估计同配置的波动）")
