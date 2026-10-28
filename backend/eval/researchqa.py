@@ -18,6 +18,7 @@ Mostly / Completely，映射 1~5 后归一化到 0~1 取平均（细则覆盖率
   pipeline_all 同 pipeline_web，另让选材阶段先走官方全文接口（Europe PMC / ScienceDirect）
   pipeline_ctx 同 pipeline_all，另让起草前先读召回论文中最相关的 15 篇（题名与摘要）
   agent_web    指针式作答单独运行（不走召回），镜像 + Scopus 提名，多来源全文
+  all_answer / ctx_answer  复用 pipeline_all 同一次召回与选材的论文，只重跑作答（前者同配置复本，后者加起草参考文献）
 
 用法：
   python -m backend.eval.researchqa run --subset 10 [--arms bare agent pipeline]   # 先跑分层子集
@@ -61,6 +62,9 @@ ARM_SPECS = {
     "pipeline_all": ("pipeline", {**_FT, "web_search": "scopus"}, {"api_full_text": True}),
     # 另加：起草前先读召回论文中最相关的 15 篇的题名与摘要
     "pipeline_ctx": ("pipeline", {**_FT, "web_search": "scopus", "draft_context": 15}, {"api_full_text": True}),
+    # 复用召回：在 base 组同一次召回与选材得到的论文上只重跑作答（隔离作答环节的差别，省一次完整流程）
+    "all_answer": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
+    "ctx_answer": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15}, {"base": "pipeline_all"}),
 }
 ARMS = ("bare", "agent", "pipeline", "pipeline_ft")   # 默认组
 
@@ -243,7 +247,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
             out["paired"][f"{a}-bare"] = {g: _paired(records, a, "bare", g) for g in ("non_cs", "cs")}
     for a, b in (("pipeline", "agent"), ("pipeline_ft", "pipeline"), ("pipeline_web", "pipeline_ft"),
                  ("agent_web", "agent"), ("pipeline_web", "agent_web"), ("pipeline_all", "pipeline_web"),
-                 ("pipeline_all", "pipeline_ft"), ("pipeline_ctx", "pipeline_all"), ("pipeline_ctx", "bare")):
+                 ("pipeline_all", "pipeline_ft"), ("pipeline_ctx", "pipeline_all"), ("pipeline_ctx", "bare"),
+                 ("all_answer", "pipeline_all"), ("ctx_answer", "all_answer"), ("ctx_answer", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -261,7 +266,8 @@ def _ledger_lines(summary: dict) -> list[str]:
     return lines
 
 
-async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_dir: Path, engine, mirror) -> dict:
+async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_dir: Path, engine, mirror,
+                  base_saved: str | None = None) -> dict:
     """一组作答，返回 {response, status, ...}；失败抛异常由调用方记录。"""
     from backend.eval import explore_eval
     from backend.eval.scholarqa_cs import _BASELINE_SYSTEM, make_llm_json
@@ -276,14 +282,19 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
         base = await make_llm_json(system_cfg, max_tokens=4000)(_BASELINE_SYSTEM, query)
         return {"response": str(base.get("answer") or ""), "status": "ok"}
     save = runs_dir / f"{item['id']}_{arm}.json"
-    if mode == "agent":
+    if mode in ("agent", "reuse"):
         from backend.services.deep_research.evidence_search import ScopusSearch
 
         async def answer_json(system: str, user: str) -> dict:
             return await _llm_json(system_cfg, system, user, max_tokens=6000)
+        papers: list[dict] = []
+        if mode == "reuse":
+            if not base_saved or not Path(base_saved).exists():
+                raise RuntimeError(f"复用召回：{run_opts.get('base')} 组没有可用结果")
+            papers = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("papers") or []
         opts = {**RECOMMENDED, **extra}
         web = ScopusSearch() if opts.pop("web_search", None) == "scopus" else None
-        answer = await write_with_pointers(query, [], llm_json=answer_json, mirror=mirror, web_search=web, **opts)
+        answer = await write_with_pointers(query, papers, llm_json=answer_json, mirror=mirror, web_search=web, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
     else:
         options = {"answer_only": True, "answer_writer": "agent", **run_opts,
@@ -297,7 +308,6 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
             "materials": answer.get("materials"), "saved": str(save), "full_text": ag.get("full_text"),
             "found": {k: ag.get(k) for k in ("recall_papers", "works_found", "works_web_found", "search_added",
                                               "question_search_added", "claim_search_added")}}
-    raise ValueError(arm)
 
 
 async def run(args) -> Path:
@@ -335,7 +345,10 @@ async def run(args) -> Path:
     runs_dir = out.with_name(out.stem + "_runs")
     runs_dir.mkdir(parents=True, exist_ok=True)
     log = ledger.open_log(out)
-    mirror = default_mirror() if any(ARM_SPECS[a][0] == "agent" for a in arms) else None
+    mirror = default_mirror() if any(ARM_SPECS[a][0] in ("agent", "reuse") for a in arms) else None
+    for a in arms:   # 复用召回的组必须带上它的 base 组
+        if ARM_SPECS[a][0] == "reuse" and ARM_SPECS[a][2]["base"] not in arms:
+            raise SystemExit(f"{a} 需要同时跑 {ARM_SPECS[a][2]['base']} 组")
     gate = asyncio.Semaphore(max(1, args.concurrency))
     done: dict[str, dict] = dict(prev)
     started = time.monotonic()
@@ -345,12 +358,12 @@ async def run(args) -> Path:
         out.write_text(json.dumps({"meta": meta, "partial": True, "records": records}, ensure_ascii=False,
                                   indent=1), encoding="utf-8")
 
-    async def one_arm(arm: str, item: dict, engine) -> dict:
+    async def one_arm(arm: str, item: dict, engine, base_saved: str | None = None) -> dict:
         t0 = time.monotonic()
         tokens = start_token_ledger()
         try:
             rec = await _answer(arm, item, system_cfg=system_cfg, depth=args.depth, runs_dir=runs_dir,
-                                engine=engine, mirror=mirror)
+                                engine=engine, mirror=mirror, base_saved=base_saved)
             rec["tokens"] = token_ledger_report(tokens)
             rec["wall_s"] = round(time.monotonic() - t0, 1)
             rec["words"] = len(rec["response"].split())
@@ -368,11 +381,16 @@ async def run(args) -> Path:
         todo = [a for a in arms if (old.get(a) or {}).get("coverage") is None]
         if not todo:
             return
+        first = [a for a in todo if ARM_SPECS[a][0] != "reuse"]
+        later = [a for a in todo if ARM_SPECS[a][0] == "reuse"]
         async with gate:
-            res = await asyncio.gather(*(one_arm(a, item, engine) for a in todo))   # 各组同时提交
+            res = dict(zip(first, await asyncio.gather(*(one_arm(a, item, engine) for a in first))))   # 各组同时提交
+            got = {**old, **res}
+            res |= dict(zip(later, await asyncio.gather(*(
+                one_arm(a, item, engine, (got.get(ARM_SPECS[a][2]["base"]) or {}).get("saved")) for a in later))))
         rec = {"id": item["id"], "group": item["group"], "domain": item["general_domain"], "field": item["field"],
                "item": {k: item[k] for k in ("id", "general_domain", "subdomain", "field", "query", "date", "rubric")},
-               "arms": {**old, **dict(zip(todo, res))}}
+               "arms": {**old, **res}}
         done[item["id"]] = rec
         cov = "  ".join(f"{a}={(rec['arms'][a].get('coverage') if rec['arms'][a].get('coverage') is not None else 'ERR')}"
                         for a in arms)

@@ -304,7 +304,8 @@ class ScopusProvider:
         词串会被要求逐字连续出现（实测 6 词短语 0 命中）；无引号多词是 loose AND
         （同一查询 2058 命中）。academic_only 追加学术类型过滤排干扰。
         """
-        q = query.strip()
+        # 括号、方括号与问号在 Scopus 里是语法字符：问题原句里的“(ECMO)”会让整条检索 400（ResearchQA 实测）
+        q = re.sub(r"\s+", " ", re.sub(r"[()\[\]{}?]", " ", query)).strip()
         base = f"TITLE-ABS-KEY({q})"
         return f"{base} AND DOCTYPE({_ACADEMIC_DOCTYPES})" if academic_only else base
 
@@ -322,7 +323,10 @@ class ScopusProvider:
         # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
         # （OR 按相关度排序，命中词越多越靠前；只取第一页）
         for i, variant in enumerate(relaxed_queries(query)):
-            remaining = min(limit, 100) if i == 0 else min(limit, 25)  # 放宽式只取第一页
+            remaining = min(limit, 100) if i == 0 else 25  # 放宽式只取第一页
+            # 放宽式（去停用词 OR）几乎命中全库：按被引降序会排出 GLOBOCAN、t-SNE 这类与题无关的全库高被引论文
+            # （ResearchQA 实测）；放宽式一律按相关度取一页，order="cited" 时再在本地按被引重排
+            page_sort = sort if i == 0 else "-relevancy"
             start = 0
             while remaining > 0:
                 count = min(25, remaining)
@@ -330,7 +334,7 @@ class ScopusProvider:
                     "query": self.build_search_query(variant, academic_only=academic_only),
                     "count": count,
                     "start": start,
-                    "sort": sort,
+                    "sort": page_sort,
                     "field": fields,
                     **view,
                 })
@@ -341,6 +345,8 @@ class ScopusProvider:
                 remaining -= count
                 start += count
             if entries:
+                if i > 0 and order == "cited":
+                    entries.sort(key=lambda e: -int(e.get("citedby-count") or 0))
                 break
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,

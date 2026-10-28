@@ -384,6 +384,38 @@ async def test_scopus_search_uses_complete_view_for_abstracts_when_entitled(monk
         assert p._auth_fails == 0
 
 
+def test_scopus_query_strips_syntax_characters_from_natural_language():
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    q = ScopusProvider.build_search_query("How does extracorporeal membrane oxygenation (ECMO) influence risk?")
+    assert q == "TITLE-ABS-KEY(How does extracorporeal membrane oxygenation ECMO influence risk)"
+
+
+@pytest.mark.asyncio
+async def test_scopus_cited_order_on_relaxed_query_ranks_relevant_page_locally(monkeypatch):
+    """原式 0 命中后的放宽式（OR）按相关度取一页、本地按被引重排；不让 Scopus 对 OR 式按被引排（会排出全库高被引论文）。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    p = ScopusProvider(api_key="")
+    sorts = []
+
+    async def no_complete():
+        return False
+
+    async def fake_get(path, params=None):
+        sorts.append((params["query"], params["sort"]))
+        if " OR " not in params["query"]:
+            return {"search-results": {"entry": []}}
+        return {"search-results": {"entry": [
+            {"dc:title": "Recent harvesting study", "citedby-count": "3", "dc:identifier": "SCOPUS_ID:1"},
+            {"dc:title": "Classic harvesting regrowth study", "citedby-count": "48", "dc:identifier": "SCOPUS_ID:2"},
+        ]}}
+
+    monkeypatch.setattr(p, "_complete_view_ok", no_complete)
+    monkeypatch.setattr(p, "_get", fake_get)
+    out = await p.search_works("harvesting intensity recovery seaweed biomass", limit=5, order="cited")
+    assert sorts[0][1] == "-citedby-count" and sorts[1][1] == "-relevancy"
+    assert [c.title for c in out] == ["Classic harvesting regrowth study", "Recent harvesting study"]
+
+
 @pytest.mark.asyncio
 async def test_scopus_complete_view_probe_401_does_not_trip_breaker(monkeypatch):
     import httpx
