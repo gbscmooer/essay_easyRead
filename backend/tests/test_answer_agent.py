@@ -466,7 +466,8 @@ def test_inventory_of_asked_objects_is_listed_and_missing_ones_trigger_one_rewri
         return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia, jansson and bgrep [{pid}]."}
 
     out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
-                                             final_mode="attach", paper_reading=2, missing_fix="rewrite"))
+                                             final_mode="attach", paper_reading=2, missing_fix="rewrite",
+                                             paper_use="cover"))
     inv = out["agent"]["inventory"]
     assert set(inv["items"]) == {"arcadia", "jansson", "bgrep"} and "## 问题所问对象清单" in prompts[0]
     assert inv["missing_by_attempt"] == [["bgrep"], []] and "对象清单里有 1 个没写到：bgrep" in prompts[1]
@@ -503,7 +504,7 @@ def test_missing_inventory_items_are_supplemented_into_paragraphs_without_rewrit
                           f"\n\n**Limits.** Labels of these projects are noisy [{pid}]."}
 
     out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
-                                             final_mode="attach", paper_reading=2))
+                                             final_mode="attach", paper_reading=2, paper_use="cover"))
     systems = [s for s, _ in calls]
     assert systems.count(ag._WRITE_SYSTEM) == 1 and systems.count(ag._SUPPLEMENT_SYSTEM) == 1
     sup = next(u for s, u in calls if s == ag._SUPPLEMENT_SYSTEM)
@@ -513,6 +514,37 @@ def test_missing_inventory_items_are_supplemented_into_paragraphs_without_rewrit
     assert out["agent"]["write_problems"] == [["missing_items"]]
     first, second = out["text"].split("\n\n")
     assert "bgrep has 5 functions" in first and "noisy" in second
+
+
+def test_support_use_of_paper_reading_keeps_the_draft_length_and_lists_no_objects(monkeypatch):
+    """支撑用法（默认）：精读不列对象、定稿提示限定篇幅与新增句数，也没有对象清单与补写（E17）。"""
+    _no_rerank(monkeypatch)
+
+    async def scores(query, documents):
+        return [1.0 if "Table 3" in d else 0.5 for d in documents]
+    monkeypatch.setattr(ag, "rerank_scores", scores)
+    paper = {"key": "e", "title": "Improving type information inferred by decompilers", "year": 2021,
+             "source_text": _TABLE_TEXT * 6}
+    calls = []
+
+    async def llm_json(system, user):
+        calls.append((system, user))
+        if system == ag._DRAFT_SYSTEM:
+            return {"draft": "**Datasets.** Studies compile open-source C programs. " * 20, "works": [], "queries": []}
+        if system == ag._READ_SYSTEM:
+            pid = re.search(r"\[(S\d+)\] Table 3: Open-source", user).group(1)
+            return {"picks": [pid], "objects": [{"name": "arcadia", "pids": [pid]}]}
+        pid = re.search(r"\[(S\d+)\] \"Table 3: Open-source", user).group(1)
+        return {"answer": f"**Datasets.** Studies compile open-source C programs such as arcadia [{pid}]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets are used?", [paper], llm_json=llm_json, mirror=None,
+                                             final_mode="attach", paper_reading=2))
+    read = next(u for s, u in calls if s == ag._READ_SYSTEM)
+    write = next(u for s, u in calls if s == ag._WRITE_SYSTEM)
+    assert "objects" not in read and "尽量每个都选到" not in read
+    assert "草稿约 120 词，定稿不超过 138 词" in write and "全篇最多补 2 句" in write
+    assert "对象清单" not in write and "inventory" not in out["agent"] and "supplement" not in out["agent"]
+    assert out["agent"]["paper_reading"]["use"] == "support" and out["attempts"] == 1
 
 
 def test_apply_supplement_appends_to_lists_headings_or_a_new_paragraph():
@@ -565,6 +597,24 @@ def test_write_prompt_lists_passages_picked_by_paper_reading_once():
                               papers_read=[sent])
     assert prompt.count(f"[{sent.pid}] \"") == 1 and prompt.count(f"[{other.pid}] \"") == 1
     assert f"「Claim one.」→ {sent.pid}、{other.pid}" in prompt
+
+
+def test_inline_claim_map_marks_candidates_in_the_draft_instead_of_listing_claims():
+    """候选指针就地标在草稿句末，不再逐句抄写草稿；找不到原句位置的句子照旧另列，定稿里抄回的标记会被去掉。"""
+    idx = _table_index()
+    sent = next(p for p in idx.passages if "instrumented programs" in p.text)
+    other = next(p for p in idx.passages if "synthetic programs" in p.text)
+    draft = "**Data.** Studies compile open-source programs. They also use synthetic code.\n\nNo evidence here."
+    evidence = [("Studies compile open-source programs.", [sent]), ("They also use synthetic code.", [other]),
+                ("No evidence here.", []), ("A sentence that is not in the draft.", [sent])]
+    prompt = ag._write_prompt("Which datasets?", draft, evidence, "en", mode="attach", claim_map="inline")
+    assert f"Studies compile open-source programs. ⟦候选 {sent.pid}⟧ They also use synthetic code. ⟦候选 {other.pid}⟧" \
+        in prompt and "No evidence here.\n" in prompt
+    assert "「Studies compile" not in prompt and f"1. 「A sentence that is not in the draft.」→ {sent.pid}" in prompt
+    listed = ag._write_prompt("Which datasets?", draft, evidence, "en", mode="attach")
+    assert "⟦候选" not in listed and "「Studies compile open-source programs.」" in listed
+    assert ag._CANDIDATE_MARK.sub("", f"Studies compile programs [{sent.pid}]. ⟦候选 {sent.pid}⟧ Next. ⟦{sent.pid}⟧") \
+        == f"Studies compile programs [{sent.pid}]. Next."
 
 
 def test_opening_draft_prompt_asks_for_background_first():

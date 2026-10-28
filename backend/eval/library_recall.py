@@ -9,7 +9,7 @@
   v1  v0 + 原文阅读（按问题从证据库取若干句）
   v2  v1 + 逐篇精读（全文论文按题名与摘要和问题的相关性取前 K 篇，每篇由模型挑最多 N 处，含表格）
   v3  v0 + 逐篇精读（不做原文阅读；E16：开精读时原文阅读没有独有的送达）
-  精读的两个开关对 v2/v3 生效：--paper-notes on|off（挑选时是否写要点）、--missing-fix supplement|rewrite
+  精读的开关对 v2/v3 生效：--paper-notes on|off（挑选时是否写要点）、--paper-use cover|support、--missing-fix supplement|rewrite
   （定稿漏写清单对象时只补句还是整篇重写）
 指标：
   送达召回  标准数据集里有原文送到定稿模型面前的比例；另算“论文 × 数据集”用法、相关论文两个口径
@@ -124,9 +124,9 @@ VARIANTS = {
     "v0": {},
     "v1": {"reading": "READING"},
     "v2": {"reading": "READING", "paper_reading": "PAPER_READING", "paper_reading_papers": "READ_PAPERS",
-           "paper_notes": "NOTES", "missing_fix": "FIX"},
+           "paper_notes": "NOTES", "missing_fix": "FIX", "paper_use": "USE"},
     "v3": {"paper_reading": "PAPER_READING", "paper_reading_papers": "READ_PAPERS", "paper_notes": "NOTES",
-           "missing_fix": "FIX"},
+           "missing_fix": "FIX", "paper_use": "USE"},
 }
 
 
@@ -166,7 +166,7 @@ async def run(args) -> Path:
         return stored
 
     knobs = {"READING": args.reading, "PAPER_READING": args.paper_reading, "READ_PAPERS": args.read_papers,
-             "NOTES": args.paper_notes == "on", "FIX": args.missing_fix}
+             "NOTES": args.paper_notes == "on", "FIX": args.missing_fix, "USE": args.paper_use}
     write = set(filter(None, args.write.split(",")))
     results = {}
     for name in filter(None, args.variants.split(",")):
@@ -293,6 +293,8 @@ def main() -> None:
     p.add_argument("--paper-reading", type=int, default=6, help="精读：每篇最多挑几处")
     p.add_argument("--read-papers", type=int, default=20, help="精读：最多读几篇（按题名与摘要的相关性选）")
     p.add_argument("--paper-notes", choices=["on", "off"], default="off", help="精读挑选时是否每处写一句要点")
+    p.add_argument("--paper-use", choices=["cover", "support"], default="cover",
+                   help="精读原文怎么用：cover 列出题目所问的全部对象并逐个写到（本测试是列举题）；support 只支撑、改准草稿")
     p.add_argument("--missing-fix", choices=["supplement", "rewrite"], default="supplement",
                    help="定稿漏写对象清单里的对象时：只补句插回（supplement）或带反馈整篇重写（rewrite）")
     p.add_argument("--thinking-effort", default="off")

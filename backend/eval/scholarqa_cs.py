@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from backend.eval import ledger
+from backend.services.llm import llm_stage
 
 ROOT =Path(__file__).resolve().parents[2]
 DATA = ROOT / "data/eval/public/ScholarQABench/data/scholarqa_cs/test_configs_snippets.json"
@@ -116,7 +117,8 @@ class RubricJudge:
         # 接口错误（限流、额度）向上抛出，由调用方记为该题出错；只有输出无法解析时
         # 按官方脚本记 0 分——否则评委故障会被静默算成系统低分
         try:
-            obj = await self.llm_json(system, user)
+            with llm_stage("judge_rubric"):
+                obj = await self.llm_json(system, user)
         except ValueError:   # 输出不是合法 JSON（JSONDecodeError）
             return None
         try:
@@ -137,7 +139,8 @@ class RubricJudge:
 
     async def citations_excerpts(self, response: str) -> dict[str, float]:
         try:
-            obj = await self.claims_json("You are a helpful assistant.", _CLAIMS_USER.format(response=response))
+            with llm_stage("judge_claims"):   # 拆分可用另一模型（--claims-model），用量分开记
+                obj = await self.claims_json("You are a helpful assistant.", _CLAIMS_USER.format(response=response))
             claims = obj["claims"]
             cited = sum(1 for c in claims if c.get("citations")) / max(len(claims), 1)
             cites = list(itertools.chain.from_iterable(c.get("citations") or [] for c in claims))
@@ -146,25 +149,58 @@ class RubricJudge:
         except (KeyError, TypeError, AttributeError, ValueError):
             return {"citations": 0.0, "excerpts": 0.0}
 
-    async def score(self, config: dict, response: str) -> dict:
-        # 各项调用彼此独立，并发发出（打分逻辑与逐条调用一致）
+    async def _evidence_all(self, response: str, lists: list[list[str]]) -> list[float]:
+        # 说明里带条目数 n，同一 n 的调用才共用“说明+答案”前缀：每组先发一条写入缓存，其余再并发
+        found: list[float] = [0.0] * len(lists)
+        groups: dict[int, list[int]] = {}
+        for i, snippets in enumerate(lists):
+            groups.setdefault(len(snippets), []).append(i)
+
+        async def run(idx: list[int]) -> None:
+            found[idx[0]] = await self.evidence(response, lists[idx[0]])
+            for i, v in zip(idx[1:], await asyncio.gather(*(self.evidence(response, lists[i]) for i in idx[1:]))):
+                found[i] = v
+        await asyncio.gather(*(run(idx) for idx in groups.values()))
+        return found
+
+    async def score(self, config: dict, response: str, cites: dict | None = None) -> dict:
+        # 打分逻辑与逐条调用一致；调用顺序照顾模型服务的前缀缓存：各条细则共用“说明+问题+答案”前缀
+        # （答案连参考文献约 4k token，每题十来次），先单独发一条写入缓存，其余再并发
+        # （10-27：评委占全部用量约九成，齐发时 glm-5.3 输入只有约 13% 命中缓存）
+        # cites：已有的陈述/引用/摘录拆分（拆分与细则无关，同一答案的几套细则共用一次）
         question = config["question"]
         props = config.get("other_properties") or []
         with_criterion = [p for p in props if p.get("criterion")]
-        expertise, cites, *crit = await asyncio.gather(
-            self.prop(question, response, _EXPERTISE), self.citations_excerpts(response),
-            *(self.prop(question, response, p["criterion"]) for p in with_criterion))
+        cites_task = asyncio.ensure_future(self.citations_excerpts(response) if cites is None else _done(cites))
+        try:
+            expertise = await self.prop(question, response, _EXPERTISE)
+            crit = await asyncio.gather(*(self.prop(question, response, p["criterion"]) for p in with_criterion))
+            cites = await cites_task
+        finally:
+            cites_task.cancel()   # 已完成时无作用；出错时不留悬空调用
         comp = {"length": length_score(response, config.get("low_length", 300), config.get("high_length", 600)),
                 "expertise": expertise, **cites}
         comp.update({p["name"]: v for p, v in zip(with_criterion, crit)})
         # 官方规则：criterion 得 0 分时证据项也记 0
         need_evidence = [p for p in props if p.get("evidence") and (not p.get("criterion") or comp.get(p["name"]))]
-        found = await asyncio.gather(*(self.evidence(response, p["evidence"]) for p in need_evidence))
+        found = await self._evidence_all(response, [p["evidence"] for p in need_evidence])
         for p in props:
             if p.get("evidence"):
                 comp[f"{p['name']}_evidence"] = 0.0
         comp.update({f"{p['name']}_evidence": v for p, v in zip(need_evidence, found)})
         return combine(config, comp)
+
+    async def score_all(self, configs: list[dict], response: str) -> list[dict]:
+        """同一答案的多套细则：第一套打完（缓存已写入）再并发打其余几套，陈述/引用/摘录拆分共用第一套的。"""
+        if not configs:
+            return []
+        first = await self.score(configs[0], response)
+        cites = {k: first[k] for k in ("citations", "excerpts")}
+        return [first, *await asyncio.gather(*(self.score(c, response, cites) for c in configs[1:]))]
+
+
+async def _done(value):
+    return value
 
 
 def summarize(records: list[dict], arm: str) -> dict | None:
@@ -204,8 +240,10 @@ def judge_cfg(model: str) -> dict:
 
 def make_judge(args) -> "RubricJudge":
     cfg = judge_cfg(args.judge_model)
+    # 陈述/引用/摘录拆分是机械切分、输出整篇答案那么长（评委输出几乎全在这一步），可单独指定模型
+    claims_cfg = judge_cfg(getattr(args, "claims_model", "") or args.judge_model)
     return RubricJudge(make_llm_json(cfg, max_tokens=args.judge_tokens, thinking_effort=args.judge_thinking),
-                       make_llm_json(cfg, max_tokens=16000, thinking_effort=args.judge_thinking))
+                       make_llm_json(claims_cfg, max_tokens=16000, thinking_effort=args.judge_thinking))
 
 
 def make_llm_json(cfg: dict, *, max_tokens: int = 1500, thinking_effort: str | None = None):
@@ -240,7 +278,7 @@ async def run(args) -> Path:
     out = OUT_DIR / f"scholarqa_cs_{stamp}.json"
     runs_dir = OUT_DIR / f"scholarqa_cs_{stamp}_runs"
     meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "exclude_seed": args.exclude_seed, "system_model": system_cfg.get("model"),
-            "judge_model": args.judge_model, "openalex": args.use_openalex, "started": stamp,
+            "judge_model": args.judge_model, "claims_model": args.claims_model or args.judge_model, "openalex": args.use_openalex, "started": stamp,
             "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"), "label": args.label,
             "concurrency": args.concurrency, "answer_only": args.answer_only, "answer_writer": args.answer_writer,
             "provenance": ledger.provenance(out)}
@@ -274,8 +312,7 @@ async def run(args) -> Path:
                              "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
             if response.strip():
                 try:
-                    rec["system"]["scores"] = list(await asyncio.gather(
-                        *(judge.score(c, response) for c in case["configs"])))
+                    rec["system"]["scores"] = await judge.score_all(case["configs"], response)
                 except Exception as exc:  # noqa: BLE001 —— 答案已保存，可用 judge 子命令补打分
                     rec["system"]["judge_error"] = f"{type(exc).__name__}: {exc}"[:300]
         except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
@@ -285,7 +322,7 @@ async def run(args) -> Path:
                 base = await make_llm_json(system_cfg, max_tokens=4000)(_BASELINE_SYSTEM, case["question"])
                 response = str(base.get("answer") or "")
                 rec["baseline"] = {"response": response, "words": len(response.split()),
-                                   "scores": [await judge.score(c, response) for c in case["configs"]]}
+                                   "scores": await judge.score_all(case["configs"], response)}
             except Exception as exc:  # noqa: BLE001
                 rec["baseline"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
         return rec, scope
@@ -381,7 +418,7 @@ async def score_references(args) -> Path:
                 continue
             rec[name] = {"response": response, "words": len(response.split())}
             try:
-                rec[name]["scores"] = [await judge.score(c, response) for c in case["configs"]]
+                rec[name]["scores"] = await judge.score_all(case["configs"], response)
             except Exception as exc:  # noqa: BLE001 —— 评委接口故障记为出错，不计 0 分
                 rec[name]["error"] = f"{type(exc).__name__}: {exc}"[:300]
         records.append(rec)
@@ -392,7 +429,7 @@ async def score_references(args) -> Path:
                        encoding="utf-8")
     systems = sorted({k for r in records for k in r if k != "question"})
     summary = {name: summarize(records, name) for name in systems}
-    out.write_text(json.dumps({"meta": {"seed": args.seed, "n": len(picked), "judge_model": args.judge_model,
+    out.write_text(json.dumps({"meta": {"seed": args.seed, "n": len(picked), "judge_model": args.judge_model, "claims_model": args.claims_model or args.judge_model,
                                         "exclude_seed": args.exclude_seed},
                                "summary": summary, "records": records}, ensure_ascii=False, indent=1),
                    encoding="utf-8")
@@ -409,15 +446,56 @@ async def rejudge(args) -> None:
             row = rec.get(arm) or {}
             if row.get("response", "").strip() and (args.all or not row.get("scores")):
                 try:
-                    row["scores"] = [await judge.score(c, row["response"]) for c in configs[rec["question"]]]
+                    row["scores"] = await judge.score_all(configs[rec["question"]], row["response"])
                     row.pop("judge_error", None)
                 except Exception as exc:  # noqa: BLE001
                     row["judge_error"] = f"{type(exc).__name__}: {exc}"[:300]
     data["summary"] = {"system": summarize(data["records"], "system"),
                        "baseline": summarize(data["records"], "baseline")}
     data["meta"]["judge_model"] = args.judge_model
+    data["meta"]["claims_model"] = args.claims_model or args.judge_model
     Path(args.file).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(data["summary"], ensure_ascii=False))
+
+
+async def resplit(args) -> Path:
+    """只重做陈述/引用/摘录拆分（细则分不变），按新拆分重算综合分，写新文件（原文件不动）。
+
+    换拆分模型（--claims-model）后与旧结果对齐用：对照组也用同一模型重拆，再做配对比较。
+    运行结果（system/baseline）与参考系统文件（refs，按系统名）都适用；--arms 只重拆其中几个系统。"""
+    src = Path(args.file)
+    data = json.loads(src.read_text(encoding="utf-8"))
+    configs = {c["question"]: c["configs"] for c in load_cases()}
+    judge = make_judge(args)
+    model = args.claims_model or args.judge_model
+    gate = asyncio.Semaphore(max(1, args.concurrency))
+    jobs = [(rec, row) for rec in data["records"] for arm, row in rec.items()
+            if isinstance(row, dict) and row.get("scores") and str(row.get("response") or "").strip()
+            and (not args.arms or arm in args.arms)]
+    failed = 0
+
+    async def one(rec: dict, row: dict) -> None:
+        nonlocal failed
+        async with gate:
+            try:
+                cites = await judge.citations_excerpts(row["response"])
+            except Exception as exc:  # noqa: BLE001 —— 接口故障：保留原拆分并记录，不混进新模型的分数
+                row["claims_error"] = f"{type(exc).__name__}: {exc}"[:300]
+                failed += 1
+                return
+        row["scores"] = [combine(c, {**{k: v for k, v in s.items() if k not in ("score", "ann_score")}, **cites})
+                         for c, s in zip(configs[rec["question"]], row["scores"])]
+        row["claims_model"] = model
+
+    await asyncio.gather(*(one(rec, row) for rec, row in jobs))
+    if isinstance(data.get("summary"), dict):
+        data["summary"] = {"system": summarize(data["records"], "system"),
+                           "baseline": summarize(data["records"], "baseline")}
+    data.setdefault("meta", {}).update(claims_model=model, resplit_of=src.name)
+    out = src.with_name(f"{src.stem}_claims-{model}.json")
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"重拆 {len(jobs) - failed}/{len(jobs)} 份答案（{model}）→ {out}", flush=True)
+    return out
 
 
 async def rerender(args) -> None:
@@ -550,8 +628,7 @@ async def rewrite(args) -> Path:
                                         if k != "unsupported"} or None,
                        "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
                 if response.strip():
-                    new["scores"] = list(await asyncio.gather(*(judge.score(c, response)
-                                                                for c in configs[rec["question"]])))
+                    new["scores"] = await judge.score_all(configs[rec["question"]], response)
             except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
                 new = {"error": f"{type(exc).__name__}: {exc}"[:300]}
             return new, scope
@@ -626,6 +703,8 @@ async def run_agent(args) -> Path:
                 **({"paper_reader": args.paper_reader} if args.paper_reader else {}),
                 **({"paper_notes": args.paper_notes == "on"} if args.paper_notes else {}),
                 **({"missing_fix": args.missing_fix} if args.missing_fix else {}),
+                **({"paper_use": args.paper_use} if args.paper_use else {}),
+                **({"claim_map": args.claim_map} if args.claim_map else {}),
                 **({"fetch_full_text": args.fetch} if args.fetch is not None else {})}
     # --draft-from：沿用另一次运行保存的草稿（含 works/queries），只重跑检索与定稿——
     # 固定草稿后，两次运行的差别只来自证据环节与定稿，不混入起草的波动
@@ -642,7 +721,8 @@ async def run_agent(args) -> Path:
                     "queries": (a.get("agent") or {}).get("queries") or []}
     meta = {"depth": "agent", "seed": args.seed, "n": len(numbered), "exclude_seed": args.exclude_seed,
             "pick": args.pick or None, "repeat": max(1, args.repeat), "draft_from": args.draft_from or None,
-            "system_model": system_cfg.get("model"), "judge_model": args.judge_model, "started": stamp,
+            "system_model": system_cfg.get("model"), "judge_model": args.judge_model,
+            "claims_model": args.claims_model or args.judge_model, "started": stamp,
             "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
             "agent_only": True, "agent": settings, "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
@@ -676,7 +756,9 @@ async def run_agent(args) -> Path:
                    "check": answer.get("check"), "materials": answer.get("materials"), "agent": answer.get("agent"),
                    "tokens": used, "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
             if response.strip():
-                rec["scores"] = list(await asyncio.gather(*(judge.score(c, response) for c in case["configs"])))
+                judge_tokens = start_token_ledger()   # 评委用量单独记（glm-5.3，不计入作答）
+                rec["scores"] = await judge.score_all(case["configs"], response)
+                rec["judge_tokens"] = token_ledger_report(judge_tokens)   # judge_rubric 为评委模型，judge_claims 为拆分模型
         except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
             rec = {"error": f"{type(exc).__name__}: {exc}"[:300]}
         return rec, scope
@@ -741,6 +823,10 @@ def main() -> None:
     j = sub.add_parser("judge")
     j.add_argument("file")
     j.add_argument("--all", action="store_true", help="全部重新打分（默认只补缺失的分数）")
+    cl = sub.add_parser("claims", help="只重做陈述/引用/摘录拆分（细则分不变），写新文件；配合 --claims-model 对齐拆分模型")
+    cl.add_argument("file")
+    cl.add_argument("--arms", nargs="*", default=[], help="只重拆这几个系统（refs 文件按系统名；默认全部）")
+    cl.add_argument("--concurrency", type=int, default=6)
     f = sub.add_parser("refs", help="同一评委给数据集自带的其他系统答案打分")
     f.add_argument("--n", type=int, default=10)
     f.add_argument("--seed", type=int, default=0)
@@ -793,19 +879,24 @@ def main() -> None:
     ag.add_argument("--paper-notes", choices=("on", "off"), default="", help="精读挑选时是否每处写一句要点")
     ag.add_argument("--missing-fix", choices=("supplement", "rewrite"), default="",
                     help="定稿漏写精读列出的对象时：只补句插回（supplement）或带反馈整篇重写（rewrite）")
+    ag.add_argument("--paper-use", choices=("support", "cover"), default="",
+                    help="精读原文怎么用：support 支撑、改准草稿并少量补句（默认）；cover 列出题目所问的全部对象并逐个写到")
+    ag.add_argument("--claim-map", choices=("list", "inline"), default="",
+                    help="草稿各句的候选证据：list 另列一份逐句清单（默认）；inline 就地标在草稿句末（省 token）")
     ag.add_argument("--draft-from", default="", help="沿用这次评测结果里保存的草稿，只重跑检索与定稿（固定草稿对照）")
     ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
     ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")
     ag.add_argument("--repeat", type=int, default=1, help="每题重复几次（估计同配置的波动）")
     ag.add_argument("--label", default="")
-    for p in (r, j, f, w, ag):
+    for p in (r, j, cl, f, w, ag):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-tokens", type=int, default=4000)
         # 官方评委是非推理模型（gpt-4-turbo，打分输出上限 100 token）；默认关闭思考
         p.add_argument("--judge-thinking", default="off")
+        p.add_argument("--claims-model", default="", help="陈述/引用/摘录拆分用的模型（默认同评委）")
     args = parser.parse_args()
     asyncio.run({"run": run, "judge": rejudge, "refs": score_references, "rerender": rerender,
-                 "rewrite": rewrite, "agent": run_agent}[args.cmd](args))
+                 "rewrite": rewrite, "agent": run_agent, "claims": resplit}[args.cmd](args))
 
 
 if __name__ == "__main__":
