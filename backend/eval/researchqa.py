@@ -109,6 +109,11 @@ ARM_SPECS = {
     "def_read": ("reuse", {"reading": 8}, {"base": "pipeline"}),
     "def_strong": ("reuse", {}, {"base": "pipeline", "draft_model": "glm-5.3"}),
     "def_strong_read": ("reuse", {"reading": 8}, {"base": "pipeline", "draft_model": "glm-5.3"}),
+    "def_rep2": ("reuse", {}, {"base": "pipeline"}),
+    "def_read16": ("reuse", {"reading": 16}, {"base": "pipeline"}),
+    "def_read16b": ("reuse", {"reading": 16}, {"base": "pipeline"}),
+    "def_noread": ("reuse", {"reading": 0}, {"base": "pipeline"}),     # 默认改为读 16 句后的“改动前”对照
+    "def_noread2": ("reuse", {"reading": 0}, {"base": "pipeline"}),
     "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
                  {"base": "pipeline_all"}),
 }
@@ -315,7 +320,9 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("ctx_mark", "bare"), ("all_answer2", "all_answer"), ("mark_answer2", "all_answer3"),
                  ("strong_draft", "all_answer2"), ("strong_draft2", "all_answer3"),
                  ("def_rep", "bare"), ("def_read", "def_rep"), ("def_strong", "def_rep"),
-                 ("def_strong_read", "def_rep"), ("def_read", "bare"), ("def_strong_read", "bare")):
+                 ("def_strong_read", "def_rep"), ("def_read", "bare"), ("def_strong_read", "bare"),
+                 ("def_read16", "def_rep"), ("def_read16", "bare"), ("def_rep", "pipeline"), ("pipeline", "def_noread"),
+                 ("def_rep", "def_noread"), ("def_noread", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
