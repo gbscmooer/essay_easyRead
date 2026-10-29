@@ -98,6 +98,7 @@ async def rerank_final(question: str, confirmed: list[dict], unknown: list[dict]
 
 
 LISTWISE_TOP = 30   # 列表式精排的篇数（交叉编码器排序后的前 N 篇）
+REF_CHASE = 0       # 参考文献回溯篇数（0 = 关；E25 低分题验证后再定默认）
 _LISTWISE_SYSTEM = (
     "You rank scientific papers by how well they match a literature search request. "
     "Output JSON only: {\"ranking\": [ids from most to least relevant]}; include every id once.")
@@ -254,16 +255,79 @@ async def _default_search_one(source: str, keyword: str, limit: int, order: str,
     return await provider.search_works(keyword, limit=limit, academic_only=True, order=order)
 
 
-async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict[str, str]:
-    """DOI 批量反查 OpenAlex 摘要（Scopus 搜索不返回摘要）。"""
-    from .providers import OpenAlexProvider
+REF_CHASE_SEEDS = 4   # 参考文献回溯：取几篇种子（综述优先，其次高被引）
+_REVIEW_TITLE = re.compile(r"review|meta-analy|systematic|survey|overview|state of the art|progress in", re.I)
+
+
+def _scopus_for_chase(state: dict):
+    from .providers import ScopusProvider, _elsevier_key
     from ..ai_config import get_research_config
 
+    state["scopus"] = state.get("scopus") or ScopusProvider(api_key=_elsevier_key(dict(get_research_config())))
+    return state["scopus"]
+
+
+async def _ref_chase(corpus: list[dict], question: str, queries: list[str], limit: int,
+                     before_year: int | None, provider) -> dict:
+    """后向滚雪球：种子论文的参考文献按与问题（及检索式）的词干重合排序，取前 limit 篇按 DOI 取完整记录。
+    E25：孕期自杀风险题细则要引用的 Lindahl 2005（被引 700+）检索式一直没搜到，却在召回到的综述参考文献第 11 条。"""
+    from .evidence_search import _terms, title_key
+
+    def early(p: dict) -> bool:
+        y = p.get("year")
+        return before_year is None or (isinstance(y, int) and y < before_year)
+
+    seeds = [p for p in corpus if p.get("scopus_id") and early(p)]
+    seeds.sort(key=lambda p: (not _REVIEW_TITLE.search(str(p.get("title") or "")), -(p.get("citation_count") or 0)))
+    seeds = seeds[:REF_CHASE_SEEDS]
+    lists = await asyncio.gather(*(provider.get_paper_references(str(p["scopus_id"]), limit=40) for p in seeds),
+                                 return_exceptions=True)
+    have_doi = {str(p.get("doi") or "").lower() for p in corpus if p.get("doi")}
+    have_title = {title_key(p.get("title") or "") for p in corpus}
+    probe = _terms(" ".join([question, *queries]))
+    pool: dict[str, dict] = {}
+    for refs in lists:
+        for r in refs if isinstance(refs, list) else []:
+            doi = str(r.get("doi") or "").lower()
+            if doi and doi not in have_doi and title_key(r.get("title") or "") not in have_title:
+                pool.setdefault(doi, r)
+    ranked = sorted(pool.values(), key=lambda r: (-len(probe & _terms(r.get("title") or "")),
+                                                  -(r.get("citation_count") or 0)))
+    picked = [r for r in ranked if len(probe & _terms(r.get("title") or "")) >= 2][:limit]
+    cands = await provider.works_by_dois([r["doi"] for r in picked]) if picked else []
+    return {"seeds": len(seeds), "refs": sum(len(x) for x in lists if isinstance(x, list)),
+            "picked": len(picked), "added": len(cands), "candidates": cands}
+
+
+async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict[str, str]:
+    """DOI 批量反查摘要：Scopus（校园网 COMPLETE 视图，按 DOI 批量）→ OpenAlex → Europe PMC → Crossref → S2。
+    E25：E21 召回 2784 篇里 23% 无摘要，原链（OpenAlex → Crossref → S2）在评测中只补回约一半——
+    评测关了 OpenAlex，Crossref 很少带摘要，S2 不带 Key 常限流；而这些论文在 Scopus 里几乎都有摘要。"""
+    from .providers import OpenAlexProvider
+    from ..ai_config import get_research_config
+    from ...config import settings
+
     cfg = dict(get_research_config())
-    provider = OpenAlexProvider(email=str(cfg.get("email") or ""))
     found: dict[str, str] = {}
+    key = settings.elsevier_api_key or cfg.get("elsevier_api_key", "")
+    if key:
+        from .providers.scopus import ScopusProvider
+
+        scopus = ScopusProvider(key)
+        try:
+            found = dict(await scopus.abstracts_by_dois(dois) or {})
+        except Exception as exc:
+            logger.warning("Scopus abstract backfill failed (non-fatal): %s", exc)
+        finally:
+            try:
+                await scopus.aclose()
+            except Exception:
+                pass
+    rest = [d for d in dois if d and d.lower() not in {str(k).lower() for k in found}]
+    provider = OpenAlexProvider(email=str(cfg.get("email") or ""))
     try:
-        found = dict(await provider.get_abstracts_by_dois(dois) or {})
+        if rest:
+            found.update(await provider.get_abstracts_by_dois(rest) or {})
     except Exception as exc:
         logger.warning("OpenAlex abstract backfill failed, trying Semantic Scholar: %s", exc)
     finally:
@@ -273,6 +337,12 @@ async def _default_backfill(dois: list[str], _state: dict | None = None) -> dict
                 await aclose()
             except Exception:
                 pass
+    rest = [d for d in dois if d and d.lower() not in {str(k).lower() for k in found}]
+    if rest:
+        from .evidence_search import fetch_abstract
+
+        got = await asyncio.gather(*(fetch_abstract(d) for d in rest[:40]), return_exceptions=True)
+        found.update({d: a for d, a in zip(rest, got) if isinstance(a, str) and len(a) >= 100})
     # 后备：OpenAlex 不可用或未覆盖的 DOI 先查 Crossref（无需 key、不易限流），再走 S2 批量接口
     rest = [d for d in dois if d and d.lower() not in {str(k).lower() for k in found}]
     if rest:
@@ -557,6 +627,9 @@ async def run_target_recall(
     sources: tuple[str, ...] = ("arxiv", "scopus", "openalex"),
     rerank_scores: RerankScores | None = None,
     listwise_top: int = 0,
+    ref_chase: int = 0,
+    chase_before_year: int | None = None,
+    chase_provider=None,
 ) -> tuple[list[dict], dict]:
     """执行目标量驱动的多源并行召回，返回（论文清单, 审计）。
 
@@ -565,6 +638,9 @@ async def run_target_recall(
     match_local([(doi, title)]) 在 DOI 反查前先查本地 arXiv 镜像（缺省：镜像可用时接入）。
     rerank_scores(question, texts) 给出时由重排模型决定终裁顺序；缺省不重排。
     listwise_top>0 时再对前 N 篇做一次 LLM 列表式精排（用筛选同款关闭思考的调用）。
+    ref_chase>0 时检索轮次结束后做参考文献回溯（后向滚雪球）：取语料中的综述（及高被引论文）作种子，
+    Scopus 参考文献列表按与问题的词干重合挑至多 ref_chase 篇，按 DOI 取完整记录并入语料，照常筛选；
+    chase_before_year 给出时只用早于该年发表的种子（评测：出题综述及其后的论文不作种子）。
     should_pause 在每轮边界观察暂停请求，命中则抛 StagePausedError（协作式安全点）。
     time_up() 为真（运行时长到达研究侧上限）时不再开新一轮检索或补搜，已有语料照常筛选与重排。
     protocol_dimensions：研究协议阶段产出的六类覆盖目标（[{dimension, probes}]），
@@ -823,6 +899,17 @@ async def run_target_recall(
             tried.update(k.lower() for k in plan_keywords)
             current_keywords = plan_keywords
 
+        chase_audit: dict = {"seeds": 0, "refs": 0, "picked": 0, "added": 0}
+        if ref_chase > 0 and "scopus" in sources:
+            with _timed("ref_chase"):
+                try:
+                    chase_audit = await _ref_chase(
+                        _fresh_corpus(), question, queries, ref_chase, chase_before_year,
+                        chase_provider or provider_state.get("scopus") or _scopus_for_chase(provider_state))
+                    all_candidates.extend(chase_audit.pop("candidates", []))
+                except Exception as exc:  # noqa: BLE001 —— 回溯是增益，失败不影响召回
+                    logger.warning("reference chase failed (non-fatal): %s", exc)
+
         corpus = _fresh_corpus()
 
         # 摘要补全：Scopus 来源无摘要 → 先按 DOI/题名查本地 arXiv 镜像（同时补 arXiv 编号以便取全文），
@@ -1026,6 +1113,7 @@ async def run_target_recall(
             "source_failures": dict(source_failures),
             "corpus_after_search": len(corpus),
             "abstract_backfill": backfill_audit,
+            "ref_chase": chase_audit,
             "filter": filter_audit,
             "relevance": {"confirmed": len(confirmed), "unknown": len(unknown),
                           "escorted_unknown": escorted_unknown_count,

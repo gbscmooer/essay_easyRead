@@ -459,6 +459,32 @@ async def test_scopus_complete_view_probe_401_does_not_trip_breaker(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_scopus_complete_view_probe_rate_limit_is_not_cached(monkeypatch):
+    """探测碰上限流（429）不算结论：重试，仍失败时这次不带摘要、下次检索再探测（原来一次 429 整个实例都不带摘要）。"""
+    import httpx
+
+    from backend.services.deep_research.providers import scopus as sc
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(sc.asyncio, "sleep", no_sleep)
+    replies = iter([429, 429, 429, 200])
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(next(replies), json={})
+
+    p = sc.ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await p._complete_view_ok() is False and p._complete_view is None   # 三次 429：不缓存
+    assert await p._complete_view_ok() is True and len(calls) == 4            # 下次再探测成功
+    assert await p._complete_view_ok() is True and len(calls) == 4            # 成功后缓存
+    await p.aclose()
+
+
+@pytest.mark.asyncio
 async def test_scopus_zero_hit_long_query_relaxes_to_or_first_page(monkeypatch):
     from backend.services.deep_research.providers.scopus import ScopusProvider, relaxed_queries
     p = ScopusProvider(api_key="")
@@ -697,3 +723,56 @@ async def test_openalex_citation_history_by_doi(monkeypatch):
     assert await p.get_citation_history("") is None
     monkeypatch.setattr(p, "_safe_get", lambda path, params=None: _async_value(None))
     assert await p.get_citation_history("10.2/y") is None
+
+
+@pytest.mark.asyncio
+async def test_scopus_references_use_scopus_id_path_and_new_structure():
+    """参考文献接口路径是 scopus_id（下划线），条目在 abstracts-retrieval-response.references.reference。"""
+    import httpx
+
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"abstracts-retrieval-response": {"references": {
+            "@total-references": "2", "reference": [
+                {"title": "Prevalence of suicidality during pregnancy and the postpartum", "ce:doi": "10.1007/x",
+                 "prism:coverDate": "2005-01-01", "citedby-count": "704", "scopus-id": "21144446011"},
+                {"title": None, "sourcetitle": "A book"}]}}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    refs = await p.get_paper_references("SCOPUS_ID:84988851383")
+    assert seen == ["/content/abstract/scopus_id/84988851383"]
+    assert refs == [{"ext_id": "21144446011", "title": "Prevalence of suicidality during pregnancy and the postpartum",
+                     "year": 2005, "citation_count": 704, "doi": "10.1007/x", "arxiv_id": None, "pdf_url": None}]
+    await p.aclose()
+
+
+@pytest.mark.asyncio
+async def test_recall_ref_chase_picks_relevant_references_of_early_review_seeds():
+    from backend.services.deep_research import recall_engine as eng
+
+    class Fake:
+        def __init__(self):
+            self.asked = []
+
+        async def get_paper_references(self, sid, limit=40):
+            self.asked.append(sid)
+            return [{"title": "Prevalence of suicidality during pregnancy and the postpartum", "doi": "10.1/lin",
+                     "citation_count": 700},
+                    {"title": "Soil carbon in boreal forests", "doi": "10.1/soil", "citation_count": 900},
+                    {"title": "Already recalled suicide attempt pregnancy cohort", "doi": "10.1/have"}]
+
+        async def works_by_dois(self, dois):
+            return [{"doi": d, "title": d} for d in dois]
+
+    corpus = [{"scopus_id": "1", "title": "Suicide during perinatal period: a review", "year": 2016, "doi": "10.1/have"},
+              {"scopus_id": "2", "title": "Suicide attempts during pregnancy: meta-analysis", "year": 2024},
+              {"scopus_id": "3", "title": "A cohort study", "year": 2010, "citation_count": 5}]
+    fake = Fake()
+    out = await eng._ref_chase(corpus, "suicide attempts during pregnancy and postpartum", [], 5, 2024, fake)
+    assert fake.asked == ["1", "3"]                         # 2024 年的综述不作种子（评测防出题来源）
+    assert [c["doi"] for c in out["candidates"]] == ["10.1/lin"] and out["added"] == 1

@@ -51,7 +51,7 @@ from .literature_retrieval import paper_similarity, retrieve_materials
 from .citation_metrics import annotate_citation_metrics
 from .graphkit.backbone import mutual_knn
 from .survey_report import _stage_timeout, build_survey_report, redeliver_survey_report
-from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, run_target_recall
+from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, REF_CHASE, run_target_recall
 from .reranker import rerank_scores
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
@@ -2684,6 +2684,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                             protocol_dimensions=_protocol_dimensions_for_recall(
                                 decompose.get("coverage_protocol")),
                             rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP,
+                            ref_chase=int(options.get("ref_chase", REF_CHASE) or 0),
+                            chase_before_year=options.get("chase_before_year"),
                         )
                         search_audit.update(engine_audit)
                         provider_name = "multi:arxiv+scopus+openalex"
