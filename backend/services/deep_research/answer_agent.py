@@ -895,7 +895,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               paper_reading_papers: int = PAPER_READING_PAPERS, paper_notes: bool = False,
                               missing_fix: str = "supplement", paper_use: str = "support",
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None,
-                              drafts: int = 1, merge_mode: str = "union") -> dict:
+                              drafts: int = 1, merge_mode: str = "union", title_lookup=None,
+                              works_lookup: str = "") -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -922,7 +923,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     claim_map="inline" 时草稿各句的候选指针就地标在句末，不再另列一份逐句抄写草稿的候选清单。
     draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。
     drafts>1 时同时独立起草几份，再由模型合并成一份（保留各份不重复的要点与不同的分类方式）后照常查证定稿；
-    合并失败或合并稿明显变短时用第一份。merge_mode="base" 时以第一份为主体，只从其余几份补入缺少的内容。"""
+    合并失败或合并稿明显变短时用第一份。merge_mode="base" 时以第一份为主体，只从其余几份补入缺少的内容。
+    title_lookup 为按题名查论文的在线通道（如 evidence_search.ScopusSearch）：只查草稿点名、镜像里找不到的代表作，
+    不做检索式提名（web_search 已给出时用 web_search）；works_lookup="scopus" 且未给 title_lookup 时自建 Scopus 通道。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
     audit: dict = {"works": [], "queries": [], "works_found": 0, "search_added": 0}
@@ -1009,16 +1012,20 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                     logger.warning("answer agent search failed: %s", exc)
         return [p for group in itertools.zip_longest(*lists) for p in group if p]
 
-    if mirror is not None or web_search is not None:
+    if title_lookup is None and works_lookup == "scopus":
+        from .evidence_search import ScopusSearch
+        title_lookup = ScopusSearch()
+    lookup = web_search if web_search is not None else title_lookup
+    if mirror is not None or lookup is not None:
         budget = MAX_NEW_PAPERS
         missing = [w for w in works if not index.has_title(w)]
         found = []
         try:
             found = await mirror_lookup_titles(missing, mirror) if missing and mirror is not None else []
-            if web_search is not None:
+            if lookup is not None:
                 got = {title_key(p.get("requested_title") or "") for p in found}
                 rest = [w for w in missing if title_key(w) not in got]
-                found += await web_search.lookup_titles(rest) if rest else []
+                found += await lookup.lookup_titles(rest) if rest else []
             audit["works_web_found"] = sum(1 for p in found if p.get("source_query") == "method:title_lookup"
                                              and not p.get("arxiv_id"))
         except Exception as exc:  # noqa: BLE001 —— 文献补充失败不影响作答

@@ -3164,6 +3164,8 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         online = options.get("search_online", True)
                         # web_search="scopus"：在线 Scopus 与本地镜像一起提名论文（镜像只覆盖 cs）
                         web = ScopusSearch() if agent_opts.pop("web_search", None) == "scopus" and online else None
+                        if not online:   # 离线研究：点名代表作也不到 Scopus 按题名补查
+                            agent_opts["works_lookup"] = ""
                         # draft_model：只把起草换成另一个模型（同一服务商），其余步骤仍用当前模型
                         draft_model = agent_opts.pop("draft_model", None)
                         _draft_json = None

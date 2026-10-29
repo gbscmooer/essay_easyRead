@@ -881,3 +881,28 @@ def test_base_merge_keeps_the_first_draft_as_the_body():
     p = ag._merge_prompt("Two main methods?", [first, "Ball milling is top-down."], "en", "base")
     assert "以草稿 1 为主体" in p and "不删减" in p and f"不超过 {int(ag.aw._count_words(first, 'en') * ag.MERGE_BASE_RATIO)} 个英文单词" in p
     assert "各份草稿里不重复的内容都要保留" in ag._merge_prompt("Q?", [first, "x"], "en")
+
+
+def test_title_lookup_finds_named_works_without_the_web_search_channel(monkeypatch):
+    _no_rerank(monkeypatch)
+    asked = []
+
+    class Lookup:
+        async def lookup_titles(self, titles):
+            asked.extend(titles)
+            return [{"key": "bz", "title": "Dimensions of riparian buffer strips required to maintain trout habitat",
+                     "year": 1985, "abstract": "Buffer strips of 30 m kept trout habitat stable in southern Ontario.",
+                     "requested_title": titles[0], "source_query": "method:title_lookup"}]
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            return {"draft": "Buffer strips of about 30 m protect trout habitat.",
+                    "works": [{"title": "Dimensions of riparian buffer strips required to maintain trout habitat"}],
+                    "queries": []}
+        return {"answer": "Buffer strips of about 30 m protect trout habitat [S1]."}
+
+    out = asyncio.run(ag.write_with_pointers("What riparian buffer widths protect trout?", [], llm_json=llm_json,
+                                             mirror=None, final_mode="attach", title_lookup=Lookup()))
+    assert asked == ["Dimensions of riparian buffer strips required to maintain trout habitat"]
+    assert out["agent"]["works_found"] == 1 and out["agent"]["works_web_found"] == 1
+    assert out["references"][0]["origin"] == "named_work"
