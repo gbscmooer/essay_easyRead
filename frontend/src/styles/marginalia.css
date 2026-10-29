@@ -1129,16 +1129,30 @@
   .mg-shell:is([data-route='reader'], [data-route='code'], [data-route='research']) .mg-rail {
     position: relative;
     z-index: 60;
-    flex-basis: var(--mg-rail-compact);
+    flex: 0 0 var(--mg-rail-compact);
     width: var(--mg-rail-compact);
+    min-width: 0;
     overflow: hidden;
-    transition: width var(--dur-plane) var(--ease-register), box-shadow var(--dur-plane) var(--ease-register);
+    transition:
+      flex-basis var(--dur-plane) var(--ease-register),
+      width var(--dur-plane) var(--ease-register),
+      margin-right var(--dur-plane) var(--ease-register),
+      box-shadow var(--dur-plane) var(--ease-register);
   }
 
+  /* 展开时目录栏占满正常宽度，但用负右边距把多出的部分压在版面上，版面本身不跟着挤动。
+     flex-basis 必须和 width 一起放大：弹性布局按 flex-basis 排版，只改 width 会让目录按最小宽度换行（一字一行） */
   .mg-shell:is([data-route='reader'], [data-route='code'], [data-route='research']) .mg-rail:is(:hover, :focus-within) {
+    flex-basis: var(--mg-rail);
     width: var(--mg-rail);
     margin-right: calc(var(--mg-rail-compact) - var(--mg-rail));
     box-shadow: 18px 0 40px -28px rgba(28, 27, 24, 0.45);
+  }
+
+  .mg-shell:is([data-route='reader'], [data-route='code'], [data-route='research']) .mg-rail :is(
+    .mg-brand__text, .mg-toc__head, .mg-toc__label, .mg-toc__sub-item, .mg-tool__label, .mg-folio
+  ) {
+    white-space: nowrap;
   }
 
   .mg-shell:is([data-route='reader'], [data-route='code'], [data-route='research']) .mg-rail:not(:hover):not(:focus-within) :is(
