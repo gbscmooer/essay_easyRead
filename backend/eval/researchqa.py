@@ -120,6 +120,9 @@ ARM_SPECS = {
     # 低分题（E25）：补摘要 + 参考文献回溯（只从早于题目日期的论文回溯）
     "fix": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
     "fix2": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
+    # 召回到位的低分题（E26）：两份合并（v9.16.6 默认）+ 原文阅读 16 句
+    "read_m": ("reuse", {"reading": 16}, {"base": "pipeline"}),
+    "read_m2": ("reuse", {"reading": 16}, {"base": "pipeline"}),
     "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
     "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
@@ -374,7 +377,7 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare"),
                  ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2"),
                  ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now"),
-                 ("fix", "def_now"), ("fix2", "def_now2")):
+                 ("fix", "def_now"), ("fix2", "def_now2"), ("read_m", "def_now"), ("read_m2", "def_now2")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -629,6 +632,92 @@ async def rejudge(args) -> Path:
     return out
 
 
+def citation_targets(item: dict) -> list[str]:
+    """细则里要求引用的文献题名（Citation 类细则写成 “… (title: XXX) …”）。"""
+    out = []
+    for it in item.get("rubric") or []:
+        text = it if isinstance(it, str) else str(it.get("rubric_item") or "")
+        m = re.search(r"title:\s*(.+?)\)\s", text + " ")
+        if m:
+            out.append(m.group(1).strip())
+    return out
+
+
+async def recall_check(args) -> Path:
+    """只跑召回阶段（不作答、不打分）：同一题各配置同时段跑召回引擎，看细则要引用的文献是否进入最终论文、
+    论文带摘要的比例。检索式沿用 --queries-from 那次结果里保存的（E21 全集），只比较召回引擎本身。"""
+    from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
+    from backend.eval.scholarqa_cs import disable_openalex
+    from backend.services.deep_research.evidence_search import title_key
+    from backend.services.deep_research.recall_engine import LISTWISE_TOP, run_target_recall
+    from backend.services.deep_research.reranker import rerank_scores
+    from backend.services.llm import start_token_ledger, token_ledger_report
+
+    disable_openalex()
+    system_cfg = _llm_cfg(args.thinking_effort, args.model)
+    src = {r["id"]: r for r in json.loads(Path(args.queries_from).read_text(encoding="utf-8"))["records"]}
+    picked = pick_items(load_items(), seed=args.seed, n_noncs=args.n_noncs, n_cs=args.n_cs)
+    if args.subset:
+        picked = subset(picked, args.subset)
+    if args.ids:
+        picked = [x for x in picked if x["id"] in set(args.ids)]
+    variants = {"base": {}, **{k: json.loads(v) for k, v in (x.split("=", 1) for x in args.variant)}}
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = OUT_DIR / f"researchqa_recall_{stamp}.json"
+    log = ledger.open_log(out)
+    meta = {"n": len(picked), "variants": variants, "queries_from": args.queries_from, "label": args.label,
+            "system_model": system_cfg.get("model"), "provenance": ledger.provenance(out)}
+    watch = QuotaWatch.install()
+    gate = asyncio.Semaphore(max(1, args.concurrency))
+    records = []
+
+    async def one(item: dict, name: str, kw: dict) -> dict:
+        saved = json.loads(Path(src[item["id"]]["arms"]["pipeline"]["saved"]).read_text(encoding="utf-8"))["result"]
+        queries = (saved.get("decompose") or {}).get("en_queries") or [item["query"]]
+        year = int(str(item.get("date") or "9999")[:4])
+        scope, tokens, t0 = QuotaWatch.scope(), start_token_ledger(), time.monotonic()
+        try:
+            papers, audit = await run_target_recall(
+                item["query"], queries, depth=args.depth, now_year=datetime.now().year, llm_cfg=system_cfg,
+                sources=("arxiv", "scopus"), rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP,
+                chase_before_year=year, **kw)
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"{type(exc).__name__}: {exc}"[:300]}
+        have = {title_key(p.get("title") or "") for p in papers}
+        targets = citation_targets(item)
+        hits = [t for t in targets if title_key(t) in have]
+        return {"papers": len(papers), "with_abstract": sum(1 for p in papers if (p.get("abstract") or "").strip()),
+                "targets": len(targets), "hits": hits, "ref_chase": audit.get("ref_chase"),
+                "abstract_backfill": audit.get("abstract_backfill"), "rate_limited": bool(scope["hits"]),
+                "tokens": token_ledger_report(tokens), "wall_s": round(time.monotonic() - t0, 1)}
+
+    async def worker(item: dict) -> None:
+        async with gate:
+            res = await asyncio.gather(*(one(item, n, kw) for n, kw in variants.items()))   # 各配置同时段
+        rec = {"id": item["id"], "group": item["group"], "domain": item["general_domain"], "query": item["query"],
+               "variants": dict(zip(variants, res))}
+        records.append(rec)
+        print(f"[{len(records)}/{len(picked)}] {item['field']}：{item['query'][:60]}\n    → " + "  ".join(
+            f"{n}: 论文 {v.get('papers')}，带摘要 {v.get('with_abstract')}，命中 {len(v.get('hits') or [])}/{v.get('targets')}"
+            + ("（限流）" if v.get("rate_limited") else "") for n, v in rec["variants"].items()), flush=True)
+
+    await asyncio.gather(*(worker(x) for x in picked))
+    summary = {}
+    for n in variants:
+        rows = [r["variants"][n] for r in records if "papers" in r["variants"][n]]
+        summary[n] = {"questions": len(rows), "papers": sum(r["papers"] for r in rows),
+                      "abstract_share": round(sum(r["with_abstract"] for r in rows) / max(1, sum(r["papers"] for r in rows)), 3),
+                      "target_hits": sum(len(r["hits"]) for r in rows), "targets": sum(r["targets"] for r in rows)}
+    report = {"meta": meta, "summary": summary, "records": records}
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False), flush=True)
+    ledger.record_metrics(out, report, benchmark="researchqa_recall",
+                          lines=[f"- {n}：{v['questions']} 题，论文 {v['papers']} 篇，带摘要 {v['abstract_share']:.0%}，"
+                                 f"细则所引文献命中 {v['target_hits']}/{v['targets']}" for n, v in summary.items()])
+    log.close()
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -652,6 +741,19 @@ def main() -> None:
     r.add_argument("--recall-from", default="",
                    help="复用召回的组从这次结果里取 base 组已保存的论文（新文件；base 组不重跑、不调 Scopus）")
     r.add_argument("--label", default="")
+    rc = sub.add_parser("recall", help="只跑召回阶段，看细则所引文献是否召回、论文是否带摘要")
+    rc.add_argument("--queries-from", required=True, help="沿用这次结果里保存的检索式（pipeline 组）")
+    rc.add_argument("--n-noncs", type=int, default=40)
+    rc.add_argument("--n-cs", type=int, default=10)
+    rc.add_argument("--seed", type=int, default=0)
+    rc.add_argument("--subset", type=int, default=0)
+    rc.add_argument("--ids", nargs="+", default=[])
+    rc.add_argument("--variant", action="append", default=[], help='与 base 同时段对比的召回配置，如 chase=\'{"ref_chase": 20}\'')
+    rc.add_argument("--depth", default="quick")
+    rc.add_argument("--thinking-effort", default="off")
+    rc.add_argument("--model", default="")
+    rc.add_argument("--concurrency", type=int, default=2)
+    rc.add_argument("--label", default="")
     j = sub.add_parser("judge")
     j.add_argument("file")
     j.add_argument("--concurrency", type=int, default=6)
@@ -659,7 +761,7 @@ def main() -> None:
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-repeats", type=int, default=1, help="同一答案独立打分几次取平均（压低评委噪声）")
     args = parser.parse_args()
-    asyncio.run({"run": run, "judge": rejudge}[args.cmd](args))
+    asyncio.run({"run": run, "judge": rejudge, "recall": recall_check}[args.cmd](args))
 
 
 if __name__ == "__main__":
