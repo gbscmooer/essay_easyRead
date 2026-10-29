@@ -917,7 +917,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None,
                               drafts: int = 1, merge_mode: str = "union", title_lookup=None,
                               works_lookup: str = "", abstract_backfill: bool = False, ref_chase: int = 0,
-                              chase_before_year: int | None = None, paper_filter=None) -> dict:
+                              chase_before_year: int | None = None, paper_filter=None,
+                              new_papers: int = MAX_NEW_PAPERS) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -951,6 +952,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     否则这些论文进不了证据库。ref_chase>0 时从已有全文末尾的参考文献里回溯至多这么多条与问题相关的文献
     （Crossref 解析、补摘要后收入证据库）；chase_before_year 给出时只从早于该年发表的论文回溯
     （评测用：出题综述及其后的论文不回溯，防止拿到出题来源）。
+    new_papers：作答阶段补检（点名查找 + 按检索式检索）收入的论文上限（E28：补检进来的不对题论文多时，
+    attach 定稿会把约一半草稿句改写去迁就证据）。
     paper_filter(paper)->bool 给出时，任何来源的论文（召回、镜像/在线补检、点名查找、回溯）都先过它再收入证据库
     （评测的发表时间截断，见 time_machine）。"""
     lang = aw.question_language(question)
@@ -1056,7 +1059,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         title_lookup = ScopusSearch()
     lookup = web_search if web_search is not None else title_lookup
     if mirror is not None or lookup is not None:
-        budget = MAX_NEW_PAPERS
+        budget = new_papers
         missing = [w for w in works if not index.has_title(w)]
         found = []
         try:

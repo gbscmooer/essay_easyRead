@@ -134,6 +134,11 @@ ARM_SPECS = {
     "tm_none": ("reuse", {}, {"base": "pipeline"}),
     "tm_regular": ("reuse", {}, {"base": "pipeline", "time_machine": "regular"}),
     "tm_strict": ("reuse", {}, {"base": "pipeline", "time_machine": "strict"}),
+    # E29 作答阶段补检的噪声（E28：严格档挡住补检后草稿保留 49% → 74%、覆盖 +0.038）
+    "no_supp": ("reuse", {}, {"base": "pipeline", "no_mirror": True}),
+    "no_supp2": ("reuse", {}, {"base": "pipeline", "no_mirror": True}),
+    "lean": ("reuse", {"new_papers": 20, "claim_search": 1}, {"base": "pipeline"}),
+    "lean2": ("reuse", {"new_papers": 20, "claim_search": 1}, {"base": "pipeline"}),
     "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
     "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
@@ -400,7 +405,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("new_def", "old_def"), ("pipeline_v917", "old_def"), ("new_read", "old_read"),
                  ("old_read", "old_def"), ("new_read", "new_def"),
                  ("tm_regular", "tm_none"), ("tm_strict", "tm_none"), ("tm_strict", "tm_regular"),
-                 ("tm_none", "bare"), ("tm_regular", "bare"), ("tm_strict", "bare")):
+                 ("tm_none", "bare"), ("tm_regular", "bare"), ("tm_strict", "bare"),
+                 ("no_supp", "def_now"), ("no_supp2", "def_now2"), ("lean", "def_now"), ("lean2", "def_now2")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -464,7 +470,8 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
 
             async def draft_json(system: str, user: str) -> dict:
                 return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
-        answer = await write_with_pointers(query, papers, llm_json=answer_json, mirror=mirror, web_search=web,
+        answer = await write_with_pointers(query, papers, llm_json=answer_json,
+                                           mirror=None if run_opts.get("no_mirror") else mirror, web_search=web,
                                            draft_json=draft_json, paper_filter=paper_filter, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
     else:
