@@ -654,6 +654,14 @@ async def rejudge(args) -> Path:
 
     arms = report["meta"]["arms"]
     await asyncio.gather(*(one(r, a) for r in report["records"] for a in arms))
+    for n_pass in range(3):   # 限流等瞬时失败：等一会儿只补打失败的（失败记为无分数，不当 0 分）
+        failed = [(r, a) for r in report["records"] for a in arms if (r["arms"].get(a) or {}).get("judge_error")]
+        if not failed:
+            break
+        print(f"补打第 {n_pass + 1} 轮：{len(failed)} 份（{failed[0][0]['arms'][failed[0][1]]['judge_error'][:80]}）",
+              flush=True)
+        await asyncio.sleep(60 * (n_pass + 1))
+        await asyncio.gather(*(one(r, a) for r, a in failed))
     report["meta"] = {**report["meta"], "judge_model": args.judge_model, "judge_repeats": args.judge_repeats,
                       "rejudged_from": src.name,
                       "provenance": ledger.provenance(src)}
@@ -662,6 +670,46 @@ async def rejudge(args) -> Path:
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
     ledger.record_metrics(out, report, benchmark="researchqa", lines=_ledger_lines(report["summary"]))
+    return out
+
+
+async def grounding(args) -> Path:
+    """依据质量（不调大模型）：每份答案的参考文献里，作答阶段从 arXiv 镜像补进来的论文占比（非 CS 题即噪声），
+    以及与问题对题的占比（重排模型给“题名 + 摘录”与问题的相关度，≥ 0.5 记为对题）。"""
+    from backend.services.deep_research.reranker import rerank_scores
+
+    src = Path(args.file)
+    report = json.loads(src.read_text(encoding="utf-8"))
+    arms = args.arms or report["meta"]["arms"]
+    rows: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    for rec in report["records"]:
+        for arm in arms:
+            saved = (rec["arms"].get(arm) or {}).get("saved")
+            if not saved or not Path(saved).exists():
+                continue
+            refs = (json.loads(Path(saved).read_text(encoding="utf-8")).get("result") or {}).get("answer", {})
+            refs = (refs or {}).get("references") or []
+            if not refs:
+                continue
+            mirror = [r for r in refs if str(r.get("key") or "").startswith("arxiv:") and r.get("origin") != "recall"]
+            scores = await rerank_scores(rec["item"]["query"],
+                                         [f"{r.get('title') or ''}. {r.get('excerpt') or ''}"[:1200] for r in refs])
+            row = rows[arm][rec["group"]]
+            row.append({"refs": len(refs), "mirror": len(mirror),
+                        "on_topic": sum(1 for x in scores if x >= 0.5) if scores else None})
+    summary = {}
+    for arm, groups in rows.items():
+        summary[arm] = {}
+        for g, items in groups.items():
+            refs = sum(x["refs"] for x in items)
+            on = [x for x in items if x["on_topic"] is not None]
+            summary[arm][g] = {"answers": len(items), "refs_per_answer": round(refs / len(items), 1),
+                               "mirror_share": round(sum(x["mirror"] for x in items) / max(1, refs), 3),
+                               "on_topic_share": round(sum(x["on_topic"] for x in on) / max(1, sum(x["refs"] for x in on)), 3)
+                               if on else None}
+    out = src.with_name(f"{src.stem}_grounding.json")
+    out.write_text(json.dumps({"source": src.name, "summary": summary}, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=1), flush=True)
     return out
 
 
@@ -816,6 +864,9 @@ def main() -> None:
     r.add_argument("--recall-from", default="",
                    help="复用召回的组从这次结果里取 base 组已保存的论文（新文件；base 组不重跑、不调 Scopus）")
     r.add_argument("--label", default="")
+    gd = sub.add_parser("grounding", help="依据质量：参考文献里镜像补检的占比（非 CS 即噪声）与对题占比（不调大模型）")
+    gd.add_argument("file")
+    gd.add_argument("--arms", nargs="+", default=[])
     sc = sub.add_parser("seed-cache", help="把已保存结果里的召回论文导入 Scopus 本地论文库")
     sc.add_argument("files", nargs="+")
     rc = sub.add_parser("recall", help="只跑召回阶段，看细则所引文献是否召回、论文是否带摘要")
@@ -847,7 +898,7 @@ def main() -> None:
 
         os.environ.setdefault("ESSAY_SCOPUS_CACHE", "record")
         return seed_cache(args)
-    asyncio.run({"run": run, "judge": rejudge, "recall": recall_check}[args.cmd](args))
+    asyncio.run({"run": run, "judge": rejudge, "recall": recall_check, "grounding": grounding}[args.cmd](args))
 
 
 if __name__ == "__main__":
