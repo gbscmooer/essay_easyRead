@@ -119,6 +119,8 @@ ARM_SPECS = {
     "def_now2": ("reuse", {}, {"base": "pipeline"}),
     "merge2": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
     "merge2b": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
+    "mergeb": ("reuse", {"drafts": 2, "merge_mode": "base"}, {"base": "pipeline"}),   # 以第一份为主体补入
+    "mergeb2": ("reuse", {"drafts": 2, "merge_mode": "base"}, {"base": "pipeline"}),
     "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
                  {"base": "pipeline_all"}),
 }
@@ -362,7 +364,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("def_strong_read", "def_rep"), ("def_read", "bare"), ("def_strong_read", "bare"),
                  ("def_read16", "def_rep"), ("def_read16", "bare"), ("def_rep", "pipeline"), ("pipeline", "def_noread"),
                  ("def_rep", "def_noread"), ("def_noread", "bare"), ("def_now2", "def_now"), ("merge2", "def_now"),
-                 ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare")):
+                 ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare"),
+                 ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out

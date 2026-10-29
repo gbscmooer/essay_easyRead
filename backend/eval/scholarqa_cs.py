@@ -749,8 +749,12 @@ async def run_agent(args) -> Path:
                 if stored is None:
                     raise RuntimeError("--draft-from 里没有这道题的草稿")
 
-                async def draft_json(system: str, user: str, stored=stored) -> dict:
-                    return stored
+                served = [0]
+
+                async def draft_json(system: str, user: str, stored=stored, served=served) -> dict:
+                    # 第一份草稿固定为保存的那份；多份草稿合并（drafts>1）时其余几份现场起草
+                    served[0] += 1
+                    return stored if served[0] == 1 else await answer_json(system, user)
             elif args.draft_model:
                 # 只把起草换成另一个模型（其余步骤仍用系统模型）
                 async def draft_json(system: str, user: str) -> dict:

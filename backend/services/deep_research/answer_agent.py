@@ -40,6 +40,7 @@ MIN_DRAFT_WORDS = 250       # 草稿过短视为截断，重新起草一次（�
 SHORT_FINAL_RATIO = 0.4     # 定稿不足草稿 40% 视为截断或大段删改，带反馈重写
 MERGE_LENGTH_RATIO = 1.4    # 多份草稿合并：篇幅不超过最长一份的这么多倍
 MERGE_MIN_RATIO = 0.8       # 合并稿短于最长一份的这么多倍视为丢了内容，改用第一份草稿
+MERGE_BASE_RATIO = 1.25     # 以第一份为主体补入（merge_mode="base"）：篇幅不超过第一份的这么多倍
 ATTACH_MIN_CITED_SHARE = 0.5   # 以草稿为准时证据覆盖受检索所限，只防整篇几乎不引
 FETCH_CONCURRENCY = 3
 _FETCH_ORDER = {"named_work": 0, "question_search": 1, "answer_search": 2, "claim_search": 3, "recall": 4}   # 补全文的先后
@@ -120,25 +121,39 @@ def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DR
     return "\n".join(lines)
 
 
-def _merge_prompt(question: str, drafts: list[str], lang: str) -> str:
+def _merge_prompt(question: str, drafts: list[str], lang: str, mode: str = "union") -> str:
     """多份独立草稿合并成一份：同配置复本的单题分差平均约 0.06（E21），最大的差来自对题意的不同理解
-    （同一道“两种主要方法”题，两份草稿答“共沉淀 vs 热分解”、两份答“自上而下 vs 自下而上”）。"""
-    longest = max(aw._count_words(d, lang) for d in drafts)
-    cap = (f"不超过 {int(longest * MERGE_LENGTH_RATIO)} 个英文单词" if lang == "en"
-           else f"不超过 {int(longest * MERGE_LENGTH_RATIO)} 个汉字")
+    （同一道“两种主要方法”题，两份草稿答“共沉淀 vs 热分解”、两份答“自上而下 vs 自下而上”）。
+    mode="union" 各份平等合并；"base" 以第一份为主体、保持其结构与重点，只从其余几份补入缺少的、直接回答问题的内容
+    （E22：union 在 ResearchQA 上 +0.025，ScholarQA-CS 上专家性评分下降）。"""
+    unit = "个英文单词" if lang == "en" else "个汉字"
+    if mode == "base":
+        cap = f"不超过 {int(aw._count_words(drafts[0], lang) * MERGE_BASE_RATIO)} {unit}"
+    else:
+        cap = f"不超过 {int(max(aw._count_words(d, lang) for d in drafts) * MERGE_LENGTH_RATIO)} {unit}"
     lines = [f"## 问题\n{question}"]
     for i, d in enumerate(drafts, 1):
         lines += ["", f"## 草稿 {i}", d]
-    lines += [
-        "", "## 任务",
-        f"以上是几位专家各自独立写的答案草稿。合并成一份 Markdown 答案（{cap}，用{'英文' if lang == 'en' else '中文'}）：",
-        "- 各份草稿里不重复的内容都要保留：定义与分类、点名的方法/模型/数据集/作者与年份、关键数字与结论、"
-        "比较与取舍、局限与开放问题；",
-        "- 几份草稿对问题的理解或分类方式不同时，都写进来：先写更概括的分法，再把其余分法归入其中或单列一段，不要只留一种；",
-        "- 重复的内容合并成一处；说法相互矛盾时只保留你确信的；不加入各份草稿都没有的新内容；",
-        "- 格式同草稿：先用 1~2 句直接回答，随后分段，每段以 **粗体小标题** 开头；不写引用编号。",
-        '输出：{"draft": "..."}',
-    ]
+    lang_name = "英文" if lang == "en" else "中文"
+    if mode == "base":
+        rules = [
+            f"以上是几位专家各自独立写的答案草稿。以草稿 1 为主体修订成最终草稿（{cap}，用{lang_name}）：",
+            "- 保持草稿 1 的结构、论述重点和篇幅比例，它已有的内容不删减、不改写成泛泛的概述；",
+            "- 只从其余草稿补入草稿 1 没有、又直接回答问题的内容：对问题的另一种理解或分类方式、遗漏的重要对象"
+            "（方法/模型/数据集/作者与年份）、关键数字与结论；与问题关系不大的背景不要补；",
+            "- 补入的内容放进草稿 1 相应的段落；另一种分类方式写在开头的直接回答里或单列一段；说法矛盾时只保留你确信的；",
+        ]
+    else:
+        rules = [
+            f"以上是几位专家各自独立写的答案草稿。合并成一份 Markdown 答案（{cap}，用{lang_name}）：",
+            "- 各份草稿里不重复的内容都要保留：定义与分类、点名的方法/模型/数据集/作者与年份、关键数字与结论、"
+            "比较与取舍、局限与开放问题；",
+            "- 几份草稿对问题的理解或分类方式不同时，都写进来：先写更概括的分法，再把其余分法归入其中或单列一段，不要只留一种；",
+            "- 重复的内容合并成一处；说法相互矛盾时只保留你确信的；不加入各份草稿都没有的新内容；",
+        ]
+    lines += ["", "## 任务", *rules,
+              "- 格式同草稿：先用 1~2 句直接回答，随后分段，每段以 **粗体小标题** 开头；不写引用编号。",
+              '输出：{"draft": "..."}']
     return "\n".join(lines)
 
 
@@ -877,7 +892,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               paper_reading_papers: int = PAPER_READING_PAPERS, paper_notes: bool = False,
                               missing_fix: str = "supplement", paper_use: str = "support",
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None,
-                              drafts: int = 1) -> dict:
+                              drafts: int = 1, merge_mode: str = "union") -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -904,7 +919,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     claim_map="inline" 时草稿各句的候选指针就地标在句末，不再另列一份逐句抄写草稿的候选清单。
     draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。
     drafts>1 时同时独立起草几份，再由模型合并成一份（保留各份不重复的要点与不同的分类方式）后照常查证定稿；
-    合并失败或合并稿明显变短时用第一份。"""
+    合并失败或合并稿明显变短时用第一份。merge_mode="base" 时以第一份为主体，只从其余几份补入缺少的内容。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
     audit: dict = {"works": [], "queries": [], "works_found": 0, "search_added": 0}
@@ -950,15 +965,17 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     if len(ok) > 1:
         texts = [g[1] for g in ok]
         longest = max(aw._count_words(t, lang) for t in texts)
-        audit["merge"] = {"drafts": len(texts), "draft_words": [len(t.split()) for t in texts], "texts": texts}
+        audit["merge"] = {"drafts": len(texts), "mode": merge_mode, "draft_words": [len(t.split()) for t in texts],
+                          "texts": texts}
         try:
             with llm_stage("answer_draft_merge"):
-                merged = str((await llm_json(_DRAFT_SYSTEM, _merge_prompt(question, texts, lang)) or {})
-                             .get("draft") or "").strip()
+                merged = str((await llm_json(_DRAFT_SYSTEM, _merge_prompt(question, texts, lang, merge_mode))
+                              or {}).get("draft") or "").strip()
         except Exception as exc:  # noqa: BLE001 —— 合并失败照常用第一份
             logger.warning("answer agent draft merge failed: %s", exc)
             merged = ""
-        if aw._count_words(merged, lang) >= longest * MERGE_MIN_RATIO:
+        floor = aw._count_words(texts[0], lang) if merge_mode == "base" else longest
+        if aw._count_words(merged, lang) >= floor * MERGE_MIN_RATIO:
             draft = merged
             audit["merge"]["status"] = "ok"
         else:

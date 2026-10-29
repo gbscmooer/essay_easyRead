@@ -874,3 +874,10 @@ def test_failed_second_draft_falls_back_to_the_one_that_succeeded(monkeypatch):
     out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
                                              mirror=None, final_mode="attach", drafts=2))
     assert out["draft"] == text and out["agent"]["merge"] == {"drafts": 1, "status": "single"}
+
+
+def test_base_merge_keeps_the_first_draft_as_the_body():
+    first = " ".join(["Co-precipitation gives broad size distributions."] * 20)
+    p = ag._merge_prompt("Two main methods?", [first, "Ball milling is top-down."], "en", "base")
+    assert "以草稿 1 为主体" in p and "不删减" in p and f"不超过 {int(ag.aw._count_words(first, 'en') * ag.MERGE_BASE_RATIO)} 个英文单词" in p
+    assert "各份草稿里不重复的内容都要保留" in ag._merge_prompt("Q?", [first, "x"], "en")
