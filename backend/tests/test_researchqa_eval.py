@@ -92,3 +92,13 @@ def test_resume_rederives_unfinished_questions_from_sample_params():
     saved = [{"id": x["id"], "group": x["group"], "item": x} for x in full[:4]]
     out = rq.resume_items(items, meta, saved, subset_arg=10)
     assert [x["id"] for x in out] == [x["id"] for x in full] and meta["subset"] == 10
+
+
+def test_recall_seed_copies_only_base_arms_of_picked_questions():
+    records = [{"id": "q1", "group": "non_cs", "arms": {"bare": {"coverage": 0.5},
+                                                         "pipeline": {"coverage": 0.8, "saved": "/x/q1.json"},
+                                                         "def_noread": {"coverage": 0.7}}},
+               {"id": "q2", "group": "cs", "arms": {"pipeline": {"coverage": 0.9, "saved": "/x/q2.json"}}}]
+    seeded = rq.recall_seed(records, [{"id": "q1"}, {"id": "q3"}], ["pipeline", "def_now", "merge2"], "full.json")
+    assert list(seeded) == ["q1"]                                       # 只取本次抽到的题
+    assert seeded["q1"]["arms"] == {"pipeline": {"coverage": 0.8, "saved": "/x/q1.json", "copied_from": "full.json"}}

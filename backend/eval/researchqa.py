@@ -114,6 +114,11 @@ ARM_SPECS = {
     "def_read16b": ("reuse", {"reading": 16}, {"base": "pipeline"}),
     "def_noread": ("reuse", {"reading": 0}, {"base": "pipeline"}),     # 默认改为读 16 句后的“改动前”对照
     "def_noread2": ("reuse", {"reading": 0}, {"base": "pipeline"}),
+    # v9.16.2 起默认不读原文：同时段对照（def_now ×2）对两份草稿合并（merge2 ×2），--recall-from 复用全集的召回
+    "def_now": ("reuse", {}, {"base": "pipeline"}),
+    "def_now2": ("reuse", {}, {"base": "pipeline"}),
+    "merge2": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
+    "merge2b": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
     "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
                  {"base": "pipeline_all"}),
 }
@@ -206,6 +211,20 @@ def resume_items(items: list[dict], meta: dict, records: list[dict], subset_arg:
     meta["subset"] = sub
     ids = {x["id"] for x in picked}
     return picked + [{**r["item"], "group": r["group"]} for r in records if r["id"] not in ids]
+
+
+def recall_seed(records: list[dict], picked: list[dict], arms: list[str], name: str) -> dict[str, dict]:
+    """--recall-from：从另一次结果里只取本次复用组要用的 base 组记录（含已保存论文的路径与分数），
+    这些 base 组不再重跑；其余组（含 bare）都在本次同时段重新跑。"""
+    by_id = {r["id"]: r for r in records}
+    bases = {ARM_SPECS[a][2]["base"] for a in arms if ARM_SPECS[a][0] in ("reuse", "draft_of")}
+    out = {}
+    for x in picked:
+        r = by_id.get(x["id"])
+        if r:
+            out[x["id"]] = {**r, "arms": {b: {**r["arms"][b], "copied_from": name}
+                                          for b in sorted(bases) if b in r["arms"]}}
+    return out
 
 
 async def scopus_remaining() -> int | None:
@@ -342,7 +361,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("def_rep", "bare"), ("def_read", "def_rep"), ("def_strong", "def_rep"),
                  ("def_strong_read", "def_rep"), ("def_read", "bare"), ("def_strong_read", "bare"),
                  ("def_read16", "def_rep"), ("def_read16", "bare"), ("def_rep", "pipeline"), ("pipeline", "def_noread"),
-                 ("def_rep", "def_noread"), ("def_noread", "bare")):
+                 ("def_rep", "def_noread"), ("def_noread", "bare"), ("def_now2", "def_now"), ("merge2", "def_now"),
+                 ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -453,6 +473,12 @@ async def run(args) -> Path:
                 "judge_repeats": args.judge_repeats,
                 "started": stamp, "label": args.label, "concurrency": args.concurrency,
                 "openalex": False, "provenance": ledger.provenance(out)}
+    if args.recall_from:
+        # 复用另一次结果里 base 组的召回（不调 Scopus）：只把 base 组记录带进来，新组都在本次同时段跑
+        src = Path(args.recall_from)
+        seeded = recall_seed(json.loads(src.read_text(encoding="utf-8"))["records"], picked, arms, src.name)
+        prev = {**seeded, **prev}
+        meta["recall_from"] = str(src)
     runs_dir = out.with_name(out.stem + "_runs")
     runs_dir.mkdir(parents=True, exist_ok=True)
     log = ledger.open_log(out)
@@ -603,6 +629,8 @@ def main() -> None:
     r.add_argument("--resume", default="", help="沿用这次结果，只补跑缺失或出错的组")
     r.add_argument("--add-arms", nargs="+", choices=list(ARM_SPECS), default=[],
                    help="与 --resume 合用：在已有结果上补跑这些组（同时带一个复本组作同时段对照）")
+    r.add_argument("--recall-from", default="",
+                   help="复用召回的组从这次结果里取 base 组已保存的论文（新文件；base 组不重跑、不调 Scopus）")
     r.add_argument("--label", default="")
     j = sub.add_parser("judge")
     j.add_argument("file")

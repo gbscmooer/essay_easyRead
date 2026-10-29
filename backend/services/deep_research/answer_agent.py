@@ -38,6 +38,8 @@ MAX_CLAIMS = 60
 MIN_CITED_SHARE = 0.75     # 低于此比例带反馈重写一次；公认背景知识允许不带指针
 MIN_DRAFT_WORDS = 250       # 草稿过短视为截断，重新起草一次（实测约 2% 的长答案被截断）
 SHORT_FINAL_RATIO = 0.4     # 定稿不足草稿 40% 视为截断或大段删改，带反馈重写
+MERGE_LENGTH_RATIO = 1.4    # 多份草稿合并：篇幅不超过最长一份的这么多倍
+MERGE_MIN_RATIO = 0.8       # 合并稿短于最长一份的这么多倍视为丢了内容，改用第一份草稿
 ATTACH_MIN_CITED_SHARE = 0.5   # 以草稿为准时证据覆盖受检索所限，只防整篇几乎不引
 FETCH_CONCURRENCY = 3
 _FETCH_ORDER = {"named_work": 0, "question_search": 1, "answer_search": 2, "claim_search": 3, "recall": 4}   # 补全文的先后
@@ -116,6 +118,39 @@ def _draft_prompt(question: str, papers: list[dict], lang: str, titles: int = DR
         '输出：{"draft": "...", "works": [{"title": "...", "year": 2020}], "queries": ["..."]}',
     ]
     return "\n".join(lines)
+
+
+def _merge_prompt(question: str, drafts: list[str], lang: str) -> str:
+    """多份独立草稿合并成一份：同配置复本的单题分差平均约 0.06（E21），最大的差来自对题意的不同理解
+    （同一道“两种主要方法”题，两份草稿答“共沉淀 vs 热分解”、两份答“自上而下 vs 自下而上”）。"""
+    longest = max(aw._count_words(d, lang) for d in drafts)
+    cap = (f"不超过 {int(longest * MERGE_LENGTH_RATIO)} 个英文单词" if lang == "en"
+           else f"不超过 {int(longest * MERGE_LENGTH_RATIO)} 个汉字")
+    lines = [f"## 问题\n{question}"]
+    for i, d in enumerate(drafts, 1):
+        lines += ["", f"## 草稿 {i}", d]
+    lines += [
+        "", "## 任务",
+        f"以上是几位专家各自独立写的答案草稿。合并成一份 Markdown 答案（{cap}，用{'英文' if lang == 'en' else '中文'}）：",
+        "- 各份草稿里不重复的内容都要保留：定义与分类、点名的方法/模型/数据集/作者与年份、关键数字与结论、"
+        "比较与取舍、局限与开放问题；",
+        "- 几份草稿对问题的理解或分类方式不同时，都写进来：先写更概括的分法，再把其余分法归入其中或单列一段，不要只留一种；",
+        "- 重复的内容合并成一处；说法相互矛盾时只保留你确信的；不加入各份草稿都没有的新内容；",
+        "- 格式同草稿：先用 1~2 句直接回答，随后分段，每段以 **粗体小标题** 开头；不写引用编号。",
+        '输出：{"draft": "..."}',
+    ]
+    return "\n".join(lines)
+
+
+def _union(lists: list[list[str]], cap: int) -> list[str]:
+    """几份草稿给出的点名论文或检索式交替合并、去重（按小写），取前 cap 条。"""
+    out, seen = [], set()
+    for row in itertools.zip_longest(*lists):
+        for x in row:
+            if x and x.lower() not in seen:
+                seen.add(x.lower())
+                out.append(x)
+    return out[:cap]
 
 
 def _followup_prompt(question: str, claims: list[str]) -> str:
@@ -841,7 +876,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               paper_reading: int = 0, paper_reader: str = "llm",
                               paper_reading_papers: int = PAPER_READING_PAPERS, paper_notes: bool = False,
                               missing_fix: str = "supplement", paper_use: str = "support",
-                              claim_map: str = "list", draft_json: aw.LlmJson | None = None) -> dict:
+                              claim_map: str = "list", draft_json: aw.LlmJson | None = None,
+                              drafts: int = 1) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -866,7 +902,9 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     篇幅与草稿相当，不列对象清单；“cover”（库内列举题，如 E15 问有哪些数据集）列出题目所问的全部对象并逐个写到。
     E17（ScholarQA 新 20 题，同一草稿）：按 cover 用法开精读时正文长 35%、14 题超长重写，综合分 −0.029。
     claim_map="inline" 时草稿各句的候选指针就地标在句末，不再另列一份逐句抄写草稿的候选清单。
-    draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。"""
+    draft_json 给出时起草用它（如开启思考的调用），其余步骤用 llm_json。
+    drafts>1 时同时独立起草几份，再由模型合并成一份（保留各份不重复的要点与不同的分类方式）后照常查证定稿；
+    合并失败或合并稿明显变短时用第一份。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
     audit: dict = {"works": [], "queries": [], "works_found": 0, "search_added": 0}
@@ -879,25 +917,57 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
 
     context = await _draft_context(question, papers or [], draft_context) if draft_context > 0 else []
     audit["draft_context"] = len(context)
-    data, draft = None, ""
-    for draft_try in range(2):
-        try:
+    prompt = _draft_prompt(question, papers or [], lang, draft_titles, opening, context)
+
+    async def one_draft() -> tuple[dict | None, str, int]:
+        data, draft = None, ""
+        for draft_try in range(2):
             with llm_stage("answer_draft"):
-                data = await (draft_json or llm_json)(_DRAFT_SYSTEM, _draft_prompt(question, papers or [], lang,
-                                                                                   draft_titles, opening, context))
-        except Exception as exc:  # noqa: BLE001
+                data = await (draft_json or llm_json)(_DRAFT_SYSTEM, prompt)
+            draft = str((data or {}).get("draft") or "").strip()
+            if aw._count_words(draft, lang) >= MIN_DRAFT_WORDS:
+                break
+            logger.warning("answer agent draft too short (%d words), retrying", aw._count_words(draft, lang))
+        return data, draft, draft_try + 1
+
+    got = await asyncio.gather(*(one_draft() for _ in range(max(1, drafts))), return_exceptions=True)
+    ok = [g for g in got if not isinstance(g, BaseException) and g[1]]
+    if not ok:
+        exc = next((g for g in got if isinstance(g, BaseException)), None)
+        if exc is not None:
             logger.warning("answer agent draft failed: %s", exc)
             return {"language": lang, "status": "failed", "text": "", "references": [], "attempts": 0,
                     "check": None, "error": type(exc).__name__, "agent": audit}
-        draft = str((data or {}).get("draft") or "").strip()
-        if aw._count_words(draft, lang) >= MIN_DRAFT_WORDS:
-            break
-        logger.warning("answer agent draft too short (%d words), retrying", aw._count_words(draft, lang))
-    audit["draft_tries"] = draft_try + 1
-    works = [str(w.get("title") if isinstance(w, dict) else w).strip()
-             for w in (data or {}).get("works") or []][:MAX_WORKS]
-    works = [w for w in works if len(w) > 8]
-    queries = [str(q).strip() for q in (data or {}).get("queries") or [] if str(q).strip()][:MAX_QUERIES]
+        ok = [g for g in got if not isinstance(g, BaseException)]
+    data, draft, tries = ok[0]
+    audit["draft_tries"] = tries
+
+    def listed(d: dict | None) -> tuple[list[str], list[str]]:
+        works = [str(w.get("title") if isinstance(w, dict) else w).strip() for w in (d or {}).get("works") or []]
+        queries = [str(q).strip() for q in (d or {}).get("queries") or [] if str(q).strip()]
+        return [w for w in works if len(w) > 8][:MAX_WORKS], queries[:MAX_QUERIES]
+
+    if len(ok) > 1:
+        texts = [g[1] for g in ok]
+        longest = max(aw._count_words(t, lang) for t in texts)
+        audit["merge"] = {"drafts": len(texts), "draft_words": [len(t.split()) for t in texts], "texts": texts}
+        try:
+            with llm_stage("answer_draft_merge"):
+                merged = str((await llm_json(_DRAFT_SYSTEM, _merge_prompt(question, texts, lang)) or {})
+                             .get("draft") or "").strip()
+        except Exception as exc:  # noqa: BLE001 —— 合并失败照常用第一份
+            logger.warning("answer agent draft merge failed: %s", exc)
+            merged = ""
+        if aw._count_words(merged, lang) >= longest * MERGE_MIN_RATIO:
+            draft = merged
+            audit["merge"]["status"] = "ok"
+        else:
+            audit["merge"]["status"] = "short" if merged else "failed"
+        lists = [listed(g[0]) for g in ok]
+        works = _union([w for w, _ in lists], MAX_WORKS)
+        queries = _union([q for _, q in lists], MAX_QUERIES)
+    else:
+        works, queries = listed(data)
     audit.update(works=works, queries=queries, draft_words=len(draft.split()))
     timing["draft"] = round(time.monotonic() - t0, 1)
     if not draft:

@@ -808,3 +808,50 @@ def test_mark_mode_falls_back_to_attach_when_no_marks(monkeypatch):
     out = asyncio.run(ag.write_with_pointers("Which datasets?", _PAPERS, llm_json=llm_json, mirror=None,
                                              final_mode="mark"))
     assert out["status"] == "ok" and out["agent"]["mark_fallback"] and "[1]" in out["text"]
+
+
+def test_multiple_drafts_are_merged_and_their_works_and_queries_united(monkeypatch):
+    _no_rerank(monkeypatch)
+    drafts = iter([
+        {"draft": "**Chemical routes.** Co-precipitation and thermal decomposition dominate.",
+         "works": [{"title": "Monodisperse magnetite nanoparticles", "year": 2002}], "queries": ["co-precipitation size"]},
+        {"draft": "**Top-down vs bottom-up.** Ball milling breaks bulk material; chemistry builds atom by atom.",
+         "works": [{"title": "Ball milling of iron oxide powders", "year": 2010}],
+         "queries": ["ball milling nanoparticles", "Co-precipitation size"]},
+    ])
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        if "## 草稿 1" in user:
+            return {"draft": "**Top-down vs bottom-up.** Ball milling breaks bulk material; bottom-up chemistry "
+                             "(co-precipitation, thermal decomposition) builds particles atom by atom."}
+        if '"works"' in user:
+            return next(drafts)
+        return {"answer": "Top-down ball milling breaks bulk material; bottom-up chemistry builds particles."}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods for making magnetic nanoparticles?",
+                                             _PAPERS, llm_json=llm_json, mirror=None, final_mode="attach",
+                                             drafts=2))
+    merge = [p for p in prompts if "## 草稿 1" in p][0]
+    assert "Co-precipitation and thermal decomposition" in merge and "Ball milling breaks bulk" in merge
+    assert "分类方式不同时，都写进来" in merge
+    assert out["draft"].startswith("**Top-down vs bottom-up.**") and out["agent"]["merge"]["status"] == "ok"
+    assert out["agent"]["works"] == ["Monodisperse magnetite nanoparticles", "Ball milling of iron oxide powders"]
+    assert out["agent"]["queries"] == ["co-precipitation size", "ball milling nanoparticles"]   # 交替合并、不分大小写去重
+
+
+def test_short_merge_falls_back_to_first_draft(monkeypatch):
+    _no_rerank(monkeypatch)
+    first = "**Chemical routes.** Co-precipitation and thermal decomposition dominate the synthesis literature."
+
+    async def llm_json(system, user):
+        if "## 草稿 1" in user:
+            return {"draft": "Two methods."}                          # 合并稿丢了大半内容
+        if '"works"' in user:
+            return {"draft": first, "works": [], "queries": []}
+        return {"answer": first}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
+                                             mirror=None, final_mode="attach", drafts=2))
+    assert out["draft"] == first and out["agent"]["merge"]["status"] == "short"
