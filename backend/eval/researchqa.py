@@ -130,6 +130,10 @@ ARM_SPECS = {
     "old_read": ("reuse", {"reading": 16}, {"base": "pipeline_e21"}),
     "new_def": ("reuse", {}, {"base": "pipeline_v917"}),
     "new_read": ("reuse", {"reading": 16}, {"base": "pipeline_v917"}),
+    # E28 发表时间截断后的基线（同一批召回：不截断 / 常规档 / 严格档，作答均为 v9.16.6 默认）
+    "tm_none": ("reuse", {}, {"base": "pipeline"}),
+    "tm_regular": ("reuse", {}, {"base": "pipeline", "time_machine": "regular"}),
+    "tm_strict": ("reuse", {}, {"base": "pipeline", "time_machine": "strict"}),
     "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
     "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
@@ -394,7 +398,9 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now"),
                  ("fix", "def_now"), ("fix2", "def_now2"), ("read_m", "def_now"), ("read_m2", "def_now2"),
                  ("new_def", "old_def"), ("pipeline_v917", "old_def"), ("new_read", "old_read"),
-                 ("old_read", "old_def"), ("new_read", "new_def")):
+                 ("old_read", "old_def"), ("new_read", "new_def"),
+                 ("tm_regular", "tm_none"), ("tm_strict", "tm_none"), ("tm_strict", "tm_regular"),
+                 ("tm_none", "bare"), ("tm_regular", "bare"), ("tm_strict", "bare")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -443,6 +449,9 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
             if not base_saved or not Path(base_saved).exists():
                 raise RuntimeError(f"复用召回：{run_opts.get('base')} 组没有可用结果")
             papers = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("papers") or []
+        paper_filter = _time_filter(item, run_opts)
+        if paper_filter is not None:   # 发表时间截断：复用的召回先过滤，作答阶段的补检也走同一个过滤器
+            papers = [p for p in papers if paper_filter(p)]
         opts = {**RECOMMENDED, **extra}
         if opts.get("ref_chase"):   # 只从早于题目日期（出题综述发表时间）的论文回溯参考文献，防止拿到出题来源
             opts["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
@@ -456,13 +465,16 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
             async def draft_json(system: str, user: str) -> dict:
                 return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
         answer = await write_with_pointers(query, papers, llm_json=answer_json, mirror=mirror, web_search=web,
-                                           draft_json=draft_json, **opts)
+                                           draft_json=draft_json, paper_filter=paper_filter, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
     else:
         options = {"answer_only": True, "answer_writer": "agent", **run_opts,
                    **({"answer_agent": extra} if extra else {})}
         if options.get("ref_chase"):   # 召回阶段参考文献回溯只用早于题目日期的种子（出题综述及其后的论文不作种子）
             options["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
+        if options.get("time_machine"):
+            from backend.services.deep_research.time_machine import question_year
+            options["question_year"] = question_year(item.get("date"))
         sysrec = await explore_eval.run_system_arm(query, depth, save_as=save, engine=engine, options=options)
         if sysrec.get("error"):
             raise RuntimeError(sysrec["error"])
@@ -651,6 +663,13 @@ async def rejudge(args) -> Path:
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
     ledger.record_metrics(out, report, benchmark="researchqa", lines=_ledger_lines(report["summary"]))
     return out
+
+
+def _time_filter(item: dict, run_opts: dict):
+    """组配置里 time_machine=strict/regular 时按题目日期截断（见 services/deep_research/time_machine）。"""
+    from backend.services.deep_research.time_machine import make_filter, question_year
+
+    return make_filter(item["query"], question_year(item.get("date")), str(run_opts.get("time_machine") or ""))
 
 
 def citation_targets(item: dict) -> list[str]:

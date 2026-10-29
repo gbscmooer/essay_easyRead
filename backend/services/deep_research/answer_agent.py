@@ -917,7 +917,7 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None,
                               drafts: int = 1, merge_mode: str = "union", title_lookup=None,
                               works_lookup: str = "", abstract_backfill: bool = False, ref_chase: int = 0,
-                              chase_before_year: int | None = None) -> dict:
+                              chase_before_year: int | None = None, paper_filter=None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -950,13 +950,24 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     abstract_backfill=True 时为没有摘要、有 DOI 的召回论文按 DOI 补摘要（Europe PMC → Semantic Scholar），
     否则这些论文进不了证据库。ref_chase>0 时从已有全文末尾的参考文献里回溯至多这么多条与问题相关的文献
     （Crossref 解析、补摘要后收入证据库）；chase_before_year 给出时只从早于该年发表的论文回溯
-    （评测用：出题综述及其后的论文不回溯，防止拿到出题来源）。"""
+    （评测用：出题综述及其后的论文不回溯，防止拿到出题来源）。
+    paper_filter(paper)->bool 给出时，任何来源的论文（召回、镜像/在线补检、点名查找、回溯）都先过它再收入证据库
+    （评测的发表时间截断，见 time_machine）。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
     audit: dict = {"works": [], "queries": [], "works_found": 0, "search_added": 0}
     t0 = time.monotonic()
 
     index = EvidenceIndex(tables=paper_reading > 0)   # 表格块只在精读时收入，默认作答的证据库不变
+    if paper_filter is not None:   # 所有入口共用一个过滤器：包在 add_paper 上，补检通道不必逐个改
+        _add, audit["filtered_out"] = index.add_paper, 0
+
+        def _admit(paper: dict, *, origin: str = "recall") -> int:
+            if not paper_filter(paper):
+                audit["filtered_out"] += 1
+                return 0
+            return _add(paper, origin=origin)
+        index.add_paper = _admit
     if abstract_backfill and papers:
         papers = [dict(p) for p in papers]   # 补摘要写在副本上，不改调用方的召回结果
         audit["abstract_backfill"] = await backfill_abstracts(papers)

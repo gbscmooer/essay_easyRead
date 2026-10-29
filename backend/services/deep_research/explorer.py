@@ -52,12 +52,18 @@ from .citation_metrics import annotate_citation_metrics
 from .graphkit.backbone import mutual_knn
 from .survey_report import _stage_timeout, build_survey_report, redeliver_survey_report
 from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, REF_CHASE, run_target_recall
+from .time_machine import make_filter as _tm_filter
 from .reranker import rerank_scores
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
 from ..research_exclusions import apply_exclusions, active_exclusions
 
 logger = logging.getLogger(__name__)
+
+
+def _time_machine(question: str, options: dict):
+    """options.time_machine = strict / regular 且给了 question_year 时返回论文过滤器（评测用），否则 None。"""
+    return _tm_filter(question, options.get("question_year"), str(options.get("time_machine") or ""))
 
 
 def _report_hash(report: dict) -> str:
@@ -2690,6 +2696,12 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         search_audit.update(engine_audit)
                         provider_name = "multi:arxiv+scopus+openalex"
                         engine_used = True
+                        _tm = _time_machine(question, options)
+                        if _tm is not None:   # 评测的发表时间截断（防止看到出题综述，见 time_machine）
+                            before = len(papers)
+                            papers = [p for p in papers if _tm(p)]
+                            search_audit["time_machine"] = {"tier": options.get("time_machine"),
+                                                            "removed": before - len(papers)}
                     except StagePausedError:
                         raise
                     except Exception as exc:
@@ -3179,7 +3191,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         result["answer"] = await write_with_pointers(
                             question, papers, llm_json=_answer_json,
                             mirror=default_mirror() if online else None, web_search=web,
-                            draft_json=_draft_json, **agent_opts)
+                            draft_json=_draft_json, paper_filter=_time_machine(question, options), **agent_opts)
                         if result["answer"].get("status") == "failed":
                             # 起草或定稿失败（如内容审核拒绝、模型出错）：退回只依据已提取材料作答，学者仍拿到答案
                             failed = result["answer"]
