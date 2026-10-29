@@ -1,6 +1,7 @@
 """Scopus 本地缓存与本地检索（与 Scopus Search / Abstract Retrieval 返回同样的 JSON）。
 
-同一批题反复做召回实验时不必每次都调 Scopus（周配额 2 万次，一次八阶段召回约 15~30 次）：
+用途：改召回以外的环节（筛选、精读、作答等）时，同一批题反复重跑完整八阶段流程，召回不再消耗 Scopus 检索额度
+（周配额 2 万次，一次八阶段召回约 15~30 次）。先 record 跑一遍，之后同一批题用 local 重跑：
 - record：照常调 Scopus，每次响应写入本地库；同一请求再出现时直接用缓存；检索结果里的论文另存一份供本地检索。
 - local：不调 Scopus。缓存里有同一请求就原样返回；没有时在本地论文库里检索并按 Scopus 格式返回——
   TITLE-ABS-KEY 无 OR 时近似 Scopus 的宽松 AND，有 OR 时按相关度（bm25，porter 词干化近似 Scopus 的词形归并）；

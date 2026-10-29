@@ -747,7 +747,8 @@ def _use_scopus_cache(args) -> None:
 
     if getattr(args, "scopus_cache", ""):
         os.environ["ESSAY_SCOPUS_CACHE"] = args.scopus_cache
-        print(f"Scopus 本地缓存：{args.scopus_cache}", flush=True)
+        if args.scopus_cache != "off":
+            print(f"Scopus 本地缓存：{args.scopus_cache}", flush=True)
 
 
 def _scopus_cache_stats() -> dict | None:
@@ -815,8 +816,9 @@ def main() -> None:
     j.add_argument("file")
     j.add_argument("--concurrency", type=int, default=6)
     for p in (r, rc):
-        p.add_argument("--scopus-cache", choices=("", "record", "local"), default="",
-                       help="record：Scopus 响应写入本地库；local：不调 Scopus，只用本地库（同一批题的对照与消融）")
+        p.add_argument("--scopus-cache", choices=("off", "record", "local"), default="record",
+                       help="record（默认）：Scopus 响应写入本地库、同一请求用缓存；local：不调 Scopus，召回只用本地库——"
+                            "改召回以外的环节（筛选、精读、作答等）时同一批题反复重跑不耗检索额度；off：不用缓存")
     for p in (r, j):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-repeats", type=int, default=1, help="同一答案独立打分几次取平均（压低评委噪声）")
