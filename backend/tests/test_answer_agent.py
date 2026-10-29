@@ -906,3 +906,58 @@ def test_title_lookup_finds_named_works_without_the_web_search_channel(monkeypat
     assert asked == ["Dimensions of riparian buffer strips required to maintain trout habitat"]
     assert out["agent"]["works_found"] == 1 and out["agent"]["works_web_found"] == 1
     assert out["references"][0]["origin"] == "named_work"
+
+
+def test_reference_entries_split_numbered_lists_and_rank_by_word_stems():
+    body = "Introduction text. " * 200
+    refs = ("\nReferences\n1. Smith A. Deep learning for images. J Vis 2019. "
+            "2. Lindahl V, Pearson JL, Colpe L. Prevalence of suicidality during pregnancy and the postpartum. "
+            "Arch Womens Ment Health 2005;8:77-87. doi:10.1007/s00737-005-0080-1 "
+            "3. Doe B. Soil chemistry of wetlands. Soil Sci 2001. ")
+    entries = es.reference_entries(body + refs)
+    assert len(entries) == 3 and entries[1].startswith("2. Lindahl")
+    top = es.rank_reference_windows(entries, "suicide attempts during pregnancy and postpartum", 1)
+    assert top == [entries[1]]                                   # suicidality 与 suicide 按词干算重合
+
+
+def test_reference_chase_adds_resolved_papers_with_abstracts(monkeypatch):
+    _no_rerank(monkeypatch)
+    text = ("Body. " * 400 + "\nReferences\n1. Lindahl V. Prevalence of suicidality during pregnancy and the "
+            "postpartum. 2005. doi:10.1007/s00737-005-0080-1 2. Other A. Unrelated topic on soils. 2001. "
+            "3. Third B. Another unrelated paper on rocks. 1999.")
+
+    async def resolve(entry):
+        if "Lindahl" in entry:
+            return {"key": "doi:10.1007/s00737-005-0080-1", "doi": "10.1007/s00737-005-0080-1", "year": 2005,
+                    "title": "Prevalence of suicidality during pregnancy and the postpartum", "abstract": ""}
+        return None
+
+    async def abstract(doi):
+        return "Suicide attempts occurred in 0.1% of pregnancies. " * 3
+
+    monkeypatch.setattr(ag, "resolve_reference", resolve)
+    monkeypatch.setattr(ag, "fetch_abstract", abstract)
+    papers = [{"key": "r1", "title": "A 2016 review of perinatal suicide", "year": 2016, "source_text": text},
+              {"key": "r2", "title": "A 2026 review written after the survey", "year": 2026,
+               "source_text": text.replace("Lindahl", "Later")}]
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            return {"draft": "**Prevalence.** Suicide attempts during pregnancy are rare.", "works": [], "queries": []}
+        return {"answer": "Suicide attempts during pregnancy are rare [S1]."}
+
+    out = asyncio.run(ag.write_with_pointers("How common are suicide attempts during pregnancy?", papers,
+                                             llm_json=llm_json, mirror=None, final_mode="attach", ref_chase=5,
+                                             chase_before_year=2024))
+    chase = out["agent"]["ref_chase"]
+    assert chase["added"] == 1 and chase["entries"] == 3          # 2026 的论文不回溯（晚于题目日期）
+
+
+def test_backfill_abstracts_only_fills_papers_without_abstract_or_full_text(monkeypatch):
+    async def abstract(doi):
+        return "A long enough abstract sentence about perinatal suicide risk factors. " * 3 if doi == "10.1/a" else ""
+
+    monkeypatch.setattr(es, "fetch_abstract", abstract)
+    papers = [{"doi": "10.1/a", "abstract": ""}, {"doi": "10.1/b", "abstract": ""},
+              {"doi": "10.1/c", "abstract": "Already has one."}, {"doi": "10.1/d", "source_text": "full"}]
+    assert asyncio.run(es.backfill_abstracts(papers)) == 1 and papers[0]["abstract"].startswith("A long")

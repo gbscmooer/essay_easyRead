@@ -21,8 +21,9 @@ from collections import defaultdict
 
 from ..llm import llm_stage
 from . import answer_writer as aw
-from .evidence_search import (FULL_TEXT_SOURCES, EvidenceIndex, fetch_arxiv_full_text, fetch_full_text_any,
-                              mirror_lookup_titles, mirror_search, title_key)
+from .evidence_search import (FULL_TEXT_SOURCES, EvidenceIndex, backfill_abstracts, fetch_abstract,
+                              fetch_arxiv_full_text, fetch_full_text_any, mirror_lookup_titles, mirror_search,
+                              rank_reference_windows, reference_entries, resolve_reference, title_key)
 from .reranker import rerank_scores
 
 logger = logging.getLogger(__name__)
@@ -839,7 +840,7 @@ async def _draft_context(question: str, papers: list[dict], k: int) -> list[dict
 
 
 async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch, sources=FULL_TEXT_SOURCES, *,
-                            question: str = "", order: str = "origin") -> dict:
+                            question: str = "", order: str = "origin", keep: dict | None = None) -> dict:
     """为只有摘要的论文补全文，按来源优先级取前 limit 篇：点名代表作与按问题检索到的论文轮流取
     （前者支撑草稿论断，后者是原文阅读的主要来源），其余按来源先后。
     sources 默认只用 arXiv 开放全文（只取带 arXiv 编号的论文）；加上 "pmc"、"elsevier" 后，有 DOI 的论文
@@ -877,11 +878,30 @@ async def _fetch_full_texts(index: EvidenceIndex, limit: int, fetch, sources=FUL
                 text, src = await fetch(index.papers[key]["arxiv_id"]), "arxiv"
         if text:
             by_source[src] += 1
+            if keep is not None:   # 参考文献回溯要读全文末尾的参考文献
+                keep[key] = text
         return index.add_full_text(key, text) if text else 0
 
     added = await asyncio.gather(*(one(k) for k in keys))
     return {"tried": len(keys), "ok": sum(1 for a in added if a), "sentences": sum(added),
             "by_source": dict(by_source)}
+
+
+async def _chase_references(index: EvidenceIndex, texts: list[str], probe: str, limit: int) -> dict:
+    """参考文献回溯（后向滚雪球）：从已有全文末尾的参考文献里挑与问题最相关的条目，Crossref 解析成论文、
+    补上摘要后收入证据库（origin=ref_chain）。只提名、不打分：条目按词干重合取前 limit 条，解析后核对题名。"""
+    entries = [e for t in texts for e in reference_entries(t)]
+    picked = rank_reference_windows(entries, probe, limit)
+    resolved = await asyncio.gather(*(resolve_reference(e) for e in picked))
+    new = [p for p in {p["doi"]: p for p in resolved if p}.values() if not index.has_title(p["title"])]
+    abstracts = await asyncio.gather(*(fetch_abstract(p["doi"]) if len(p.get("abstract") or "") < 100
+                                       else asyncio.sleep(0, p["abstract"]) for p in new))
+    added = 0
+    for p, ab in zip(new, abstracts):
+        if len(ab or "") >= 100 and index.add_paper({**p, "abstract": ab}, origin="ref_chain"):
+            added += 1
+    return {"entries": len(entries), "picked": len(picked), "resolved": sum(1 for p in resolved if p),
+            "new": len(new), "added": added}
 
 
 async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw.LlmJson,
@@ -896,7 +916,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
                               missing_fix: str = "supplement", paper_use: str = "support",
                               claim_map: str = "list", draft_json: aw.LlmJson | None = None,
                               drafts: int = 1, merge_mode: str = "union", title_lookup=None,
-                              works_lookup: str = "") -> dict:
+                              works_lookup: str = "", abstract_backfill: bool = False, ref_chase: int = 0,
+                              chase_before_year: int | None = None) -> dict:
     """mirror 为本地 arXiv 镜像（None 时只用本次召回的论文）；fetch_full_text>0 时为前若干篇
     只有摘要的 arXiv 论文下载全文（点名代表作优先）；full_text_sources 加上 "pmc"、"elsevier" 时有 DOI 的
     期刊论文也补全文，fetch_order="rerank" 时补全文的先后交给重排模型（见 _fetch_full_texts）。
@@ -925,13 +946,20 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
     drafts>1 时同时独立起草几份，再由模型合并成一份（保留各份不重复的要点与不同的分类方式）后照常查证定稿；
     合并失败或合并稿明显变短时用第一份。merge_mode="base" 时以第一份为主体，只从其余几份补入缺少的内容。
     title_lookup 为按题名查论文的在线通道（如 evidence_search.ScopusSearch）：只查草稿点名、镜像里找不到的代表作，
-    不做检索式提名（web_search 已给出时用 web_search）；works_lookup="scopus" 且未给 title_lookup 时自建 Scopus 通道。"""
+    不做检索式提名（web_search 已给出时用 web_search）；works_lookup="scopus" 且未给 title_lookup 时自建 Scopus 通道。
+    abstract_backfill=True 时为没有摘要、有 DOI 的召回论文按 DOI 补摘要（Europe PMC → Semantic Scholar），
+    否则这些论文进不了证据库。ref_chase>0 时从已有全文末尾的参考文献里回溯至多这么多条与问题相关的文献
+    （Crossref 解析、补摘要后收入证据库）；chase_before_year 给出时只从早于该年发表的论文回溯
+    （评测用：出题综述及其后的论文不回溯，防止拿到出题来源）。"""
     lang = aw.question_language(question)
     timing: dict[str, float] = {}
     audit: dict = {"works": [], "queries": [], "works_found": 0, "search_added": 0}
     t0 = time.monotonic()
 
     index = EvidenceIndex(tables=paper_reading > 0)   # 表格块只在精读时收入，默认作答的证据库不变
+    if abstract_backfill and papers:
+        papers = [dict(p) for p in papers]   # 补摘要写在副本上，不改调用方的召回结果
+        audit["abstract_backfill"] = await backfill_abstracts(papers)
     for p in papers or []:
         index.add_paper(p, origin="recall")
     audit["recall_papers"] = len(index.papers)
@@ -1050,9 +1078,20 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
             claim_texts = [f"{h}: {c}" if h else c for h, c in _claims(draft)]
             per_claim = await search(claim_texts, claim_search)
             audit["claim_search_added"] = sum(1 for p in per_claim if index.add_paper(p, origin="claim_search"))
+    fetched: dict[str, str] = {}
     if fetch_full_text > 0:
         audit["full_text"] = await _fetch_full_texts(index, fetch_full_text, fetch, full_text_sources,
-                                                     question=question, order=fetch_order)
+                                                     question=question, order=fetch_order, keep=fetched)
+    if ref_chase > 0:
+        def early(year) -> bool:
+            return chase_before_year is None or (isinstance(year, int) and year < chase_before_year)
+        texts = [str(p.get("source_text")) for p in papers or [] if p.get("source_text") and early(p.get("year"))]
+        texts += [t for k, t in fetched.items() if early(index.papers.get(k, {}).get("year"))]
+        headings = list(dict.fromkeys(h for h, _ in _claims(draft) if h))
+        try:
+            audit["ref_chase"] = await _chase_references(index, texts, " ".join([question, *headings]), ref_chase)
+        except Exception as exc:  # noqa: BLE001 —— 回溯是增益，失败不影响作答
+            logger.warning("answer agent reference chase failed: %s", exc)
     timing["literature"] = round(time.monotonic() - t1, 1)
 
     t2 = time.monotonic()

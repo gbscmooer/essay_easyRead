@@ -435,6 +435,8 @@ class ScopusSearch:
 
 
 FULL_TEXT_SOURCES = ("arxiv",)          # 默认只用 arXiv 开放全文；"pmc"、"elsevier" 需显式开启
+REF_WINDOW = 320          # 参考文献回溯：参考文献部分切窗的长度（字符）
+REF_BLOCK_CHARS = 60000   # 参考文献部分最多读这么长
 _EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 _ELS_NS = "{http://www.elsevier.com/xml/common/dtd}"
 _SOURCE_GATES: dict[str, asyncio.Semaphore] = {}
@@ -488,6 +490,144 @@ async def fetch_pmc_full_text(doi: str, *, timeout: float = 20.0) -> str:
     except Exception as exc:  # noqa: BLE001 —— 全文是增益，失败只记日志
         logger.warning("Europe PMC full text fetch failed for %s: %s", doi, exc)
         return ""
+
+
+_BACKFILL_UA = {"User-Agent": "essay_read-abstract-backfill/1.0 (academic thesis project)"}
+_ABSTRACT_CACHE: dict[str, str] = {}
+
+
+def _strip_markup(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+
+
+async def fetch_abstract(doi: str, *, timeout: float = 20.0) -> str:
+    """按 DOI 补摘要（官方免 Key 接口）：Europe PMC（生物医学为主）→ Semantic Scholar（限流时跳过）。
+    Scopus 结果约 23% 没有摘要（非 CS 29%），没有摘要的论文进不了证据库、答案也就引用不了（E25）。"""
+    doi = str(doi or "").strip().lower()
+    if not doi:
+        return ""
+    if doi in _ABSTRACT_CACHE:
+        return _ABSTRACT_CACHE[doi]
+    import httpx
+
+    text = ""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, headers=_BACKFILL_UA) as c:
+            async with _gate("pmc"):
+                r = await c.get(f"{_EPMC}/search", params={"query": f'DOI:"{doi}"', "format": "json",
+                                                           "resultType": "core"})
+            hits = ((r.json() if r.status_code == 200 else {}).get("resultList") or {}).get("result") or []
+            text = _strip_markup(next((h.get("abstractText") for h in hits if h.get("abstractText")), ""))
+            if not text:
+                async with _gate("s2"):
+                    r = await c.get(f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}",
+                                    params={"fields": "abstract"})
+                text = _strip_markup((r.json() or {}).get("abstract") or "") if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001 —— 补摘要是增益，失败只记日志
+        logger.warning("abstract backfill failed for %s: %s", doi, exc)
+        return ""
+    _ABSTRACT_CACHE[doi] = text
+    return text
+
+
+async def backfill_abstracts(papers: list[dict]) -> int:
+    """为没有摘要、也没有全文、但有 DOI 的论文补摘要（就地写入 abstract），返回补到的篇数。"""
+    todo = [p for p in papers if not (p.get("abstract") or "").strip() and not p.get("source_text") and p.get("doi")]
+    got = await asyncio.gather(*(fetch_abstract(p["doi"]) for p in todo))
+    n = 0
+    for p, text in zip(todo, got):
+        if len(text) >= 100:
+            p["abstract"] = text
+            n += 1
+    return n
+
+
+_REF_HEADING = re.compile(r"(?:^|\n|\s{2,})(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY|Literature Cited|"
+                          r"LITERATURE CITED|Works Cited|Reference List|REFERENCE LIST)\s*:?\s*(?:\n|\s{2,}|(?=\[?1[.\]]))")
+_REF_NUMBER = re.compile(r"(?:^|\s)(?:\[\d{1,3}\]|\d{1,3}\.)\s+(?=[A-Z])")
+DOI_RE = re.compile(r"10\.\d{4,9}/[^\s,;\]]+")
+_WORD = re.compile(r"[a-z][a-z\-]{3,}")
+_STOP = frozenset("with from that this these those their there which what when where while into onto over under "
+                  "between among during after before about using based study studies effect effects role analysis "
+                  "review journal vol volume pages press university differently affect previous period".split())
+
+
+def reference_entries(text: str) -> list[str]:
+    """全文末尾的参考文献逐条切出：有编号按编号切，否则按 DOI 切，都没有时切成重叠小窗。
+    只看全文后 70% 里最后一个“参考文献”标题之后的部分（前面目录、正文里的同名词不算）。"""
+    text = text or ""
+    heads = [m for m in _REF_HEADING.finditer(text) if m.start() >= len(text) * 0.3]
+    if not heads:
+        return []
+    block = re.sub(r"\s+", " ", text[heads[-1].end():][:REF_BLOCK_CHARS])
+    marks = [m.start() for m in _REF_NUMBER.finditer(block)]
+    if len(marks) < 3:
+        marks = [0, *(m.end() for m in DOI_RE.finditer(block))]
+    if len(marks) >= 3:
+        cuts = [*marks, len(block)]
+        entries = [block[a:b].strip() for a, b in zip(cuts, cuts[1:])]
+    else:
+        entries = [block[i:i + REF_WINDOW] for i in range(0, max(1, len(block) - REF_WINDOW // 2), REF_WINDOW // 2)]
+    return [e[:REF_WINDOW * 2] for e in entries if 40 <= len(e)]
+
+
+def reference_windows(text: str) -> list[str]:   # 兼容旧名
+    return reference_entries(text)
+
+
+def _terms(text: str) -> set[str]:
+    """词干（前 6 个字母）集合：suicide / suicidal / suicidality 算同一个词。"""
+    return {w[:6] for w in _WORD.findall((text or "").lower()) if w not in _STOP}
+
+
+def rank_reference_windows(windows: list[str], query: str, limit: int) -> list[str]:
+    """按与问题（及草稿小标题）的词干重合排序，取前 limit 条（只提名，真伪由解析后核对题名）。"""
+    q = _terms(query)
+    scored = sorted(((len(q & _terms(w)), i, w) for i, w in enumerate(windows)), key=lambda x: (-x[0], x[1]))
+    out, seen = [], set()
+    for n, _, w in scored:
+        if n < 2 or w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def resolve_reference(window: str, *, timeout: float = 20.0) -> dict | None:
+    """一条参考文献解析成论文（Crossref 官方免 Key）：条目里有 DOI 时直接按 DOI 取元数据，否则用
+    query.bibliographic 解析；解析出的题名须几乎完整出现在条目里才收（不用相近论文顶替）。"""
+    import httpx
+
+    doi = next((m.group(0).rstrip(".)") for m in DOI_RE.finditer(window)), "")
+    try:
+        async with _gate("crossref"), httpx.AsyncClient(timeout=timeout, headers=_BACKFILL_UA) as c:
+            if doi:
+                r = await c.get(f"https://api.crossref.org/works/{doi}")
+                items = [(r.json() if r.status_code == 200 else {}).get("message") or {}]
+            else:
+                r = await c.get("https://api.crossref.org/works",
+                                params={"query.bibliographic": window, "rows": 2,
+                                        "select": "DOI,title,issued,author,abstract"})
+                items = ((r.json() if r.status_code == 200 else {}).get("message") or {}).get("items") or []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("crossref resolve failed: %s", exc)
+        return None
+    flat = re.sub(r"[^a-z0-9 ]", "", window.lower())
+    for it in items:
+        if not it.get("DOI"):
+            continue
+        title = _strip_markup((it.get("title") or [""])[0])
+        words = re.sub(r"[^a-z0-9 ]", "", title.lower()).split()
+        if len(words) < 4:
+            continue
+        if sum(1 for w in words if w in flat) / len(words) >= (0.7 if doi else 0.9) and " ".join(words[:3]) in flat:
+            year = ((it.get("issued") or {}).get("date-parts") or [[None]])[0][0]
+            authors = [f"{a.get('family', '')} {a.get('given', '')[:1]}.".strip() for a in (it.get("author") or [])[:6]]
+            return {"key": f"doi:{str(it.get('DOI')).lower()}", "doi": str(it.get("DOI")).lower(), "title": title,
+                    "year": year, "authors": authors, "abstract": _strip_markup(it.get("abstract") or "")}
+    return None
 
 
 async def fetch_elsevier_full_text(doi: str, *, timeout: float = 30.0) -> str:

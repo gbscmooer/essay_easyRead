@@ -117,6 +117,9 @@ ARM_SPECS = {
     # v9.16.2 起默认不读原文：同时段对照（def_now ×2）对两份草稿合并（merge2 ×2），--recall-from 复用全集的召回
     # （E22 时 def_now 为单份草稿；v9.16.6 起默认 drafts=2，def_now 即两份合并，单份对照用 single 组）
     "single": ("reuse", {"drafts": 1}, {"base": "pipeline"}),
+    # 低分题（E25）：补摘要 + 参考文献回溯（只从早于题目日期的论文回溯）
+    "fix": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
+    "fix2": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
     "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
     "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
@@ -370,7 +373,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("def_rep", "def_noread"), ("def_noread", "bare"), ("def_now2", "def_now"), ("merge2", "def_now"),
                  ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare"),
                  ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2"),
-                 ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now")):
+                 ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now"),
+                 ("fix", "def_now"), ("fix2", "def_now2")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -420,6 +424,8 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
                 raise RuntimeError(f"复用召回：{run_opts.get('base')} 组没有可用结果")
             papers = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("papers") or []
         opts = {**RECOMMENDED, **extra}
+        if opts.get("ref_chase"):   # 只从早于题目日期（出题综述发表时间）的论文回溯参考文献，防止拿到出题来源
+            opts["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
         web = ScopusSearch() if opts.pop("web_search", None) == "scopus" else None
         draft_json = None
         if run_opts.get("draft_model"):
@@ -472,6 +478,8 @@ async def run(args) -> Path:
             picked = subset(picked, args.subset)
         if args.first:
             picked = picked[:args.first]
+        if args.ids:   # 只跑指定的几道题（低分题诊断）
+            picked = [x for x in picked if x["id"] in set(args.ids)]
         arms = list(args.arms)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = OUT_DIR / f"researchqa_{stamp}.json"
@@ -631,6 +639,7 @@ def main() -> None:
     r.add_argument("--arms", nargs="+", choices=list(ARM_SPECS), default=list(ARMS))
     r.add_argument("--subset", type=int, default=0, help="分层子集：各学科大类轮流取，共 k 题（先子集、后全量）")
     r.add_argument("--first", type=int, default=0, help="只跑抽样中的前 k 题（冒烟验证）")
+    r.add_argument("--ids", nargs="+", default=[], help="只跑抽样中的这几道题（按题目 id，低分题诊断）")
     r.add_argument("--depth", default="quick", help="pipeline 组的研究深度")
     r.add_argument("--thinking-effort", default="off")
     r.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")
