@@ -102,3 +102,9 @@ def test_recall_seed_copies_only_base_arms_of_picked_questions():
     seeded = rq.recall_seed(records, [{"id": "q1"}, {"id": "q3"}], ["pipeline", "def_now", "merge2"], "full.json")
     assert list(seeded) == ["q1"]                                       # 只取本次抽到的题
     assert seeded["q1"]["arms"] == {"pipeline": {"coverage": 0.8, "saved": "/x/q1.json", "copied_from": "full.json"}}
+
+
+def test_recall_seed_maps_alias_base_to_source_arm():
+    records = [{"id": "q1", "group": "non_cs", "arms": {"pipeline": {"coverage": 0.8, "saved": "/x/q1.json"}}}]
+    seeded = rq.recall_seed(records, [{"id": "q1"}], ["pipeline_e21", "old_def", "pipeline_v917", "new_def"], "e21.json")
+    assert seeded["q1"]["arms"] == {"pipeline_e21": {"coverage": 0.8, "saved": "/x/q1.json", "copied_from": "e21.json"}}

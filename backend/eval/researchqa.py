@@ -123,6 +123,13 @@ ARM_SPECS = {
     # 召回到位的低分题（E26）：两份合并（v9.16.6 默认）+ 原文阅读 16 句
     "read_m": ("reuse", {"reading": 16}, {"base": "pipeline"}),
     "read_m2": ("reuse", {"reading": 16}, {"base": "pipeline"}),
+    # E27 召回修复后重测（2×2：旧召回/新召回 × 不读/读原文），--recall-from 把 E21 的 pipeline 记为 pipeline_e21
+    "pipeline_e21": ("pipeline", {}),
+    "pipeline_v917": ("pipeline", {}, {"ref_chase": 20}),
+    "old_def": ("reuse", {}, {"base": "pipeline_e21"}),
+    "old_read": ("reuse", {"reading": 16}, {"base": "pipeline_e21"}),
+    "new_def": ("reuse", {}, {"base": "pipeline_v917"}),
+    "new_read": ("reuse", {"reading": 16}, {"base": "pipeline_v917"}),
     "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
     "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
@@ -234,9 +241,13 @@ def recall_seed(records: list[dict], picked: list[dict], arms: list[str], name: 
     for x in picked:
         r = by_id.get(x["id"])
         if r:
-            out[x["id"]] = {**r, "arms": {b: {**r["arms"][b], "copied_from": name}
-                                          for b in sorted(bases) if b in r["arms"]}}
+            src = {b: RECALL_ALIAS.get(b, b) for b in sorted(bases)}
+            out[x["id"]] = {**r, "arms": {b: {**r["arms"][s], "copied_from": name}
+                                          for b, s in src.items() if s in r["arms"]}}
     return out
+
+
+RECALL_ALIAS = {"pipeline_e21": "pipeline"}   # 复用召回时本次组名 → 来源结果里的组名
 
 
 async def scopus_remaining() -> int | None:
@@ -377,7 +388,9 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare"),
                  ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2"),
                  ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now"),
-                 ("fix", "def_now"), ("fix2", "def_now2"), ("read_m", "def_now"), ("read_m2", "def_now2")):
+                 ("fix", "def_now"), ("fix2", "def_now2"), ("read_m", "def_now"), ("read_m2", "def_now2"),
+                 ("new_def", "old_def"), ("pipeline_v917", "old_def"), ("new_read", "old_read"),
+                 ("old_read", "old_def"), ("new_read", "new_def")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
@@ -444,6 +457,8 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
     else:
         options = {"answer_only": True, "answer_writer": "agent", **run_opts,
                    **({"answer_agent": extra} if extra else {})}
+        if options.get("ref_chase"):   # 召回阶段参考文献回溯只用早于题目日期的种子（出题综述及其后的论文不作种子）
+            options["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
         sysrec = await explore_eval.run_system_arm(query, depth, save_as=save, engine=engine, options=options)
         if sysrec.get("error"):
             raise RuntimeError(sysrec["error"])
