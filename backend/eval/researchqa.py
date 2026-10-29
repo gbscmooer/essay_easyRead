@@ -117,6 +117,8 @@ ARM_SPECS = {
     # v9.16.2 起默认不读原文：同时段对照（def_now ×2）对两份草稿合并（merge2 ×2），--recall-from 复用全集的召回
     # （E22 时 def_now 为单份草稿；v9.16.6 起默认 drafts=2，def_now 即两份合并，单份对照用 single 组）
     "single": ("reuse", {"drafts": 1}, {"base": "pipeline"}),
+    "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
+    "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
     "def_now2": ("reuse", {}, {"base": "pipeline"}),
     "merge2": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
@@ -367,7 +369,8 @@ def summarize(records: list[dict], arms: list[str]) -> dict:
                  ("def_read16", "def_rep"), ("def_read16", "bare"), ("def_rep", "pipeline"), ("pipeline", "def_noread"),
                  ("def_rep", "def_noread"), ("def_noread", "bare"), ("def_now2", "def_now"), ("merge2", "def_now"),
                  ("merge2b", "def_now2"), ("merge2b", "merge2"), ("merge2", "bare"),
-                 ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2")):
+                 ("mergeb", "def_now"), ("mergeb2", "def_now2"), ("mergeb", "merge2"),
+                 ("merge3", "def_now"), ("merge3b", "def_now2"), ("single", "def_now")):
         if a in arms and b in arms:
             out["paired"][f"{a}-{b}"] = {g: _paired(records, a, b, g) for g in ("non_cs", "cs")}
     return out
