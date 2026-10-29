@@ -251,7 +251,11 @@ RECALL_ALIAS = {"pipeline_e21": "pipeline"}   # 复用召回时本次组名 → 
 
 
 async def scopus_remaining() -> int | None:
-    """Scopus 周配额剩余（一次 count=1 的检索看响应头）；查不到时返回 None。"""
+    """Scopus 周配额剩余（一次 count=1 的检索看响应头）；查不到或本地检索模式时返回 None。"""
+    from backend.services.deep_research.providers import scopus_local
+
+    if scopus_local.mode() == "local":
+        return None
     import httpx
 
     from backend.config import settings
@@ -478,6 +482,7 @@ async def run(args) -> Path:
     from backend.services.llm import start_token_ledger, token_ledger_report
 
     disable_openalex()
+    _use_scopus_cache(args)
     system_cfg = _llm_cfg(args.thinking_effort, args.model)
     judge = make_judge(args.judge_model, args.judge_repeats)
     prev: dict[str, dict] = {}
@@ -607,6 +612,7 @@ async def run(args) -> Path:
         await asyncio.gather(*(worker(x, engine) for x in picked))
     records = [done[x["id"]] for x in picked if x["id"] in done]
     meta["wall_min"] = round(meta.get("wall_min", 0) + (time.monotonic() - started) / 60, 1)
+    meta["scopus_cache"] = _scopus_cache_stats()
     report = {"meta": meta, "summary": summarize(records, arms), "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
@@ -669,6 +675,7 @@ async def recall_check(args) -> Path:
     from backend.services.llm import start_token_ledger, token_ledger_report
 
     disable_openalex()
+    _use_scopus_cache(args)
     system_cfg = _llm_cfg(args.thinking_effort, args.model)
     src = {r["id"]: r for r in json.loads(Path(args.queries_from).read_text(encoding="utf-8"))["records"]}
     picked = pick_items(load_items(), seed=args.seed, n_noncs=args.n_noncs, n_cs=args.n_cs)
@@ -723,6 +730,7 @@ async def recall_check(args) -> Path:
         summary[n] = {"questions": len(rows), "papers": sum(r["papers"] for r in rows),
                       "abstract_share": round(sum(r["with_abstract"] for r in rows) / max(1, sum(r["papers"] for r in rows)), 3),
                       "target_hits": sum(len(r["hits"]) for r in rows), "targets": sum(r["targets"] for r in rows)}
+    meta["scopus_cache"] = _scopus_cache_stats()
     report = {"meta": meta, "summary": summary, "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False), flush=True)
@@ -731,6 +739,38 @@ async def recall_check(args) -> Path:
                                  f"细则所引文献命中 {v['target_hits']}/{v['targets']}" for n, v in summary.items()])
     log.close()
     return out
+
+
+def _use_scopus_cache(args) -> None:
+    """--scopus-cache record|local：Scopus 响应写入本地库 / 只用本地库（不耗 Scopus 配额，见 providers/scopus_local）。"""
+    import os
+
+    if getattr(args, "scopus_cache", ""):
+        os.environ["ESSAY_SCOPUS_CACHE"] = args.scopus_cache
+        print(f"Scopus 本地缓存：{args.scopus_cache}", flush=True)
+
+
+def _scopus_cache_stats() -> dict | None:
+    from backend.services.deep_research.providers import scopus_local
+
+    local = scopus_local.active()
+    return {"mode": scopus_local.mode(), **local.stats()} if local else None
+
+
+def seed_cache(args) -> None:
+    """把已保存结果里各组召回到的论文导入 Scopus 本地论文库（local 模式检索的底库）。"""
+    from backend.services.deep_research.providers import scopus_local
+
+    n = 0
+    for f in args.files:
+        for r in json.loads(Path(f).read_text(encoding="utf-8"))["records"]:
+            for arm in (r.get("arms") or {}).values():
+                saved = arm.get("saved")
+                if saved and Path(saved).exists():
+                    papers = (json.loads(Path(saved).read_text(encoding="utf-8")).get("result") or {}).get("papers")
+                    n += scopus_local.seed_from_papers(papers or [])
+    local = scopus_local.active() or scopus_local.ScopusLocal(scopus_local.default_path())
+    print(f"导入 {n} 条；本地库 {local.stats()}", flush=True)
 
 
 def main() -> None:
@@ -756,6 +796,8 @@ def main() -> None:
     r.add_argument("--recall-from", default="",
                    help="复用召回的组从这次结果里取 base 组已保存的论文（新文件；base 组不重跑、不调 Scopus）")
     r.add_argument("--label", default="")
+    sc = sub.add_parser("seed-cache", help="把已保存结果里的召回论文导入 Scopus 本地论文库")
+    sc.add_argument("files", nargs="+")
     rc = sub.add_parser("recall", help="只跑召回阶段，看细则所引文献是否召回、论文是否带摘要")
     rc.add_argument("--queries-from", required=True, help="沿用这次结果里保存的检索式（pipeline 组）")
     rc.add_argument("--n-noncs", type=int, default=40)
@@ -772,10 +814,18 @@ def main() -> None:
     j = sub.add_parser("judge")
     j.add_argument("file")
     j.add_argument("--concurrency", type=int, default=6)
+    for p in (r, rc):
+        p.add_argument("--scopus-cache", choices=("", "record", "local"), default="",
+                       help="record：Scopus 响应写入本地库；local：不调 Scopus，只用本地库（同一批题的对照与消融）")
     for p in (r, j):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-repeats", type=int, default=1, help="同一答案独立打分几次取平均（压低评委噪声）")
     args = parser.parse_args()
+    if args.cmd == "seed-cache":
+        import os
+
+        os.environ.setdefault("ESSAY_SCOPUS_CACHE", "record")
+        return seed_cache(args)
     asyncio.run({"run": run, "judge": rejudge, "recall": recall_check}[args.cmd](args))
 
 

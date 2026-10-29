@@ -87,7 +87,23 @@ class ScopusProvider:
         return self._client
 
     async def _get(self, path: str, params: dict | None = None) -> Optional[dict]:
-        """GET + JSON。自适应限速；鉴权/配额失败计入熔断；瞬时错误重试 2 次。返回 None 表示放弃。"""
+        """GET + JSON。自适应限速；鉴权/配额失败计入熔断；瞬时错误重试 2 次。返回 None 表示放弃。
+        ESSAY_SCOPUS_CACHE=record/local 时先查本地缓存（scopus_local）；local 模式不调 Scopus，未命中在本地库检索。"""
+        from . import scopus_local
+
+        local = scopus_local.active()
+        if local is not None:
+            cached = local.get(path, params)
+            if cached is not None:
+                return cached
+            if scopus_local.mode() == "local":
+                return local.serve(path, params)
+        body = await self._get_remote(path, params)
+        if local is not None and body is not None:
+            local.put(path, params, body)
+        return body
+
+    async def _get_remote(self, path: str, params: dict | None = None) -> Optional[dict]:
         if self._disabled:
             return None
         self._throttle = self._throttle or _shared_throttle()
@@ -418,6 +434,11 @@ class ScopusProvider:
         不走 _get——普通 Key 在校外会 401，这是预期的降级，不能计入鉴权熔断。"""
         if self._complete_view is not None:
             return self._complete_view
+        from . import scopus_local
+
+        if scopus_local.mode() == "local":   # 本地库里的条目带摘要，按 COMPLETE 视图的字段返回
+            self._complete_view = True
+            return True
         if not self.api_key or self._disabled:
             return False
         self._throttle = self._throttle or _shared_throttle()

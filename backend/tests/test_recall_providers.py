@@ -776,3 +776,53 @@ async def test_recall_ref_chase_picks_relevant_references_of_early_review_seeds(
     out = await eng._ref_chase(corpus, "suicide attempts during pregnancy and postpartum", [], 5, 2024, fake)
     assert fake.asked == ["1", "3"]                         # 2024 年的综述不作种子（评测防出题来源）
     assert [c["doi"] for c in out["candidates"]] == ["10.1/lin"] and out["added"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scopus_local_cache_records_then_serves_without_network(monkeypatch, tmp_path):
+    """record：响应写入本地库、同一请求不再调 Scopus；local：不调 Scopus，未缓存的检索在本地论文库里按 Scopus 格式答。"""
+    import httpx
+
+    from backend.services.deep_research.providers import scopus_local
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE_DB", str(tmp_path / "s.sqlite"))
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE", "record")
+    calls = []
+    entries = [
+        {"eid": "2-s2.0-1", "dc:identifier": "SCOPUS_ID:1", "dc:title": "Prevalence of suicidality during pregnancy",
+         "prism:doi": "10.1/lin", "prism:coverDate": "2005-01-01", "citedby-count": "700",
+         "dc:description": "Suicide attempts during pregnancy and the postpartum period are rare."},
+        {"eid": "2-s2.0-2", "dc:identifier": "SCOPUS_ID:2", "dc:title": "Soil carbon in boreal forests",
+         "prism:doi": "10.1/soil", "prism:coverDate": "2010-01-01", "citedby-count": "900",
+         "dc:description": "Boreal soils store carbon."}]
+
+    def handler(request):
+        calls.append(str(request.url))
+        if request.url.params.get("view") == "COMPLETE" and request.url.params.get("count") == "1":
+            return httpx.Response(200, json={"search-results": {"entry": []}})
+        return httpx.Response(200, json={"search-results": {"opensearch:totalResults": "2", "entry": entries}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    params = {"query": "TITLE-ABS-KEY(anything)", "count": 25}
+    first = await p._get("/content/search/scopus", params)
+    again = await p._get("/content/search/scopus", params)
+    assert first == again and len([c for c in calls if "anything" in c]) == 1
+    await p.aclose()
+
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE", "local")
+    q = ScopusProvider(api_key="k")
+    q._client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: pytest.fail("local 模式不应调 Scopus")))
+    local = scopus_local.active()
+    hits = local.serve("/content/search/scopus", {"query": "TITLE-ABS-KEY(suicide attempts pregnancy)", "count": 5})
+    assert [e["eid"] for e in hits["search-results"]["entry"]] == ["2-s2.0-1"]          # 宽松 AND + 词干（attempts）
+    both = local.serve("/content/search/scopus", {"query": "TITLE-ABS-KEY(pregnancy OR carbon)", "count": 5,
+                                                  "sort": "-citedby-count"})
+    assert [e["eid"] for e in both["search-results"]["entry"]] == ["2-s2.0-2", "2-s2.0-1"]   # OR + 按被引排序
+    by_doi = await q._get("/content/search/scopus", {"query": 'DOI("10.1/soil") OR DOI("10.1/lin")', "count": 2})
+    assert {e["eid"] for e in by_doi["search-results"]["entry"]} == {"2-s2.0-1", "2-s2.0-2"}
+    titled = await q.search_titles("Prevalence of suicidality during pregnancy")
+    assert await q._complete_view_ok() is True and titled and titled[0].title.startswith("Prevalence")
+    assert await q._get("/content/abstract/scopus_id/9", {"view": "REF"}) is None       # 参考文献列表只用缓存
+    await q.aclose()
