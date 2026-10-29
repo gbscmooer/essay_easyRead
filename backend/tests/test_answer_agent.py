@@ -855,3 +855,22 @@ def test_short_merge_falls_back_to_first_draft(monkeypatch):
     out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
                                              mirror=None, final_mode="attach", drafts=2))
     assert out["draft"] == first and out["agent"]["merge"]["status"] == "short"
+
+
+def test_failed_second_draft_falls_back_to_the_one_that_succeeded(monkeypatch):
+    _no_rerank(monkeypatch)
+    calls = []
+    text = "**Chemical routes.** Co-precipitation and thermal decomposition dominate the synthesis literature."
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("content filter")
+            return {"draft": text, "works": [], "queries": []}
+        assert "## 草稿 1" not in user                                 # 只有一份时不合并
+        return {"answer": text}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
+                                             mirror=None, final_mode="attach", drafts=2))
+    assert out["draft"] == text and out["agent"]["merge"] == {"drafts": 1, "status": "single"}

@@ -968,6 +968,8 @@ async def write_with_pointers(question: str, papers: list[dict], *, llm_json: aw
         queries = _union([q for _, q in lists], MAX_QUERIES)
     else:
         works, queries = listed(data)
+        if drafts > 1:   # 要求多份但只有一份成功（其余出错或为空）：照常用这一份
+            audit["merge"] = {"drafts": 1, "status": "single"}
     audit.update(works=works, queries=queries, draft_words=len(draft.split()))
     timing["draft"] = round(time.monotonic() - t0, 1)
     if not draft:

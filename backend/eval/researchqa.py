@@ -488,6 +488,8 @@ async def run(args) -> Path:
             raise SystemExit(f"{a} 需要同时跑 {ARM_SPECS[a][2]['base']} 组")
     gate = asyncio.Semaphore(max(1, args.concurrency))
     done: dict[str, dict] = dict(prev)
+    finished = [sum(1 for x in picked if all(((prev.get(x["id"]) or {}).get("arms") or {}).get(a, {}).get("coverage")
+                                             is not None for a in arms))]   # 进度按本次各组都已跑完的题数计
     started = time.monotonic()
 
     def save() -> None:
@@ -559,7 +561,8 @@ async def run(args) -> Path:
         done[item["id"]] = rec
         cov = "  ".join(f"{a}={(rec['arms'][a].get('coverage') if rec['arms'][a].get('coverage') is not None else 'ERR')}"
                         for a in arms)
-        print(f"[{len(done)}/{len(picked)}] {item['group']} {item['field']}：{item['query'][:70]}\n    → {cov}"
+        finished[0] += 1
+        print(f"[{finished[0]}/{len(picked)}] {item['group']} {item['field']}：{item['query'][:70]}\n    → {cov}"
               f"  [用时 {round((time.monotonic() - started) / 60, 1)} 分]", flush=True)
         for a in todo:
             if rec["arms"][a].get("error"):
