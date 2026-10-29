@@ -62,10 +62,11 @@ SUPPORT_NEW_SENTENCES = 6     # 精读支撑用法：全篇最多补的新句数
 # question_search=3（E17，ScholarQA 40 题固定草稿）：专家细则 +0.025（SE 0.012），必备依据 +0.043（SE 0.022），
 # 两组题方向一致，用量不变；综合分 +0.010（SE 0.008），差在评委抄摘录的波动（参考文献条条附有摘录）
 # reading=16（E21，ResearchQA 非 CS 子集 8 题，同一批召回论文、同时段各 2 复本）：按问题本身从已收集原文中另取 16 句交给定稿，
-# 细则覆盖 +0.05~0.065（SE 0.03），8 句一半、24 句不再增加；ScholarQA-CS 前 10 题（固定草稿）−0.006（SE 0.012）不退步。
-# 模型熟悉的 CS 原文补充帮助不大，不熟悉的学科靠原文补具体细节；输出 token 约 +50%
+# 子集细则覆盖 +0.05~0.065（SE 0.03），8 句一半、24 句不再增加；ScholarQA-CS 前 10 题（固定草稿）−0.006（SE 0.012）不退步；
+# 但全集 50 题（40 非 CS + 10 CS，同批论文、各 2 复本）复核不成立：读 16 − 读 0 非 CS −0.002（SE 0.018），
+# CS +0.022（SE 0.020），篇幅 +15%；子集的增益是 8 题偶然，v9.16.2 改回不开（评测仍可显式传 reading 对照）
 RECOMMENDED = {"fetch_full_text": 6, "draft_titles": 0, "claim_search": 2, "final_mode": "attach", "followup": 0,
-               "question_search": 3, "reading": 16}
+               "question_search": 3}
 
 _POINTER_TOKEN = r"\[S\d+(?:\s*[,，;；]\s*S?\d+)*\]"
 _POINTER_GROUP = re.compile(rf"(?:[ \t]*{_POINTER_TOKEN})+")
