@@ -1,5 +1,5 @@
 /**
- * 主题系统 — 构成主义 Seed Token 架构
+ * 主题系统 — Seed Token 架构（v10「朱批」：宣纸 / 墨 / 朱砂）
  *
  * 6 个 seed token 派生出全部 CSS 变量。
  * Light / Dark 两个内置预设，用户可在此基础上自定义。
@@ -98,20 +98,22 @@ export function isDarkTheme(colors: ThemeColors): boolean {
 
 function seedsToColors(seeds: SeedTokens): ThemeColors {
   const dark = luminance(seeds.bg) < 0.5
+  // 灰阶由纸色与墨色混合得出（不再写死冷色 slate）：暖纸配暖灰，自定义主题换底色也自洽
+  const tone = (ratio: number) => mixHex(seeds.bg, seeds.fg, ratio)
 
   return {
     bg_base: seeds.bg,
     bg_surface: seeds.surface,
-    bg_elevated: dark ? mixHex(seeds.surface, '#ffffff', 0.08) : '#f1f5f9',
-    border: dark ? mixHex(seeds.surface, '#ffffff', 0.12) : '#e2e8f0',
-    border_light: dark ? mixHex(seeds.surface, '#ffffff', 0.20) : '#cbd5e1',
+    bg_elevated: dark ? mixHex(seeds.surface, seeds.fg, 0.05) : tone(0.04),
+    border: dark ? mixHex(seeds.surface, seeds.fg, 0.13) : tone(0.12),
+    border_light: dark ? mixHex(seeds.surface, seeds.fg, 0.22) : tone(0.22),
     text_primary: seeds.fg,
-    text_secondary: dark ? '#cbd5e1' : '#334155',
+    text_secondary: mixHex(seeds.fg, seeds.bg, dark ? 0.22 : 0.26),
     text_muted: seeds.muted,
     accent: seeds.accent,
-    success: dark ? '#34d399' : '#16a34a',
-    warning: dark ? '#fbbf24' : '#d97706',
-    error: dark ? '#f87171' : '#dc2626',
+    success: dark ? '#7db592' : '#3d7457',
+    warning: dark ? '#d9a64e' : '#a8741b',
+    error: dark ? '#e2705f' : '#a3302a',
   }
 }
 
@@ -123,7 +125,7 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
     surface: c.bg_surface,
     accent: c.accent,
     muted: c.text_muted,
-    radius: 8,
+    radius: 2,
   }
 }
 
@@ -131,36 +133,37 @@ export function colorsToSeeds(c: ThemeColors): SeedTokens {
  * 内置预设
  * ============================================================ */
 
-// 现代化学术精读界面：清晰、高对比度、无干扰护眼
+// 「朱批」：宣纸底、墨色字，唯一强调色是朱砂（学者在书页上做批注的朱笔）
 const LIGHT_SEEDS: SeedTokens = {
-  bg: '#f8fafc',
-  fg: '#0f172a',
-  surface: '#ffffff',
-  accent: '#2563eb',
-  muted: '#64748b',
-  radius: 8,
+  bg: '#f3efe6',
+  fg: '#1c1b18',
+  surface: '#fbf9f3',
+  accent: '#b5361c',
+  muted: '#7a746a',
+  radius: 2,
 }
 
+// 墨：深底米色字，朱砂提亮一档以保证对比
 const DARK_SEEDS: SeedTokens = {
-  bg: '#0b0f17',
-  fg: '#f8fafc',
-  surface: '#131c2e',
-  accent: '#3b82f6',
-  muted: '#94a3b8',
-  radius: 8,
+  bg: '#131311',
+  fg: '#eae5da',
+  surface: '#1b1a18',
+  accent: '#e4683f',
+  muted: '#8d877b',
+  radius: 2,
 }
 
 export const BUILTIN_THEMES: Theme[] = [
   {
     id: 'light',
-    name: '明亮',
+    name: '宣纸',
     builtin: true,
     seeds: LIGHT_SEEDS,
     colors: seedsToColors(LIGHT_SEEDS),
   },
   {
     id: 'dark',
-    name: '深色',
+    name: '墨',
     builtin: true,
     seeds: DARK_SEEDS,
     colors: seedsToColors(DARK_SEEDS),
@@ -221,7 +224,7 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
     '--text-primary': c.text_primary,
     '--text-secondary': c.text_secondary,
     '--text-muted': c.text_muted,
-    '--text-disabled': dark ? '#666970' : '#9b9b92',
+    '--text-disabled': mixHex(c.text_muted, c.bg_base, 0.38),
 
     // Accent + subtle variants
     '--accent': c.accent,
@@ -235,29 +238,33 @@ export function buildCssVars(seeds: SeedTokens, colors?: ThemeColors): Record<st
     '--error': c.error,
     '--error-subtle': rgba(c.error, dark ? 0.16 : 0.10),
 
-    // Code area
-    '--code-bg': dark ? '#1e1e2e' : '#f6f8fa',
-    '--code-sidebar-bg': dark ? '#1e1e2e' : '#f6f8fa',
-    '--code-fg': dark ? '#cdd6f4' : '#1f2328',
-    '--code-text': dark ? '#cccccc' : '#24292f',
-    '--code-text-muted': dark ? '#6a737d' : '#656d76',
-    '--code-text-bright': dark ? '#e8e8e8' : '#1b1f23',
-    '--code-selection': dark ? '#094771' : '#b6d7ff',
-    '--code-hover': dark ? '#2a2d2e' : '#e8e8e8',
-    '--code-border': dark ? '#404040' : '#d0d7de',
-    '--code-folder': dark ? '#dcb67a' : '#9a6700',
+    // Code area（暖色底，与纸面一致）
+    '--code-bg': dark ? '#191816' : '#efeadf',
+    '--code-sidebar-bg': dark ? '#171614' : '#ebe5d9',
+    '--code-fg': dark ? '#e2dccf' : '#26241f',
+    '--code-text': dark ? '#d4cec2' : '#2b2924',
+    '--code-text-muted': dark ? '#7f796e' : '#7a746a',
+    '--code-text-bright': dark ? '#f1ece2' : '#14130f',
+    '--code-selection': dark ? 'rgba(228, 104, 63, 0.28)' : 'rgba(181, 54, 28, 0.16)',
+    '--code-hover': dark ? '#24221f' : '#e6dfd1',
+    '--code-border': dark ? '#34322d' : '#d8d0c0',
+    '--code-folder': dark ? '#d9a64e' : '#8a5f12',
 
-    // Structural palette consumed by the migrated experience shell.
-    '--paper': dark ? '#17181b' : '#eee9dd',
-    '--paper-bright': dark ? '#222329' : '#f7f2e7',
-    '--ink': dark ? '#f7f2e7' : '#17181b',
-    '--void': '#17181b',
-    '--blue': dark ? '#5f83b5' : '#3969a8',
-    '--blue-deep': '#292b55',
-    '--signal': '#d94a38',
-    '--red': '#d94a38',
-    '--ochre': '#d3a52f',
-    '--gray': '#8f9594',
+    // 版面结构色（外壳、页头、账页、批注）
+    '--paper': c.bg_base,
+    '--paper-bright': c.bg_surface,
+    '--ink': c.text_primary,
+    '--void': dark ? '#0c0c0b' : '#1c1b18',
+    '--cinnabar': c.accent,
+    '--cinnabar-rgb': `${accentR}, ${accentG}, ${accentB}`,
+    '--mark': dark ? 'rgba(217, 166, 78, 0.22)' : 'rgba(226, 184, 72, 0.30)',
+    '--rule-ink': dark ? 'rgba(234, 229, 218, 0.55)' : 'rgba(28, 27, 24, 0.78)',
+    '--blue': dark ? '#9fb3cc' : '#3a5679',
+    '--blue-deep': dark ? '#c3d0e0' : '#26394f',
+    '--signal': c.accent,
+    '--red': c.error,
+    '--ochre': c.warning,
+    '--gray': c.text_muted,
   }
 }
 

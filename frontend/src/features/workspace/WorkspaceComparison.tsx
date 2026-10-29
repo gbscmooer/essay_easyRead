@@ -16,11 +16,11 @@ const DETAIL_LABEL: Record<string, string> = {
 }
 
 const SECTION_COLORS: Record<string, string> = {
-  purpose: '#3b82f6',
-  method: '#8b5cf6',
-  experiments: '#10b981',
-  implementation: '#f59e0b',
-  metadata: '#6b7280',
+  purpose: '#3a5679',
+  method: '#6b4c7a',
+  experiments: '#3d7457',
+  implementation: '#a8741b',
+  metadata: '#7a746a',
 }
 
 function PillList({ items, tone = 'var(--bg-elevated)', color = 'var(--text-secondary)' }: { items: string[]; tone?: string; color?: string }) {

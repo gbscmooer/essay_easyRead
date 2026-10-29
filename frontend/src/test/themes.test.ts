@@ -67,7 +67,7 @@ describe('resolveTheme', () => {
   it('resolves builtin theme by id', () => {
     const theme = resolveTheme('dark')
     expect(theme.id).toBe('dark')
-    expect(theme.name).toBe('深色')
+    expect(theme.name).toBe('墨')
   })
 
   it('resolves default theme for unknown id', () => {
@@ -144,8 +144,8 @@ describe('buildCssVars', () => {
       accent: '#ffffff', muted: '#737373', radius: 12,
     }
     const vars = buildCssVars(darkSeeds)
-    expect(vars['--code-bg']).toBe('#1e1e2e')
-    expect(vars['--code-fg']).toBe('#cdd6f4')
+    expect(vars['--code-bg']).toBe('#191816')
+    expect(vars['--code-fg']).toBe('#e2dccf')
   })
 
   it('generates light code colors for light theme', () => {
@@ -154,8 +154,8 @@ describe('buildCssVars', () => {
       accent: '#1d4ed8', muted: '#94a3b8', radius: 12,
     }
     const vars = buildCssVars(lightSeeds)
-    expect(vars['--code-bg']).toBe('#f6f8fa')
-    expect(vars['--code-fg']).toBe('#1f2328')
+    expect(vars['--code-bg']).toBe('#efeadf')
+    expect(vars['--code-fg']).toBe('#26241f')
   })
 
   it('derives base colors from seeds', () => {

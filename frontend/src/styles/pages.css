@@ -1445,7 +1445,7 @@
 
 .ex-progress__bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent, #3b82f6) 0%, #60a5fa 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 55%, var(--bg-surface)) 100%);
   border-radius: 9999px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;

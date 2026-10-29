@@ -129,7 +129,7 @@ export function BriefingPanel({ open, onClose, graph, synthesis, onSelectNode }:
       >
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>📜 领域全景透视</h3>
+            <h3 className="text-heading text-[15px]" style={{ color: 'var(--text-primary)' }}>领域全景透视</h3>
             <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>3 分钟读懂领域全局 · 不必先读单篇论文</p>
           </div>
           <button

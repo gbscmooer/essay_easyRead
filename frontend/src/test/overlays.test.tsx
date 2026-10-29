@@ -16,7 +16,7 @@ describe('constructivist overlays', () => {
     render(<VersionPopup onClose={onClose} />)
 
     expect(screen.getByRole('dialog', { name: '论文精读辅助分析软件' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '论文精读辅助分析软件几何标记' }))
+    expect(screen.getByRole('img', { name: '论文精读辅助分析软件印章标记' }))
       .toHaveAttribute('src', '/essay-register.svg')
 
     fireEvent.click(screen.getByRole('button', { name: '关闭版本信息' }))

@@ -75,7 +75,7 @@
   height: 28px;
   border-radius: 6px;
   background: var(--primary-subtle, rgba(59, 130, 246, 0.1));
-  color: var(--primary, #3b82f6);
+  color: var(--accent);
 }
 
 .set-file-card__title {

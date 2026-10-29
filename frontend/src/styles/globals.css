@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * 论文精读辅助分析软件 — 构成主义样式系统
+ * 论文精读辅助分析软件 — 样式系统（v10「朱批」）
  *
  * A clean extraction of the Frontend Experience Lab's final visual language:
  * warm paper, ink, cobalt, signal red, registration lines and hard-edged
@@ -13,42 +13,47 @@
 
 :root {
   color-scheme: light;
-  --paper: #f8fafc;
-  --paper-bright: #ffffff;
-  --ink: #0f172a;
-  --void: #0f172a;
-  --blue: #2563eb;
-  --blue-deep: #1e3a8a;
-  --signal: #dc2626;
-  --red: #dc2626;
-  --ochre: #d97706;
-  --gray: #64748b;
+  /* 首帧兜底：与 theme/themes.ts 的「宣纸」预设一致，ThemeProvider 挂载后以注入值为准 */
+  --paper: #f3efe6;
+  --paper-bright: #fbf9f3;
+  --ink: #1c1b18;
+  --void: #1c1b18;
+  --cinnabar: #b5361c;
+  --cinnabar-rgb: 181, 54, 28;
+  --mark: rgba(226, 184, 72, 0.30);
+  --rule-ink: rgba(28, 27, 24, 0.78);
+  --blue: #3a5679;
+  --blue-deep: #26394f;
+  --signal: #b5361c;
+  --red: #a3302a;
+  --ochre: #a8741b;
+  --gray: #7a746a;
 
   --seed-bg: var(--paper);
   --seed-fg: var(--ink);
   --seed-surface: var(--paper-bright);
-  --seed-accent: var(--blue);
-  --seed-accent-rgb: 37, 99, 235;
-  --seed-muted: #64748b;
-  --seed-radius: 8px;
+  --seed-accent: var(--cinnabar);
+  --seed-accent-rgb: 181, 54, 28;
+  --seed-muted: #7a746a;
+  --seed-radius: 2px;
 
   --bg-base: var(--paper);
   --bg-surface: var(--paper-bright);
-  --bg-elevated: #f1f5f9;
-  --border: #e2e8f0;
-  --border-light: #cbd5e1;
+  --bg-elevated: #ebe6dc;
+  --border: #dcd5c7;
+  --border-light: #c6bdac;
   --text-primary: var(--ink);
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-disabled: #94a3b8;
-  --accent: var(--blue);
-  --accent-subtle: rgba(37, 99, 235, 0.08);
-  --success: #16a34a;
-  --success-subtle: rgba(22, 163, 74, 0.09);
+  --text-secondary: #4b473f;
+  --text-muted: #7a746a;
+  --text-disabled: #a9a397;
+  --accent: var(--cinnabar);
+  --accent-subtle: rgba(181, 54, 28, 0.08);
+  --success: #3d7457;
+  --success-subtle: rgba(61, 116, 87, 0.10);
   --warning: var(--ochre);
-  --warning-subtle: rgba(217, 119, 6, 0.09);
-  --error: var(--signal);
-  --error-subtle: rgba(220, 38, 38, 0.09);
+  --warning-subtle: rgba(168, 116, 27, 0.10);
+  --error: var(--red);
+  --error-subtle: rgba(163, 48, 42, 0.10);
 
   /* ── 动效 ────────────────────────────────────────────── */
   --ease-register: cubic-bezier(.22, 1, .36, 1);
@@ -91,24 +96,25 @@
 
 [data-mode='dark'] {
   color-scheme: dark;
-  --paper: #0b0f17;
-  --paper-bright: #131c2e;
-  --ink: #f8fafc;
-  --blue: #3b82f6;
-  --bg-base: #0b0f17;
-  --bg-surface: #131c2e;
-  --bg-elevated: #1e293b;
-  --border: #334155;
-  --border-light: #475569;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-disabled: #64748b;
-  --accent: #3b82f6;
-  --accent-subtle: rgba(59, 130, 246, 0.15);
+  --paper: #131311;
+  --paper-bright: #1b1a18;
+  --ink: #eae5da;
+  --cinnabar: #e4683f;
+  --blue: #9fb3cc;
+  --bg-base: #131311;
+  --bg-surface: #1b1a18;
+  --bg-elevated: #23221f;
+  --border: #34322d;
+  --border-light: #48453e;
+  --text-primary: #eae5da;
+  --text-secondary: #bfb8aa;
+  --text-muted: #8d877b;
+  --text-disabled: #5f5a52;
+  --accent: #e4683f;
+  --accent-subtle: rgba(228, 104, 63, 0.14);
   --deco-opacity: .44;
-  --er-rule: 1px solid #334155;
-  --er-hairline: #334155;
+  --er-rule: 1px solid #34322d;
+  --er-hairline: #34322d;
 }
 
 *,
