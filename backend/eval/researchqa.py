@@ -115,6 +115,8 @@ ARM_SPECS = {
     "def_noread": ("reuse", {"reading": 0}, {"base": "pipeline"}),     # 默认改为读 16 句后的“改动前”对照
     "def_noread2": ("reuse", {"reading": 0}, {"base": "pipeline"}),
     # v9.16.2 起默认不读原文：同时段对照（def_now ×2）对两份草稿合并（merge2 ×2），--recall-from 复用全集的召回
+    # （E22 时 def_now 为单份草稿；v9.16.6 起默认 drafts=2，def_now 即两份合并，单份对照用 single 组）
+    "single": ("reuse", {"drafts": 1}, {"base": "pipeline"}),
     "def_now": ("reuse", {}, {"base": "pipeline"}),
     "def_now2": ("reuse", {}, {"base": "pipeline"}),
     "merge2": ("reuse", {"drafts": 2}, {"base": "pipeline"}),

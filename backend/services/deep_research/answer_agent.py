@@ -68,8 +68,11 @@ SUPPORT_NEW_SENTENCES = 6     # 精读支撑用法：全篇最多补的新句数
 # 子集细则覆盖 +0.05~0.065（SE 0.03），8 句一半、24 句不再增加；ScholarQA-CS 前 10 题（固定草稿）−0.006（SE 0.012）不退步；
 # 但全集 50 题（40 非 CS + 10 CS，同批论文、各 2 复本）复核不成立：读 16 − 读 0 非 CS −0.002（SE 0.018），
 # CS +0.022（SE 0.020），篇幅 +15%；子集的增益是 8 题偶然，v9.16.2 改回不开（评测仍可显式传 reading 对照）
+# drafts=2（E22）：同时独立起草两份再合并。ResearchQA 全集 50 题（复用同一批召回，同时段各 2 复本）+0.025（SE 0.008，
+# 31/50），非 CS +0.025、CS +0.028；ScholarQA-CS 两组都现场起草的 19 题 −0.011（SE 0.012）不显著，但专家性评分
+# −0.053（SE 0.031）——合并稿更全、略不聚焦。一份草稿出错时用另一份，作答不再因起草失败整份失败。每题多约 2 分钟、篇幅 +14%
 RECOMMENDED = {"fetch_full_text": 6, "draft_titles": 0, "claim_search": 2, "final_mode": "attach", "followup": 0,
-               "question_search": 3}
+               "question_search": 3, "drafts": 2}
 
 _POINTER_TOKEN = r"\[S\d+(?:\s*[,，;；]\s*S?\d+)*\]"
 _POINTER_GROUP = re.compile(rf"(?:[ \t]*{_POINTER_TOKEN})+")
