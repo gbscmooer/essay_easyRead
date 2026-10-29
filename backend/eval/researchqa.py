@@ -637,6 +637,11 @@ async def rejudge(args) -> Path:
     """换评委重打已有答案（答案不变），写到新文件。"""
     src = Path(args.file)
     report = json.loads(src.read_text(encoding="utf-8"))
+    if args.subset:   # 只重打分层子集（与 run --subset 同一批题）
+        meta = report["meta"]
+        keep = {x["id"] for x in subset(pick_items(load_items(), seed=meta["seed"], n_noncs=meta["n_noncs"],
+                                                   n_cs=meta["n_cs"]), args.subset)}
+        report["records"] = [r for r in report["records"] if r["id"] in keep]
     judge = make_judge(args.judge_model, args.judge_repeats)
     gate = asyncio.Semaphore(max(1, args.concurrency))
 
@@ -666,7 +671,8 @@ async def rejudge(args) -> Path:
                       "rejudged_from": src.name,
                       "provenance": ledger.provenance(src)}
     report["summary"] = summarize(report["records"], arms)
-    out = src.with_name(f"{src.stem}_judge-{args.judge_model}x{args.judge_repeats}.json")
+    sub_tag = f"_sub{args.subset}" if args.subset else ""
+    out = src.with_name(f"{src.stem}{sub_tag}_judge-{args.judge_model}x{args.judge_repeats}.json")
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
     ledger.record_metrics(out, report, benchmark="researchqa", lines=_ledger_lines(report["summary"]))
@@ -885,6 +891,7 @@ def main() -> None:
     j = sub.add_parser("judge")
     j.add_argument("file")
     j.add_argument("--concurrency", type=int, default=6)
+    j.add_argument("--subset", type=int, default=0, help="只重打分层子集的 k 题（全集重打要用户授权）")
     for p in (r, rc):
         p.add_argument("--scopus-cache", choices=("off", "record", "local"), default="record",
                        help="record（默认）：Scopus 响应写入本地库、同一请求用缓存；local：不调 Scopus，召回只用本地库——"
