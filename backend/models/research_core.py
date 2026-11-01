@@ -1,7 +1,8 @@
-"""academic_survey_v2 数据契约，当前边界见 document.md §2.7。
+"""研究资产与证据的持久化表（论文库材料、工作区等仍在使用）。
 
-本模块定义交换形状、状态常量和十三张持久化表，执行器位于
-services/deep_research/research_loop；实施差异见 docs/workflow_refactor/STATUS.md。
+原 academic_survey_v2 问题驱动执行器（research_loop）已删除；研究流程改为
+services/deep_research/loop 单循环，不再写 ResearchTask/Question/Answer/Dossier 等表，
+表定义保留只为已有数据库可读、材料功能不受影响。
 
 所有表采用内部整数主键和对外稳定字符串 ID。论文 family/version 引用复用
 现有身份数据，同题名不同作者不得自动合并。schema 变更需显式迁移并校验

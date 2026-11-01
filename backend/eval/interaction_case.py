@@ -20,7 +20,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from backend.eval.explore_eval import _fresh_engine
+from backend.eval.system_arm import _fresh_engine
 
 DEFAULT_QUESTION = "多模态大模型用于手术视频理解的研究现状如何？"
 DEFAULT_CONDITION = "只关注腹腔镜手术场景"
@@ -38,7 +38,7 @@ def _summary(run: dict) -> dict:
         "id": run.get("id"), "status": run.get("status"), "question": run.get("question"),
         "verdict": verdict.get("status"), "confidence": verdict.get("confidence"),
         "total": (result.get("metrics") or {}).get("total"),
-        "integrity": result.get("integrity"),
+        "crawl": {k: (result.get("crawl") or {}).get(k) for k in ("candidates", "selected", "expanded", "stop_reason")},
         "interventions": result.get("interventions"),
         "user_supplements": recall.get("user_supplements"),
         "reuse": recall.get("reuse"),
@@ -89,12 +89,12 @@ async def main_async(args) -> dict:
                 created = (await client.post("/api/exploration/runs", json={
                     "question": args.question, "depth": args.depth})).json()
                 run_id = created["id"]
-                note("created", run_id=run_id, workflow=created.get("workflow_version"))
+                note("created", run_id=run_id)
                 while True:
                     run = (await client.get(f"/api/exploration/runs/{run_id}")).json()
                     if run["status"] in ("done", "failed"):
                         raise RuntimeError(f"未能在召回后暂停：run 已 {run['status']}")
-                    if run.get("current_stage") not in (None, "preflight", "protocol", "recall"):
+                    if run.get("current_stage") not in (None, "search"):
                         break
                     await asyncio.sleep(1.0)
                 paused = (await client.post(f"/api/exploration/runs/{run_id}/pause", json={})).json()
@@ -121,7 +121,7 @@ async def main_async(args) -> dict:
 
                 # 3) 修正：补充条件 + 复用材料
                 revise = await client.post(f"/api/exploration/runs/{run_id}/revise", json={
-                    "question": args.question, "expected_state_version": first.get("state_version") or 0,
+                    "question": args.question,
                     "additional_questions": [args.condition], "reuse_materials": True, "depth": args.depth})
                 note("revise_submitted", code=revise.status_code)
                 child_id = revise.json()["id"]
@@ -158,7 +158,7 @@ def main() -> None:
     parser.add_argument("--thinking-effort", default="off")
     args = parser.parse_args()
     if args.thinking_effort:
-        # 与 explore_eval 同一覆盖方式：所有阶段都经 ai_config.get_llm_config 取配置
+        # 与 system_arm 同一覆盖方式：所有阶段都经 ai_config.get_llm_config 取配置
         from backend.services import ai_config
 
         original_config = ai_config.get_llm_config

@@ -12,10 +12,8 @@ from ..models.exploration import ExplorationMessage, ExplorationRun
 from .ai_config import get_analysis_config
 from .database import get_engine
 from .deep_research.domain_synthesizer import _llm_json
-from .deep_research.explorer import decompose_question, recall_papers
 from .deep_research.literature_retrieval import lexical_order, retrieve_materials
 from .deep_research.evidence_audit import audit_answer
-from .deep_research.survey_report import _source_excerpt
 from .research_exclusions import apply_exclusions, active_exclusions
 
 logger = logging.getLogger(__name__)
@@ -31,15 +29,39 @@ class ExplorationChatError(Exception):
 def _run(session: Session, run_id: int) -> ExplorationRun:
     run = session.get(ExplorationRun, run_id)
     if not run:
-        raise ExplorationChatError(404, "NOT_FOUND", "探索记录不存在")
-    if run.workflow_version == "academic_survey_v2":
-        from .deep_research.research_loop.access import require_report
-        from .research_event_log import RunStateError
-        try:
-            require_report(session, run_id, (run.result or {}).get("survey_report") or {})
-        except RunStateError as exc:
-            raise ExplorationChatError(exc.status_code, exc.code, exc.detail) from exc
+        raise ExplorationChatError(404, "NOT_FOUND", "研究记录不存在")
     return run
+
+
+def _excerpt(paper: dict, limit: int = 6000) -> str:
+    return (paper.get("source_text") or paper.get("abstract") or "")[:limit]
+
+
+async def _search_more(question: str, context_question: str, cfg: dict, options: dict) -> tuple[list[dict], list[str]]:
+    """追问补检：沿用研究循环的 Crawler（写检索式）+ Selector（逐篇判定），只收判为相关的论文。"""
+    from .deep_research.loop.config import config_for
+    from .deep_research.loop.crawler import Crawler
+    from .deep_research.loop.llm import json_caller
+    from .deep_research.loop.selector import Selector
+    from .deep_research.loop.sources import Sources
+    from .deep_research.reranker import rerank_scores
+
+    lc = config_for("lite", {"queries": 3, "per_query": 15})
+    sources = Sources(enabled=lc.sources, online=options.get("search_online", True))
+    try:
+        crawler = Crawler(context_question, json_caller(cfg, max_tokens=600), sources, lc)
+        queries = await crawler.initial_queries()
+        pool: dict[str, dict] = {}
+        for q in queries:
+            for p in await crawler.search(q):
+                pool.setdefault(p["key"], p)
+        papers, _ = apply_exclusions(list(pool.values()), options)
+        await sources.fill_abstracts(papers)
+        selector = Selector(question, json_caller(cfg, max_tokens=64 + 4 * lc.judge_batch), lc, rerank=rerank_scores)
+        await selector.judge(papers)
+        return [p for p in papers if selector.selected(p)], queries
+    finally:
+        await sources.aclose()
 
 
 def conversation(run_id: int) -> list[ExplorationMessage]:
@@ -123,19 +145,9 @@ async def _answer(message_id: int) -> None:
     context = {"root_question": root_question, "queries": [], "provider": "", "warnings": []}
     retrieved_keys = []
     if search_more:
-        search_context = json.dumps({
-            "原始问题": root_question,
-            "之前的问题": [t.question for t in history[-6:]],
-            "本次追问": question,
-        }, ensure_ascii=False)
-        decomposition = await decompose_question(search_context, cfg, max_queries=3)
-        context["queries"] = decomposition["en_queries"]
-        extra, provider = await recall_papers(
-            decomposition["en_queries"], per_query=20, cap=60,
-            now_year=datetime.now(timezone.utc).year,
-        )
-        context["provider"] = provider
-        extra, context["excluded"] = apply_exclusions(extra, options)
+        search_context = "\n".join([f"原始问题：{root_question}",
+                                    *[f"之前的问题：{t.question}" for t in history[-6:]], f"本次追问：{question}"])
+        extra, context["queries"] = await _search_more(question, search_context, cfg, options)
         if not extra:
             context["warnings"].append("补充检索未返回新资料，本轮仅依据已有资料回答。")
         for p in extra:
@@ -172,15 +184,14 @@ async def _answer(message_id: int) -> None:
         context["answer_status"] = "no_evidence"
     else:
         sources = [{"id": f"P{i + 1}", "title": p.get("title"), "year": p.get("year"),
-                    "abstract": _source_excerpt(p, question)[0][:6000],
+                    "abstract": _excerpt(p),
                     "source_kind": "full_text_excerpt" if p.get("source_text") else "abstract", "doi": p.get("doi")}
                    for i, p in enumerate(materials)]
         payload = {
             "原始问题": root_question,
-            "初始检索式": result.get("decompose"),
-            "原始统计": result.get("metrics"),
-            "结构化报告": (result.get("survey_report") or {}).get("markdown", "")[:14000],
-            "初始分析": json.dumps(result.get("synthesis") or {}, ensure_ascii=False)[:10000],
+            "初始检索式": result.get("queries"),
+            "原始统计": {k: (result.get("metrics") or {}).get(k) for k in ("total", "by_year", "year_span", "clusters")},
+            "初始回答": ((result.get("answer") or {}).get("text") or "")[:14000],
             "历史对话": [{"question": t.question, "answer": t.answer[:3000],
                          "citations": {ref: by_key[key].get("title")
                                        for ref, key in t.context.get("citations", {}).items() if key in by_key}}

@@ -1,14 +1,14 @@
 """公开人工标注数据集上的分环节评测：SYNERGY（筛选）与 LitSearch（召回）。
 
 - SYNERGY（ASReview，26 篇系统综述的人工纳入标签）：把综述题目作为研究问题，
-  候选论文的标题/摘要交给正式流程同一个筛选器 `_filter_pool`，对照人工标签
-  计算查全率/查准率。筛选器三分类（接受/待定/拒绝）：严格口径只算接受，
-  宽松口径算未拒绝（正式流程中待定论文会再复筛，二者之间是真实表现区间）。
+  候选论文的标题/摘要交给研究循环同一个 Selector（loop/selector.py），对照人工标签
+  计算查全率/查准率。strict 只算判定入选（≥ min_label），lenient 另算判定失败（未判定）；
+  core 口径只算判定 2（直接相关）。同时记模型调用数与 token（PaSa 式：筛选单独评测、单独计成本）。
   有摘要筛选阶段标签（label_abstract_screening）的数据集优先用它作金标准——
   最终纳入标签含全文阶段才排除的论文，只看摘要不可能全对。
 - LitSearch（Princeton，EMNLP 2024，597 个专家审核的 ML/NLP 文献检索问题）：
-  对每个问题跑正式流程的“拆解 + 目标量召回”，统计目标论文是否进入召回语料、
-  是否通过筛选、在输出中的名次。两种语料：
+  对每个问题跑研究循环的检索 + 判定（ResearchLoop.crawl），统计目标论文是否进入候选池、
+  是否被 Selector 选中、在选中列表中的名次。两种语料：
   · local（默认）：用 `local_search.LocalCorpusIndex` 在数据集自带的 64,183 篇语料里检索，
     替代联网检索、返回格式相同；同时用原问题直接 BM25 检索作零模型成本的基线；
   · online：检索真实数据源（arXiv/Scopus/OpenAlex），与原文的固定语料不可直接比较。
@@ -32,7 +32,7 @@ from contextvars import ContextVar
 import random
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 CACHE_DIR = Path("data/eval/public")
@@ -388,8 +388,11 @@ def _llm_cfg(thinking_effort: str, model: str = "") -> dict:
 
 
 async def run_synergy(args) -> dict:
-    from backend.services.deep_research.domain_synthesizer import _llm_json
-    from backend.services.deep_research.recall_engine import _filter_pool
+    from backend.services.deep_research.loop.config import config_for
+    from backend.services.deep_research.loop.llm import json_caller
+    from backend.services.deep_research.loop.selector import Selector
+    from backend.services.deep_research.reranker import rerank_scores
+    from backend.services.llm import start_token_ledger, token_ledger_report
 
     meta, rows = synergy_rows(args.dataset)
     label = "label_abstract_screening" if "label_abstract_screening" in rows[0] and not args.final else "label_included"
@@ -398,41 +401,42 @@ async def run_synergy(args) -> dict:
                "year": int(r["year"]) if str(r.get("year") or "").isdigit() else None} for r in picked]
     question = args.question or meta["title"].strip()
     cfg = _llm_cfg(args.thinking_effort, args.model)
+    lc = config_for("standard", json.loads(args.loop) if args.loop else None)
+    selector = Selector(question, json_caller(cfg, max_tokens=64 + 4 * lc.judge_batch), lc,
+                        rerank=None if args.no_rerank else rerank_scores)
+    t0, tokens = time.monotonic(), start_token_ledger()
+    await selector.judge(papers)
 
-    async def screen_json(system: str, user: str) -> dict:
-        # 与正式召回筛选同一调用方式（关闭思考、同一输出上限）
-        return await _llm_json(cfg, system, user, max_tokens=1500, thinking_effort="off")
+    def verdicts(threshold: int) -> dict[str, str]:
+        out = {}
+        for p in papers:
+            v = selector.verdicts.get(p["key"])
+            out[p["key"]] = "unknown" if v is None else "confirmed" if v >= threshold else "rejected"
+        return out
 
-    verdicts: dict[str, str] = {}
-    t0 = time.monotonic()
-
-    async def progress(done, total):
-        if done % 100 < 10:
-            print(f"  筛选 {done}/{total}", flush=True)
-
-    _, audit = await _filter_pool(papers, question, batch_size=10, llm_json=screen_json,
-                                  verdict_cache=verdicts, on_progress=progress)
+    chosen = verdicts(lc.min_label)
     gold = {f"rec:{r['record_id']}": r[label] == "1" for r in picked}
     result = {"dataset": args.dataset, "question": question, "gold_label": label,
               "records": len(picked), "positives": sum(gold.values()),
-              "sampled": args.negatives is not None, "seed": args.seed,
+              "sampled": args.negatives is not None, "seed": args.seed, "loop": lc.to_dict(),
               "model": cfg.get("model"), "wall_s": round(time.monotonic() - t0, 1),
-              "fail_open_batches": audit.get("fail_open_batches"),
-              "scores": score_screening(verdicts, gold)}
+              "selector": selector.stats, "tokens": token_ledger_report(tokens),
+              "scores": score_screening(chosen, gold), "scores_core": score_screening(verdicts(2), gold)}
     if label != "label_included":
         final = {f"rec:{r['record_id']}": r["label_included"] == "1" for r in picked}
-        result["scores_vs_final_inclusion"] = score_screening(verdicts, final)
+        result["scores_vs_final_inclusion"] = score_screening(chosen, final)
     result["missed_examples"] = [
-        {"title": p["title"][:160], "verdict": verdicts.get(p["key"])}
-        for p in papers if gold[p["key"]] and verdicts.get(p["key"]) == "rejected"][:15]
-    result["rejection_reasons"] = audit.get("rejections", [])[:30]
+        {"title": p["title"][:160], "label": selector.verdicts.get(p["key"]),
+         "rerank": selector.rerank_scores.get(p["key"])}
+        for p in papers if gold[p["key"]] and chosen.get(p["key"]) == "rejected"][:15]
     return result
 
 
 async def run_litsearch(args) -> dict:
-    from backend.services.deep_research.explorer import _preset_for_depth, decompose_question
-    from backend.services.deep_research.recall_engine import LISTWISE_TOP, run_target_recall
+    from backend.services.deep_research.loop.config import config_for
+    from backend.services.deep_research.loop.runner import ResearchLoop
     from backend.services.deep_research.reranker import rerank_scores
+    from backend.services.llm import start_token_ledger, token_ledger_report
 
     spec = None if args.specificity == "all" else int(args.specificity)
     queries = [q for q in litsearch_queries() if spec is None or q["specificity"] == spec]
@@ -460,8 +464,7 @@ async def run_litsearch(args) -> dict:
     else:
         targets = litsearch_targets([c for q in picked for c in q["corpusids"]])
     cfg = _llm_cfg(args.thinking_effort, args.model)
-    preset = _preset_for_depth(args.depth)
-    now_year = datetime.now(timezone.utc).year
+    overrides = json.loads(args.loop) if args.loop else {}
     records = []
     out_path = OUT_DIR / f"public_litsearch_{args.corpus}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     if args.resume:
@@ -471,9 +474,6 @@ async def run_litsearch(args) -> dict:
         done = {r["query"] for r in records}
         picked = [q for q in picked if q["query"] not in done]
         print(f"续跑：已完成 {len(records)} 题，剩余 {len(picked)} 题", flush=True)
-
-    async def no_backfill(_dois: list[str]) -> dict[str, str]:
-        return {}
 
     watch = QuotaWatch.install()
     retries: dict[str, int] = {}
@@ -487,23 +487,11 @@ async def run_litsearch(args) -> dict:
         rec = {"query": q["query"], "query_set": q["query_set"], "specificity": q["specificity"],
                "quality": q["quality"]}
         try:
-            decompose = await decompose_question(q["query"], cfg, max_queries=preset["max_queries"])
-            rec["en_queries"] = decompose["en_queries"]
+            tokens = start_token_ledger()
             if local:
-                corpus, audit = await run_target_recall(
-                    q["query"], decompose["en_queries"], depth=args.depth, now_year=now_year, llm_cfg=cfg,
-                    preflight_dead=set(), search_one=index.as_search_one(), sources=(LOCAL_SOURCE,),
-                    backfill_abstracts=no_backfill, rerank_scores=None if args.no_rerank else rerank_scores,
-                    listwise_top=0 if args.no_rerank else LISTWISE_TOP)
-                ids = [str(c) for c in q["corpusids"]]
-                # 与召回去重同一来源的 key（无 DOI/arXiv 时为 titlefp:…），用于判断是否被筛掉
-                key_of = {c: index.candidate(by_id[c], 0, 0.0, "relevance").canonical_key for c in ids if c in by_id}
-                baseline = [doc["id"] for doc, _ in index.search(q["query"], limit=200)]
-                rec["corpus"] = [[p.get("local_id"), p.get("relevance_status"), p.get("recall_pos"),
-                                  p.get("rerank_score")] for p in corpus]
-                rec["targets"] = match_local(
-                    ids, corpus, key_of=key_of, baseline=baseline, indexable=set(by_id),
-                    rejected_keys={str(r.get("key")) for r in (audit.get("filter") or {}).get("rejections") or []})
+                lc = config_for(args.depth, {**overrides, "sources": [LOCAL_SOURCE], "expand_layers": 0})
+                loop = ResearchLoop(q["query"], lc, llm_cfg=cfg, rerank=None if args.no_rerank else rerank_scores,
+                                    search_one=index.as_search_one())
             else:
                 from backend.services.deep_research.preflight import dead_source_names, preflight_research_sources
 
@@ -512,17 +500,27 @@ async def run_litsearch(args) -> dict:
                     raise LookupError(f"target_metadata_unavailable: {missing}")
                 dead = dead_source_names(await preflight_research_sources())
                 rec["dead_sources"] = sorted(dead)
-                corpus, audit = await run_target_recall(
-                    q["query"], decompose["en_queries"], depth=args.depth, now_year=now_year, llm_cfg=cfg,
-                    preflight_dead=dead, rerank_scores=None if args.no_rerank else rerank_scores,
-                    listwise_top=0 if args.no_rerank else LISTWISE_TOP)
-                rec["targets"] = match_targets(
-                    [targets[c] for c in q["corpusids"]], corpus,
-                    {str(r.get("key")) for r in (audit.get("filter") or {}).get("rejections") or []})
-            rec.update({"corpus_size": len(corpus), "stop_reason": audit.get("stop_reason"),
-                        "rerank": audit.get("rerank"),
-                        "corpus_after_search": audit.get("corpus_after_search"),
-                        "attempts": audit.get("attempts")})
+                loop = ResearchLoop(q["query"], config_for(args.depth, overrides), llm_cfg=cfg, dead=dead,
+                                    rerank=None if args.no_rerank else rerank_scores)
+            chosen = await loop.crawl()
+            pool = list(loop.state.papers.values())
+            for p in pool:
+                p["relevance_status"] = "confirmed" if loop.selector.selected(p) else "rejected"
+            rejected = {p["key"] for p in pool if p["relevance_status"] == "rejected"}
+            rec["en_queries"] = loop.state.queries_done
+            if local:
+                ids = [str(c) for c in q["corpusids"]]
+                key_of = {c: index.candidate(by_id[c], 0, 0.0, "relevance").canonical_key for c in ids if c in by_id}
+                baseline = [doc["id"] for doc, _ in index.search(q["query"], limit=200)]
+                rec["corpus"] = [[p.get("local_id"), p.get("label"), p.get("rerank")] for p in chosen]
+                rec["targets"] = match_local(ids, chosen, key_of=key_of, baseline=baseline, indexable=set(by_id),
+                                             rejected_keys=rejected)
+            else:
+                rec["targets"] = match_targets([targets[c] for c in q["corpusids"]], chosen, rejected)
+            crawl = loop.crawl_report()
+            rec.update({"corpus_size": len(chosen), "candidates": len(pool), "stop_reason": crawl["stop_reason"],
+                        "selector": crawl["selector"], "crawler": crawl["crawler"], "by_origin": crawl["by_origin"],
+                        "tokens": token_ledger_report(tokens)})
         except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案，不中断
             rec["error"] = f"{type(exc).__name__}: {exc}"[:300]
         rec["wall_s"] = round(time.monotonic() - t0, 1)
@@ -568,10 +566,12 @@ def main() -> None:
     li.add_argument("--subset", default="", help="固定子集文件，如 backend/eval/litsearch_subset_v1.json")
     li.add_argument("--quality", type=int, default=None)
     li.add_argument("--depth", default="quick")
-    li.add_argument("--no-rerank", action="store_true", help="关闭终裁重排（对照用）")
+    li.add_argument("--no-rerank", action="store_true", help="关闭交叉编码器粗排（对照用）")
     li.add_argument("--corpus", default="local", choices=["local", "online"],
                     help="local=数据集自带语料（不联网检索）；online=真实数据源")
+    s.add_argument("--no-rerank", action="store_true", help="关闭交叉编码器粗排（全部交给模型判定）")
     for p in (s, li):
+        p.add_argument("--loop", default="", help='覆盖循环参数（JSON），见 loop/config.py，如 \'{"judge_batch": 20}\'')
         p.add_argument("--seed", type=int, default=0)
         p.add_argument("--thinking-effort", default="off")
         p.add_argument("--model", default="", help="覆盖系统模型（默认用设置里的模型）")

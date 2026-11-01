@@ -1,7 +1,11 @@
-"""研究评测工具集，入口与限制见 docs/DEEP_RESEARCH_EVAL.md。
+"""研究评测工具集。
 
-explore_eval 会在线运行当前系统并与仅凭模型记忆的基线比较，不是纯离线工具。
-survey_metrics 计算显式标注的离线指标。原始输出保存在 data/eval/；预期判定
-为人工草案，正式出数前校核。新 workflow 对照协议见
- docs/workflow_refactor/VALIDATION.md；现有 CI 桩不代表真实研究质量。
+分环节（PaSa 式，便宜、可反复跑）：
+  public_benchmarks synergy    Selector 筛选的查全/查准（人工纳入标签）
+  public_benchmarks litsearch  ResearchLoop 检索 + 判定的召回（专家标注目标论文）
+  researchqa recall            同一批检索式下循环的召回（细则所引文献是否被选中 / 是否进过候选池）
+端到端（贵、噪声大，只做最终验收）：
+  scholarqa_cs run|agent       ScholarQA-CS 细则评分
+  researchqa run               ResearchQA 覆盖评分
+system_arm 在临时库上完整跑一次研究；ledger 记录每次评测的出处与配对比较。原始输出在 data/eval/。
 """

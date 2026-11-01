@@ -50,107 +50,29 @@ DATA = ROOT / "data/eval/public/researchqa_test.json"
 OUT_DIR = ROOT / "data/eval"
 JUDGE_MODEL = "glm-5.3-flash"
 BATCH = 8
-FT_SOURCES = ["arxiv", "pmc", "elsevier"]
-_FT = {"full_text_sources": FT_SOURCES, "fetch_order": "rerank"}
-# 组名 → （作答方式, 指针式作答的额外选项）；bare 不检索
+# 组名 → （作答方式, 作答选项, 运行选项）；bare 不检索。
+# 作答方式：bare 裸模型 / agent 只作答（空论文池） / pipeline 完整单循环 + 作答 /
+#           reuse 复用 base 组选中的论文只重跑作答 / draft_of 取 base 组的草稿
+# 作答选项见 loop/config.ANSWER_DEFAULTS（另可 web_search="scopus"）；运行选项里 loop 覆盖循环参数（loop/config.py）。
+# 旧版（八阶段 / answer_agent）的实验组已随实现一起删除，历史结果仍在台账里。
 ARM_SPECS = {
     "bare": ("bare", {}),
     "agent": ("agent", {}),
-    "agent_web": ("agent", {**_FT, "web_search": "scopus"}),
+    "agent_web": ("agent", {"web_search": "scopus"}),
     "pipeline": ("pipeline", {}),
-    "pipeline_ft": ("pipeline", _FT),
-    "pipeline_web": ("pipeline", {**_FT, "web_search": "scopus"}),
-    # 另加：选材阶段先走官方全文接口（Europe PMC / ScienceDirect），再走网页 PDF
-    "pipeline_all": ("pipeline", {**_FT, "web_search": "scopus"}, {"api_full_text": True}),
-    # 另加：起草前先读召回论文中最相关的 15 篇的题名与摘要
-    "pipeline_ctx": ("pipeline", {**_FT, "web_search": "scopus", "draft_context": 15}, {"api_full_text": True}),
-    # 复用召回：在 base 组同一次召回与选材得到的论文上只重跑作答（隔离作答环节的差别，省一次完整流程）
-    # 同一份草稿、不加检索与证据：拆开“写得长、写得全”与“检索和证据”各自的作用（草稿已保存，不另生成）
-    "pipeline_draft": ("draft_of", {}, {"base": "pipeline_all"}),
-    "ft_answer": ("reuse", _FT, {"base": "pipeline_all"}),   # 去掉 Scopus 提名通道
-    "all_answer": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    "ctx_answer": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15}, {"base": "pipeline_all"}),
-    "all_answer2": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),   # 补跑时的同时段对照
-    "all_answer3": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    # mark 定稿：草稿原文由程序保留，模型只挑指针、改正与证据矛盾的句子
-    "mark_answer": ("reuse", {**_FT, "web_search": "scopus", "final_mode": "mark"}, {"base": "pipeline_all"}),
-    "mark_answer2": ("reuse", {**_FT, "web_search": "scopus", "final_mode": "mark"}, {"base": "pipeline_all"}),
-    # 起草换 glm-5.3（其余步骤仍用 flash）：模型不熟悉的学科，草稿的知识面可能更关键（E19 在 CS 上无差别）
-    "strong_draft": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_draft2": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    # 原文阅读：按问题本身从已收集原文中另取 8 句交给定稿补充（召回对题时补具体细节；CS 上默认关）
-    "read_answer": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all"}),
-    "read_answer2": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all"}),
-    "all_answer4": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    "all_answer5": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    "strong_read": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_read2": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_read3": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_read4": ("reuse", {**_FT, "web_search": "scopus", "reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_read16": ("reuse", {**_FT, "web_search": "scopus", "reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "strong_read16b": ("reuse", {**_FT, "web_search": "scopus", "reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "all_answer6": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    "all_answer7": ("reuse", {**_FT, "web_search": "scopus"}, {"base": "pipeline_all"}),
-    # 不开 Scopus 通道（不耗 Scopus 配额）：默认作答选项 vs 强模型起草 + 原文阅读 8/16 句，均在 pipeline_all 的论文上
-    "nw_def": ("reuse", {}, {"base": "pipeline_all"}),
-    "nw_def2": ("reuse", {}, {"base": "pipeline_all"}),
-    "nw_sr8": ("reuse", {"reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr8b": ("reuse", {"reading": 8}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr16": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr16b": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr16c": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr16d": ("reuse", {"reading": 16}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr24": ("reuse", {"reading": 24}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_sr24b": ("reuse", {"reading": 24}, {"base": "pipeline_all", "draft_model": "glm-5.3"}),
-    "nw_r16": ("reuse", {"reading": 16}, {"base": "pipeline_all"}),     # flash 起草 + 原文阅读 16 句
-    "nw_r16b": ("reuse", {"reading": 16}, {"base": "pipeline_all"}),
-    # 全集用：以默认配置的 pipeline 为 base（默认指针式作答选项），候选改进只重跑作答
-    "def_rep": ("reuse", {}, {"base": "pipeline"}),
-    "def_read": ("reuse", {"reading": 8}, {"base": "pipeline"}),
-    "def_strong": ("reuse", {}, {"base": "pipeline", "draft_model": "glm-5.3"}),
-    "def_strong_read": ("reuse", {"reading": 8}, {"base": "pipeline", "draft_model": "glm-5.3"}),
-    "def_rep2": ("reuse", {}, {"base": "pipeline"}),
-    "def_read16": ("reuse", {"reading": 16}, {"base": "pipeline"}),
-    "def_read16b": ("reuse", {"reading": 16}, {"base": "pipeline"}),
-    "def_noread": ("reuse", {"reading": 0}, {"base": "pipeline"}),     # 默认改为读 16 句后的“改动前”对照
-    "def_noread2": ("reuse", {"reading": 0}, {"base": "pipeline"}),
-    # v9.16.2 起默认不读原文：同时段对照（def_now ×2）对两份草稿合并（merge2 ×2），--recall-from 复用全集的召回
-    # （E22 时 def_now 为单份草稿；v9.16.6 起默认 drafts=2，def_now 即两份合并，单份对照用 single 组）
+    "pipeline_web": ("pipeline", {"web_search": "scopus"}),
+    "pipeline_noexpand": ("pipeline", {}, {"loop": {"expand_layers": 0}}),     # 只检索不展开：PaSa 式展开的贡献
+    "pipeline_strict": ("pipeline", {}, {"loop": {"min_label": 2}}),            # 只收直接相关（判定 2）
+    "pipeline_draft": ("draft_of", {}, {"base": "pipeline"}),
+    "reuse": ("reuse", {}, {"base": "pipeline"}),
+    "reuse2": ("reuse", {}, {"base": "pipeline"}),
     "single": ("reuse", {"drafts": 1}, {"base": "pipeline"}),
-    # 低分题（E25）：补摘要 + 参考文献回溯（只从早于题目日期的论文回溯）
-    "fix": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
-    "fix2": ("reuse", {"abstract_backfill": True, "ref_chase": 15}, {"base": "pipeline"}),
-    # 召回到位的低分题（E26）：两份合并（v9.16.6 默认）+ 原文阅读 16 句
-    "read_m": ("reuse", {"reading": 16}, {"base": "pipeline"}),
-    "read_m2": ("reuse", {"reading": 16}, {"base": "pipeline"}),
-    # E27 召回修复后重测（2×2：旧召回/新召回 × 不读/读原文），--recall-from 把 E21 的 pipeline 记为 pipeline_e21
-    "pipeline_e21": ("pipeline", {}),
-    "pipeline_v917": ("pipeline", {}, {"ref_chase": 20}),
-    "old_def": ("reuse", {}, {"base": "pipeline_e21"}),
-    "old_read": ("reuse", {"reading": 16}, {"base": "pipeline_e21"}),
-    "new_def": ("reuse", {}, {"base": "pipeline_v917"}),
-    "new_read": ("reuse", {"reading": 16}, {"base": "pipeline_v917"}),
-    # E28 发表时间截断后的基线（同一批召回：不截断 / 常规档 / 严格档，作答均为 v9.16.6 默认）
-    "tm_none": ("reuse", {}, {"base": "pipeline"}),
+    "no_supp": ("reuse", {}, {"base": "pipeline", "no_mirror": True}),
+    "strong_draft": ("reuse", {}, {"base": "pipeline", "draft_model": "glm-5.3"}),
     "tm_regular": ("reuse", {}, {"base": "pipeline", "time_machine": "regular"}),
     "tm_strict": ("reuse", {}, {"base": "pipeline", "time_machine": "strict"}),
-    # E29 作答阶段补检的噪声（E28：严格档挡住补检后草稿保留 49% → 74%、覆盖 +0.038）
-    "no_supp": ("reuse", {}, {"base": "pipeline", "no_mirror": True}),
-    "no_supp2": ("reuse", {}, {"base": "pipeline", "no_mirror": True}),
-    "lean": ("reuse", {"new_papers": 20, "claim_search": 1}, {"base": "pipeline"}),
-    "lean2": ("reuse", {"new_papers": 20, "claim_search": 1}, {"base": "pipeline"}),
-    "merge3": ("reuse", {"drafts": 3}, {"base": "pipeline"}),     # 三份草稿合并（对 v9.16.6 默认两份）
-    "merge3b": ("reuse", {"drafts": 3}, {"base": "pipeline"}),
-    "def_now": ("reuse", {}, {"base": "pipeline"}),
-    "def_now2": ("reuse", {}, {"base": "pipeline"}),
-    "merge2": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
-    "merge2b": ("reuse", {"drafts": 2}, {"base": "pipeline"}),
-    "mergeb": ("reuse", {"drafts": 2, "merge_mode": "base"}, {"base": "pipeline"}),   # 以第一份为主体补入
-    "mergeb2": ("reuse", {"drafts": 2, "merge_mode": "base"}, {"base": "pipeline"}),
-    "ctx_mark": ("reuse", {**_FT, "web_search": "scopus", "draft_context": 15, "final_mode": "mark"},
-                 {"base": "pipeline_all"}),
 }
-ARMS = ("bare", "agent", "pipeline", "pipeline_ft")   # 默认组
+ARMS = ("bare", "agent", "pipeline")   # 默认组
 
 # 与 CS 直接相关的领域：非 CS 组整体排除，CS 对照组只从这里抽
 CS_FIELDS = frozenset({"Artificial Intelligence", "Natural Language Processing",
@@ -256,7 +178,7 @@ def recall_seed(records: list[dict], picked: list[dict], arms: list[str], name: 
     return out
 
 
-RECALL_ALIAS = {"pipeline_e21": "pipeline"}   # 复用召回时本次组名 → 来源结果里的组名
+RECALL_ALIAS: dict[str, str] = {}   # 复用召回时本次组名 → 来源结果里的组名（组名改过时用）
 
 
 async def scopus_remaining() -> int | None:
@@ -427,11 +349,12 @@ def _ledger_lines(summary: dict) -> list[str]:
 async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_dir: Path, engine, mirror,
                   base_saved: str | None = None) -> dict:
     """一组作答，返回 {response, status, ...}；失败抛异常由调用方记录。"""
-    from backend.eval import explore_eval
+    from backend.eval import system_arm
     from backend.eval.scholarqa_cs import _BASELINE_SYSTEM, make_llm_json
-    from backend.services.deep_research.answer_agent import RECOMMENDED, write_with_pointers
     from backend.services.deep_research.answer_writer import render_answer
     from backend.services.deep_research.domain_synthesizer import _llm_json
+    from backend.services.deep_research.loop.answer import write_answer
+    from backend.services.deep_research.loop.config import ANSWER_DEFAULTS
 
     query = item["query"]
     mode, extra, *rest = ARM_SPECS[arm]
@@ -456,12 +379,9 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
                 raise RuntimeError(f"复用召回：{run_opts.get('base')} 组没有可用结果")
             papers = json.loads(Path(base_saved).read_text(encoding="utf-8"))["result"].get("papers") or []
         paper_filter = _time_filter(item, run_opts)
-        if paper_filter is not None:   # 发表时间截断：复用的召回先过滤，作答阶段的补检也走同一个过滤器
+        if paper_filter is not None:   # 发表时间截断：复用的论文先过滤，作答阶段的补检也走同一个过滤器
             papers = [p for p in papers if paper_filter(p)]
-        opts = {**RECOMMENDED, **extra}
-        if opts.get("ref_chase"):   # 只从早于题目日期（出题综述发表时间）的论文回溯参考文献，防止拿到出题来源
-            opts["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
-        web = ScopusSearch() if opts.pop("web_search", None) == "scopus" else None
+        web = ScopusSearch() if extra.get("web_search") == "scopus" else None
         draft_json = None
         if run_opts.get("draft_model"):
             from backend.eval.scholarqa_cs import judge_cfg
@@ -470,31 +390,29 @@ async def _answer(arm: str, item: dict, *, system_cfg: dict, depth: str, runs_di
 
             async def draft_json(system: str, user: str) -> dict:
                 return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
-        answer = await write_with_pointers(query, papers, llm_json=answer_json,
-                                           mirror=None if run_opts.get("no_mirror") else mirror, web_search=web,
-                                           draft_json=draft_json, paper_filter=paper_filter, **opts)
+        opts = {**ANSWER_DEFAULTS, **{k: v for k, v in extra.items() if k in ANSWER_DEFAULTS}}
+        answer = await write_answer(query, papers, llm_json=answer_json,
+                                    mirror=None if run_opts.get("no_mirror") else mirror, web_search=web,
+                                    draft_json=draft_json, paper_filter=paper_filter, **opts)
         save.write_text(json.dumps({"result": {"answer": answer}}, ensure_ascii=False), encoding="utf-8")
     else:
-        options = {"answer_only": True, "answer_writer": "agent", **run_opts,
-                   **({"answer_agent": extra} if extra else {})}
-        if options.get("ref_chase"):   # 召回阶段参考文献回溯只用早于题目日期的种子（出题综述及其后的论文不作种子）
-            options["chase_before_year"] = int(str(item.get("date") or "9999")[:4])
-        if options.get("time_machine"):
+        options = {**({"answer": extra} if extra else {}), **({"loop": run_opts["loop"]} if run_opts.get("loop") else {})}
+        if run_opts.get("time_machine"):
             from backend.services.deep_research.time_machine import question_year
-            options["question_year"] = question_year(item.get("date"))
-        sysrec = await explore_eval.run_system_arm(query, depth, save_as=save, engine=engine, options=options)
+            options.update(time_machine=run_opts["time_machine"], question_year=question_year(item.get("date")))
+        sysrec = await system_arm.run_system_arm(query, depth, save_as=save, engine=engine, options=options)
         if sysrec.get("error"):
             raise RuntimeError(sysrec["error"])
         answer = json.loads(save.read_text(encoding="utf-8"))["result"].get("answer") or {}
     ag = answer.get("agent") or {}
     return {"response": render_answer(answer), "status": answer.get("status"), "check": answer.get("check"),
             "materials": answer.get("materials"), "saved": str(save), "full_text": ag.get("full_text"),
-            "found": {k: ag.get(k) for k in ("recall_papers", "works_found", "works_web_found", "search_added",
+            "found": {k: ag.get(k) for k in ("recall_papers", "works_found", "search_added",
                                               "question_search_added", "claim_search_added")}}
 
 
 async def run(args) -> Path:
-    from backend.eval import explore_eval
+    from backend.eval import system_arm
     from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
     from backend.eval.scholarqa_cs import disable_openalex
     from backend.services.deep_research.arxiv_mirror import default_mirror
@@ -627,7 +545,7 @@ async def run(args) -> Path:
                 print(f"      {a} 出错：{rec['arms'][a]['error'][:160]}", flush=True)
         save()
 
-    with explore_eval.shared_engine() as engine:
+    with system_arm.shared_engine() as engine:
         await asyncio.gather(*(worker(x, engine) for x in picked))
     records = [done[x["id"]] for x in picked if x["id"] in done]
     meta["wall_min"] = round(meta.get("wall_min", 0) + (time.monotonic() - started) / 60, 1)
@@ -745,12 +663,14 @@ def citation_targets(item: dict) -> list[str]:
 
 
 async def recall_check(args) -> Path:
-    """只跑召回阶段（不作答、不打分）：同一题各配置同时段跑召回引擎，看细则要引用的文献是否进入最终论文、
-    论文带摘要的比例。检索式沿用 --queries-from 那次结果里保存的（E21 全集），只比较召回引擎本身。"""
+    """只跑检索与展开（不作答、不打分）：同一题各配置同时段跑单循环，看细则要引用的文献是否被选中、
+    候选里有没有（区分“没搜到”与“搜到了被 Selector 判掉”）。检索式沿用 --queries-from 那次结果里保存的，
+    只比较循环本身（展开、判定）。--variant 名称=JSON 覆盖 loop/config.py 的参数。"""
     from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
     from backend.eval.scholarqa_cs import disable_openalex
     from backend.services.deep_research.evidence_search import title_key
-    from backend.services.deep_research.recall_engine import LISTWISE_TOP, run_target_recall
+    from backend.services.deep_research.loop.config import config_for
+    from backend.services.deep_research.loop.runner import LoopState, ResearchLoop
     from backend.services.deep_research.reranker import rerank_scores
     from backend.services.llm import start_token_ledger, token_ledger_report
 
@@ -769,29 +689,32 @@ async def recall_check(args) -> Path:
     log = ledger.open_log(out)
     meta = {"n": len(picked), "variants": variants, "queries_from": args.queries_from, "label": args.label,
             "system_model": system_cfg.get("model"), "provenance": ledger.provenance(out)}
-    watch = QuotaWatch.install()
+    QuotaWatch.install()
     gate = asyncio.Semaphore(max(1, args.concurrency))
     records = []
 
     async def one(item: dict, name: str, kw: dict) -> dict:
         saved = json.loads(Path(src[item["id"]]["arms"]["pipeline"]["saved"]).read_text(encoding="utf-8"))["result"]
-        queries = (saved.get("decompose") or {}).get("en_queries") or [item["query"]]
-        year = int(str(item.get("date") or "9999")[:4])
+        queries = saved.get("queries") or [item["query"]]
         scope, tokens, t0 = QuotaWatch.scope(), start_token_ledger(), time.monotonic()
+        loop = ResearchLoop(item["query"], config_for(args.depth, kw), llm_cfg=system_cfg,
+                            state=LoopState(seeded=True, queries_todo=list(queries)), rerank=rerank_scores,
+                            paper_filter=_time_filter(item, kw))
         try:
-            papers, audit = await run_target_recall(
-                item["query"], queries, depth=args.depth, now_year=datetime.now().year, llm_cfg=system_cfg,
-                sources=("arxiv", "scopus"), rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP,
-                chase_before_year=year, **kw)
+            chosen = await loop.crawl()
         except Exception as exc:  # noqa: BLE001
             return {"error": f"{type(exc).__name__}: {exc}"[:300]}
-        have = {title_key(p.get("title") or "") for p in papers}
+        have = {title_key(p.get("title") or "") for p in chosen}
+        pool = {title_key(p.get("title") or "") for p in loop.state.papers.values()}
         targets = citation_targets(item)
-        hits = [t for t in targets if title_key(t) in have]
-        return {"papers": len(papers), "with_abstract": sum(1 for p in papers if (p.get("abstract") or "").strip()),
-                "targets": len(targets), "hits": hits, "ref_chase": audit.get("ref_chase"),
-                "abstract_backfill": audit.get("abstract_backfill"), "rate_limited": bool(scope["hits"]),
-                "tokens": token_ledger_report(tokens), "wall_s": round(time.monotonic() - t0, 1)}
+        crawl = loop.crawl_report()
+        return {"papers": len(chosen), "candidates": len(loop.state.papers),
+                "with_abstract": sum(1 for p in chosen if (p.get("abstract") or "").strip()),
+                "targets": len(targets), "hits": [t for t in targets if title_key(t) in have],
+                "in_pool": [t for t in targets if title_key(t) in pool],
+                "selector": crawl["selector"], "crawler": crawl["crawler"], "by_origin": crawl["by_origin"],
+                "rate_limited": bool(scope["hits"]), "tokens": token_ledger_report(tokens),
+                "wall_s": round(time.monotonic() - t0, 1)}
 
     async def worker(item: dict) -> None:
         async with gate:
@@ -800,23 +723,29 @@ async def recall_check(args) -> Path:
                "variants": dict(zip(variants, res))}
         records.append(rec)
         print(f"[{len(records)}/{len(picked)}] {item['field']}：{item['query'][:60]}\n    → " + "  ".join(
-            f"{n}: 论文 {v.get('papers')}，带摘要 {v.get('with_abstract')}，命中 {len(v.get('hits') or [])}/{v.get('targets')}"
-            + ("（限流）" if v.get("rate_limited") else "") for n, v in rec["variants"].items()), flush=True)
+            f"{n}: 选中 {v.get('papers')}/{v.get('candidates')}，命中 {len(v.get('hits') or [])}/{v.get('targets')}"
+            f"（候选里 {len(v.get('in_pool') or [])}）" + ("（限流）" if v.get("rate_limited") else "")
+            for n, v in rec["variants"].items()), flush=True)
 
     await asyncio.gather(*(worker(x) for x in picked))
     summary = {}
     for n in variants:
         rows = [r["variants"][n] for r in records if "papers" in r["variants"][n]]
         summary[n] = {"questions": len(rows), "papers": sum(r["papers"] for r in rows),
-                      "abstract_share": round(sum(r["with_abstract"] for r in rows) / max(1, sum(r["papers"] for r in rows)), 3),
-                      "target_hits": sum(len(r["hits"]) for r in rows), "targets": sum(r["targets"] for r in rows)}
+                      "candidates": sum(r["candidates"] for r in rows),
+                      "target_hits": sum(len(r["hits"]) for r in rows),
+                      "target_in_pool": sum(len(r["in_pool"]) for r in rows),
+                      "targets": sum(r["targets"] for r in rows),
+                      "llm_calls": sum((r.get("selector") or {}).get("llm_calls", 0)
+                                       + (r.get("crawler") or {}).get("llm_calls", 0) for r in rows)}
     meta["scopus_cache"] = _scopus_cache_stats()
     report = {"meta": meta, "summary": summary, "records": records}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False), flush=True)
     ledger.record_metrics(out, report, benchmark="researchqa_recall",
-                          lines=[f"- {n}：{v['questions']} 题，论文 {v['papers']} 篇，带摘要 {v['abstract_share']:.0%}，"
-                                 f"细则所引文献命中 {v['target_hits']}/{v['targets']}" for n, v in summary.items()])
+                          lines=[f"- {n}：{v['questions']} 题，选中 {v['papers']}/{v['candidates']} 篇，"
+                                 f"细则所引文献选中 {v['target_hits']}/{v['targets']}（候选里 {v['target_in_pool']}），"
+                                 f"模型调用 {v['llm_calls']}" for n, v in summary.items()])
     log.close()
     return out
 
@@ -889,7 +818,7 @@ def main() -> None:
     rc.add_argument("--seed", type=int, default=0)
     rc.add_argument("--subset", type=int, default=0)
     rc.add_argument("--ids", nargs="+", default=[])
-    rc.add_argument("--variant", action="append", default=[], help='与 base 同时段对比的召回配置，如 chase=\'{"ref_chase": 20}\'')
+    rc.add_argument("--variant", action="append", default=[], help='与 base 同时段对比的循环配置，如 noexp=\'{"expand_layers": 0}\'')
     rc.add_argument("--depth", default="quick")
     rc.add_argument("--thinking-effort", default="off")
     rc.add_argument("--model", default="")

@@ -181,7 +181,7 @@ def set_usage_recorder(recorder: Any) -> None:
 # ── 运行级预算与 deadline（计划 §16.6 P2）────────────────────────────────────
 # deadline：单调时钟绝对时刻；重试退避与排队等待都被钳制在该时刻前，超时抛
 # 不可重试的 BUDGET_DEADLINE。budget：带 before_model_attempt/after_model_attempt
-# 钩子的账本（services/deep_research/run_budget.py），缺方法时零开销。
+# 钩子的账本（目前研究循环不注入预算对象），缺方法时零开销。
 _deadline_var: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
 _budget_var: ContextVar[Any] = ContextVar("llm_budget", default=None)
 

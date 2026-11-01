@@ -82,43 +82,6 @@ def test_key_resolution_and_masking(monkeypatch):
     assert masked["research"]["openalex_api_key"] == "***1234"
 
 
-def test_abstract_backfill_falls_back_to_semantic_scholar(monkeypatch):
-    from backend.services import semantic_scholar
-    from backend.services.deep_research import recall_engine
-
-    async def openalex_down(self, dois):
-        raise OpenAlexQuotaExhausted("budget", request=httpx.Request("GET", "https://x"),
-                                     response=httpx.Response(429))
-
-    async def openalex_partial(self, dois):
-        return {"10.1/a": "from openalex"}
-
-    asked = []
-
-    async def s2(dois):
-        asked.append(list(dois))
-        return {d: f"s2 {d}" for d in dois if d != "10.1/none"}
-
-    crossref_asked = []
-
-    async def crossref(dois):
-        crossref_asked.append(list(dois))
-        return {"10.1/c": "from crossref"} if "10.1/c" in dois else {}
-
-    from backend.services.deep_research import crossref_client
-
-    monkeypatch.setattr(crossref_client, "get_abstracts_by_dois", crossref)
-    monkeypatch.setattr(semantic_scholar, "get_abstracts_by_dois", s2)
-    monkeypatch.setattr(OpenAlexProvider, "get_abstracts_by_dois", openalex_down)
-    out = asyncio.run(recall_engine._default_backfill(["10.1/a", "10.1/b", "10.1/none"]))
-    assert out == {"10.1/a": "s2 10.1/a", "10.1/b": "s2 10.1/b"}
-    # OpenAlex 已补到的 DOI 不再查 Crossref / S2；Crossref 补到的不再查 S2
-    monkeypatch.setattr(OpenAlexProvider, "get_abstracts_by_dois", openalex_partial)
-    out = asyncio.run(recall_engine._default_backfill(["10.1/A", "10.1/b", "10.1/c"]))
-    assert crossref_asked[-1] == ["10.1/b", "10.1/c"] and asked[-1] == ["10.1/b"]
-    assert out["10.1/a"] == "from openalex" and out["10.1/c"] == "from crossref"
-
-
 def test_crossref_abstracts_strip_jats(monkeypatch):
     from backend.services.deep_research import crossref_client
 

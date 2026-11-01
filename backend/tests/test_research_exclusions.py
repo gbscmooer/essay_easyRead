@@ -48,22 +48,6 @@ async def test_excluded_pdf_never_reaches_network(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_report_cannot_extract_excluded_paper(monkeypatch):
-    from backend.services.deep_research import survey_report as sr
-    llm = AsyncMock()
-    monkeypatch.setattr(sr, "_llm_json", llm)
-    token = active_exclusions.set({"exclusions": {"arxiv_ids": ["2312.10997"]}})
-    try:
-        report = await sr.build_survey_report("q", [{"key": "arxiv:2312.10997", "abstract": "hidden"}],
-                                              {}, None, {"api_key": "test"}, fetch_full_text=True)
-        llm.assert_not_awaited()
-        assert report["coverage"]["corpus"] == 0
-        assert report["references"] == []
-    finally:
-        active_exclusions.reset(token)
-
-
-@pytest.mark.asyncio
 async def test_resilient_get_blocks_excluded_redirect(monkeypatch):
     token = active_exclusions.set({"exclusions": {"arxiv_ids": ["2312.10997"]}})
     try:

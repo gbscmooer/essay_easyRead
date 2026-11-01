@@ -222,8 +222,7 @@ def account_source_request() -> None:
     if budget is None or not hasattr(budget, "reserve"):
         return
     if not budget.reserve("source_requests", 1.0):
-        from .deep_research.run_budget import BudgetExhausted
-        raise BudgetExhausted("source_requests", 0.0)
+        raise RuntimeError("预算已用尽：source_requests")
     budget.settle("source_requests", 1.0, 1.0)
 
 

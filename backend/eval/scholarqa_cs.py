@@ -261,7 +261,7 @@ _BASELINE_SYSTEM = ("You are a scientific assistant. Answer from your own knowle
 
 
 async def run(args) -> Path:
-    from backend.eval import explore_eval
+    from backend.eval import system_arm
     from backend.eval.public_benchmarks import _llm_cfg
     from backend.services.deep_research.answer_writer import render_answer
     from backend.services.llm import model_limiter_stats
@@ -280,7 +280,7 @@ async def run(args) -> Path:
     meta = {"depth": args.depth, "seed": args.seed, "n": len(picked), "exclude_seed": args.exclude_seed, "system_model": system_cfg.get("model"),
             "judge_model": args.judge_model, "claims_model": args.claims_model or args.judge_model, "openalex": args.use_openalex, "started": stamp,
             "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"), "label": args.label,
-            "concurrency": args.concurrency, "answer_only": args.answer_only, "answer_writer": args.answer_writer,
+            "concurrency": args.concurrency, "loop": json.loads(args.loop) if args.loop else None,
             "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
     from backend.eval.public_benchmarks import QuotaWatch
@@ -288,8 +288,7 @@ async def run(args) -> Path:
     watch = QuotaWatch.install()
     done: dict[int, dict] = {}
     gate = asyncio.Semaphore(max(1, args.concurrency))
-    options = {"answer_only": True} if args.answer_only else {}
-    options["answer_writer"] = args.answer_writer   # 显式写入：流程默认值变化不影响评测口径
+    options = {"loop": json.loads(args.loop)} if args.loop else {}
 
     async def one(i: int, case: dict, engine) -> dict:
         """单题：系统作答 + 评委打分。返回 (记录, 本题限流计数)。"""
@@ -298,8 +297,8 @@ async def run(args) -> Path:
         t0 = time.monotonic()
         try:
             save = runs_dir / f"q{i:03d}.json"
-            sysrec = await explore_eval.run_system_arm(case["question"], args.depth, save_as=save,
-                                                       options=options, engine=engine)
+            sysrec = await system_arm.run_system_arm(case["question"], args.depth, save_as=save,
+                                                     options=options, engine=engine)
             if sysrec.get("error"):
                 # 流程失败（如检索规划阶段模型调用失败）：不是“答案得 0 分”，记为出错
                 raise RuntimeError(sysrec["error"])
@@ -308,7 +307,8 @@ async def run(args) -> Path:
             response = render_answer(answer)
             rec["system"] = {"status": answer.get("status"), "response": response, "words": len(response.split()),
                              "check": answer.get("check"), "materials": answer.get("materials"),
-                             "corpus": sysrec.get("total"), "run_error": sysrec.get("error"),
+                             "corpus": sysrec.get("total"), "candidates": sysrec.get("candidates"),
+                             "tokens": sysrec.get("tokens"), "run_error": sysrec.get("error"),
                              "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
             if response.strip():
                 try:
@@ -359,7 +359,7 @@ async def run(args) -> Path:
                                   ensure_ascii=False, indent=1), encoding="utf-8")
 
     started = time.monotonic()
-    with explore_eval.shared_engine() as engine:
+    with system_arm.shared_engine() as engine:
         await asyncio.gather(*(worker(i, case, engine) for i, case in enumerate(picked, 1)))
     records = [done[k] for k in sorted(done)]
     meta["wall_min"] = round((time.monotonic() - started) / 60, 1)
@@ -498,183 +498,14 @@ async def resplit(args) -> Path:
     return out
 
 
-async def rerender(args) -> None:
-    """用保存的运行记录按当前 answer_writer 重建参考文献（正文不变、不重跑系统），写新文件待重新打分。"""
-    from backend.services.deep_research import answer_writer as aw
-
-    src = Path(args.file)
-    data = json.loads(src.read_text(encoding="utf-8"))
-    changed = 0
-    for rec in data["records"]:
-        row = rec.get("system") or {}
-        saved = row.get("saved")
-        if not saved or not Path(saved).exists():
-            continue
-        result = json.loads(Path(saved).read_text(encoding="utf-8"))["result"]
-        answer = result.get("answer") or {}
-        if not answer.get("text") or not answer.get("references"):
-            continue
-        records = ((result.get("report_extract") or {}).get("evidence_store") or {}).get("records") or []
-        materials = aw.assemble_materials(result.get("papers") or [], records, answer.get("gap_papers"),
-                                          limit=answer.get("material_limit") or aw.MAX_MATERIALS)
-        refs = aw._references(answer["text"], materials)
-        old = {r["n"]: r["key"] for r in answer["references"]}
-        if {r["n"]: r["key"] for r in refs} != old:
-            print(f"跳过（编号对不上）：{rec['question'][:60]}", flush=True)
-            continue
-        response = aw.render_answer({**answer, "references": refs})
-        if response != row.get("response"):
-            row.update(response=response, words=len(response.split()), scores=[], rerendered=True)
-            changed += 1
-    out = src.with_name(src.stem + "_rerender.json")
-    out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"重建 {changed} 题 → {out}（再用 judge 子命令打分）", flush=True)
-
-
-async def rewrite(args) -> Path:
-    """复用保存的召回与阅读结果，按当前 answer_writer 重新规划要点、补检索、写答案并打分。
-
-    只隔离答案环节的改动（召回不重跑，单题约 2~3 分钟）；补检索走 arXiv 源（ARXIV_MIRROR 控制是否用本地镜像）。
-    """
-    from backend.eval.public_benchmarks import _llm_cfg
-    from backend.services.deep_research import answer_writer as aw
-    from backend.services.deep_research.answer_agent import write_with_pointers
-    from backend.services.deep_research.answer_writer import render_answer, write_answer
-    from backend.services.deep_research.arxiv_mirror import default_mirror
-    from backend.services.deep_research.explorer import gap_search
-
-    src = Path(args.file)
-    data = json.loads(src.read_text(encoding="utf-8"))
-    configs = {c["question"]: c["configs"] for c in load_cases()}
-    from backend.services.deep_research.domain_synthesizer import _llm_json
-
-    system_cfg = _llm_cfg(args.thinking_effort, args.model)
-
-    async def answer_json(system: str, user: str) -> dict:   # 与 explorer 中的调用方式一致
-        return await _llm_json(system_cfg, system, user, max_tokens=6000)
-
-    async def plan_json(system: str, user: str) -> dict:
-        return await _llm_json(system_cfg, system, user, max_tokens=2000)
-
-    async def draft_json(system: str, user: str) -> dict:   # 起草可单独开思考（思考 token 计入输出，预算放大）
-        return await _llm_json(system_cfg, system, user, max_tokens=16000, thinking_effort=args.draft_thinking)
-
-    judge = make_judge(args)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = src.with_name(f"{src.stem}_rewrite_{stamp}.json")
-    runs_dir = src.with_name(f"{src.stem}_rewrite_{stamp}_runs")
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    meta = {**data.get("meta", {}), "rewrite_of": str(src), "rewritten": stamp, "label": args.label,
-            "plan": not args.no_plan, "gap": not (args.no_gap or args.no_plan), "arxiv_mirror": os.environ.get("ARXIV_MIRROR", "auto"),
-            "materials": args.materials, "quotes": args.quotes, "writer": args.writer, "agent_fetch": args.agent_fetch, "agent_pool": args.agent_pool,
-            "agent_draft_titles": args.agent_draft_titles, "agent_claim_search": args.agent_claim_search,
-            "agent_final": args.agent_final, "agent_followup": args.agent_followup,
-            "draft_thinking": args.draft_thinking,
-            "provenance": ledger.provenance(out)}
-    log = ledger.open_log(out)
-    from backend.eval.public_benchmarks import QuotaWatch
-
-    watch = QuotaWatch.install()
-    mirror = default_mirror() if args.writer == "agent" else None
-    total = len(data["records"])
-    done: list[dict | None] = [None] * total
-    sem = asyncio.Semaphore(max(1, args.concurrency))
-
-    async def one(i: int, rec: dict) -> None:
-        row = rec.get("system") or {}
-        saved = row.get("saved")
-        if not saved or not Path(saved).exists():
-            done[i] = rec
-            return
-        async def attempt() -> tuple[dict, dict]:
-            scope = QuotaWatch.scope()   # 本任务内的限流单独计数（并发时不串题）
-            blob = json.loads(Path(saved).read_text(encoding="utf-8"))
-            result = blob["result"]
-            evidence = ((result.get("report_extract") or {}).get("evidence_store") or {}).get("records") or []
-            t0 = time.monotonic()
-            try:
-                if args.writer == "agent":    # 指针式作答：起草 → 工具按论断检索原文句 → 引用指针定稿
-                    pool = (result.get("papers") or []) if args.agent_pool == "recall" else []
-                    answer = await write_with_pointers(rec["question"], pool, llm_json=answer_json, mirror=mirror,
-                                                       fetch_full_text=args.agent_fetch,
-                                                       draft_titles=args.agent_draft_titles,
-                                                       claim_search=args.agent_claim_search,
-                                                       final_mode=args.agent_final,
-                                                       followup=args.agent_followup,
-                                                       draft_json=draft_json if args.draft_thinking != "off" else None)
-                elif args.writer == "memory":   # 对照：同一写作要求，不给材料，只凭模型知识
-                    lang = aw.question_language(rec["question"])
-                    data_ = await (draft_json if args.draft_thinking != "off" else answer_json)(
-                        aw._KNOWLEDGE_SYSTEM, aw._user_prompt(rec["question"], [], lang, knowledge=True))
-                    answer = {"status": "ok", "language": lang, "references": [], "materials": 0,
-                              "text": str((data_ or {}).get("answer") or "").strip(), "writer": "memory"}
-                else:
-                    answer = await write_answer(rec["question"], result.get("papers") or [], evidence,
-                                                llm_json=answer_json, plan_json=None if args.no_plan else plan_json,
-                                                search_more=None if args.no_gap or args.no_plan else gap_search,
-                                                aspect_quotes=args.quotes in ("pre", "both"),
-                                                verify_json=plan_json if args.quotes in ("verify", "both") else None,
-                                                knowledge=args.writer == "knowledge",
-                                                **({"material_limit": args.materials} if args.materials else {}))
-                response = render_answer(answer)
-                result["answer"] = answer
-                save = runs_dir / Path(saved).name
-                save.write_text(json.dumps(blob, ensure_ascii=False), encoding="utf-8")
-                new = {"status": answer.get("status"), "response": response, "words": len(response.split()),
-                       "check": answer.get("check"), "materials": answer.get("materials"),
-                       "gap_retrieval": answer.get("gap_retrieval"), "corpus": row.get("corpus"),
-                       "aspect_quotes": answer.get("aspect_quotes"), "agent": answer.get("agent"),
-                       "verification": {k: v for k, v in (answer.get("verification") or {}).items()
-                                        if k != "unsupported"} or None,
-                       "wall_s": round(time.monotonic() - t0, 1), "saved": str(save)}
-                if response.strip():
-                    new["scores"] = await judge.score_all(configs[rec["question"]], response)
-            except Exception as exc:  # noqa: BLE001 —— 单题失败记录在案
-                new = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-            return new, scope
-
-        for n_try in range(QuotaWatch.MAX_RETRIES + 1):
-            async with sem:
-                new, scope = await attempt()
-            limited = scope["hits"] or "RATE_LIMITED" in str(new.get("error") or "")
-            if limited:
-                watch.note(str(new.get("error") or "") + " " + str(scope.get("sample") or ""))
-            if limited and n_try < QuotaWatch.MAX_RETRIES:
-                # 限流期间写作与评分会降级，本题结果不可信：丢弃、等额度重置后重跑
-                print(f"[{i + 1}] ⚠ 模型限流，丢弃本题结果（{(scope['sample'] or new.get('error') or '')[:120]}）",
-                      flush=True)
-                await watch.wait_for_reset()
-                continue
-            break
-        new["attempts"] = n_try + 1
-        if scope["hits"]:
-            new["rate_limited"] = str(scope["sample"])[:300]
-        done[i] = {**rec, "system": new}
-        s = (new.get("scores") or [{}])[0]
-        print(f"[{i + 1}/{total}] {rec['question'][:80]}\n    → 系统 {s.get('score')}（细则 {s.get('ann_score')}，"
-              f"{new.get('words')} 词，{new.get('status') or new.get('error')}，"
-              f"补检索 {(new.get('gap_retrieval') or {}).get('added')}）", flush=True)
-        out.write_text(json.dumps({"meta": meta, "partial": True, "records": [r for r in done if r]},
-                                  ensure_ascii=False, indent=1), encoding="utf-8")
-
-    await asyncio.gather(*(one(i, rec) for i, rec in enumerate(data["records"])))
-    records = [r for r in done if r]
-    report = {"meta": meta, "summary": {"system": summarize(records, "system"), "baseline": None},
-              "records": records}
-    out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(json.dumps(report["summary"], ensure_ascii=False), flush=True)
-    ledger.record(out, report)
-    log.close()
-    return out
-
-
 async def run_agent(args) -> Path:
     """指针式作答独立运行：不走召回流程，按题起草 → 本地镜像检索原文句（可补 arXiv 全文）→ 引用指针定稿，再打分。"""
     from backend.eval.public_benchmarks import QuotaWatch, _llm_cfg
-    from backend.services.deep_research.answer_agent import RECOMMENDED, write_with_pointers
     from backend.services.deep_research.answer_writer import render_answer
     from backend.services.deep_research.arxiv_mirror import default_mirror
     from backend.services.deep_research.domain_synthesizer import _llm_json
+    from backend.services.deep_research.loop.answer import write_answer
+    from backend.services.deep_research.loop.config import ANSWER_DEFAULTS
     from backend.services.llm import model_limiter_stats, start_token_ledger, token_ledger_report
 
     disable_openalex()
@@ -698,17 +529,10 @@ async def run_agent(args) -> Path:
     out = OUT_DIR / f"scholarqa_cs_agent_{stamp}.json"
     runs_dir = OUT_DIR / f"scholarqa_cs_agent_{stamp}_runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    settings = {**RECOMMENDED, **({"final_mode": args.final} if args.final else {}),
-                **({"followup": args.followup} if args.followup is not None else {}),
-                **({"reading": args.reading} if args.reading is not None else {}),
+    settings = {**ANSWER_DEFAULTS,
                 **({"question_search": args.question_search} if args.question_search is not None else {}),
-                **({"opening": True} if args.opening else {}),
-                **({"paper_reading": args.paper_reading} if args.paper_reading is not None else {}),
-                **({"paper_reader": args.paper_reader} if args.paper_reader else {}),
-                **({"paper_notes": args.paper_notes == "on"} if args.paper_notes else {}),
-                **({"missing_fix": args.missing_fix} if args.missing_fix else {}),
-                **({"paper_use": args.paper_use} if args.paper_use else {}),
-                **({"claim_map": args.claim_map} if args.claim_map else {}),
+                **({"claim_search": args.claim_search} if args.claim_search is not None else {}),
+                **({"drafts": args.drafts} if args.drafts is not None else {}),
                 **({"fetch_full_text": args.fetch} if args.fetch is not None else {})}
     # --draft-from：沿用另一次运行保存的草稿（含 works/queries），只重跑检索与定稿——
     # 固定草稿后，两次运行的差别只来自证据环节与定稿，不混入起草的波动
@@ -728,8 +552,8 @@ async def run_agent(args) -> Path:
             "draft_model": args.draft_model or None,
             "system_model": system_cfg.get("model"), "judge_model": args.judge_model,
             "claims_model": args.claims_model or args.judge_model, "started": stamp,
-            "label": args.label, "concurrency": args.concurrency, "answer_only": True, "answer_writer": "agent",
-            "agent_only": True, "agent": settings, "provenance": ledger.provenance(out)}
+            "label": args.label, "concurrency": args.concurrency, "agent_only": True, "agent": settings,
+            "provenance": ledger.provenance(out)}
     log = ledger.open_log(out)
     watch = QuotaWatch.install()
     mirror = default_mirror()
@@ -759,9 +583,9 @@ async def run_agent(args) -> Path:
                 # 只把起草换成另一个模型（其余步骤仍用系统模型）
                 async def draft_json(system: str, user: str) -> dict:
                     return await _llm_json(draft_cfg, system, user, max_tokens=6000, thinking_effort="off")
-            answer = await write_with_pointers(case["question"], [], llm_json=answer_json, mirror=mirror,
-                                               draft_json=draft_json,
-                                               **({**settings, **variants[rep][1]} if variants else settings))
+            chosen = {**settings, **variants[rep][1]} if variants else settings
+            answer = await write_answer(case["question"], [], llm_json=answer_json, mirror=mirror, draft_json=draft_json,
+                                        **{k: v for k, v in chosen.items() if k in ANSWER_DEFAULTS})
             used = token_ledger_report(tokens)
             response = render_answer(answer)
             save = runs_dir / (f"q{i:03d}_{variants[rep][0]}.json" if variants
@@ -853,11 +677,7 @@ def main() -> None:
     r.add_argument("--first", type=int, default=0, help="只跑抽样中的前 k 题")
     r.add_argument("--label", default="", help="本次运行的改动说明（写入 meta）")
     r.add_argument("--concurrency", type=int, default=4, help="同时在跑的题数（共享全局模型并发上限）")
-    r.add_argument("--answer-only", action="store_true", help="开放问答模式：不生成领域综合与综述报告")
-    r.add_argument("--answer-writer", choices=("grounded", "agent"), default="agent",
-                   help="开放问答写作：grounded 只依据已提取材料；agent 指针式作答（起草→按论断检索原文句→引用指针）")
-    rr = sub.add_parser("rerender", help="按当前 answer_writer 重建参考文献（不重跑系统）")
-    rr.add_argument("file")
+    r.add_argument("--loop", default="", help='覆盖循环参数（JSON），如 \'{"expand_layers": 1}\'，见 loop/config.py')
     j = sub.add_parser("judge")
     j.add_argument("file")
     j.add_argument("--all", action="store_true", help="全部重新打分（默认只补缺失的分数）")
@@ -871,32 +691,6 @@ def main() -> None:
     f.add_argument("--exclude-seed", type=int, default=None, help="排除该种子抽到的那批题")
     f.add_argument("--exclude-n", type=int, default=20)
     f.add_argument("--only", nargs="*", default=None, help="只给这些系统打分，如 OpenScholar-GPT4o")
-    w = sub.add_parser("rewrite", help="复用保存的召回与阅读结果，只重跑答案环节并打分")
-    w.add_argument("file")
-    w.add_argument("--thinking-effort", default="off")
-    w.add_argument("--model", default="")
-    w.add_argument("--no-gap", action="store_true", help="只做要点规划，不补检索")
-    w.add_argument("--no-plan", action="store_true", help="不做要点规划（对照组）")
-    w.add_argument("--materials", type=int, default=None, help="送入写作的论文数上限（缺省沿用 MAX_MATERIALS）")
-    w.add_argument("--concurrency", type=int, default=4, help="同时重写的题数（共享全局模型并发上限）")
-    w.add_argument("--writer", choices=("grounded", "knowledge", "memory", "agent"), default="grounded",
-                   help="grounded 只依据材料；knowledge 知识主导、材料支撑处引用；memory 不给材料（对照）；"
-                        "agent 起草后按论断检索原文句、引用指针定稿")
-    w.add_argument("--agent-fetch", type=int, default=0, help="agent：为前若干篇只有摘要的 arXiv 论文下载全文")
-    w.add_argument("--agent-pool", choices=("recall", "none"), default="recall",
-                   help="agent 的初始论文：recall 用本次召回结果；none 不用（只靠点名代表作与镜像检索，衡量召回的贡献）")
-    w.add_argument("--agent-draft-titles", type=int, default=30, help="agent 起草时展示的召回题名数（0=纯凭知识起草）")
-    w.add_argument("--agent-claim-search", type=int, default=0, help="agent 草稿每句到镜像检索的论文数")
-    w.add_argument("--agent-final", choices=("revise", "attach", "enrich"), default="revise",
-                   help="agent 定稿方式：revise 在草稿基础上改写；attach 以草稿为准逐句挂证据；"
-                        "enrich 在 attach 基础上把证据里草稿没写到的重要发现补成带指针的新句")
-    w.add_argument("--draft-thinking", default="off",
-                   help="起草（agent 草稿 / memory 答案）的思考强度，off 表示不开")
-    w.add_argument("--agent-followup", type=int, default=0,
-                   help="agent 第二轮检索：取证据最弱的若干句，由模型写检索式再查")
-    w.add_argument("--quotes", choices=("off", "pre", "verify", "both"), default="off",
-                   help="原文摘录检索：pre 写前按方面并入原文句，verify 写后逐句核查引用并取原句为摘录")
-    w.add_argument("--label", default="")
     ag = sub.add_parser("agent", help="指针式作答独立运行（不走召回流程）并打分")
     ag.add_argument("--n", type=int, default=20)
     ag.add_argument("--seed", type=int, default=0)
@@ -906,38 +700,26 @@ def main() -> None:
     ag.add_argument("--thinking-effort", default="off")
     ag.add_argument("--model", default="")
     ag.add_argument("--concurrency", type=int, default=4)
-    ag.add_argument("--final", choices=("revise", "attach", "enrich"), default=None, help="覆盖推荐配置的定稿方式")
-    ag.add_argument("--followup", type=int, default=None, help="覆盖推荐配置的第二轮检索句数")
-    ag.add_argument("--reading", type=int, default=None, help="原文阅读：按问题从证据库再取几句交给模型补充（0 关）")
     ag.add_argument("--question-search", type=int, default=None, help="按问题到镜像检索论文，每条探查取几篇（0 关）")
-    ag.add_argument("--opening", action="store_true", help="草稿第一段先交代背景（概念界定、重要性与难点）")
-    ag.add_argument("--paper-reading", type=int, default=None, help="精读：已下载全文的论文每篇最多取几处（0 关）")
-    ag.add_argument("--paper-reader", choices=("llm", "rerank"), default="",
-                    help="精读方式：llm 由模型从重排前几段与全部表题里挑选（默认），rerank 直接取重排前几段")
-    ag.add_argument("--paper-notes", choices=("on", "off"), default="", help="精读挑选时是否每处写一句要点")
-    ag.add_argument("--missing-fix", choices=("supplement", "rewrite"), default="",
-                    help="定稿漏写精读列出的对象时：只补句插回（supplement）或带反馈整篇重写（rewrite）")
-    ag.add_argument("--paper-use", choices=("support", "cover"), default="",
-                    help="精读原文怎么用：support 支撑、改准草稿并少量补句（默认）；cover 列出题目所问的全部对象并逐个写到")
-    ag.add_argument("--claim-map", choices=("list", "inline"), default="",
-                    help="草稿各句的候选证据：list 另列一份逐句清单（默认）；inline 就地标在草稿句末（省 token）")
+    ag.add_argument("--claim-search", type=int, default=None, help="草稿每句到镜像检索几篇（0 关）")
+    ag.add_argument("--drafts", type=int, default=None, help="独立起草几份再合并（默认 2）")
     ag.add_argument("--draft-from", default="", help="沿用这次评测结果里保存的草稿，只重跑检索与定稿（固定草稿对照）")
     ag.add_argument("--draft-model", default="", help="只把起草换成这个模型（如 glm-5.3），其余步骤仍用系统模型")
     ag.add_argument("--variant", action="append", default=[],
-                    help='同时段对比的作答配置，如 --variant default --variant read16=\'{"reading": 16}\'（第一个为对照）')
+                    help='同时段对比的作答配置，如 --variant default --variant one=\'{"drafts": 1}\'（第一个为对照）')
     ag.add_argument("--fetch", type=int, default=None, help="覆盖推荐配置的补全文篇数")
     ag.add_argument("--pick", type=int, nargs="*", default=None, help="只跑抽样中的这几题（编号同全量运行日志）")
     ag.add_argument("--repeat", type=int, default=1, help="每题重复几次（估计同配置的波动）")
     ag.add_argument("--label", default="")
-    for p in (r, j, cl, f, w, ag):
+    for p in (r, j, cl, f, ag):
         p.add_argument("--judge-model", default=JUDGE_MODEL)
         p.add_argument("--judge-tokens", type=int, default=4000)
         # 官方评委是非推理模型（gpt-4-turbo，打分输出上限 100 token）；默认关闭思考
         p.add_argument("--judge-thinking", default="off")
         p.add_argument("--claims-model", default="", help="陈述/引用/摘录拆分用的模型（默认同评委）")
     args = parser.parse_args()
-    asyncio.run({"run": run, "judge": rejudge, "refs": score_references, "rerender": rerender,
-                 "rewrite": rewrite, "agent": run_agent, "claims": resplit}[args.cmd](args))
+    asyncio.run({"run": run, "judge": rejudge, "refs": score_references,
+                 "agent": run_agent, "claims": resplit}[args.cmd](args))
 
 
 if __name__ == "__main__":

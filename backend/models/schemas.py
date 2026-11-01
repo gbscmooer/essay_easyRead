@@ -468,39 +468,28 @@ class ResearchGraphResponse(BaseModel):
 
 
 class ExplorationRunCreate(BaseModel):
-    """创建领域探索任务的请求体（问句驱动，见 GOAL.md）
-
-    academic_survey_v2 契约字段：全部可选，省略/null 创建 legacy_v1（exploration_v8）；academic_survey_v2 显式选择 question_loop_v20；
-    显式 legacy_v1 保留旧流程；字段和未实现边界见
-    document.md 与 docs/workflow_refactor/STATUS.md。
-    """
+    """创建研究（单循环：检索 → 判定 → 展开 → 作答）。loop / answer 覆盖 loop.config 中的参数（评测对照用）。"""
     question: str = Field(..., min_length=2, max_length=4000)
     depth: str = Field("standard", pattern=r"^(lite|quick|standard|deep)$")
     workspace_id: Optional[int] = Field(None, ge=1)
     seed_paper_ids: Optional[list[int]] = Field(None, max_length=240)
     search_online: bool = True
-    # 盲测口径：把已知论文（如充当标准答案的综述）从语料中整链路排除——
-    # 召回、引文扩展、计量、综合与报告全文下载都不允许接触这些标识符
+    # 盲测口径：把已知论文（如充当标准答案的综述）从候选池中排除
     exclude_dois: Optional[list[str]] = Field(None, max_length=50)
     exclude_arxiv_ids: Optional[list[str]] = Field(None, max_length=50)
     exclude_titles: Optional[list[str]] = Field(None, max_length=50)
-    # ── academic_survey_v2 输入（随 options["workflow"] 快照落盘）──
-    workflow_version: Optional[str] = Field(None, pattern=r"^(legacy_v1|academic_survey_v2)$",
-        description="省略或 null 使用 legacy_v1；academic_survey_v2 显式选择实验流程")
-    protocol_options: Optional[dict] = None   # answer_criteria/expected_evidence/questions；路由验证
-    budget: Optional[dict] = None             # resource -> limit 覆盖；不得由 agent 自行放宽
-    content_cutoff: Optional[datetime] = None  # 内容时间门禁（含当日；历史轨道）
-    policy_id: Optional[str] = None           # 尚无策略解析器；实验创建明确拒绝，使用显式排除项
+    loop: Optional[dict] = None
+    answer: Optional[dict] = None
 
 
 class ResearchRevisionCreate(BaseModel):
+    """完成后修正：改问题 / 加条件 / 剔除文献，生成子研究（默认复用父研究选中的论文并按新问题重新判定）。"""
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=2, max_length=4000, pattern=r"\S")
-    expected_state_version: int = Field(ge=0)
     depth: Optional[str] = Field(None, pattern=r"^(lite|quick|standard|deep)$")
     additional_questions: list[Annotated[str, Field(min_length=2, max_length=4000, pattern=r"\S")]] = Field(default_factory=list, max_length=7)
     reuse_materials: bool = True
-    exclude_asset_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=240)
+    exclude_keys: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=240)
     workspace_id: Optional[int] = Field(None, ge=1)
     seed_paper_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list, max_length=240)
     search_online: Optional[bool] = None
@@ -519,13 +508,13 @@ class SourceHealth(BaseModel):
 
 
 class PreflightResponse(BaseModel):
-    """数据源预检集合：调查启动前展示各源权限状态"""
+    """数据源预检集合：研究启动前展示各源权限状态"""
     checked_at: datetime
     sources: list[SourceHealth]
 
 
 class ExplorationRunResponse(BaseModel):
-    """领域探索任务的完整响应（含产物）"""
+    """研究的完整响应（result 结构见 services/deep_research/loop/runner.py 的 snapshot）"""
     id: int
     question: str
     depth: str
@@ -536,345 +525,36 @@ class ExplorationRunResponse(BaseModel):
     options: dict = Field(default_factory=dict)
     decompose: Optional[dict] = None
     result: Optional[dict] = None
-    # ── academic_survey_v2（S0 冻结；legacy_v1 运行为默认值/None）──
-    workflow_version: str = "legacy_v1"
-    state_version: int = 0
-    active_seconds: float = 0.0
-    protocol: Optional["ProtocolSummaryResponse"] = None
-    current_revision: Optional["ReportRevisionEntry"] = None
-    # 断点续传检查点摘要（legacy v1；不含逐篇提取正文）
     checkpoint_summary: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 
 
 class ExplorationRunSummary(BaseModel):
-    """领域探索历史列表的轻量条目（不带 result 大字段）"""
+    """研究历史列表的轻量条目（不带 result 大字段）"""
     id: int
     question: str
     depth: str
     status: str
     provider: str = ""
     options: dict = Field(default_factory=dict)
-    workflow_version: str = "legacy_v1"
-    state_version: int = 0
-    # 流程结束 ≠ 报告完成：列表直接展示报告状态，避免 done run 被当成完整报告
-    report_status: str = ""
-    quality_status: str = ""
+    selected: int = 0
+    answer_status: str = ""
     created_at: datetime
-
-
-# ============================================================
-# academic_survey_v2 契约 Schema（实验执行器 question_loop_v1；见 document.md §2.7）
-# ============================================================
-
-
-class ProtocolSubquestionSchema(BaseModel):
-    """协议子问题（必答子问题是停止条件的一部分）"""
-    subquestion_id: str
-    question: str
-    facet: str = ""
-    required: bool = False
-    status: str = "open"
-
-
-class ProtocolSummaryResponse(BaseModel):
-    """POST /runs 响应中的协议摘要（完整协议见 GET /runs/{id}/protocol）"""
-    protocol_id: Optional[str] = None
-    version: int = 1
-    hash: Optional[str] = None
-    question: str
-    subquestion_count: int = 0
-
-
-class ProtocolChangeEntry(BaseModel):
-    """协议变更记录（每次修改产生新冻结版本，不丢历史）"""
-    version: int
-    protocol_id: Optional[str] = None
-    change_reason: Optional[str] = None
-    created_at: datetime
-
-
-class RunProtocolResponse(BaseModel):
-    """GET /runs/{id}/protocol：冻结协议及变更记录；不返回隐藏金标。
-
-    v1 运行返回 legacy 投影（从 options 快照推导，legacy=true，不含子问题）。
-    """
-    run_id: int
-    workflow_version: str
-    legacy: bool = True
-    protocol: Optional[dict] = None          # ResearchProtocol 结构；v1 为 None
-    legacy_options: Optional[dict] = None    # v1 输入快照（options）
-    changes: list[ProtocolChangeEntry] = []
-
-
-class ResearchTaskItem(BaseModel):
-    """GET /runs/{id}/tasks 的任务条目（账本行投影）"""
-    task_id: str
-    run_id: int
-    kind: str
-    subquestion_id: Optional[str] = None
-    state: str
-    dependencies: list[str] = []
-    idempotency_key: Optional[str] = None
-    error_code: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class ResearchTaskListResponse(BaseModel):
-    """分页任务列表；v1 运行固定为空列表（legacy=true）"""
-    run_id: int
-    workflow_version: str
-    legacy: bool = True
-    items: list[ResearchTaskItem] = []
-    next_cursor: Optional[str] = None
-    total: int = 0
-
-
-class CoverageSubquestionEntry(BaseModel):
-    """覆盖矩阵的子问题条目（S5 覆盖快照投影）"""
-    subquestion_id: str
-    question: str = ""
-    status: str = "open"
-    screened: int = 0
-    included_families: int = 0
-    fulltexts: int = 0
-    evidence_kinds: list[str] = []
-    open_gaps: int = 0
-
-
-class CoverageGapEntry(BaseModel):
-    """缺口条目（不包含评分器缺失名单）"""
-    gap_id: str
-    subquestion_id: Optional[str] = None
-    severity: str = "medium"
-    missing_evidence_kind: str = ""
-    next_action: str = ""
-    status: str = "open"
-
-
-class RunCoverageResponse(BaseModel):
-    """GET /runs/{id}/coverage：按子问题覆盖、缺口、最近补充动作"""
-    run_id: int
-    workflow_version: str
-    legacy: bool = True
-    updated_at: Optional[datetime] = None
-    subquestions: list[CoverageSubquestionEntry] = []
-    gaps: list[CoverageGapEntry] = []
-    recent_actions: list[dict] = []          # 最近补搜/补读任务摘要
-    legacy_summary: Optional[dict] = None    # v1：result.survey_report.coverage 原样投影
-
-
-class BudgetResourceEntry(BaseModel):
-    """单资源账本聚合（S0 冻结聚合口径见 research_core.ResearchBudgetEvent）"""
-    resource: str
-    limit: Optional[int] = None              # 协议冻结的上限；未定义为 None
-    used: int = 0
-    reserved: int = 0
-    unit: str = "count"
-    usage_known: bool = True                 # 存在 usage_unknown 窗口时为 False
-
-
-class RunBudgetResponse(BaseModel):
-    """GET /runs/{id}/budget：各资源 limit/used/reserved 与停止原因；不返回凭证"""
-    run_id: int
-    workflow_version: str
-    legacy: bool = True
-    resources: list[BudgetResourceEntry] = []
-    stop_reason: Optional[str] = None
 
 
 class RunAdjustRequest(BaseModel):
-    """八阶段研究暂停时的过程干预：剔除文献、追加检索式（续跑时生效）。"""
+    """暂停时的过程干预：剔除文献、追加检索式（续跑时生效）。"""
     model_config = ConfigDict(extra="forbid")
     exclude_keys: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=240)
     add_queries: list[Annotated[str, Field(min_length=3, max_length=200, pattern=r"\S")]] = Field(default_factory=list, max_length=5)
     note: str = Field("", max_length=500)
 
 
-class RunControlRequest(BaseModel):
-    """pause/resume/cancel 的条件状态（事务内 compare-and-swap；陈旧版本 409）"""
-    expected_state: Optional[str] = None
-    expected_state_version: Optional[int] = Field(None, ge=0)
-
-
-class ResearchRequirementResponse(BaseModel):
-    unit_id: str
-    requirement: str
-    subject: str
-    phase: str
-    mode: str
-    source_quote: str
-    source_origin: str
-    response_kind: str = "fact"
-
-
-class ResearchQuestionResponse(BaseModel):
-    question_id: str
-    protocol_version: int
-    text: str
-    required: bool
-    priority: int
-    intent: str
-    answer_criteria: list[str]
-    expected_evidence: list[str]
-    status: str
-    gaps: list[str]
-    answer_revision_id: Optional[str] = None
-    requirements: list[ResearchRequirementResponse] = Field(default_factory=list)
-    planning_gaps: list[str] = Field(default_factory=list)
-    scope_constraints: list[str] = Field(default_factory=list)
-    reading_role: Optional[str] = None
-
-
-class ResearchQuestionsResponse(BaseModel):
-    run_id: int
-    legacy: bool
-    items: list[ResearchQuestionResponse]
-
-
-class ResearchAnswerResponse(BaseModel):
-    revision_id: str
-    question_id: str
-    protocol_version: int
-    content_hash: str
-    conclusion: str
-    kind: str
-    status: str
-    evidence_ids: list[str]
-    conditions: list[str]
-    conflicts: list[str]
-    gaps: list[str]
-    assessment: dict
-    created_at: datetime
-
-
-class ResearchAnswersResponse(BaseModel):
-    run_id: int
-    items: list[ResearchAnswerResponse]
-    next_cursor: Optional[int] = None
-
-
-class ResearchDossierResponse(BaseModel):
-    revision_id: str
-    protocol_asset_id: str
-    content_hash: str
-    stop_reason: str
-    answer_revision_ids: list[str]
-    evidence_count: int
-    created_at: datetime
-
-
-class ResearchDossiersResponse(BaseModel):
-    run_id: int
-    items: list[ResearchDossierResponse]
-    next_cursor: Optional[int] = None
-
-
 class RunControlResponse(BaseModel):
-    """控制端点结果；重复相同幂等请求返回原结果（idempotent_replay=true）"""
     run_id: int
     status: str
-    state_version: int
-    idempotent_replay: bool = False
     detail: str = ""
-
-
-class RunRetryRequest(BaseModel):
-    """POST /runs/{id}/retry：只重做失败/失效任务；不隐式提高预算"""
-    failed_only: bool = True
-    task_ids: Optional[list[str]] = Field(None, max_length=200)
-    idempotency_key: Optional[str] = Field(None, max_length=200)
-
-
-class RunRetryResponse(BaseModel):
-    run_id: int
-    status: str
-    state_version: int
-    retried_tasks: int = 0
-    idempotent_replay: bool = False
-
-
-class ReportRevisionEntry(BaseModel):
-    """报告不可变版本条目；v1 运行有报告时投影一个 revision_id="legacy" 的伪版本"""
-    revision_id: str
-    parent_revision: Optional[str] = None
-    protocol_hash: Optional[str] = None
-    quality_status: str = "unchecked"
-    stop_reason: Optional[str] = None
-    is_selected: bool = False
-    legacy: bool = False
-    # v3 交付契约投影：旧 revision 缺失时为 None，不猜测、不自动升级质量状态
-    delivery_status: Optional[str] = None
-    narrative_source: Optional[str] = None
-    created_at: datetime
-
-
-class ReportRevisionListResponse(BaseModel):
-    run_id: int
-    workflow_version: str
-    legacy: bool = True
-    items: list[ReportRevisionEntry] = []
-    next_cursor: Optional[str] = None
-
-
-class EvidenceSpanEntry(BaseModel):
-    """证据定位（页/节/表/坐标或字符位置 + 原文片段）"""
-    page: Optional[int] = None
-    section: Optional[str] = None
-    table: Optional[str] = None
-    bbox: Optional[list[float]] = None
-    char_start: Optional[int] = None
-    char_end: Optional[int] = None
-    quote: str = ""
-    location_id: Optional[str] = None
-    location_status: Optional[str] = None
-
-
-class EvidenceDetailResponse(BaseModel):
-    """GET /runs/{id}/evidence/{eid}：许可范围内的摘录、文档版本与定位"""
-    evidence_id: str
-    run_id: int
-    asset_id: Optional[str] = None
-    spans: list[EvidenceSpanEntry] = []
-    relation: Optional[str] = None
-    evidence_type: Optional[str] = None
-    fact: dict = Field(default_factory=dict)
-    subquestion_ids: list[str] = []
-    missing_fields: list[str] = []
-    comparability: dict = Field(default_factory=dict)
-    verification: dict = Field(default_factory=dict)
-    document: dict = Field(default_factory=dict)   # content_hash/format/public_available_at/parse_status
-    created_at: Optional[datetime] = None
-
-
-class EvidenceIndexItem(BaseModel):
-    evidence_id: str
-    evidence_type: Optional[str] = None
-    subquestion_ids: list[str] = []
-    paper_key: Optional[str] = None
-    fact_summary: str = ""
-    missing_fields: list[str] = []
-    comparability_status: Optional[str] = None
-    verification_status: Optional[str] = None
-    location_status: Optional[str] = None
-
-
-class EvidenceIndexResponse(BaseModel):
-    run_id: int
-    workflow_version: str
-    evidence_version: str = ""
-    subquestion_id: Optional[str] = None
-    cursor: int = 0
-    limit: int = 20
-    total: int = 0
-    next_cursor: Optional[int] = None
-    items: list[EvidenceIndexItem] = []
-
-
-ExplorationRunResponse.model_rebuild()
-
 
 
 class RagQueryRequest(BaseModel):

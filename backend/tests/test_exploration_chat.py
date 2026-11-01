@@ -93,17 +93,13 @@ def test_multiturn_persists_context_and_filters_invalid_evidence(
 
 
 def test_new_materials_survive_failure_and_are_used_next_turn(chat_env, monkeypatch):
-    async def decompose(*args, **kwargs):
-        return {"en_queries": ["new query"]}
-
-    async def recall(*args, **kwargs):
-        return [{"key": "p2", "title": "New paper", "abstract": "New evidence"}], "stub"
+    async def search_more(*args, **kwargs):
+        return [{"key": "p2", "title": "New paper", "abstract": "New evidence"}], ["new query"]
 
     async def broken(*args, **kwargs):
         raise RuntimeError("credential must not be exposed")
 
-    monkeypatch.setattr(chat, "decompose_question", decompose)
-    monkeypatch.setattr(chat, "recall_papers", recall)
+    monkeypatch.setattr(chat, "_search_more", search_more)
     monkeypatch.setattr(chat, "_llm_json", broken)
     row = chat.create_message(chat_env, "Find recent evidence", True, [])
     asyncio.run(chat.answer_message(row.id))

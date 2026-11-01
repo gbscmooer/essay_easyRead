@@ -312,7 +312,7 @@ class EvidenceIndex:
 
 def _mirror_paper(row: dict, provenance: str) -> dict | None:
     from ...models.recall import RecallSource, build_recall_candidate
-    from .explorer import _dedupe_candidates
+    from .loop.papers import dedupe_candidates as _dedupe_candidates
 
     cand = build_recall_candidate(
         title=row["title"], arxiv_id=row["arxiv_id"], doi=row.get("doi"), year=row.get("year"),
@@ -367,7 +367,7 @@ async def mirror_lookup_titles(titles: list[str], mirror) -> list[dict]:
 
 async def mirror_search(queries: list[str], mirror, *, per_query: int = 4) -> list[dict]:
     """检索式 → 镜像字面 + 向量两路提名，每条检索式取前 per_query 篇（两路交替）。"""
-    from .explorer import _dedupe_candidates
+    from .loop.papers import dedupe_candidates as _dedupe_candidates
 
     search_one = mirror.as_search_one()
     out, seen = [], set()
@@ -419,7 +419,7 @@ class ScopusSearch:
 
     async def lookup_titles(self, titles: list[str]) -> list[dict]:
         """按模型点名的题名在 Scopus 找同一篇论文（同题且有摘要才收，不用相近论文顶替）。"""
-        from .explorer import _dedupe_candidates
+        from .loop.papers import dedupe_candidates as _dedupe_candidates
 
         async def one(title: str) -> dict | None:
             try:
@@ -569,10 +569,6 @@ def reference_entries(text: str) -> list[str]:
     else:
         entries = [block[i:i + REF_WINDOW] for i in range(0, max(1, len(block) - REF_WINDOW // 2), REF_WINDOW // 2)]
     return [e[:REF_WINDOW * 2] for e in entries if 40 <= len(e)]
-
-
-def reference_windows(text: str) -> list[str]:   # 兼容旧名
-    return reference_entries(text)
 
 
 def _terms(text: str) -> set[str]:

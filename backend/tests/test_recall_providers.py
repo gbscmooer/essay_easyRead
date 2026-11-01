@@ -752,33 +752,6 @@ async def test_scopus_references_use_scopus_id_path_and_new_structure():
 
 
 @pytest.mark.asyncio
-async def test_recall_ref_chase_picks_relevant_references_of_early_review_seeds():
-    from backend.services.deep_research import recall_engine as eng
-
-    class Fake:
-        def __init__(self):
-            self.asked = []
-
-        async def get_paper_references(self, sid, limit=40):
-            self.asked.append(sid)
-            return [{"title": "Prevalence of suicidality during pregnancy and the postpartum", "doi": "10.1/lin",
-                     "citation_count": 700},
-                    {"title": "Soil carbon in boreal forests", "doi": "10.1/soil", "citation_count": 900},
-                    {"title": "Already recalled suicide attempt pregnancy cohort", "doi": "10.1/have"}]
-
-        async def works_by_dois(self, dois):
-            return [{"doi": d, "title": d} for d in dois]
-
-    corpus = [{"scopus_id": "1", "title": "Suicide during perinatal period: a review", "year": 2016, "doi": "10.1/have"},
-              {"scopus_id": "2", "title": "Suicide attempts during pregnancy: meta-analysis", "year": 2024},
-              {"scopus_id": "3", "title": "A cohort study", "year": 2010, "citation_count": 5}]
-    fake = Fake()
-    out = await eng._ref_chase(corpus, "suicide attempts during pregnancy and postpartum", [], 5, 2024, fake)
-    assert fake.asked == ["1", "3"]                         # 2024 年的综述不作种子（评测防出题来源）
-    assert [c["doi"] for c in out["candidates"]] == ["10.1/lin"] and out["added"] == 1
-
-
-@pytest.mark.asyncio
 async def test_scopus_local_cache_records_then_serves_without_network(monkeypatch, tmp_path):
     """record：响应写入本地库、同一请求不再调 Scopus；local：不调 Scopus，未缓存的检索在本地论文库里按 Scopus 格式答。"""
     import httpx

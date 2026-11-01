@@ -15,7 +15,7 @@ from sqlmodel import Session
 
 from backend.models.exploration import ExplorationRun
 from backend.services.database import get_engine
-from backend.services.deep_research.explorer import cluster_papers, compute_metrics
+from backend.services.deep_research.loop.landscape import cluster_papers, compute_metrics
 from backend.services.deep_research.literature_retrieval import paper_similarity, retrieve_materials
 
 

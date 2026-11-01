@@ -204,7 +204,6 @@ from ..models.research_core import (
     ResearchQuestion,
     ResearchAnswerRevision,
     ResearchDossierRevision,
-    WORKFLOW_ACADEMIC_SURVEY_V2,
 )
 from ..models.tag import Tag, PaperTag
 from ..models.note import Note
@@ -272,27 +271,7 @@ def _migrate_schema(engine) -> None:
             conn.exec_driver_sql("ALTER TABLE exploration_runs ADD COLUMN options JSON DEFAULT '{}'")
             conn.commit()
 
-        # exploration_runs 表迁移：academic_survey_v2 工作流列（S0，只增不删）
-        # 旧数据自动落默认值 legacy_v1 / 0 / NULL；回滚 v1 代码不读这些列，数据仍可读
-        exploration_v2_migrations = [
-            ("workflow_version", "TEXT NOT NULL DEFAULT 'legacy_v1'"),
-            ("state_version", "INTEGER NOT NULL DEFAULT 0"),
-            ("protocol_asset_id", "TEXT"),
-            ("worker_owner", "TEXT"),
-            ("worker_lease_expires_at", "TIMESTAMP"),
-            ("active_seconds", "REAL NOT NULL DEFAULT 0"),
-        ]
-        for col_name, col_def in exploration_v2_migrations:
-            _validate_column_name(col_name)
-            if col_name not in exploration_cols:
-                try:
-                    conn.exec_driver_sql(f"ALTER TABLE exploration_runs ADD COLUMN {col_name} {col_def}")
-                    conn.commit()
-                    logger.info(f"Migration: added column {col_name} to exploration_runs")
-                except Exception as e:
-                    logger.warning(f"Migration failed for exploration_runs.{col_name}: {e}")
-
-        # 断点续传检查点列（legacy v1）：failed/paused 运行由此支持从断点续跑
+        # 断点续传检查点列：failed/paused 运行由此支持从断点续跑
         if exploration_cols and "checkpoint" not in exploration_cols:
             conn.exec_driver_sql("ALTER TABLE exploration_runs ADD COLUMN checkpoint JSON")
             conn.commit()
@@ -736,16 +715,12 @@ def reconcile_interrupted_runs(engine=None) -> int:
             )
             session.commit()
         count = len(ids)
-        # academic_survey_v2 豁免（计划 §7.1）：v2 运行由 worker 租约与任务账本决定恢复，
-        # 不能被 API 进程启动误置 failed；v1 行为保持不变。
+        # 研究运行有逐动作检查点：标记失败后可从断点继续
         for model in (ExplorationRun, ExplorationMessage):
-            statement = select(model).where(model.status.in_(orphan_statuses))
-            if model is ExplorationRun:
-                statement = statement.where(ExplorationRun.workflow_version != WORKFLOW_ACADEMIC_SURVEY_V2)
-            rows = session.exec(statement).all()
+            rows = session.exec(select(model).where(model.status.in_(orphan_statuses))).all()
             for row in rows:
                 row.status = "failed"
-                row.error_message = "后端重启导致任务中断，请重试"
+                row.error_message = "后端重启导致任务中断，可从断点继续" if model is ExplorationRun else "后端重启导致任务中断，请重试"
                 row.updated_at = now
                 session.add(row)
             count += len(rows)
