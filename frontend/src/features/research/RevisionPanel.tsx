@@ -1,22 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getLegacyVersions, reviseResearch } from '@/api/exploration'
-import type { ExplorationDepth, ExplorationPaper, ExplorationRun } from '@/types'
-import type { LegacyVersionRow, LegacyVersions } from '@/types/researchRevision'
+import { getResearchVersions, reviseResearch } from '@/api/exploration'
+import type { ExplorationDepth, ExplorationPaper, ExplorationRun, ResearchVersionRow, ResearchVersions } from '@/types'
 
-const VERDICT_LABELS: Record<string, string> = {
-  done_extensively: '充分实现', done_partial: '部分实现', emerging: '近期新兴', gap: '未见实现', unclear: '证据不足',
-}
 const MAX_LISTED = 30
 
-/** 八阶段研究的修正/补充：改问题、加条件、剔除文献，生成新版本并复用已召回材料。 */
-export function LegacyRevision({ run, papers, disabled, onCreated }: {
+/** 完成后修正：改问题、加条件、剔除文献，生成子研究（默认复用本次选中的论文并按新问题重新判定）。 */
+export function RevisionPanel({ run, papers, disabled, onCreated }: {
   run: ExplorationRun
   papers: ExplorationPaper[]
   disabled: boolean
   onCreated: (run: ExplorationRun) => void
 }) {
-  const [versions, setVersions] = useState<LegacyVersions | null>(null)
+  const [versions, setVersions] = useState<ResearchVersions | null>(null)
   const [editing, setEditing] = useState(false)
   const [question, setQuestion] = useState(run.question)
   const [extra, setExtra] = useState('')
@@ -30,8 +26,8 @@ export function LegacyRevision({ run, papers, disabled, onCreated }: {
   useEffect(() => {
     const controller = new AbortController()
     setVersions(null); setEditing(false); setQuestion(run.question); setExtra(''); setExcluded([]); setError('')
-    void getLegacyVersions(run.id, controller.signal).then(v => { if (!controller.signal.aborted) setVersions(v) })
-      .catch(() => { /* 版本链只是辅助信息，读取失败不影响修正 */ })
+    void getResearchVersions(run.id, controller.signal).then(v => { if (!controller.signal.aborted) setVersions(v) })
+      .catch(() => { /* 版本链只是辅助信息 */ })
     return () => controller.abort()
   }, [run.id, run.question])
 
@@ -39,9 +35,9 @@ export function LegacyRevision({ run, papers, disabled, onCreated }: {
     setBusy(true); setError('')
     try {
       const child = await reviseResearch(run.id, {
-        question: question.trim(), expected_state_version: run.state_version ?? 0, depth,
+        question: question.trim(), depth,
         additional_questions: extra.split('\n').map(s => s.trim()).filter(s => s.length >= 2).slice(0, 7),
-        reuse_materials: reuse, exclude_asset_ids: excluded, search_online: online,
+        reuse_materials: reuse, exclude_keys: excluded, search_online: online,
       })
       onCreated(child)
     } catch (e) {
@@ -51,11 +47,10 @@ export function LegacyRevision({ run, papers, disabled, onCreated }: {
     }
   }
 
-  const row = (v: LegacyVersionRow) => (
+  const row = (v: ResearchVersionRow) => (
     <li key={v.id}>
       {v.id === run.id ? <strong>#{v.id}（当前）</strong> : <Link to={`/explorer/${v.id}`}>#{v.id}</Link>}
       {' '}{v.question.split('\n')[0]}
-      {v.verdict && <> · {VERDICT_LABELS[v.verdict] ?? v.verdict}</>}
       {v.conditions.length > 0 && <> · 补充条件 {v.conditions.length} 项</>}
     </li>
   )
@@ -64,7 +59,7 @@ export function LegacyRevision({ run, papers, disabled, onCreated }: {
   return (
     <section className="survey-section research-revision" aria-label="修正与补充">
       <h3>修正与补充</h3>
-      <p className="survey-note">修改问题、追加条件或剔除不相关文献后生成新版本；复用本次已召回的文献并按新问题重新筛选，原版本保留可对照。</p>
+      <p className="survey-note">修改问题、追加条件或剔除不相关文献后生成新版本；复用本次选中的论文并按新问题重新判定，原版本保留可对照。</p>
       {chain.length > 1 && <ol className="research-revision__chain" aria-label="版本链">{chain.map(row)}</ol>}
       {!editing
         ? <button type="button" className="er-btn er-btn--secondary er-btn--sm" disabled={disabled} onClick={() => setEditing(true)}>修正问题或材料</button>
@@ -74,7 +69,7 @@ export function LegacyRevision({ run, papers, disabled, onCreated }: {
           <label>研究深度<select value={depth} onChange={e => setDepth(e.target.value as ExplorationDepth)}>
             <option value="lite">轻量</option><option value="quick">快览</option><option value="standard">标准</option><option value="deep">深挖</option>
           </select></label>
-          <label><input type="checkbox" checked={reuse} onChange={e => setReuse(e.target.checked)} />复用本次已召回文献</label>
+          <label><input type="checkbox" checked={reuse} onChange={e => setReuse(e.target.checked)} />复用本次选中的论文</label>
           <label><input type="checkbox" checked={online} onChange={e => setOnline(e.target.checked)} />联网补充检索</label>
           {papers.length > 0 && <fieldset>
             <legend>剔除文献（新版本不再使用）</legend>

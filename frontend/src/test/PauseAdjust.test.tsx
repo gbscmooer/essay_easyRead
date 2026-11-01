@@ -7,10 +7,10 @@ import type { ExplorationPaper } from '@/types'
 vi.mock('@/api/exploration', () => ({ adjustExploration: vi.fn() }))
 
 describe('PauseAdjust', () => {
-  it('保存剔除与追加检索式，并提示继续时重做的阶段', async () => {
+  it('保存剔除与追加检索式，并提示继续时先执行追加检索式', async () => {
     vi.mocked(adjustExploration).mockResolvedValue({
-      run_id: 3, status: 'paused', completed_stages: ['preflight', 'protocol', 'recall'],
-      intervention: { at: '', stage: 'select', excluded: ['Review'], queries: ['laparoscopic video vlm'], note: '', invalidated_stages: ['screen', 'select'] },
+      run_id: 3, status: 'paused',
+      intervention: { at: '', stage: 'expand', excluded: ['Review'], queries: ['laparoscopic video vlm'], note: '' },
     })
     const papers = [{ key: 'k:1', title: 'Review', year: 2020 }, { key: 'k:2', title: 'Surgical VLM', year: 2025 }] as ExplorationPaper[]
     render(<PauseAdjust runId={3} papers={papers} />)
@@ -20,7 +20,7 @@ describe('PauseAdjust', () => {
     fireEvent.change(screen.getByLabelText(/追加英文检索式/), { target: { value: 'laparoscopic video vlm\nab' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /Review/ }))
     fireEvent.click(save)
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('继续时将重新执行：筛选、选材'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('继续时先执行 1 条追加检索式'))
     expect(adjustExploration).toHaveBeenCalledWith(3, { exclude_keys: ['k:1'], add_queries: ['laparoscopic video vlm'], note: '' })
   })
 })

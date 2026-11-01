@@ -478,6 +478,16 @@ export interface ExplorationPaper {
   authors?: string | null
   abstract?: string | null
   source_query?: string
+  /** 单循环：进入候选池的方式与 Selector 判定（见 backend loop/papers.py） */
+  origin?: 'search' | 'refine' | 'expand' | 'seed' | 'reuse' | string
+  parent?: string | null
+  via?: string
+  depth?: number
+  /** 2 直接相关 / 1 背景相关 / 0 无关；null 判定失败 */
+  label?: 0 | 1 | 2 | null
+  rerank?: number
+  score?: number
+  provider?: string
   /** 指标富化：逐年引用 / 关键词 / 期刊（v1.4） */
   counts_by_year?: { year: number; cited_by_count: number }[]
   keywords?: string[]
@@ -495,15 +505,6 @@ export interface ExplorationVenueRanking {
 export interface ExplorationKeywordTrend {
   years: number[]
   rows: { keyword: string; counts: number[]; total: number }[]
-}
-
-export interface ExplorationDecompose {
-  intent: 'novelty' | 'maturity' | 'landscape'
-  en_queries: string[]
-  focus_terms: string[]
-  /** 无 LLM Key 或调用失败时回退原句直检索 */
-  fallback?: boolean
-  fallback_reason?: string
 }
 
 export interface ExplorationMetrics {
@@ -527,66 +528,67 @@ export interface ExplorationMetrics {
   modularity: number
 }
 
-export type NoveltyStatus = 'done_extensively' | 'done_partial' | 'emerging' | 'gap' | 'unclear'
-
-export interface ExplorationVerdict {
-  status: NoveltyStatus
-  /** 仅保留旧数据兼容；未校准，不显示为概率或证据充分度 */
-  confidence: number
-  explanation: string
-  evidence_keys: string[]
-}
-
-export interface ExplorationSynthesis {
-  verdict?: ExplorationVerdict | null
-  maturity: string
-  landscape_summary: string
-  hotspots: string[]
-  gaps: string[]
-  follow_ups: string[]
-  /** 子方向流派（cluster_id 与 graph 节点 meta.cluster 对齐，复用范式卡片） */
-  paradigms: ParadigmInfo[]
-  markdown_report: string
-  partial?: boolean
-  stats?: Record<string, unknown>
-}
-
-/** 检索与分析完整性（后端 integrity.py 确定性汇总） */
-export interface RunIntegrity {
-  level: 'complete' | 'partial' | 'insufficient' | 'retrieval_miss'
-  label: string
-  items: { kind: string; severity: string; message: string }[]
-}
-
-/** 开放问答：依据提取证据的直接回答（后端 answer_writer.py） */
+/** 指针式作答（后端 loop/answer.py；失败时退回 answer_writer） */
 export interface DirectAnswer {
   status: 'ok' | 'needs_review' | 'insufficient' | 'failed'
   language?: 'zh' | 'en'
   text: string
-  references: { n: number; key: string; title: string; year?: number | null; excerpt: string; excerpts?: string[]; excerpt_source?: string }[]
+  references: { n: number; key: string; title: string; year?: number | null; excerpt: string; excerpts?: string[]; excerpt_source?: string; origin?: string }[]
   materials?: number
   check?: { cited_share: number; words: number; problems: string[] } | null
   error?: string
+  draft?: string
+}
+
+/** 循环的一个动作（检索 / 补检 / 展开） */
+export interface CrawlStep {
+  action: 'search' | 'refine' | 'expand'
+  query?: string
+  paper?: string
+  title?: string
+  layer?: number
+  mode?: 'sections' | 'reference_list' | 'none'
+  chosen?: string[]
+  hits?: number
+  new: number
+  selected: number
+  llm_calls: number
+}
+
+export interface CrawlReport {
+  version: string
+  config: Record<string, unknown>
+  phase: string
+  layer: number
+  stop_reason: string
+  candidates: number
+  selected: number
+  excluded: number
+  expanded: number
+  trace: CrawlStep[]
+  selector: { seen: number; judged: number; llm_calls: number; floor_rejected: number; cap_rejected: number; failed: number; labels: Record<string, number> }
+  crawler: { llm_calls: number; searches: number; expanded: number; expand_html: number; expand_reflist: number; expand_failed: number }
+  sources: Record<string, { calls: number; hits: number; errors: number }>
+  by_origin: Record<string, number>
+  by_depth: Record<string, number>
+  elapsed_s?: number
 }
 
 export interface ExplorationResult {
-  survey_report?: import('./survey').SurveyReport
-  report_error?: string
-  integrity?: RunIntegrity
-  answer?: DirectAnswer
-  sources?: ResearchSourceOptions & {
-    seed_count?: number
-    warnings?: string[]
-    /** stage 0 数据源预检快照（search_online=false 时为空数组） */
-    preflight?: SourceHealth[]
-    /** 阶段时间线（与后端 explorer.py 的 stage_timeline 对应），阶段边界逐次落库 */
-    stage_timeline?: ExplorationStageTiming[]
-  }
-  decompose: ExplorationDecompose
-  provider: string
+  question?: string
+  queries: string[]
   papers: ExplorationPaper[]
-  metrics: ExplorationMetrics
-  graph: {
+  crawl?: CrawlReport
+  answer?: DirectAnswer
+  warnings?: string[]
+  sources?: ResearchSourceOptions & {
+    warnings?: string[]
+    preflight?: SourceHealth[]
+    stage_timeline?: ExplorationStageTiming[]
+    elapsed_s?: number
+  }
+  metrics?: ExplorationMetrics
+  graph?: {
     nodes: GraphNode[]
     edges: GraphEdge[]
     stats: {
@@ -597,20 +599,6 @@ export interface ExplorationResult {
       modularity?: number
     }
   }
-  synthesis?: ExplorationSynthesis
-}
-
-export interface QuestionLoopResult {
-  papers: ExplorationPaper[]
-  survey_report: import('./survey').SurveyReport
-  loop: { revision: string; stop_reason: string; dossier_revision_id: string }
-  sources?: ExplorationResult['sources']
-  report_error?: string
-  decompose?: never
-  provider?: never
-  metrics?: never
-  graph?: never
-  synthesis?: never
 }
 
 /** 阶段时间线行：started_at 为 UTC ISO；duration_s 为该阶段耗时秒数（运行中为 null） */
@@ -642,29 +630,27 @@ export interface ExplorationMessage {
   updated_at: string
 }
 
+export type ExplorationStatus = 'pending' | 'running' | 'done' | 'failed' | 'paused' | 'cancelled'
+
 export interface ExplorationRun {
   id: number
   question: string
   depth: ExplorationDepth
-  status: 'pending' | 'running' | 'done' | 'failed' | 'paused' | SurveyRunStatusV2
+  status: ExplorationStatus
   current_stage?: string | null
   error_message?: string | null
   provider: string
   options?: ResearchSourceOptions
-  decompose?: ExplorationDecompose | null
-  result?: ExplorationResult | QuestionLoopResult | null
-  /** academic_survey_v2（S0 冻结）；legacy_v1 运行为默认值 */
-  workflow_version?: WorkflowVersion
-  state_version?: number
-  active_seconds?: number
-  protocol?: { protocol_id: string | null; version: number; hash: string | null; question: string; subquestion_count: number } | null
-  current_revision?: SurveyReportRevision | null
-  /** 断点续传检查点摘要（legacy v1；不含逐篇提取正文） */
+  decompose?: { queries?: string[] } | null
+  result?: ExplorationResult | null
+  /** 断点摘要（续跑从同一动作继续） */
   checkpoint_summary?: {
-    completed_stages: string[]
-    report_selected: number
-    report_extracted: number
-    updated_at?: string | null
+    phase?: string
+    layer?: number
+    candidates: number
+    expanded: number
+    queries_done: number
+    queries_todo: number
   } | null
   created_at: string
   updated_at: string
@@ -677,49 +663,59 @@ export interface ExplorationRunSummary {
   status: string
   provider: string
   options?: ResearchSourceOptions
-  workflow_version?: WorkflowVersion
-  state_version?: number
-  /** 流程结束 ≠ 报告完成：报告本体状态（completed/partial/unavailable/no_results） */
-  report_status?: string
-  /** 终稿核验状态（internally_checked/needs_review/unchecked） */
-  quality_status?: string
+  selected?: number
+  answer_status?: string
   created_at: string
 }
 
 export interface ResearchSourceOptions {
-  workflow_version?: WorkflowVersion
   workspace_id?: number | null
   workspace_name?: string
   seed_paper_ids?: number[] | null
   search_online?: boolean
-  /** 盲测口径：从语料中整链路排除的已知论文（DOI / arXiv ID，随输入快照落盘） */
   exclude_dois?: string[] | null
   exclude_arxiv_ids?: string[] | null
   exclude_titles?: string[] | null
+  /** 覆盖循环 / 作答参数（评测对照用） */
+  loop?: Record<string, unknown>
+  answer?: Record<string, unknown>
+  revision_conditions?: string[]
+  parent_run_id?: number
+  reuse_from_run_id?: number
 }
 
-export interface ResearchQuestionState {
-  question_id: string
-  protocol_version: number
-  text: string
-  required: boolean
-  priority: number
-  intent: string
-  answer_criteria: string[]
-  expected_evidence: string[]
+export interface ResearchRevisionInput {
+  question: string
+  depth?: ExplorationDepth
+  additional_questions?: string[]
+  reuse_materials?: boolean
+  exclude_keys?: string[]
+  workspace_id?: number
+  seed_paper_ids?: number[]
+  search_online?: boolean
+}
+
+export interface ResearchVersionRow {
+  id: number
+  question: string
   status: string
-  gaps: string[]
-  answer_revision_id: string | null
-  requirements?: { unit_id: string; requirement: string; subject: string; phase: string; mode: string; source_quote: string; source_origin: string }[]
-  planning_gaps?: string[]
-  scope_constraints?: string[]
-  reading_role?: string | null
+  depth: string
+  created_at: string
+  conditions: string[]
+  reused: boolean
 }
 
-export interface ResearchQuestionsResponse {
+export interface ResearchVersions {
   run_id: number
-  legacy: boolean
-  items: ResearchQuestionState[]
+  current: ResearchVersionRow
+  ancestors: ResearchVersionRow[]
+  children: ResearchVersionRow[]
+}
+
+export interface RunControlResponse {
+  run_id: number
+  status: string
+  detail: string
 }
 
 // ── LLM token 用量统计（与后端 services/token_usage.py 对应）──────────────────
@@ -804,268 +800,6 @@ export interface RunTokenUsage {
   recorded: boolean
   /** records=持久用量记录；legacy_result=旧 run 的 result.token_usage 台账快照 */
   source: 'records' | 'legacy_result'
-}
-
-// ── academic_survey_v2 契约（S0 冻结；与后端 models/schemas.py / models/research_core.py 对应）──
-// 执行器接入（S3/S5）前，创建 v2 运行会返回 400 WORKFLOW_NOT_IMPLEMENTED；
-// 以下类型供 S7 界面开发与后端联调使用，默认入口仍是 legacy_v1。
-
-export type WorkflowVersion = 'legacy_v1' | 'academic_survey_v2'
-
-/** v2 任务状态（任务账本；与运行状态分离） */
-export type SurveyTaskState = 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled'
-
-/** v2 运行状态（在 v1 pending/running/done/failed 之外增加） */
-export type SurveyRunStatusV2 = 'pending' | 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled'
-
-/** 质量状态独立于运行状态；内部检查不能自动提升为 human_reviewed */
-export type SurveyQualityStatus = 'unchecked' | 'internally_checked' | 'needs_review' | 'human_reviewed'
-
-/** 证据/关系核验状态：摘要级陈述可摘要支撑；实验细节/比较/归因需正文或表格证据 */
-export type SurveyVerificationState =
-  | 'abstract_supported'
-  | 'fulltext_supported'
-  | 'unverified'
-  | 'contradicted'
-  | 'insufficient'
-
-/** 身份门禁判定（S1）：allow/deny/unresolved */
-export type SurveyIdentityDecision = 'allow' | 'deny' | 'unresolved'
-
-/** v2 创建运行的可选输入（随 options.workflow 快照落盘） */
-export interface ExplorationV2CreateOptions {
-  workflow_version?: WorkflowVersion
-  /** 子问题/纳排/来源策略覆盖（S5 冻结语义） */
-  protocol_options?: Record<string, unknown>
-  /** resource → limit；不得由 agent 自行放宽 */
-  budget?: Record<string, number>
-  /** 内容时间门禁（ISO 日期时间；历史轨道） */
-  content_cutoff?: string
-  /** 排除策略引用（S1） */
-  policy_id?: string
-}
-
-export interface SurveyProtocolSubquestion {
-  subquestion_id: string
-  question: string
-  facet: string
-  required: boolean
-  status: string
-}
-
-/** 完整协议结构（GET /runs/{id}/protocol 的 protocol 字段；v1 为 null） */
-export interface SurveyProtocol {
-  protocol_id: string | null
-  version: number
-  question: string
-  subquestions: SurveyProtocolSubquestion[]
-  eligibility: Record<string, unknown>
-  content_cutoff: string | null
-  search_time: string | null
-  source_policy: Record<string, unknown>
-  budget: Record<string, number>
-  stop_rules: Record<string, unknown>[]
-  hash: string | null
-}
-
-export interface SurveyProtocolChange {
-  version: number
-  protocol_id: string | null
-  change_reason: string | null
-  created_at: string
-}
-
-export interface SurveyProtocolResponse {
-  run_id: number
-  workflow_version: WorkflowVersion
-  legacy: boolean
-  protocol: SurveyProtocol | null
-  legacy_options: ResearchSourceOptions | null
-  changes: SurveyProtocolChange[]
-}
-
-export interface SurveyTaskItem {
-  task_id: string
-  run_id: number
-  kind: string
-  subquestion_id: string | null
-  state: SurveyTaskState
-  dependencies: string[]
-  idempotency_key: string | null
-  error_code: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface SurveyTaskListResponse {
-  run_id: number
-  workflow_version: WorkflowVersion
-  legacy: boolean
-  items: SurveyTaskItem[]
-  next_cursor: string | null
-  total: number
-}
-
-export interface SurveyCoverageSubquestion {
-  subquestion_id: string
-  question: string
-  status: string
-  screened: number
-  included_families: number
-  fulltexts: number
-  evidence_kinds: string[]
-  open_gaps: number
-}
-
-export interface SurveyCoverageGap {
-  gap_id: string
-  subquestion_id: string | null
-  severity: string
-  missing_evidence_kind: string
-  next_action: string
-  status: string
-}
-
-export interface SurveyCoverageResponse {
-  run_id: number
-  workflow_version: WorkflowVersion
-  legacy: boolean
-  updated_at: string | null
-  subquestions: SurveyCoverageSubquestion[]
-  gaps: SurveyCoverageGap[]
-  recent_actions: { task_id: string | null; type: string; payload: Record<string, unknown>; at: string }[]
-  /** v1：result.survey_report.coverage 原样投影 */
-  legacy_summary: Record<string, unknown> | null
-}
-
-export interface SurveyBudgetResource {
-  resource: string
-  limit: number | null
-  used: number
-  reserved: number
-  unit: string
-  /** false = 存在响应丢失窗口，费用按上界记账不可精确核验 */
-  usage_known: boolean
-}
-
-export interface SurveyBudgetResponse {
-  run_id: number
-  workflow_version: WorkflowVersion
-  legacy: boolean
-  resources: SurveyBudgetResource[]
-  stop_reason: string | null
-}
-
-/** pause/resume/cancel 条件状态（CAS；陈旧版本 409） */
-export interface SurveyRunControlRequest {
-  expected_state?: SurveyRunStatusV2
-  expected_state_version?: number
-}
-
-export interface SurveyRunControlResponse {
-  run_id: number
-  status: SurveyRunStatusV2
-  state_version: number
-  idempotent_replay: boolean
-  detail: string
-}
-
-export interface SurveyRunRetryRequest {
-  failed_only?: boolean
-  task_ids?: string[]
-  idempotency_key?: string
-}
-
-export interface SurveyRunRetryResponse {
-  run_id: number
-  status: SurveyRunStatusV2
-  state_version: number
-  retried_tasks: number
-  idempotent_replay: boolean
-}
-
-export interface SurveyReportRevision {
-  revision_id: string
-  parent_revision: string | null
-  protocol_hash: string | null
-  quality_status: SurveyQualityStatus
-  stop_reason: string | null
-  is_selected: boolean
-  /** v1 有报告时投影 revision_id="legacy" 的伪版本 */
-  legacy: boolean
-  /** v3 交付契约投影；旧 revision 缺失时为 null */
-  delivery_status?: string | null
-  narrative_source?: string | null
-  created_at: string
-}
-
-export interface SurveyReportRevisionList {
-  run_id: number
-  workflow_version: WorkflowVersion
-  legacy: boolean
-  items: SurveyReportRevision[]
-  next_cursor: string | null
-}
-
-export interface SurveyEvidenceSpan {
-  page: number | null
-  section: string | null
-  table: string | null
-  bbox: number[] | null
-  char_start: number | null
-  char_end: number | null
-  quote: string
-  location_id?: string | null
-  location_status?: string | null
-}
-
-export interface SurveyEvidenceDetail {
-  evidence_id: string
-  run_id: number
-  asset_id: string | null
-  spans: SurveyEvidenceSpan[]
-  relation: string | null
-  evidence_type?: string | null
-  fact?: Record<string, unknown>
-  subquestion_ids?: string[]
-  missing_fields?: string[]
-  comparability?: Record<string, unknown>
-  verification?: Record<string, unknown>
-  document: {
-    asset_id?: string
-    content_hash?: string | null
-    format?: string
-    parse_status?: string
-    family_key?: string | null
-    version_key?: string | null
-    retrieved_at?: string | null
-    public_available_at?: string | null
-  }
-  created_at: string | null
-}
-
-export interface SurveyEvidenceIndexItem {
-  evidence_id: string
-  evidence_type: string | null
-  subquestion_ids: string[]
-  paper_key: string | null
-  fact_summary: string
-  missing_fields: string[]
-  comparability_status: string | null
-  verification_status: string | null
-  location_status: string | null
-}
-
-export interface SurveyEvidenceIndex {
-  run_id: number
-  workflow_version: WorkflowVersion
-  evidence_version: string
-  subquestion_id: string | null
-  cursor: number
-  limit: number
-  total: number
-  next_cursor: number | null
-  items: SurveyEvidenceIndexItem[]
 }
 
 export type SourceHealthStatus = 'ok' | 'auth_error' | 'rate_limited' | 'network_error' | 'error' | 'unconfigured'

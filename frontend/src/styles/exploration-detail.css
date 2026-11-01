@@ -386,3 +386,13 @@
 .ex-answer__refs li { margin-bottom: var(--s1); }
 .ex-answer__ref-title { display: block; color: var(--text-primary); }
 .ex-answer__excerpt { display: block; font-style: italic; color: var(--text-muted); }
+
+/* 单循环：检索过程面板与论文判定标签 */
+.ex-paper-archive__tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.ex-paper-archive__tags em { font-style: normal; font-size: 12px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); }
+.ex-crawl { display: grid; gap: 10px; }
+.ex-crawl--live { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.ex-crawl__counts { margin: 0; font-size: 13px; color: var(--text-muted); }
+.ex-crawl__recent { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.ex-crawl__trace { margin: 8px 0 0; padding-left: 22px; font-size: 13px; line-height: 1.7; max-height: 360px; overflow: auto; overflow-wrap: anywhere; }
+.ex-crawl__trace code { font-size: 12px; }

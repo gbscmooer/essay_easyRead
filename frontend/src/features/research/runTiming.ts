@@ -10,27 +10,14 @@ import type { ExplorationStageTiming } from '@/types'
 import type { StageTimingEntry } from '@/hooks/useExplorationStream'
 import { parseServerDate } from '@/utils/datetime'
 
-/** 与后端 explorer.py 的阶段执行顺序一致（v8 八阶段）
- *  旧 run 的时间线含 decompose/enrich/metrics/persist——它们不在新顺序表里，
- *  stageSortIndex 会排到尾部、label 回退原始字符串，历史数据仍可读。 */
-export const TIMING_STAGE_ORDER = [
-  'preflight', 'protocol', 'recall', 'screen', 'select', 'extract', 'synthesize', 'report',
-]
+/** 与后端 loop/runner.py 的阶段顺序一致 */
+export const TIMING_STAGE_ORDER = ['search', 'expand', 'landscape', 'answer']
 
 const STAGE_LABELS: Record<string, string> = {
-  preflight: '⓪ 数据源预检',
-  protocol: '① 研究协议',
-  recall: '② 多源召回',
-  screen: '③ 相关性裁决与计量',
-  select: '④ 分层选材与全文',
-  extract: '⑤ 证据提取',
-  synthesize: '⑥ 证据综合与写作',
-  report: '⑦ 报告保存',
-  // 旧 run 时间线兼容（v7 及之前）
-  decompose: '① 拆解检索式（旧）',
-  enrich: '指标富化（旧）',
-  metrics: '计量与聚类（旧）',
-  persist: '落盘（旧）',
+  search: '① 检索与判定',
+  expand: '② 引用展开',
+  landscape: '③ 计量与图谱',
+  answer: '④ 作答',
 }
 
 export type StageTimeStatus = 'completed' | 'running' | 'paused' | 'failed'

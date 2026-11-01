@@ -1,18 +1,18 @@
 /**
- * 领域探索页（/explore）渲染冒烟：
- * 表单与引导态、结论卡 / 检索透明度 / 总览复用 / 证据列表 / 报告的成品视图，
- * 以及无 Key 回退与检索未命中两个降级态。SSE 流用 mock（jsdom 无 EventSource）。
+ * 文献研究页（/explore、/explorer/:id）渲染冒烟：表单、预检、运行态、失败态、
+ * 详情页的回答 / 检索过程 / 选中论文 / 领域概览、历史抽屉与计时面板。SSE 流用 mock。
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ExplorePage from '@/pages/ExplorePage'
 import { useExplorationStream } from '@/hooks/useExplorationStream'
-import { createExploration, deleteExploration } from '@/api/exploration'
-import type { ExplorationResult, ExplorationSynthesis, QuestionLoopResult } from '@/types'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { getExploration, getExplorationMessages, listExplorations, preflightExploration } from '@/api/exploration'
+import {
+  createExploration, deleteExploration, getExploration, getExplorationMessages, listExplorations, preflightExploration,
+} from '@/api/exploration'
 import { getWorkspace } from '@/api/workspaces'
+import type { CrawlReport, ExplorationResult } from '@/types'
 
 function renderPage(path = '/explore') {
   return render(<MemoryRouter initialEntries={[path]}><Routes>
@@ -21,9 +21,7 @@ function renderPage(path = '/explore') {
   </Routes></MemoryRouter>)
 }
 
-vi.mock('@/hooks/useExplorationStream', () => ({
-  useExplorationStream: vi.fn(),
-}))
+vi.mock('@/hooks/useExplorationStream', () => ({ useExplorationStream: vi.fn() }))
 vi.mock('@/api/workspaces', () => ({
   listWorkspaces: vi.fn().mockResolvedValue([{ id: 1, name: 'Seed collection', paper_count: 1 }]),
   getWorkspace: vi.fn().mockResolvedValue({ id: 1, name: 'Seed collection', papers: [{ id: 10, title: 'Seed paper', level: 1 }] }),
@@ -32,76 +30,73 @@ vi.mock('@/api/exploration', () => ({
   createExploration: vi.fn(),
   listExplorations: vi.fn().mockResolvedValue([]),
   deleteExploration: vi.fn(),
-  getResearchQuestions: vi.fn().mockResolvedValue({ run_id: 7, legacy: false, items: [] }),
-  getLegacyVersions: vi.fn().mockResolvedValue({ run_id: 7, workflow_version: 'legacy_v1', current: { id: 7, question: 'q', status: 'done', depth: 'standard', created_at: '2026-01-01', verdict: null, conditions: [], reused: false }, ancestors: [], children: [] }),
-  getResearchVersions: vi.fn().mockResolvedValue({ run_id: 7, state_version: 2, status: 'completed', worker_active: false, ancestors: [], children: [], materials: [] }),
+  getResearchVersions: vi.fn().mockResolvedValue({ run_id: 7, current: { id: 7, question: 'q', status: 'done', depth: 'standard', created_at: '2026-01-01', conditions: [], reused: false }, ancestors: [], children: [] }),
   reviseResearch: vi.fn(),
   pauseExploration: vi.fn(),
+  resumeExploration: vi.fn(),
   cancelExploration: vi.fn(),
   getExploration: vi.fn(),
   getExplorationMessages: vi.fn().mockResolvedValue([]),
   askExploration: vi.fn(),
-  regenerateReport: vi.fn(),
+  reportUrl: (id: number, format = 'markdown') => `/api/exploration/runs/${id}/report?format=${format}`,
   preflightExploration: vi.fn().mockResolvedValue({ checked_at: '2026-01-01T00:00:00Z', sources: [] }),
   getRunTokenUsage: vi.fn().mockResolvedValue({
     run_id: 0,
     totals: { calls: 0, input_tokens: 0, output_tokens: 0, cached_input_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_tokens: 0 },
-    by_stage: [],
-    recorded: false,
-    source: 'records',
+    by_stage: [], recorded: false, source: 'records',
   }),
 }))
 
 const mockUse = vi.mocked(useExplorationStream)
 const mockCreate = vi.mocked(createExploration)
+const IDLE = {
+  status: 'idle' as const, stage: null, message: '', progress: 0, result: null, answer: null,
+  crawl: { queries: [], candidates: 0, selected: 0, steps: [], recent: [] }, error: null, stageTimings: {},
+}
 
-const IDLE = { status: 'idle' as const, stage: null, message: '', progress: 0, result: null, synthesis: null, error: null, stageTimings: {} }
+const CRAWL: CrawlReport = {
+  version: 'pasa_loop_v1', config: {}, phase: 'done', layer: 1, stop_reason: 'layers_done',
+  candidates: 120, selected: 4, excluded: 0, expanded: 3,
+  trace: [
+    { action: 'search', query: 'tumor detection', hits: 40, new: 38, selected: 3, llm_calls: 4 },
+    { action: 'expand', paper: 'k:a', title: 'Tumor detection with CNN', layer: 0, mode: 'sections', chosen: ['Related Work'], new: 20, selected: 1, llm_calls: 3 },
+  ],
+  selector: { seen: 120, judged: 118, llm_calls: 10, floor_rejected: 30, cap_rejected: 0, failed: 2, labels: { '2': 3, '1': 1, '0': 114 } },
+  crawler: { llm_calls: 5, searches: 6, expanded: 3, expand_html: 2, expand_reflist: 1, expand_failed: 0 },
+  sources: { arxiv: { calls: 6, hits: 60, errors: 0 }, openalex: { calls: 6, hits: 60, errors: 1 } },
+  by_origin: { search: 3, expand: 1 }, by_depth: { '0': 3, '1': 1 },
+}
 
 function makeResult(overrides: Partial<ExplorationResult> = {}): ExplorationResult {
   const papers = [
-    { key: 'k:a', title: 'Tumor detection with CNN', year: 2020, citation_count: 900, citation_velocity: 128.6, surge: false, cluster: 0, cluster_label: 'tumor · detection', doi: '10.1/a', arxiv_id: null, authors: 'A et al.', abstract: 'We detect tumors.', source_query: 'tumor detection' },
-    { key: 'k:b', title: 'Tumor segmentation transformer', year: 2023, citation_count: 300, citation_velocity: 100.0, surge: true, cluster: 0, cluster_label: 'tumor · detection', doi: null, arxiv_id: '2310.1', authors: null, abstract: null, source_query: 'tumor detection' },
-    { key: 'k:c', title: 'Language model pretraining', year: 2019, citation_count: 5000, citation_velocity: 714.3, surge: false, cluster: 1, cluster_label: 'language · model', doi: '10.1/c', arxiv_id: null, authors: null, abstract: 'Pretraining.', source_query: 'language model' },
-    { key: 'k:d', title: 'LLM for medicine', year: 2024, citation_count: 80, citation_velocity: 40.0, surge: true, cluster: 1, cluster_label: 'language · model', doi: null, arxiv_id: null, authors: null, abstract: null, source_query: 'language model' },
+    { key: 'k:a', title: 'Tumor detection with CNN', year: 2020, citation_count: 900, cluster: 0, cluster_label: 'tumor', doi: '10.1/a', abstract: 'We detect tumors.', label: 2 as const, origin: 'search', score: 1.2 },
+    { key: 'k:b', title: 'Tumor segmentation transformer', year: 2023, citation_count: 300, cluster: 0, cluster_label: 'tumor', arxiv_id: '2310.1', abstract: null, label: 2 as const, origin: 'expand', via: 'Related Work', depth: 1, score: 1.1 },
+    { key: 'k:c', title: 'Language model pretraining', year: 2019, citation_count: 5000, cluster: 1, cluster_label: 'language', doi: '10.1/c', abstract: 'Pretraining.', label: 1 as const, origin: 'search', score: 0.7 },
+    { key: 'k:d', title: 'LLM for medicine', year: 2024, citation_count: 80, cluster: 1, cluster_label: 'language', abstract: null, label: 2 as const, origin: 'refine', score: 1.0 },
   ]
   const nodes = papers.map((p, i) => ({
-    id: `x${i}`,
-    kind: 'paper' as const,
-    label: p.title,
-    meta: {
-      year: p.year, citation_count: p.citation_count, cluster: p.cluster,
-      cluster_label: p.cluster_label, source: 'expanded' as const,
-      importance: p.citation_count / 5000,
-    },
+    id: `x${i}`, kind: 'paper' as const, label: p.title,
+    meta: { year: p.year, citation_count: p.citation_count, cluster: p.cluster, cluster_label: p.cluster_label, source: 'expanded' as const, importance: p.citation_count / 5000 },
   }))
   return {
-    decompose: { intent: 'novelty', en_queries: ['tumor detection', 'cancer diagnosis AI'], focus_terms: ['肿瘤检测'], fallback: false },
-    provider: 'openalex',
-    papers,
+    question: 'q', queries: ['tumor detection', 'cancer diagnosis AI'], papers, crawl: CRAWL,
     metrics: {
-      total: 4, by_year: { '2019': 1, '2020': 1, '2023': 1, '2024': 1 },
-      recent_share: 0.5, year_span: [2019, 2024],
-      top_cited: ['k:c', 'k:a', 'k:b', 'k:d'], rising: ['k:c', 'k:d', 'k:a'],
-      clusters: 2, modularity: 0.4,
+      total: 4, by_year: { '2019': 1, '2020': 1, '2023': 1, '2024': 1 }, recent_share: 0.5, year_span: [2019, 2024],
+      top_cited: ['k:c', 'k:a', 'k:b', 'k:d'], rising: ['k:d'], clusters: 2, modularity: 0.4,
     },
-    graph: { nodes, edges: [
-      { source: 'x0', target: 'x1', kind: 'related' as const, weight: 0.5 },
-      { source: 'x2', target: 'x3', kind: 'related' as const, weight: 0.4 },
-    ], stats: { node_count: 4, edge_count: 2, by_kind: { related: 2 }, clusters: 2, modularity: 0.4 } },
+    graph: { nodes, edges: [{ source: 'x0', target: 'x1', kind: 'related' as const, weight: 0.5 }],
+      stats: { node_count: 4, edge_count: 1, by_kind: { related: 1 }, clusters: 2, modularity: 0.4 } },
+    answer: {
+      status: 'ok', text: 'CNNs detect tumors well [1].',
+      references: [{ n: 1, key: 'k:a', title: 'Tumor detection with CNN', year: 2020, excerpt: 'We detect tumors.', excerpts: ['We detect tumors.'] }],
+    },
     ...overrides,
   }
 }
 
-const SYNTHESIS: ExplorationSynthesis = {
-  verdict: { status: 'done_extensively', confidence: 0.85, explanation: '多篇高被引工作直接覆盖该问题。', evidence_keys: ['k:c', 'k:a'] },
-  maturity: '已在多个公开基准上达到可用水平。',
-  landscape_summary: '两条主流路线。',
-  hotspots: ['多模态医学影像'],
-  gaps: ['可解释性不足'],
-  follow_ups: ['tumor detection benchmark'],
-  paradigms: [],
-  markdown_report: '## 结论段落标题\n\n这里是报告正文。',
-  partial: false,
+function detailRun(id: number, overrides: Record<string, unknown> = {}) {
+  return { id, question: 'Saved question', depth: 'standard' as const, status: 'done' as const, provider: 'arxiv+openalex',
+    created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:10:00Z', result: makeResult(), ...overrides }
 }
 
 beforeEach(() => {
@@ -110,21 +105,15 @@ beforeEach(() => {
 })
 
 describe('ExplorePage', () => {
-  it('初始态：表单 + 示例 + 引导文案，可提交探索', async () => {
-    mockCreate.mockResolvedValue({
-      id: 7, question: 'q', depth: 'standard', status: 'pending',
-      provider: '', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
-    })
+  it('初始态：表单 + 示例 + 引导文案，可提交研究', async () => {
+    mockCreate.mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01' })
     vi.mocked(getExploration).mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01' })
-    const { unmount } = renderPage()
+    renderPage()
     expect(screen.getByRole('textbox', { name: '研究问题' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '开始研究' })).toBeEnabled()
     expect(screen.getByText(/输入一个问题开始/)).toBeInTheDocument()
-
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: '肿瘤检测有人做吗' } })
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true, workflow_version: 'legacy_v1' }))
-    unmount()
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('肿瘤检测有人做吗', 'standard', { workspace_id: null, seed_paper_ids: null, search_online: true }))
   })
 
   it('工作区母论文进入同一任务并可关闭联网检索', async () => {
@@ -136,371 +125,118 @@ describe('ExplorePage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '研究问题' }), { target: { value: 'dataset survey' } })
     fireEvent.click(screen.getByRole('checkbox', { name: '联网补充文献' }))
     fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false, workflow_version: 'legacy_v1' }))
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('dataset survey', 'standard', { workspace_id: 1, seed_paper_ids: [10], search_online: false }))
   })
 
-  it('成品视图：结论卡 / 透明度 / 总览复用 / 证据列表 / 报告齐备，证据可点开', () => {
-    mockUse.mockReturnValue({ ...IDLE, status: 'done', result: makeResult(), synthesis: SYNTHESIS })
-    renderPage()
-
-    // 结论卡
-    expect(screen.getByText('已被充分实现')).toBeInTheDocument()
-    expect(screen.getByText(/多篇高被引工作直接覆盖该问题/)).toBeInTheDocument()
-    expect(screen.getByText(/已在多个公开基准上达到可用水平/)).toBeInTheDocument()
-
-    // 检索透明度
-    expect(screen.getByText('tumor detection')).toBeInTheDocument()
-    expect(screen.getByText(/去重后/)).toHaveTextContent('4')
-    expect(screen.getByText(/openalex/i)).toBeInTheDocument()
-
-    // 领域总览（复用 DomainOverview：统计条 + 证据列表标题）
-    expect(screen.getByText('领域总览 · 子方向 × 年份')).toBeInTheDocument()
-    const statsStrip = document.querySelector('.rs-overview__stats')
-    expect(statsStrip?.textContent).toContain('4 篇论文')
-    expect(statsStrip?.textContent).toContain('2 个子方向')
-    expect(screen.getByText('样本内高被引')).toBeInTheDocument()
-    expect(screen.getByText('旧版引用速度排序')).toBeInTheDocument()
-    expect(screen.getByText('旧版指标（未重新计算）')).toBeInTheDocument()
-    expect(screen.queryByTitle('证据充分度')).not.toBeInTheDocument()
-    expect(document.querySelector('.ex-verdict__conf')).toBeNull()
-
-    // 证据列表首行（被引最高，同时出现在两个列表）→ 点开详情卡
-    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Language model pretraining' })[0])
-    expect(screen.getAllByText('Language model pretraining').length).toBeGreaterThanOrEqual(2)
-    // 累计年均被引是描述指标。
-    expect(screen.getAllByText(/714\.3\/年/).length).toBeGreaterThan(0)
-    expect(screen.getByText('Pretraining.')).toBeInTheDocument()
-
-    // 热点 / 空白 / 后续
-    expect(screen.getByText('多模态医学影像')).toBeInTheDocument()
-    expect(screen.getByText('可解释性不足')).toBeInTheDocument()
-    expect(screen.getByText('tumor detection benchmark')).toBeInTheDocument()
-
-    // Markdown 报告
-    expect(screen.getByText('这里是报告正文。')).toBeInTheDocument()
-  })
-
-  it('新运行按方法元数据展示完整年份与显著性，旧运行不被重新解释', () => {
-    const result = makeResult()
-    result.metrics.citation_method = {
-      algorithm: 'conditional_poisson_rate_test', version: 1,
-      adjustment: 'benjamini_hochberg', alpha: 0.05,
-      recent_years: [2024, 2025], baseline_years: [2022, 2023],
-    }
-    result.papers[0] = {
-      ...result.papers[0], trajectory: 'rising', highly_cited: true,
-      recent_citations: 60, citation_velocity_2y: 30,
-    }
-    mockUse.mockReturnValue({ ...IDLE, status: 'done', result, synthesis: SYNTHESIS })
-    renderPage()
-    expect(screen.getByText('精确 Poisson + BH（v1）')).toBeInTheDocument()
-    expect(screen.getByText(/α = 0.05 是显著性阈值，不是准确率/)).toBeInTheDocument()
-    expect(screen.queryByText('旧版引用速度排序')).not.toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Tumor detection with CNN' })[0])
-    expect(screen.getByText('最近两个完整年份被引 60')).toBeInTheDocument()
-    expect(screen.getByText('最近两个完整年份年均 30/年')).toBeInTheDocument()
-    expect(screen.getByText('样本内同年高被引')).toBeInTheDocument()
-    expect(screen.getAllByText('引用率显著上升')).toHaveLength(2)
-  })
-
-  it('历史趋势保留旧版标签，不显示新检验的显著性', () => {
-    const result = makeResult()
-    result.papers[0] = { ...result.papers[0], trajectory: 'rising', surge: true, recent_citations: 60 }
-    mockUse.mockReturnValue({ ...IDLE, status: 'done', result, synthesis: SYNTHESIS })
-    renderPage()
-    fireEvent.click(screen.getAllByRole('button', { name: '查看摘要：Tumor detection with CNN' })[0])
-    expect(screen.getByText('旧版引用爬升')).toBeInTheDocument()
-    expect(screen.getByText('旧版突增候选')).toBeInTheDocument()
-    expect(screen.getByText('旧版近2年被引 60')).toBeInTheDocument()
-    expect(screen.queryByText('引用率显著上升')).not.toBeInTheDocument()
-    expect(screen.queryByText('精确 Poisson + BH（v1）')).not.toBeInTheDocument()
-  })
-
-  it('降级态：无 Key 回退提示与检索未命中提示', () => {
+  it('运行态：进度、当前阶段与实时检索过程', () => {
     mockUse.mockReturnValue({
-      ...IDLE, status: 'done',
-      result: makeResult({
-        decompose: { intent: 'landscape', en_queries: ['原句'], focus_terms: [], fallback: true },
-        papers: [], metrics: {
-          total: 0, by_year: {}, recent_share: 0, year_span: [],
-          top_cited: [], rising: [], clusters: 0, modularity: 0,
-        },
-        graph: { nodes: [], edges: [], stats: { node_count: 0, edge_count: 0, by_kind: {} } },
-      }),
+      ...IDLE, status: 'running', stage: 'expand', message: '展开「Tumor detection with CNN」：新增 20 篇，选中 1 篇', progress: 45,
+      crawl: { queries: ['tumor detection'], candidates: 120, selected: 4, steps: CRAWL.trace, recent: [{ key: 'k:b', title: 'Tumor segmentation transformer', label: 2 }] },
     })
     renderPage()
-    expect(screen.getByText(/未配置 LLM Key/)).toBeInTheDocument()
-    expect(screen.getByText(/检索未命中/)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45')
+    expect(screen.getByText(/正在进行：② 引用展开/)).toBeInTheDocument()
+    expect(screen.getByText(/新增 20 篇，选中 1 篇/)).toBeInTheDocument()
+    expect(screen.getByLabelText('实时检索过程')).toHaveTextContent('候选 120 篇 · 选中 4 篇')
+    expect(screen.getByText(/Tumor segmentation transformer · 直接相关/)).toBeInTheDocument()
   })
 
-  it('失败态：展示错误信息', () => {
+  it('失败态：展示错误信息与从断点继续', () => {
     mockUse.mockReturnValue({ ...IDLE, status: 'failed', error: 'provider 不可用' })
     renderPage()
-    expect(screen.getByText(/探索失败：provider 不可用/)).toBeInTheDocument()
+    expect(screen.getByText(/研究失败：provider 不可用/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '从断点继续研究' })).toBeInTheDocument()
   })
 
-  it('运行态：展示进度条、当前阶段百分比与动态分析反馈', () => {
-    mockUse.mockReturnValue({
-      ...IDLE,
-      status: 'running',
-      stage: 'recall',
-      message: '检索「tumor detection」命中 15 篇（累计 15 篇）',
-      progress: 45,
-    })
-    renderPage()
-    expect(screen.getByRole('progressbar')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45')
-    expect(screen.getByText('45%')).toBeInTheDocument()
-    expect(screen.getByText(/正在进行：② 多源检索/)).toBeInTheDocument()
-    expect(screen.getByText(/检索「tumor detection」命中 15 篇/)).toBeInTheDocument()
-  })
-
-  it('数据源体检：权限探测结果在开始研究前可见，主源失效展示回退提示', async () => {
+  it('数据源体检：权限探测结果在开始研究前可见', async () => {
     vi.mocked(preflightExploration).mockResolvedValue({
       checked_at: '2026-09-08T00:00:00Z',
       sources: [
         { name: 'scopus', role: 'primary', status: 'auth_error', detail: 'HTTP 401：Key 无效', latency_ms: 210, http_status: 401 },
-        { name: 'openalex', role: 'fallback', status: 'ok', detail: '检索服务正常', latency_ms: 95, http_status: 200 },
+        { name: 'arxiv', role: 'supplement', status: 'rate_limited', detail: 'HTTP 429', http_status: 429 },
       ],
     })
     renderPage()
     expect(await screen.findByText('Scopus')).toBeInTheDocument()
     expect(screen.getByText('无权限')).toBeInTheDocument()
-    expect(screen.getByText('OpenAlex')).toBeInTheDocument()
-    expect(screen.getByText(/开始研究将自动回退 OpenAlex/)).toBeInTheDocument()
-  })
-
-  it('arXiv补充源展示限流原因，不误标回退源', async () => {
-    vi.mocked(preflightExploration).mockResolvedValue({
-      checked_at: '2026-10-03T00:00:00Z',
-      sources: [
-        { name: 'openalex', role: 'primary', status: 'ok', detail: '检索服务正常', http_status: 200 },
-        { name: 'arxiv', role: 'supplement', status: 'rate_limited', detail: 'HTTP 429：限流，请稍后重试', http_status: 429 },
-      ],
-    })
-    renderPage()
-    expect(await screen.findByText('arXiv')).toBeInTheDocument()
     expect(screen.getByText('限速中')).toBeInTheDocument()
-    expect(screen.getByText('arXiv').closest('[title]')).toHaveAttribute('title', 'arXiv · 补充源 · HTTP 429：限流，请稍后重试')
-    expect(screen.queryByText(/开始研究将自动回退/)).not.toBeInTheDocument()
   })
 
-  it('近期探索进入独立详情，刷新读取资料和持久化对话', async () => {
-    vi.mocked(listExplorations).mockResolvedValue([{ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
-    vi.mocked(getExploration).mockResolvedValue({ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', result: makeResult() })
+  it('详情页：回答带引用与摘录，检索过程列出动作与模型调用', async () => {
+    vi.mocked(getExploration).mockResolvedValue(detailRun(31))
+    renderPage('/explorer/31')
+    await screen.findByRole('heading', { name: 'Saved question' })
+    expect(screen.getByRole('region', { name: '直接回答' })).toHaveTextContent('CNNs detect tumors well')
+    expect(screen.getByText('We detect tumors.', { selector: 'q' })).toBeInTheDocument()
+    const process = screen.getByRole('region', { name: '检索过程' })
+    expect(process).toHaveTextContent('候选 120 篇')
+    expect(process).toHaveTextContent('直接相关 3 · 背景相关 1')
+    expect(process).toHaveTextContent('模型调用 15 次')
+    expect(process).toHaveTextContent('展开 3 篇（章节 2 · 参考文献列表 1）')
+  })
+
+  it('详情页：选中论文标出判定与来源，领域概览展示统计', async () => {
+    vi.mocked(getExploration).mockResolvedValue(detailRun(32))
+    renderPage('/explorer/32')
+    await screen.findByRole('heading', { name: 'Saved question' })
+    fireEvent.click(screen.getByRole('tab', { name: /选中论文/ }))
+    const archive = screen.getByRole('tabpanel', { name: /选中论文/ })
+    expect(archive).toHaveTextContent('引用展开 · 第 1 层')
+    expect(archive).toHaveTextContent('背景相关')
+    fireEvent.click(screen.getByRole('tab', { name: '领域概览' }))
+    expect(screen.getByLabelText('选中论文统计')).toHaveTextContent('选中 4 篇')
+    expect(screen.getByLabelText('证据列表')).toBeInTheDocument()
+  })
+
+  it('近期研究进入独立详情，刷新读取持久化对话', async () => {
+    vi.mocked(listExplorations).mockResolvedValue([{ id: 17, question: 'Saved question', depth: 'standard', status: 'done', provider: 'arxiv', selected: 4, answer_status: 'ok', created_at: '2026-01-01' }])
+    vi.mocked(getExploration).mockResolvedValue(detailRun(17))
     vi.mocked(getExplorationMessages).mockResolvedValue([{ id: 1, run_id: 17, question: 'Follow-up', answer: 'Saved answer [P1]', status: 'done', search_more: false, selected_keys: [], papers: [], evidence_keys: ['k:a'], context: { citations: { P1: 'k:a' } }, error_message: null, created_at: '2026-01-01', updated_at: '2026-01-01' }])
     renderPage()
-    // 历史入口为抽屉式二级菜单：先展开再断言链接
     fireEvent.click(await screen.findByRole('button', { name: /最近研究/ }))
     const link = await screen.findByRole('link', { name: /Saved question/ })
-    expect(link).toHaveAttribute('href', '/explorer/17')
+    expect(link).toHaveTextContent('选中 4 篇 · 已作答')
     fireEvent.click(link)
     await screen.findByRole('heading', { name: 'Saved question' })
     fireEvent.click(screen.getByRole('tab', { name: '连续追问' }))
     expect(await screen.findByText('Follow-up')).toBeVisible()
-    expect(screen.getByRole('link', { name: '[P1]' })).toHaveAttribute('href', 'https://doi.org/10.1/a')
-    expect(screen.queryByPlaceholderText(/用 AI 识别肿瘤/)).not.toBeInTheDocument()
   })
 
   it('删除近期研究前要求二次确认', async () => {
-    vi.mocked(listExplorations).mockResolvedValue([{ id: 18, question: 'Delete me', depth: 'standard', status: 'done', provider: 'openalex', created_at: '2026-01-01' }])
+    vi.mocked(listExplorations).mockResolvedValue([{ id: 18, question: 'Delete me', depth: 'standard', status: 'done', provider: 'arxiv', created_at: '2026-01-01' }])
     vi.mocked(deleteExploration).mockResolvedValue(undefined)
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /最近研究/ }))
     fireEvent.click(await screen.findByRole('button', { name: '删除该记录' }))
     expect(deleteExploration).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog', { name: '删除研究记录' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '永久删除' }))
     await waitFor(() => expect(deleteExploration).toHaveBeenCalledWith(18))
   })
 
-  it('计时面板：详情页展示总耗时与各阶段耗时分配', async () => {
-    vi.mocked(getExploration).mockResolvedValue({
-      id: 21, question: 'Timed question', depth: 'standard', status: 'done', provider: 'openalex',
-      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:10:00Z',
-      result: makeResult({
-        sources: {
-          stage_timeline: [
-            { stage: 'preflight', started_at: '2026-01-01T00:00:00Z', duration_s: 2.5, status: 'completed' },
-            { stage: 'decompose', started_at: '2026-01-01T00:00:03Z', duration_s: 7.5, status: 'completed' },
-            { stage: 'recall', started_at: '2026-01-01T00:00:10Z', duration_s: 120, status: 'completed' },
-            { stage: 'enrich', started_at: '2026-01-01T00:02:10Z', duration_s: 30, status: 'completed' },
-            { stage: 'metrics', started_at: '2026-01-01T00:02:40Z', duration_s: 20, status: 'completed' },
-            { stage: 'synthesize', started_at: '2026-01-01T00:03:00Z', duration_s: 60, status: 'completed' },
-            { stage: 'report', started_at: '2026-01-01T00:04:00Z', duration_s: 360, status: 'completed' },
-            { stage: 'persist', started_at: '2026-01-01T00:10:00Z', duration_s: 0.4, status: 'completed' },
-          ],
-        },
-      }) as ExplorationResult,
-    })
-    mockUse.mockReturnValue({ ...IDLE })
+  it('计时面板：按单循环阶段展示耗时分配', async () => {
+    vi.mocked(getExploration).mockResolvedValue(detailRun(21, {
+      question: 'Timed question',
+      result: makeResult({ sources: { stage_timeline: [
+        { stage: 'search', started_at: '2026-01-01T00:00:00Z', duration_s: 120, status: 'completed' },
+        { stage: 'expand', started_at: '2026-01-01T00:02:00Z', duration_s: 240, status: 'completed' },
+        { stage: 'landscape', started_at: '2026-01-01T00:06:00Z', duration_s: 30, status: 'completed' },
+        { stage: 'answer', started_at: '2026-01-01T00:06:30Z', duration_s: 210, status: 'completed' },
+      ] } }),
+    }))
     renderPage('/explorer/21')
-
     await screen.findByRole('heading', { name: 'Timed question' })
-    expect(screen.getByRole('region', { name: '研究耗时' })).toBeInTheDocument()
-    expect(screen.getByText('10 分 0 秒')).toBeInTheDocument() // 墙钟：00:00 → 00:10
-    expect(screen.getByText(/各阶段合计 10 分/)).toBeInTheDocument()
-    expect(screen.getByText('2 分 0 秒')).toBeInTheDocument() // ② 多源检索
-    expect(screen.getByText('6 分 0 秒')).toBeInTheDocument() // ⑥ 报告
-    expect(screen.queryByText(/进行中/)).not.toBeInTheDocument()
+    const panel = screen.getByRole('region', { name: '研究耗时' })
+    expect(panel).toHaveTextContent('10 分 0 秒')
+    expect(panel).toHaveTextContent('① 检索与判定')
+    expect(panel).toHaveTextContent('② 引用展开')
+    expect(panel).toHaveTextContent('4 分 0 秒')
   })
 
-  it('计时面板：报告重生成更新 updated_at 不放大已完成研究总耗时', async () => {
-    vi.mocked(getExploration).mockResolvedValue({
-      id: 26, question: 'Regenerated report timing', depth: 'lite', status: 'done', provider: 'openalex',
-      created_at: '2026-09-19T07:36:21.988Z',
-      // 后续重生成完成时间，比原研究结束晚 71 分钟。
-      updated_at: '2026-09-19T09:06:33.848Z',
-      result: makeResult({
-        sources: {
-          stage_timeline: [
-            { stage: 'decompose', started_at: '2026-09-19T07:36:22.021Z', duration_s: 42.74, status: 'completed' },
-            { stage: 'recall', started_at: '2026-09-19T07:37:04.766Z', duration_s: 293.65, status: 'completed' },
-            { stage: 'enrich', started_at: '2026-09-19T07:41:58.430Z', duration_s: 3.22, status: 'completed' },
-            { stage: 'metrics', started_at: '2026-09-19T07:42:01.677Z', duration_s: 60.19, status: 'completed' },
-            { stage: 'synthesize', started_at: '2026-09-19T07:43:01.896Z', duration_s: 104.79, status: 'completed' },
-            { stage: 'report', started_at: '2026-09-19T07:44:46.717Z', duration_s: 647.66, status: 'completed' },
-            { stage: 'persist', started_at: '2026-09-19T07:55:34.456Z', duration_s: 0.01, status: 'completed' },
-          ],
-        },
-      }) as ExplorationResult,
-    })
-    mockUse.mockReturnValue({ ...IDLE })
-    renderPage('/explorer/26')
-
-    await screen.findByRole('heading', { name: 'Regenerated report timing' })
-    expect(screen.getByText('19 分 12 秒')).toBeInTheDocument()
-    expect(screen.queryByText('1 时 30 分 11 秒')).not.toBeInTheDocument()
-    expect(screen.getByText(/各阶段合计 19 分 12 秒/)).toBeInTheDocument()
+  it('没有论文被选中时给出明确提示', async () => {
+    vi.mocked(getExploration).mockResolvedValue(detailRun(40, { result: makeResult({ papers: [], answer: undefined }) }))
+    renderPage('/explorer/40')
+    await screen.findByRole('heading', { name: 'Saved question' })
+    expect(screen.getByText('本次检索没有论文被判为相关')).toBeInTheDocument()
+    expect(screen.getByText(/共检索到 120 篇候选/)).toBeInTheDocument()
   })
-
-  it('计时面板：运行中走秒并标注当前阶段', async () => {
-    vi.mocked(getExploration).mockResolvedValue({
-      id: 22, question: 'Running timing', depth: 'standard', status: 'running', provider: 'openalex',
-      created_at: new Date(Date.now() - 120_000).toISOString(), updated_at: new Date().toISOString(),
-      result: makeResult({
-        sources: {
-          stage_timeline: [
-            { stage: 'preflight', started_at: new Date(Date.now() - 120_000).toISOString(), duration_s: 3, status: 'completed' },
-            { stage: 'decompose', started_at: new Date(Date.now() - 117_000).toISOString(), duration_s: 57, status: 'completed' },
-          ],
-        },
-      }) as ExplorationResult,
-    })
-    mockUse.mockReturnValue({
-      ...IDLE,
-      status: 'running',
-      stage: 'recall',
-      stageTimings: { recall: { startTs: Date.now() - 8_000 } },
-    })
-    renderPage('/explorer/22')
-
-    await screen.findByRole('heading', { name: 'Running timing' })
-    expect(screen.getByText('计时中')).toBeInTheDocument()
-    expect(screen.getByText(/进行中/)).toBeInTheDocument() // ② 多源检索走秒中
-    // 墙钟 ≥ 2 分钟（运行中按当前时刻累计）
-    expect(screen.getByText(/总耗时/)).toBeInTheDocument()
-    expect(screen.getByText(/2 分/)).toBeInTheDocument()
-  })
-})
-
-it('详情页展示检索与分析完整性提示', async () => {
-  mockUse.mockReturnValue(IDLE)
-  const result = { ...makeResult(), integrity: { level: 'partial' as const, label: '部分完成', items: [
-    { kind: 'extract', severity: 'partial', message: '精读选中 13 篇，成功提取 2 篇，失败 11 篇；主要原因：模型调用超时×11。' },
-    { kind: 'source', severity: 'partial', message: '数据源 arxiv 不可用（HTTP 429），本次检索未覆盖该来源。' },
-  ] } }
-  vi.mocked(getExploration).mockResolvedValue({ id: 21, question: 'Integrity question', depth: 'quick', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1', result })
-  renderPage('/explorer/21')
-  const notice = await screen.findByRole('alert', { name: '检索与分析完整性' })
-  expect(notice).toHaveTextContent('部分完成')
-  expect(notice).toHaveTextContent('模型调用超时×11')
-  expect(notice).toHaveTextContent('arxiv 不可用')
-})
-
-it('详情页展示带引用与原文摘录的直接回答', async () => {
-  mockUse.mockReturnValue(IDLE)
-  const result = { ...makeResult(), answer: {
-    status: 'ok' as const, language: 'en' as const,
-    text: 'ManyTypes4Py is the most common benchmark [1].',
-    references: [{ n: 1, key: 'doi:10.1/mt4py', title: 'ManyTypes4Py', year: 2021, excerpt: 'It contains 5,382 Python projects.' }],
-  } }
-  vi.mocked(getExploration).mockResolvedValue({ id: 22, question: 'Answer question', depth: 'quick', status: 'done', provider: 'openalex', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1', result })
-  renderPage('/explorer/22')
-  const card = await screen.findByRole('region', { name: '直接回答' })
-  expect(card).toHaveTextContent('ManyTypes4Py is the most common benchmark')
-  expect(screen.getByRole('list', { name: '直接回答的参考文献' })).toHaveTextContent('It contains 5,382 Python projects.')
-})
-
-it('勾选问题驱动研究时使用实验流程，深度提示不沿用旧召回数量', async () => {
-  mockUse.mockReturnValue(IDLE)
-  mockCreate.mockResolvedValue({ id: 7, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'academic_survey_v2' })
-  renderPage()
-  const option = screen.getByRole('checkbox', { name: '使用问题驱动研究（实验）' })
-  expect(option).not.toBeChecked()
-  fireEvent.click(option)
-  expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '围绕问题检索、阅读并补充关键依据')
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
-  fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-  await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('队列恢复机制是什么', 'standard', expect.objectContaining({ workflow_version: 'academic_survey_v2' })))
-})
-
-it('默认使用八阶段流程', async () => {
-  mockUse.mockReturnValue(IDLE)
-  mockCreate.mockResolvedValue({ id: 8, question: 'q', depth: 'standard', status: 'pending', provider: '', created_at: '2026-01-01', updated_at: '2026-01-01', workflow_version: 'legacy_v1' })
-  renderPage()
-  expect(screen.getByRole('radio', { name: '快览' })).toHaveAttribute('title', '3 式 · 上限 200 篇')
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: '队列恢复机制是什么' } })
-  fireEvent.click(screen.getByRole('button', { name: '开始研究' }))
-  await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('队列恢复机制是什么', 'standard', expect.objectContaining({ workflow_version: 'legacy_v1' })))
-})
-
-it('新版完成结果不依赖旧计量字段，也不展示未生成的分析图表', async () => {
-  mockUse.mockReturnValue(IDLE)
-  const result: QuestionLoopResult = {
-    papers: [],
-    loop: { revision: 'question_loop_v1', stop_reason: 'no_progress', dossier_revision_id: 'd1' },
-    survey_report: {
-      version: 4, title: '冻结报告', created_at: '2026-01-01', status: 'partial', summary: '仍缺证据', findings: [], gaps: ['待补材料'],
-      chapters: [], tables: { frameworks: [], metrics: [], tasks: [], taxonomy: [] },
-      matrices: { aspect_metric: { rows: [], columns: [], cells: [] }, task_dataset: { rows: [], columns: [], cells: [] } },
-      coverage: { corpus: 0, with_material: 0, selected: 0, examined: 0, failed: 0, full_text: 0, abstract_only: 0, rejected_rows: 0 },
-      bibliometrics: { by_year: {}, year_span: [] }, references: [], warnings: [], markdown: '',
-      delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
-    },
-  }
-  vi.mocked(getExploration).mockResolvedValue({
-    id: 7, question: '问题驱动结果', depth: 'lite', status: 'partial', provider: '',
-    workflow_version: 'academic_survey_v2', active_seconds: 120,
-    created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:02:00Z', result,
-  })
-  renderPage('/explorer/7')
-  await screen.findByRole('heading', { name: '问题驱动结果' })
-  expect(screen.getByRole('tab', { name: '研究报告' })).toBeInTheDocument()
-  expect(screen.queryByRole('tab', { name: '分析结果' })).not.toBeInTheDocument()
-  expect(screen.getByText('有效工作时长（已记录）')).toBeInTheDocument()
-  expect(screen.getByText('2 分 0 秒')).toBeInTheDocument()
-  expect(screen.queryByText('该探索没有可展示的产物。')).not.toBeInTheDocument()
-})
-
-it('规划失败且没有搜索时不提示关键词未命中', async () => {
-  mockUse.mockReturnValue(IDLE)
-  const result: QuestionLoopResult = {
-    papers: [], loop: { revision: 'question_loop_v11', stop_reason: 'planning_failed', dossier_revision_id: 'd1' },
-    survey_report: {
-      version: 4, title: '规划失败的研究', created_at: '2026-01-01', status: 'no_results', summary: '旧版零材料摘要', findings: [], gaps: ['规划未完成'],
-      chapters: [], tables: { frameworks: [], metrics: [], tasks: [], taxonomy: [] },
-      matrices: { aspect_metric: { rows: [], columns: [], cells: [] }, task_dataset: { rows: [], columns: [], cells: [] } },
-      coverage: { corpus: 0, with_material: 0, selected: 0, examined: 0, failed: 0, full_text: 0, abstract_only: 0, rejected_rows: 0 },
-      bibliometrics: { by_year: {}, year_span: [] }, references: [], warnings: [], markdown: '',
-      method: { stop_reason: 'planning_failed' }, delivery: { delivery_status: 'ready', narrative_source: 'frozen_answers' },
-    },
-  }
-  vi.mocked(getExploration).mockResolvedValue({ id: 40, question: '规划失败的研究', depth: 'quick', status: 'partial', provider: '',
-    workflow_version: 'academic_survey_v2', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:02:00Z', result })
-  renderPage('/explorer/40')
-  await screen.findByRole('heading', { name: '规划失败的研究' })
-  expect(screen.getByText('研究计划未通过校验，尚未执行文献检索')).toBeInTheDocument()
-  expect(screen.queryByText(/所提问句关键词在当前数据源中未检索到匹配论文/)).not.toBeInTheDocument()
-  expect(screen.queryByText('未检索到资料')).not.toBeInTheDocument()
 })

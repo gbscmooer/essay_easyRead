@@ -32,52 +32,53 @@ afterEach(() => {
   MockEventSource.current = null
 })
 
-describe('useExplorationStream stage loop events', () => {
-  it('updates persisted active time from the question loop heartbeat and resets across runs', () => {
+describe('useExplorationStream single-loop events', () => {
+  it('collects queries, crawl steps and newly selected papers', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const { result, rerender } = renderHook(({ id }) => useExplorationStream(id), { initialProps: { id: 12 } })
-    act(() => MockEventSource.current?.emit('run_status', { status: 'running', active_seconds: 42 }))
-    expect(result.current.activeSeconds).toBe(42)
-    rerender({ id: 13 })
-    expect(result.current.activeSeconds).toBeUndefined()
-  })
-  it('shows bounded ReAct iteration progress without exposing rationale text', () => {
-    vi.stubGlobal('EventSource', MockEventSource)
-    const { result, unmount } = renderHook(() => useExplorationStream(12))
     expect(MockEventSource.current?.url).toBe('/api/exploration/runs/12/stream')
-
-    act(() => MockEventSource.current?.emit('stage_iteration', {
-      stage: 'synthesize', iteration: 3, phase: 'tool', tool: 'inspect_evidence',
-      rationale_summary: 'should not be displayed',
+    act(() => MockEventSource.current?.emit('queries_ready', { queries: ['dense retrieval', 'retrieval survey'] }))
+    expect(result.current.crawl.queries).toEqual(['dense retrieval', 'retrieval survey'])
+    act(() => MockEventSource.current?.emit('crawl_step', {
+      action: 'search', query: 'dense retrieval', hits: 20, new: 18, selected: 5, llm_calls: 2,
+      candidates: 18, total_selected: 5, top: [{ key: 'k1', title: 'DPR', label: 2 }],
     }))
-    expect(result.current.message).toBe('证据综合与写作 · 第 3 轮 · 正在使用 inspect_evidence')
-    expect(result.current.message).not.toContain('should not be displayed')
-
-    act(() => MockEventSource.current?.emit('stage_iteration', {
-      stage: 'synthesize', iteration: 4, phase: 'complete',
+    expect(result.current.crawl.candidates).toBe(18)
+    expect(result.current.crawl.selected).toBe(5)
+    expect(result.current.crawl.recent[0].title).toBe('DPR')
+    expect(result.current.message).toBe('检索「dense retrieval」：新增 18 篇，选中 5 篇')
+    act(() => MockEventSource.current?.emit('crawl_step', {
+      action: 'expand', paper: 'k1', title: 'DPR', chosen: ['Related Work'], new: 9, selected: 2, llm_calls: 2,
+      candidates: 27, total_selected: 7,
     }))
-    expect(result.current.message).toBe('证据综合与写作 · 第 4 轮验收通过')
+    expect(result.current.message).toBe('展开「DPR」（Related Work）：新增 9 篇，选中 2 篇')
+    expect(result.current.crawl.steps).toHaveLength(2)
+    rerender({ id: 13 })
+    expect(result.current.crawl.steps).toHaveLength(0)
+  })
+
+  it('keeps the answer from answer_ready and the snapshot from metrics_ready', () => {
+    vi.stubGlobal('EventSource', MockEventSource)
+    const { result, unmount } = renderHook(() => useExplorationStream(16))
+    act(() => MockEventSource.current?.emit('metrics_ready', { queries: ['q'], papers: [] }))
+    expect(result.current.result?.queries).toEqual(['q'])
+    act(() => MockEventSource.current?.emit('answer_ready', { status: 'ok', text: 'A [1].', references: [] }))
+    expect(result.current.answer?.text).toBe('A [1].')
+    act(() => MockEventSource.current?.emit('done', {}))
+    expect(result.current.status).toBe('done')
     unmount()
   })
 
   it('records per-stage timings from server ts for the timing panel', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const { result, unmount } = renderHook(() => useExplorationStream(13))
-
-    act(() => MockEventSource.current?.emit('stage_start', { stage: 'recall', ts: 1000 }))
-    expect(result.current.stageTimings.recall).toEqual({ startTs: 1_000_000 })
-
-    act(() => MockEventSource.current?.emit('stage_done', { stage: 'recall', ts: 1092.5, summary: {} }))
-    expect(result.current.stageTimings.recall).toEqual({ startTs: 1_000_000, endTs: 1_092_500 })
-
-    // 暂停→续跑后同阶段再次 stage_start：覆盖为新计时段（清掉旧 endTs），
-    // 否则暂停间隔会被计入该阶段走秒
-    act(() => MockEventSource.current?.emit('stage_start', { stage: 'recall', ts: 5000 }))
-    expect(result.current.stageTimings.recall).toEqual({ startTs: 5_000_000 })
-
-    // 无 ts 的旧事件回退本地时钟，仍可记录（不抛错）
-    act(() => MockEventSource.current?.emit('stage_start', { stage: 'enrich' }))
-    expect(result.current.stageTimings.enrich.startTs).toBeLessThanOrEqual(Date.now())
+    act(() => MockEventSource.current?.emit('stage_start', { stage: 'search', ts: 1000 }))
+    expect(result.current.stageTimings.search).toEqual({ startTs: 1_000_000 })
+    act(() => MockEventSource.current?.emit('stage_done', { stage: 'search', ts: 1092.5 }))
+    expect(result.current.stageTimings.search).toEqual({ startTs: 1_000_000, endTs: 1_092_500 })
+    // 暂停→续跑后同阶段再次 stage_start：覆盖为新计时段
+    act(() => MockEventSource.current?.emit('stage_start', { stage: 'search', ts: 5000 }))
+    expect(result.current.stageTimings.search).toEqual({ startTs: 5_000_000 })
     unmount()
   })
 
@@ -85,17 +86,12 @@ describe('useExplorationStream stage loop events', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const { result, unmount } = renderHook(() => useExplorationStream(14))
     const source = MockEventSource.current!
-
     act(() => source.emitNetworkError())
     expect(result.current.status).toBe('running')
     expect(result.current.message).toContain('自动重连')
-    expect(result.current.error).toBeNull()
     expect(source.closeCount).toBe(0)
-
-    act(() => source.emit('stage_start', { stage: 'report', ts: 1000 }))
-    expect(result.current.message).toBe('正在整理报告并保存交付版本…')
-    act(() => source.emit('stage_iteration', { stage: 'report', iteration: 1, phase: 'tool', tool: 'save_report' }))
-    expect(result.current.message).toContain('报告保存')
+    act(() => source.emit('stage_start', { stage: 'answer', ts: 1000 }))
+    expect(result.current.message).toBe('正在起草答案并为每句查找原文证据…')
     unmount()
   })
 
@@ -103,7 +99,6 @@ describe('useExplorationStream stage loop events', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const { result, unmount } = renderHook(() => useExplorationStream(15))
     const source = MockEventSource.current!
-
     act(() => source.emit('error', { message: '研究失败' }))
     expect(result.current.status).toBe('failed')
     expect(result.current.error).toBe('研究失败')

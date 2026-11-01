@@ -23,12 +23,12 @@ describe('mergeRunTiming', () => {
       endedAtMs: 600_000,
       nowMs: 600_000,
       persisted: [
-        { stage: 'report', started_at: '', duration_s: 360, status: 'completed' },
-        { stage: 'preflight', started_at: '', duration_s: 2.5, status: 'completed' },
-        { stage: 'recall', started_at: '', duration_s: 120, status: 'completed' },
+        { stage: 'answer', started_at: '', duration_s: 360, status: 'completed' },
+        { stage: 'search', started_at: '', duration_s: 2.5, status: 'completed' },
+        { stage: 'expand', started_at: '', duration_s: 120, status: 'completed' },
       ],
     })
-    expect(timing.stages.map(s => s.stage)).toEqual(['preflight', 'recall', 'report'])
+    expect(timing.stages.map(s => s.stage)).toEqual(['search', 'expand', 'answer'])
     expect(timing.stageSeconds).toBeCloseTo(482.5)
     expect(timing.wallSeconds).toBe(600)
   })
@@ -39,12 +39,12 @@ describe('mergeRunTiming', () => {
       endedAtMs: null,
       nowMs: 200_000,
       persisted: [
-        { stage: 'decompose', started_at: '', duration_s: 10, status: 'completed' },
-        { stage: 'recall', started_at: '', duration_s: null, status: 'running' },
+        { stage: 'search', started_at: '', duration_s: 10, status: 'completed' },
+        { stage: 'expand', started_at: '', duration_s: null, status: 'running' },
       ],
-      live: { recall: { startTs: 150_000 } },
+      live: { expand: { startTs: 150_000 } },
     })
-    const recall = timing.stages.find(s => s.stage === 'recall')
+    const recall = timing.stages.find(s => s.stage === 'expand')
     expect(recall?.seconds).toBeCloseTo(50)
     expect(recall?.status).toBe('running')
     // 落库的 null duration 行被实时数据补齐，不会输出 0 值占位
@@ -58,8 +58,8 @@ describe('mergeRunTiming', () => {
       endedAtMs: null,
       nowMs: 500_000,
       // started_at 与 live startTs 一致（±2s）：实时段就是这一行，用实时值
-      persisted: [{ stage: 'recall', started_at: '1970-01-01T00:01:40.000Z', duration_s: 99, status: 'completed' }],
-      live: { recall: { startTs: 100_000, endTs: 160_000 } },
+      persisted: [{ stage: 'expand', started_at: '1970-01-01T00:01:40.000Z', duration_s: 99, status: 'completed' }],
+      live: { expand: { startTs: 100_000, endTs: 160_000 } },
     })
     expect(timing.stages[0]?.seconds).toBeCloseTo(60)
     expect(timing.stages[0]?.status).toBe('completed')
@@ -71,12 +71,12 @@ describe('mergeRunTiming', () => {
       endedAtMs: 700_000,
       nowMs: 700_000,
       persisted: [
-        { stage: 'preflight', started_at: '1970-01-01T00:00:00.000Z', duration_s: 2, status: 'completed' },
-        { stage: 'report', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
-        { stage: 'report', started_at: '1970-01-01T00:55:00.000Z', duration_s: 60, status: 'completed' },
+        { stage: 'search', started_at: '1970-01-01T00:00:00.000Z', duration_s: 2, status: 'completed' },
+        { stage: 'answer', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
+        { stage: 'answer', started_at: '1970-01-01T00:55:00.000Z', duration_s: 60, status: 'completed' },
       ],
     })
-    const report = timing.stages.find(s => s.stage === 'report')
+    const report = timing.stages.find(s => s.stage === 'answer')
     expect(report?.seconds).toBeCloseTo(180) // 暂停前 120s + 续跑后 60s
     expect(report?.status).toBe('completed')
     expect(timing.stageSeconds).toBeCloseTo(182)
@@ -89,11 +89,11 @@ describe('mergeRunTiming', () => {
       nowMs: 560_000,
       persisted: [
         // 暂停前 report 跑了 120s 后暂停；续跑实时段从 500_000 重新开始
-        { stage: 'report', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
+        { stage: 'answer', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
       ],
-      live: { report: { startTs: 500_000 } },
+      live: { answer: { startTs: 500_000 } },
     })
-    const report = timing.stages.find(s => s.stage === 'report')
+    const report = timing.stages.find(s => s.stage === 'answer')
     expect(report?.seconds).toBeCloseTo(180) // 120 + (560_000-500_000)/1000
     expect(report?.status).toBe('running')
     // 墙钟含暂停间隔（0 → 560_000），阶段合计不含
@@ -107,13 +107,13 @@ describe('mergeRunTiming', () => {
       endedAtMs: null,
       nowMs: 700_000,
       persisted: [
-        { stage: 'report', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
-        { stage: 'report', started_at: '1970-01-01T00:05:50.000Z', duration_s: 40, status: 'completed' },
+        { stage: 'answer', started_at: '1970-01-01T00:02:00.000Z', duration_s: 120, status: 'paused' },
+        { stage: 'answer', started_at: '1970-01-01T00:05:50.000Z', duration_s: 40, status: 'completed' },
       ],
       // 实时段就是最新落库段（startTs≈3500s），匹配后让位实时值：120 + 40
-      live: { report: { startTs: 350_000, endTs: 390_000 } },
+      live: { answer: { startTs: 350_000, endTs: 390_000 } },
     })
-    const report = timing.stages.find(s => s.stage === 'report')
+    const report = timing.stages.find(s => s.stage === 'answer')
     expect(report?.seconds).toBeCloseTo(160)
     expect(report?.status).toBe('completed')
   })
@@ -123,10 +123,10 @@ describe('mergeRunTiming', () => {
       createdAtMs: 0,
       endedAtMs: 300_000, // 暂停发生时刻
       nowMs: 999_999_999, // 面板时钟继续走，但已结束的 run 不该跟着走
-      persisted: [{ stage: 'recall', started_at: '', duration_s: null, status: 'paused' }],
-      live: { recall: { startTs: 120_000 } },
+      persisted: [{ stage: 'expand', started_at: '', duration_s: null, status: 'paused' }],
+      live: { expand: { startTs: 120_000 } },
     })
-    const recall = timing.stages.find(s => s.stage === 'recall')
+    const recall = timing.stages.find(s => s.stage === 'expand')
     expect(recall?.seconds).toBeCloseTo(180) // 300_000 - 120_000
     expect(recall?.status).toBe('paused')
     expect(timing.wallSeconds).toBe(300)
@@ -151,9 +151,9 @@ describe('mergeRunTiming', () => {
       endedAtMs: 100_000,
       nowMs: 100_000,
       persisted: [{ stage: 'custom_stage', started_at: '', duration_s: 5, status: 'completed' }],
-      live: { report: { startTs: 90_000, endTs: 95_000 } },
+      live: { answer: { startTs: 90_000, endTs: 95_000 } },
     })
-    expect(timing.stages.map(s => s.stage)).toEqual(['report', 'custom_stage'])
+    expect(timing.stages.map(s => s.stage)).toEqual(['answer', 'custom_stage'])
   })
 
   it('无任何阶段数据时仍返回墙钟总耗时', () => {
@@ -168,7 +168,7 @@ describe('resolveTimelineEndMs', () => {
   it('报告重生成更新 run.updated_at 后仍以研究时间线结束点为准', () => {
     const persisted = [
       {
-        stage: 'decompose',
+        stage: 'search',
         started_at: '2026-09-19T07:36:22.000Z',
         duration_s: 42,
         status: 'completed' as const,
@@ -196,7 +196,7 @@ describe('resolveTimelineEndMs', () => {
 
   it('没有闭合时间线时返回 null，由调用方回退 updated_at', () => {
     expect(resolveTimelineEndMs([
-      { stage: 'report', started_at: '2026-09-19T07:44:46Z', duration_s: null, status: 'running' },
+      { stage: 'answer', started_at: '2026-09-19T07:44:46Z', duration_s: null, status: 'running' },
     ])).toBeNull()
   })
 })
