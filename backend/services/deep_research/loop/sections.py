@@ -20,6 +20,7 @@ HTML_URLS = ("https://arxiv.org/html/{id}", "https://ar5iv.labs.arxiv.org/html/{
 USER_AGENT = "essay_read-section-expand/1.0 (academic thesis project)"
 TIMEOUT = 25.0
 MAX_BYTES = 6_000_000
+TEXT_CHARS = 4000                     # 每节保留的正文长度（评测造题用，循环本身不读正文）
 _GATES: dict[int, asyncio.Semaphore] = {}   # arXiv 要求放慢抓取；按事件循环各一个
 _VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 _ARXIV_ID = re.compile(r"(?:arXiv[:\s]*|abs/)(\d{4}\.\d{4,5})", re.I)
@@ -41,6 +42,7 @@ class Reference:
 class PaperSections:
     sections: dict[str, list[str]] = field(default_factory=dict)   # 章节名 → bib id（按首次引用顺序）
     references: dict[str, Reference] = field(default_factory=dict)
+    texts: dict[str, str] = field(default_factory=dict)            # 章节名 → 正文（截断，评测造题用）
 
     def names(self) -> list[str]:
         return [name for name, ids in self.sections.items() if ids]
@@ -74,6 +76,7 @@ class _Parser(HTMLParser):
         self._blocks: list[list[str]] = []
         self._raw: list[str] = []
         self._in_biblio = False
+        self._text: dict[str, list[str]] = {}
 
     def handle_starttag(self, tag, attrs):
         if tag in _VOID:
@@ -136,6 +139,10 @@ class _Parser(HTMLParser):
     def handle_data(self, data):
         if self._heading_depth:
             self._heading_text.append(data)
+        elif self._bib is None and not self._in_biblio and self._section != "(front)":
+            buf = self._text.setdefault(self._section, [])
+            if sum(len(x) for x in buf) < TEXT_CHARS:
+                buf.append(data)
         if self._bib is not None:
             self._raw.append(data)
             if self._block_depth and self._blocks:
@@ -182,6 +189,7 @@ def parse_html(html: str) -> PaperSections:
     except Exception as exc:  # noqa: BLE001 —— 坏 HTML 只丢这一篇的展开
         logger.warning("arXiv HTML parse failed: %s", exc)
     result = parser.result
+    result.texts = {k: _SPACE.sub(" ", "".join(v)).strip()[:TEXT_CHARS] for k, v in parser._text.items()}
     # 去掉参考文献、附录等不该追的“章节”，并把编号前缀去掉方便模型阅读
     cleaned: dict[str, list[str]] = {}
     for name, ids in result.sections.items():

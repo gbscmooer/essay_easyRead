@@ -4,6 +4,8 @@
   public_benchmarks synergy    Selector 筛选的查全/查准（人工纳入标签）
   public_benchmarks litsearch  ResearchLoop 检索 + 判定的召回（专家标注目标论文）
   researchqa recall            同一批检索式下循环的召回（细则所引文献是否被选中 / 是否进过候选池）
+  autoscholar build|run        AutoScholarQuery 式自建题（Related Work 小节 → 检索请求 + 被引论文）上的
+                               候选召回 / 选中召回 / 精度 / 每题成本
 端到端（贵、噪声大，只做最终验收）：
   scholarqa_cs run|agent       ScholarQA-CS 细则评分
   researchqa run               ResearchQA 覆盖评分
