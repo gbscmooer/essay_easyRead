@@ -29,14 +29,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: '其他',
 }
 
+// 分类色取自版面配色（朱砂、靛青、石绿、赭石、紫褐、青灰），与纸面协调
 const CATEGORY_COLORS: Record<string, string> = {
-  paper_analysis: '#3b82f6',
-  text_action: '#22c55e',
-  exploration: '#a855f7',
-  code_analysis: '#f59e0b',
-  workspace_research: '#06b6d4',
-  connection_test: '#94a3b8',
-  other: '#f43f5e',
+  paper_analysis: '#3a5679',
+  text_action: '#3d7457',
+  exploration: '#b5361c',
+  code_analysis: '#a8741b',
+  workspace_research: '#6b4c7a',
+  connection_test: '#8d877b',
+  other: '#9b3d5a',
 }
 
 const RANGES = [
@@ -52,7 +53,7 @@ function categoryLabel(category: string): string {
 }
 
 function categoryColor(category: string): string {
-  return CATEGORY_COLORS[category] ?? '#94a3b8'
+  return CATEGORY_COLORS[category] ?? '#8d877b'
 }
 
 function formatTokens(value: number): string {
@@ -288,20 +289,20 @@ export default function TokenUsageSection() {
                 <AreaChart data={trendData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <defs>
                     <linearGradient id="usageInput" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.7} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1} />
+                      <stop offset="5%" stopColor="#3a5679" stopOpacity={0.7} />
+                      <stop offset="95%" stopColor="#3a5679" stopOpacity={0.1} />
                     </linearGradient>
                     <linearGradient id="usageOutput" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.7} />
-                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0.1} />
+                      <stop offset="5%" stopColor="#b5361c" stopOpacity={0.7} />
+                      <stop offset="95%" stopColor="#b5361c" stopOpacity={0.1} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="var(--text-secondary)" />
                   <YAxis tickFormatter={(value: number) => formatTokens(value)} tick={{ fontSize: 11 }} width={48} stroke="var(--text-secondary)" />
                   <Tooltip formatter={(value: number | string, name: string) => [`${formatTokens(Number(value))} tokens`, name]} />
-                  <Area type="monotone" dataKey="input_tokens" name="输入" stackId="tokens" stroke="#3b82f6" fill="url(#usageInput)" />
-                  <Area type="monotone" dataKey="output_tokens" name="输出" stackId="tokens" stroke="#22c55e" fill="url(#usageOutput)" />
+                  <Area type="monotone" dataKey="input_tokens" name="输入" stackId="tokens" stroke="#3a5679" fill="url(#usageInput)" />
+                  <Area type="monotone" dataKey="output_tokens" name="输出" stackId="tokens" stroke="#b5361c" fill="url(#usageOutput)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

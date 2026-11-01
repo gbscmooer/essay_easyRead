@@ -194,7 +194,7 @@ export default function ResearchPage() {
                   className={view === 'overview' ? 'is-active' : ''}
                   onClick={() => setView('overview')}
                 >
-                  📊 总览
+                  总览
                 </button>
                 <button
                   type="button"
@@ -203,7 +203,7 @@ export default function ResearchPage() {
                   className={view === 'graph' ? 'is-active' : ''}
                   onClick={() => setView('graph')}
                 >
-                  🕸️ 图谱
+                  图谱
                 </button>
               </div>
               {view === 'graph' && <EdgeFilter selected={edgeFilter} onChange={setEdgeFilter} />}
@@ -225,7 +225,7 @@ export default function ResearchPage() {
                   className="er-btn er-btn--secondary er-btn--sm"
                   title="3 分钟读懂领域全局：演进时间轴 / 技术流派 / 热点与公开挑战"
                 >
-                  📜 领域全景
+                  领域全景
                 </button>
               )}
               <button

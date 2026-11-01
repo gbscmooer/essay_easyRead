@@ -15,8 +15,8 @@ interface ExperimentsTabProps {
 // Categorical palette for multi-series charts (data viz needs distinct hues —
 // this is the one place hardcoded colors are intentional, not UI chrome).
 const CHART_COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+  '#3a5679', '#b5361c', '#3d7457', '#a8741b', '#6b4c7a',
+  '#2f6f73', '#8a5a44', '#556b2f', '#9b3d5a', '#4d4a44',
 ]
 
 
@@ -32,7 +32,7 @@ function useThemeColors() {
       surface: v('--bg-elevated', '#1f2937'),
       border: v('--border', '#374151'),
       text: v('--text-primary', '#e5e7eb'),
-      accent: v('--accent', '#3b82f6'),
+      accent: v('--accent', '#b5361c'),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ui.theme])

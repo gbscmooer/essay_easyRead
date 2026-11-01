@@ -1,10 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">论文精读辅助分析软件标记</title>
-  <desc id="desc">A hard-edged paper, cobalt field, red axis and ochre registration point.</desc>
-  <rect width="64" height="64" fill="#17181b"/>
-  <rect x="8" y="8" width="31" height="48" fill="#eee9dd"/>
-  <rect x="39" y="8" width="17" height="48" fill="#3969a8"/>
-  <path d="M8 37h48v6H8z" fill="#d94a38"/>
-  <rect x="39" y="37" width="8" height="6" fill="#d3a52f"/>
-  <path d="M15 17h17M15 23h17M15 29h11M15 49h17" fill="none" stroke="#17181b" stroke-width="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="论文精读">
+  <!-- v10「朱批」：朱砂方印，白文“论”，内框一道细线，像钤在书页角上的藏书印 -->
+  <rect width="64" height="64" fill="#b5361c"/>
+  <rect x="5" y="5" width="54" height="54" fill="none" stroke="#fbf6ee" stroke-opacity="0.6" stroke-width="1.6"/>
+  <text x="32" y="44.5" text-anchor="middle" font-family="'Noto Serif SC', 'Songti SC', 'STSong', serif" font-size="36" font-weight="700" fill="#fbf6ee">论</text>
 </svg>

@@ -75,6 +75,7 @@ class ScopusProvider:
         self._auth_fails = 0
         self._disabled = False
         self.last_request_status = "unknown"
+        self._complete_view: bool | None = None   # 机构订阅可达时检索可带摘要（COMPLETE 视图），首次检索时探测
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -86,7 +87,23 @@ class ScopusProvider:
         return self._client
 
     async def _get(self, path: str, params: dict | None = None) -> Optional[dict]:
-        """GET + JSON。自适应限速；鉴权/配额失败计入熔断；瞬时错误重试 2 次。返回 None 表示放弃。"""
+        """GET + JSON。自适应限速；鉴权/配额失败计入熔断；瞬时错误重试 2 次。返回 None 表示放弃。
+        ESSAY_SCOPUS_CACHE=record/local 时先查本地缓存（scopus_local）；local 模式不调 Scopus，未命中在本地库检索。"""
+        from . import scopus_local
+
+        local = scopus_local.active()
+        if local is not None:
+            cached = local.get(path, params)
+            if cached is not None:
+                return cached
+            if scopus_local.mode() == "local":
+                return local.serve(path, params)
+        body = await self._get_remote(path, params)
+        if local is not None and body is not None:
+            local.put(path, params, body)
+        return body
+
+    async def _get_remote(self, path: str, params: dict | None = None) -> Optional[dict]:
         if self._disabled:
             return None
         self._throttle = self._throttle or _shared_throttle()
@@ -177,9 +194,12 @@ class ScopusProvider:
                 "publication_type": entry.get("prism:aggregationType") or entry.get("subtypeDescription"),
                 "publisher": entry.get("dc:publisher"),
             }
+            flag = entry.get("openaccessFlag")
             cand = build_recall_candidate(
                 title=title,
                 doi=cls._entry_doi(entry),
+                abstract=(entry.get("dc:description") or "").strip() or None,   # 仅 COMPLETE 视图有
+                is_open_access=flag if isinstance(flag, bool) else None,
                 year=cls._entry_year(entry),
                 authors=f"{authors} et al." if authors else None,
                 source=source,
@@ -238,41 +258,58 @@ class ScopusProvider:
         return None
 
     async def get_paper_references(self, paper_id: str, limit: int = 50) -> list[dict]:
-        """Abstract Retrieval `view=REF` → 参考文献列表（legacy dict 格式）。"""
-        data = await self._get(f"/content/abstract/scopus-id/{paper_id}", {"view": "REF"})
-        if not data:
+        """Abstract Retrieval `view=REF` → 参考文献列表（legacy dict 格式；每页 40 条，按需翻页）。
+        路径是 scopus_id（下划线）：原来写成 scopus-id 一直 400，参考文献回溯从未生效（E25）。
+        条目自带题名、DOI、年份与被引数，但没有摘要（回溯时再按 DOI 批量取）。
+        当前 Key 只能取第一页（前 40 条，按正文引用顺序，多为引言里的基础文献）；翻页（startref=41）返回 400。"""
+        sid = str(paper_id or "").replace("SCOPUS_ID:", "").strip()
+        if not sid:
             return []
-        resp = data.get("abstracts-retrieval-response") or {}
-        record = (resp.get("bib") or {}).get("record") or {}
-        refs = ((record.get("reference-list") or {}).get("reference")) or []
-        if isinstance(refs, dict):
-            refs = [refs]
         out: list[dict] = []
-        for ref in refs[: min(limit, 80)]:
-            info = ref.get("ref-info") or {}
-            rtitle = (info.get("ref-title") or {}).get("ref-titletext") or ""
-            rtitle = str(rtitle).strip()
-            if not rtitle:
-                continue
-            # 参考文献条目无被引数/摘要（REF 视图不提供）
-            cited_ids = info.get("refd-itemidlist") or {}
-            itemid = ""
-            items = cited_ids.get("itemid") or []
-            if isinstance(items, dict):
-                items = [items]
-            for it in items:
-                if str(it.get("@type", "")).upper() == "SCOPUS_ID":
-                    itemid = str(it.get("$") or "")
-                    break
-            out.append({
-                "ext_id": itemid or None,
-                "title": rtitle,
-                "year": None,
-                "citation_count": 0,
-                "doi": str(info.get("ref-doi") or "") or None,
-                "arxiv_id": None,
-                "pdf_url": None,
-            })
+        start = 1
+        while len(out) < limit and start == 1:
+            data = await self._get(f"/content/abstract/scopus_id/{sid}",
+                                   {"view": "REF", "startref": "1", "refcount": "40"})
+            resp = (data or {}).get("abstracts-retrieval-response") or {}
+            block = resp.get("references") or {}
+            refs = block.get("reference") or []
+            if not refs:   # 旧版结构（bib.record.reference-list）兜底
+                record = (resp.get("bib") or {}).get("record") or {}
+                refs = ((record.get("reference-list") or {}).get("reference")) or []
+            if isinstance(refs, dict):
+                refs = [refs]
+            for ref in refs:
+                info = ref.get("ref-info") or {}
+                title = ref.get("title") or (info.get("ref-title") or {}).get("ref-titletext") or ""
+                title = str(title).strip()
+                if not title:
+                    continue
+                date = str(ref.get("prism:coverDate") or "")
+                out.append({
+                    "ext_id": str(ref.get("scopus-id") or "") or None,
+                    "title": title,
+                    "year": int(date[:4]) if date[:4].isdigit() else None,
+                    "citation_count": int(ref.get("citedby-count") or 0),
+                    "doi": str(ref.get("ce:doi") or info.get("ref-doi") or "") or None,
+                    "arxiv_id": None,
+                    "pdf_url": None,
+                })
+            start += 40
+        return out[:limit]
+
+    async def works_by_dois(self, dois: list[str], *, seed_paper_id: str | None = None,
+                            seed_relation: str = "ref_chain") -> list[RecallCandidate]:
+        """按 DOI 批量取完整检索记录（每次 25 个；COMPLETE 视图可用时带摘要），用于参考文献回溯的候选。"""
+        fields, view = await self._search_fields()
+        clean = [d.strip() for d in dois if d and re.fullmatch(r"10\.\S+", d.strip())]
+        out: list[RecallCandidate] = []
+        for i in range(0, len(clean), 25):
+            chunk = clean[i:i + 25]
+            data = await self._get("/content/search/scopus", {
+                "query": " OR ".join(f'DOI("{d}")' for d in chunk), "count": len(chunk), "field": fields, **view})
+            out += self._entries_to_candidates(self._search_entries(data), source=RecallSource.BACKWARD_REF,
+                                               seed_paper_id=seed_paper_id, seed_relation=seed_relation,
+                                               limit=len(chunk))
         return out
 
     async def get_paper_citations(self, paper_id: str, limit: int = 50) -> list[RecallCandidate]:
@@ -300,7 +337,8 @@ class ScopusProvider:
         词串会被要求逐字连续出现（实测 6 词短语 0 命中）；无引号多词是 loose AND
         （同一查询 2058 命中）。academic_only 追加学术类型过滤排干扰。
         """
-        q = query.strip()
+        # 括号、方括号与问号在 Scopus 里是语法字符：问题原句里的“(ECMO)”会让整条检索 400（ResearchQA 实测）
+        q = re.sub(r"\s+", " ", re.sub(r"[()\[\]{}?]", " ", query)).strip()
         base = f"TITLE-ABS-KEY({q})"
         return f"{base} AND DOCTYPE({_ACADEMIC_DOCTYPES})" if academic_only else base
 
@@ -313,11 +351,19 @@ class ScopusProvider:
             return []
         entries: list[dict] = []
         sort = "-citedby-count" if order == "cited" else "-relevancy"
-        # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时多数 0 命中（E10：
-        # Q3 前三条检索式 arXiv 与 Scopus 全 0）。0 命中时放宽为去停用词的 OR
-        # （OR 按相关度排序，命中词越多越靠前；只取第一页）
+        fields, view = await self._search_fields()
+        # 规划员给的检索式常是 6~10 词的句子，全部词同时出现时命中很少或为 0（E10：Q3 前三条检索式 arXiv 与
+        # Scopus 全 0；ResearchQA 医学题每条只命中 4~6 篇，而本地镜像每条给 45 篇 cs 论文）。原式不足名额时用去停用词
+        # 的 OR 补满（OR 按相关度排序，命中词越多越靠前；只取第一页），原式结果排在前面
+        want = min(limit, 100)
         for i, variant in enumerate(relaxed_queries(query)):
-            remaining = min(limit, 100) if i == 0 else min(limit, 25)  # 放宽式只取第一页
+            if i > 0 and len(entries) >= want:
+                break
+            got: list[dict] = []
+            remaining = want if i == 0 else 25  # 放宽式只取第一页
+            # 放宽式几乎命中全库：按被引降序会排出 GLOBOCAN、t-SNE 这类与题无关的全库高被引论文（ResearchQA 实测）；
+            # 放宽式一律按相关度取一页，order="cited" 时再在本地按被引重排
+            page_sort = sort if i == 0 else "-relevancy"
             start = 0
             while remaining > 0:
                 count = min(25, remaining)
@@ -325,20 +371,100 @@ class ScopusProvider:
                     "query": self.build_search_query(variant, academic_only=academic_only),
                     "count": count,
                     "start": start,
-                    "sort": sort,
-                    "field": "dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription",
+                    "sort": page_sort,
+                    "field": fields,
+                    **view,
                 })
                 page = self._search_entries(data)
-                entries.extend(page)
+                got.extend(page)
                 if len(page) < count:  # 没有更多结果
                     break
                 remaining -= count
                 start += count
-            if entries:
-                break
+            if i > 0:
+                seen = {self._entry_eid(e) for e in entries}
+                got = [e for e in got if self._entry_eid(e) not in seen]
+                if order == "cited":
+                    got.sort(key=lambda e: -int(e.get("citedby-count") or 0))
+            entries.extend(got[: max(0, want - len(entries))] if i > 0 else got)
         return self._entries_to_candidates(
             entries, source=RecallSource.SEARCH, seed_relation="search_match", limit=limit,
         )
+
+    async def _search_fields(self) -> tuple[str, dict]:
+        """检索返回的字段与视图：校园网/机构 IP 下 COMPLETE 视图带摘要，非 arXiv 论文（期刊为主的学科）不再只有题名。"""
+        fields = ("dc:identifier,dc:title,eid,prism:doi,prism:coverDate,prism:publicationDate,citedby-count,"
+                  "dc:creator,source-id,prism:publicationName,prism:aggregationType,subtypeDescription")
+        if await self._complete_view_ok():
+            return fields + ",dc:description,openaccessFlag", {"view": "COMPLETE"}
+        return fields, {}
+
+    async def search_titles(self, title: str, limit: int = 3) -> list[RecallCandidate]:
+        """按题名精确检索（TITLE 短语），用于查找模型点名的论文；同题判定由调用方做。"""
+        clean = re.sub(r'["(){}\[\]]', " ", title or "").strip()
+        if not clean:
+            return []
+        fields, view = await self._search_fields()
+        data = await self._get("/content/search/scopus", {"query": f'TITLE("{clean}")', "count": max(1, min(limit, 25)),
+                                                          "field": fields, **view})
+        return self._entries_to_candidates(self._search_entries(data), source=RecallSource.SEARCH,
+                                           seed_relation="title_lookup", limit=limit)
+
+    async def abstracts_by_dois(self, dois: list[str]) -> dict[str, str]:
+        """按 DOI 批量取摘要（DOI(a) OR DOI(b) …，每次 25 个，COMPLETE 视图）：召回后仍缺摘要的论文兜底。
+        COMPLETE 视图不可用（校外）时返回空。"""
+        if not await self._complete_view_ok():
+            return {}
+        found: dict[str, str] = {}
+        clean = [d.strip() for d in dois if d and re.fullmatch(r"10\.\S+", d.strip())]
+        for i in range(0, len(clean), 25):
+            chunk = clean[i:i + 25]
+            query = " OR ".join(f'DOI("{d}")' for d in chunk)
+            data = await self._get("/content/search/scopus", {"query": query, "count": len(chunk),
+                                                              "field": "prism:doi,dc:description",
+                                                              "view": "COMPLETE"})
+            for e in self._search_entries(data):
+                doi, ab = str(e.get("prism:doi") or "").lower(), (e.get("dc:description") or "").strip()
+                if doi and ab:
+                    found[doi] = ab
+        return found
+
+    async def _complete_view_ok(self) -> bool:
+        """COMPLETE 视图（含摘要）是否可用：取决于出口 IP 是否在机构订阅内，每个实例只探测一次。
+        不走 _get——普通 Key 在校外会 401，这是预期的降级，不能计入鉴权熔断。"""
+        if self._complete_view is not None:
+            return self._complete_view
+        from . import scopus_local
+
+        if scopus_local.mode() == "local":   # 本地库里的条目带摘要，按 COMPLETE 视图的字段返回
+            self._complete_view = True
+            return True
+        if not self.api_key or self._disabled:
+            return False
+        self._throttle = self._throttle or _shared_throttle()
+        from ...rate_limiter import account_source_request
+        status = None
+        for attempt in range(3):
+            try:
+                async with self._throttle:
+                    account_source_request()
+                    r = await self._http().get(f"{SCOPUS_BASE}/content/search/scopus", params={
+                        "query": "TITLE-ABS-KEY(retrieval)", "count": 1, "view": "COMPLETE",
+                        "field": "dc:identifier,dc:description"}, timeout=15.0)
+                status = r.status_code
+            except httpx.HTTPError:
+                status = None
+            if status in (200, 401, 403):
+                break
+            await asyncio.sleep(1.5 * (attempt + 1))
+        # 只有 200 / 401 / 403 才是确定的结论；限流（429）、5xx、超时只算这一次没探测成功，下次检索再探测——
+        # 原来一次 429 就让整个实例此后都不带摘要（E25：E21 召回 2784 篇里 23% 因此没有摘要，进不了证据库）
+        if status in (200, 401, 403):
+            self._complete_view = status == 200
+            logger.info("Scopus COMPLETE 视图（摘要）%s", "可用" if self._complete_view else "不可用，检索不带摘要")
+            return self._complete_view
+        logger.warning("Scopus COMPLETE 视图探测未成功（%s），本次检索不带摘要，下次再探测", status)
+        return False
 
     async def health_check(self, *, timeout: float = 10.0) -> dict:
         """权限体检：带 Key 发一次最小真实 Scopus Search（count=1），不是 ping 可达。

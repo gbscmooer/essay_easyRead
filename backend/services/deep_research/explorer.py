@@ -51,13 +51,19 @@ from .literature_retrieval import paper_similarity, retrieve_materials
 from .citation_metrics import annotate_citation_metrics
 from .graphkit.backbone import mutual_knn
 from .survey_report import _stage_timeout, build_survey_report, redeliver_survey_report
-from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, run_target_recall
+from .recall_engine import LISTWISE_TOP, RECALL_TARGETS, REF_CHASE, run_target_recall
+from .time_machine import make_filter as _tm_filter
 from .reranker import rerank_scores
 from .stage_agent import StagePausedError, StageValidation, run_stage_agent
 from ..research_sources import load_seeds, merge_corpus, recall_seed_neighbors
 from ..research_exclusions import apply_exclusions, active_exclusions
 
 logger = logging.getLogger(__name__)
+
+
+def _time_machine(question: str, options: dict):
+    """options.time_machine = strict / regular 且给了 question_year 时返回论文过滤器（评测用），否则 None。"""
+    return _tm_filter(question, options.get("question_year"), str(options.get("time_machine") or ""))
 
 
 def _report_hash(report: dict) -> str:
@@ -2684,10 +2690,18 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                             protocol_dimensions=_protocol_dimensions_for_recall(
                                 decompose.get("coverage_protocol")),
                             rerank_scores=rerank_scores, listwise_top=LISTWISE_TOP,
+                            ref_chase=int(options.get("ref_chase", REF_CHASE) or 0),
+                            chase_before_year=options.get("chase_before_year"),
                         )
                         search_audit.update(engine_audit)
                         provider_name = "multi:arxiv+scopus+openalex"
                         engine_used = True
+                        _tm = _time_machine(question, options)
+                        if _tm is not None:   # 评测的发表时间截断（防止看到出题综述，见 time_machine）
+                            before = len(papers)
+                            papers = [p for p in papers if _tm(p)]
+                            search_audit["time_machine"] = {"tier": options.get("time_machine"),
+                                                            "removed": before - len(papers)}
                     except StagePausedError:
                         raise
                     except Exception as exc:
@@ -3030,6 +3044,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     search_context=search_context,
                     resume_state=_fresh_resume_state(), on_selected=_on_selected,
                     should_pause=_paused, stop_after="select", paper_limit=read_cap,
+                    api_full_text=bool(options.get("api_full_text")),
                 )
                 result["report_plan"] = plan
                 # 全文获取结果已就地写入 papers（source_text），快照随阶段落库
@@ -3087,6 +3102,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     question, papers, metrics, synthesis_dict, llm_cfg, depth=depth,
                     progress=report_progress,
                     fetch_full_text=options.get("search_online", True),
+                    api_full_text=bool(options.get("api_full_text")),
                     search_context=search_context,
                     iteration_progress=_loop_event,
                     resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
@@ -3156,11 +3172,26 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                         # 指针式作答：起草 → 按论断检索原文句 → 引用指针定稿（answer_agent）
                         from .answer_agent import RECOMMENDED, write_with_pointers
                         from .arxiv_mirror import default_mirror
+                        from .evidence_search import ScopusSearch
 
+                        agent_opts = {**RECOMMENDED, **(options.get("answer_agent") or {})}
+                        online = options.get("search_online", True)
+                        # web_search="scopus"：在线 Scopus 与本地镜像一起提名论文（镜像只覆盖 cs）
+                        web = ScopusSearch() if agent_opts.pop("web_search", None) == "scopus" and online else None
+                        if not online:   # 离线研究：点名代表作也不到 Scopus 按题名补查
+                            agent_opts["works_lookup"] = ""
+                        # draft_model：只把起草换成另一个模型（同一服务商），其余步骤仍用当前模型
+                        draft_model = agent_opts.pop("draft_model", None)
+                        _draft_json = None
+                        if draft_model and draft_model != llm_cfg.get("model"):
+                            draft_cfg = {**llm_cfg, "model": draft_model}
+
+                            async def _draft_json(system: str, user: str) -> dict:
+                                return await _answer_llm(draft_cfg, system, user, max_tokens=6000)
                         result["answer"] = await write_with_pointers(
                             question, papers, llm_json=_answer_json,
-                            mirror=default_mirror() if options.get("search_online", True) else None,
-                            **{**RECOMMENDED, **(options.get("answer_agent") or {})})
+                            mirror=default_mirror() if online else None, web_search=web,
+                            draft_json=_draft_json, paper_filter=_time_machine(question, options), **agent_opts)
                         if result["answer"].get("status") == "failed":
                             # 起草或定稿失败（如内容审核拒绝、模型出错）：退回只依据已提取材料作答，学者仍拿到答案
                             failed = result["answer"]
@@ -3290,6 +3321,7 @@ async def run_exploration(run_id: int, *, resume: bool = False) -> None:
                     progress=report_progress,
                     # 研究侧时间耗尽：报告阶段不再下载全文（提取回退摘要）。
                     fetch_full_text=options.get("search_online", True) and not _research_frozen(),
+                    api_full_text=bool(options.get("api_full_text")),
                     search_context=search_context,
                     iteration_progress=_loop_event,
                     resume_state=_fresh_resume_state(), on_extraction=_on_extraction,
@@ -3531,6 +3563,7 @@ async def rebuild_survey_report(run_id: int) -> None:
                 question, result.get("papers", []), result.get("metrics", {}),
                 result.get("synthesis"), get_analysis_config(), depth=depth,
                 progress=progress, fetch_full_text=options.get("search_online", True),
+                api_full_text=bool(options.get("api_full_text")),
                 search_context={
                     "decompose": result.get("decompose") or {},
                     "provider": result.get("provider") or "",

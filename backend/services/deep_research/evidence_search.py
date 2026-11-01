@@ -395,6 +395,279 @@ async def mirror_search(queries: list[str], mirror, *, per_query: int = 4) -> li
     return out
 
 
+class ScopusSearch:
+    """在线 Scopus 检索，作为本地镜像之外的提名通道：接口与镜像的 as_search_one 一致，可直接交给 mirror_search。
+    本地镜像约 98% 是 cs 论文，非 CS 学科的问题在镜像里只能搜到不对题的 CS 论文；Scopus 覆盖各学科，
+    校园网下检索结果带摘要（校外没有摘要，mirror_search 不收无摘要的论文，等于不起作用）。"""
+
+    def __init__(self, provider=None):
+        if provider is None:
+            from ...config import settings
+            from ..ai_config import get_research_config
+            from .providers.scopus import ScopusProvider
+
+            provider = ScopusProvider(settings.elsevier_api_key or get_research_config().get("elsevier_api_key", ""))
+        self.provider = provider
+
+    def as_search_one(self):
+        async def search_one(source: str, query: str, limit: int, order: str) -> list:
+            cands = await self.provider.search_works(query, limit=limit)
+            for c in cands:
+                c.provenance = [*(c.provenance or []), "channel:scopus"]
+            return cands
+        return search_one
+
+    async def lookup_titles(self, titles: list[str]) -> list[dict]:
+        """按模型点名的题名在 Scopus 找同一篇论文（同题且有摘要才收，不用相近论文顶替）。"""
+        from .explorer import _dedupe_candidates
+
+        async def one(title: str) -> dict | None:
+            try:
+                cands = await self.provider.search_titles(title, 3)
+            except Exception as exc:  # noqa: BLE001 —— 单篇查找失败跳过
+                logger.warning("scopus title lookup failed for %r: %s", title, exc)
+                return None
+            row = next((p for p in _dedupe_candidates(cands)
+                        if _same_title(title, p.get("title") or "") and (p.get("abstract") or "").strip()), None)
+            return {**row, "requested_title": title, "source_query": "method:title_lookup"} if row else None
+
+        return [p for p in await asyncio.gather(*(one(t) for t in titles)) if p]
+
+
+FULL_TEXT_SOURCES = ("arxiv",)          # 默认只用 arXiv 开放全文；"pmc"、"elsevier" 需显式开启
+REF_WINDOW = 320          # 参考文献回溯：参考文献部分切窗的长度（字符）
+REF_BLOCK_CHARS = 60000   # 参考文献部分最多读这么长
+_EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest"
+_ELS_NS = "{http://www.elsevier.com/xml/common/dtd}"
+_SOURCE_GATES: dict[str, asyncio.Semaphore] = {}
+
+
+def _gate(source: str) -> asyncio.Semaphore:
+    # 每个全文来源最多 2 个并发请求（官方接口礼貌速率）
+    return _SOURCE_GATES.setdefault(source, asyncio.Semaphore(2))
+
+
+def _xml_text(el) -> str:
+    return re.sub(r"\s+", " ", "".join(el.itertext())).strip()
+
+
+def jats_body_text(xml: str) -> str:
+    """JATS 全文 XML → 正文（小节标题与段落，按文档顺序）；摘要与参考文献不在 <body> 里。"""
+    import xml.etree.ElementTree as ET
+
+    body = ET.fromstring(xml).find(".//body")
+    if body is None:
+        return ""
+    parts = [t for el in body.iter() if el.tag in ("title", "p") and (t := _xml_text(el))]
+    return "\n\n".join(parts)[:100000]
+
+
+def elsevier_body_text(xml: str) -> str:
+    """ScienceDirect 全文 XML → 正文：只取 ce:sections 下的小节标题与段落。
+    无订阅权限时接口只返回题录与摘要，没有 ce:sections，结果为空串（判为取不到全文）。"""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml)
+    parts = [t for sec in root.iter(f"{_ELS_NS}sections") for el in sec.iter()
+             if el.tag in (f"{_ELS_NS}section-title", f"{_ELS_NS}para") and (t := _xml_text(el))]
+    return "\n\n".join(parts)[:100000]
+
+
+async def fetch_pmc_full_text(doi: str, *, timeout: float = 20.0) -> str:
+    """Europe PMC 开放获取全文（免 Key）：DOI → 开放获取的 PMCID → fullTextXML。失败返回空串。"""
+    import httpx
+
+    try:
+        async with _gate("pmc"), httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(f"{_EPMC}/search", params={"query": f'DOI:"{doi}"', "format": "json",
+                                                       "resultType": "lite"})
+            hits = ((r.json() if r.status_code == 200 else {}).get("resultList") or {}).get("result") or []
+            pmcid = next((h["pmcid"] for h in hits if h.get("pmcid") and h.get("isOpenAccess") == "Y"), None)
+            if not pmcid:
+                return ""
+            r = await c.get(f"{_EPMC}/{pmcid}/fullTextXML")
+            return jats_body_text(r.text) if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001 —— 全文是增益，失败只记日志
+        logger.warning("Europe PMC full text fetch failed for %s: %s", doi, exc)
+        return ""
+
+
+_BACKFILL_UA = {"User-Agent": "essay_read-abstract-backfill/1.0 (academic thesis project)"}
+_ABSTRACT_CACHE: dict[str, str] = {}
+
+
+def _strip_markup(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+
+
+async def fetch_abstract(doi: str, *, timeout: float = 20.0) -> str:
+    """按 DOI 补摘要（官方免 Key 接口）：Europe PMC（生物医学为主）→ Semantic Scholar（限流时跳过）。
+    Scopus 结果约 23% 没有摘要（非 CS 29%），没有摘要的论文进不了证据库、答案也就引用不了（E25）。"""
+    doi = str(doi or "").strip().lower()
+    if not doi:
+        return ""
+    if doi in _ABSTRACT_CACHE:
+        return _ABSTRACT_CACHE[doi]
+    import httpx
+
+    text = ""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, headers=_BACKFILL_UA) as c:
+            async with _gate("pmc"):
+                r = await c.get(f"{_EPMC}/search", params={"query": f'DOI:"{doi}"', "format": "json",
+                                                           "resultType": "core"})
+            hits = ((r.json() if r.status_code == 200 else {}).get("resultList") or {}).get("result") or []
+            text = _strip_markup(next((h.get("abstractText") for h in hits if h.get("abstractText")), ""))
+            if not text:
+                async with _gate("s2"):
+                    r = await c.get(f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}",
+                                    params={"fields": "abstract"})
+                text = _strip_markup((r.json() or {}).get("abstract") or "") if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001 —— 补摘要是增益，失败只记日志
+        logger.warning("abstract backfill failed for %s: %s", doi, exc)
+        return ""
+    _ABSTRACT_CACHE[doi] = text
+    return text
+
+
+async def backfill_abstracts(papers: list[dict]) -> int:
+    """为没有摘要、也没有全文、但有 DOI 的论文补摘要（就地写入 abstract），返回补到的篇数。"""
+    todo = [p for p in papers if not (p.get("abstract") or "").strip() and not p.get("source_text") and p.get("doi")]
+    got = await asyncio.gather(*(fetch_abstract(p["doi"]) for p in todo))
+    n = 0
+    for p, text in zip(todo, got):
+        if len(text) >= 100:
+            p["abstract"] = text
+            n += 1
+    return n
+
+
+_REF_HEADING = re.compile(r"(?:^|\n|\s{2,})(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY|Literature Cited|"
+                          r"LITERATURE CITED|Works Cited|Reference List|REFERENCE LIST)\s*:?\s*(?:\n|\s{2,}|(?=\[?1[.\]]))")
+_REF_NUMBER = re.compile(r"(?:^|\s)(?:\[\d{1,3}\]|\d{1,3}\.)\s+(?=[A-Z])")
+DOI_RE = re.compile(r"10\.\d{4,9}/[^\s,;\]]+")
+_WORD = re.compile(r"[a-z][a-z\-]{3,}")
+_STOP = frozenset("with from that this these those their there which what when where while into onto over under "
+                  "between among during after before about using based study studies effect effects role analysis "
+                  "review journal vol volume pages press university differently affect previous period".split())
+
+
+def reference_entries(text: str) -> list[str]:
+    """全文末尾的参考文献逐条切出：有编号按编号切，否则按 DOI 切，都没有时切成重叠小窗。
+    只看全文后 70% 里最后一个“参考文献”标题之后的部分（前面目录、正文里的同名词不算）。"""
+    text = text or ""
+    heads = [m for m in _REF_HEADING.finditer(text) if m.start() >= len(text) * 0.3]
+    if not heads:
+        return []
+    block = re.sub(r"\s+", " ", text[heads[-1].end():][:REF_BLOCK_CHARS])
+    marks = [m.start() for m in _REF_NUMBER.finditer(block)]
+    if len(marks) < 3:
+        marks = [0, *(m.end() for m in DOI_RE.finditer(block))]
+    if len(marks) >= 3:
+        cuts = [*marks, len(block)]
+        entries = [block[a:b].strip() for a, b in zip(cuts, cuts[1:])]
+    else:
+        entries = [block[i:i + REF_WINDOW] for i in range(0, max(1, len(block) - REF_WINDOW // 2), REF_WINDOW // 2)]
+    return [e[:REF_WINDOW * 2] for e in entries if 40 <= len(e)]
+
+
+def reference_windows(text: str) -> list[str]:   # 兼容旧名
+    return reference_entries(text)
+
+
+def _terms(text: str) -> set[str]:
+    """词干（前 6 个字母）集合：suicide / suicidal / suicidality 算同一个词。"""
+    return {w[:6] for w in _WORD.findall((text or "").lower()) if w not in _STOP}
+
+
+def rank_reference_windows(windows: list[str], query: str, limit: int) -> list[str]:
+    """按与问题（及草稿小标题）的词干重合排序，取前 limit 条（只提名，真伪由解析后核对题名）。"""
+    q = _terms(query)
+    scored = sorted(((len(q & _terms(w)), i, w) for i, w in enumerate(windows)), key=lambda x: (-x[0], x[1]))
+    out, seen = [], set()
+    for n, _, w in scored:
+        if n < 2 or w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def resolve_reference(window: str, *, timeout: float = 20.0) -> dict | None:
+    """一条参考文献解析成论文（Crossref 官方免 Key）：条目里有 DOI 时直接按 DOI 取元数据，否则用
+    query.bibliographic 解析；解析出的题名须几乎完整出现在条目里才收（不用相近论文顶替）。"""
+    import httpx
+
+    doi = next((m.group(0).rstrip(".)") for m in DOI_RE.finditer(window)), "")
+    try:
+        async with _gate("crossref"), httpx.AsyncClient(timeout=timeout, headers=_BACKFILL_UA) as c:
+            if doi:
+                r = await c.get(f"https://api.crossref.org/works/{doi}")
+                items = [(r.json() if r.status_code == 200 else {}).get("message") or {}]
+            else:
+                r = await c.get("https://api.crossref.org/works",
+                                params={"query.bibliographic": window, "rows": 2,
+                                        "select": "DOI,title,issued,author,abstract"})
+                items = ((r.json() if r.status_code == 200 else {}).get("message") or {}).get("items") or []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("crossref resolve failed: %s", exc)
+        return None
+    flat = re.sub(r"[^a-z0-9 ]", "", window.lower())
+    for it in items:
+        if not it.get("DOI"):
+            continue
+        title = _strip_markup((it.get("title") or [""])[0])
+        words = re.sub(r"[^a-z0-9 ]", "", title.lower()).split()
+        if len(words) < 4:
+            continue
+        if sum(1 for w in words if w in flat) / len(words) >= (0.7 if doi else 0.9) and " ".join(words[:3]) in flat:
+            year = ((it.get("issued") or {}).get("date-parts") or [[None]])[0][0]
+            authors = [f"{a.get('family', '')} {a.get('given', '')[:1]}.".strip() for a in (it.get("author") or [])[:6]]
+            return {"key": f"doi:{str(it.get('DOI')).lower()}", "doi": str(it.get("DOI")).lower(), "title": title,
+                    "year": year, "authors": authors, "abstract": _strip_markup(it.get("abstract") or "")}
+    return None
+
+
+async def fetch_elsevier_full_text(doi: str, *, timeout: float = 30.0) -> str:
+    """ScienceDirect 全文（官方 Article Retrieval API）：需 Elsevier Key，且出口 IP 在机构订阅内
+    （校园网；代理须把 elsevier.com 设为直连）。只处理 10.1016 开头的 DOI，失败返回空串。"""
+    if not str(doi).lower().startswith("10.1016/"):
+        return ""
+    import httpx
+
+    from ...config import settings
+    from ..ai_config import get_research_config
+
+    key = settings.elsevier_api_key or get_research_config().get("elsevier_api_key", "")
+    if not key:
+        return ""
+    try:
+        async with _gate("elsevier"), httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(f"https://api.elsevier.com/content/article/doi/{doi}", params={"view": "FULL"},
+                            headers={"X-ELS-APIKey": key, "Accept": "text/xml"})
+            return elsevier_body_text(r.text) if r.status_code == 200 else ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Elsevier full text fetch failed for %s: %s", doi, exc)
+        return ""
+
+
+async def fetch_full_text_any(paper: dict, sources=FULL_TEXT_SOURCES, *, arxiv_fetch=None) -> tuple[str, str]:
+    """按 sources 的顺序取全文，返回 (正文, 来源)；都取不到返回 ("", "")。"""
+    for src in sources:
+        text = ""
+        if src == "arxiv" and paper.get("arxiv_id"):
+            text = await (arxiv_fetch or fetch_arxiv_full_text)(paper["arxiv_id"])
+        elif src == "pmc" and paper.get("doi"):
+            text = await fetch_pmc_full_text(paper["doi"])
+        elif src == "elsevier" and paper.get("doi"):
+            text = await fetch_elsevier_full_text(paper["doi"])
+        if len(text) >= FULL_TEXT_MIN_CHARS:
+            return text, src
+    return "", ""
+
+
 async def fetch_arxiv_full_text(arxiv_id: str, *, timeout: float = 25.0) -> str:
     """按 arXiv 编号下载官方 PDF 并抽取正文（只用 arXiv 开放全文；失败返回空串）。"""
     import os

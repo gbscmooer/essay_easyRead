@@ -1,5 +1,5 @@
 /**
- * Application frame — route-aware constructivist experience shell.
+ * Application frame — route-aware shell（v10「朱批」：左侧目录栏 + 版面区）.
  *
  * Business routes stay unchanged. The shell translates each route into a
  * small visual state (`data-scene` / `data-route` / `data-motion`) consumed by
@@ -106,11 +106,7 @@ interface ContextLinkProps {
 function ContextLink({ to, active, children }: ContextLinkProps) {
   return (
     <Link
-      className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-        active
-          ? 'bg-[var(--bg-surface)] text-[var(--accent)] font-semibold shadow-xs'
-          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-      }`}
+      className="mg-toc__sub-item"
       data-active={active || undefined}
       aria-current={active ? 'page' : undefined}
       to={to}
@@ -118,6 +114,13 @@ function ContextLink({ to, active, children }: ContextLinkProps) {
       {children}
     </Link>
   )
+}
+
+/** 目录栏底部的日期注记（刊物的出版日期行）。 */
+function folioDate(): string {
+  const now = new Date()
+  const week = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()]
+  return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} 周${week}`
 }
 
 export function Layout({ children }: LayoutProps) {
@@ -161,16 +164,19 @@ export function Layout({ children }: LayoutProps) {
   }, [blocker.state])
 
   const contextItems: ReactNode[] = []
+  let contextSection: string | null = null   // 子页面挂在哪个目录项下面
   if (paperId) {
+    contextSection = '/library'
     const fromPath = (location.state as { from?: string } | null)?.from
     const workspaceMatch = fromPath?.match(/^\/workspace\/(\d+)/)
     const backTo = workspaceMatch ? `/workspace/${workspaceMatch[1]}` : '/library'
     contextItems.push(
       <ContextLink key="reader" to={`/reader/${paperId}`} active={location.pathname.startsWith('/reader')}>论文分析</ContextLink>,
       <ContextLink key="code" to={`/code/${paperId}`} active={location.pathname.startsWith('/code')}>源码分析</ContextLink>,
-      <ContextLink key="back" to={backTo} active={false}>{workspaceMatch ? '返回工作区' : '返回论文库'} ↑</ContextLink>,
+      <ContextLink key="back" to={backTo} active={false}>{workspaceMatch ? '返回工作区' : '返回论文库'}</ContextLink>,
     )
   } else if (workspaceId) {
+    contextSection = '/workspace'
     contextItems.push(
       <ContextLink key="detail" to={`/workspace/${workspaceId}`} active={location.pathname === `/workspace/${workspaceId}`}>论文集合</ContextLink>,
       <ContextLink key="research" to={`/explore?workspace_id=${workspaceId}`} active={false}>发起研究</ContextLink>,
@@ -181,108 +187,91 @@ export function Layout({ children }: LayoutProps) {
   return (
     <ThemeProvider>
       <div
-        className="er-experience flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)]"
+        className="er-experience mg-shell"
         data-scene={visual.scene}
         data-route={visual.route}
         data-motion={motion.enabled ? 'full' : 'reduced'}
       >
-        <a className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-blue-600 focus:text-white focus:rounded-md" href="#er-main-content">跳到主要内容</a>
+        <a className="mg-skip" href="#er-main-content">跳到主要内容</a>
 
-        {/* 现代化顶部导航栏 */}
-        <header className="er-app-header h-14 shrink-0 px-4 sm:px-6 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center justify-between z-30 select-none">
-          {/* 左侧：Logo 与主导航 */}
-          <div className="er-app-header__left flex items-center gap-6">
-            <div className="er-app-header__brand flex items-center gap-2">
-              <Link to="/" className="flex items-center gap-2.5 group">
-                <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs group-hover:scale-105 transition-transform">
-                  论
-                </span>
-                <span className="font-bold text-[15px] tracking-tight text-[var(--text-primary)]">
-                  论文精读
-                </span>
-              </Link>
+        {/* 目录栏：像书的目录一样编号；打开论文或工作区时，子页面缩进挂在所属目录项下面 */}
+        <aside className="mg-rail" aria-label="主要导航">
+          <Link to="/" className="mg-brand" aria-label="论文精读首页">
+            <span className="mg-seal" aria-hidden="true">论</span>
+            <span className="mg-brand__text">
+              <span className="mg-brand__name">论文精读</span>
+              <span className="mg-brand__sub">研究者的阅读台</span>
+            </span>
+          </Link>
+
+          <nav className="mg-toc" aria-label="主要导航">
+            <span className="mg-toc__head">目录</span>
+            {primaryNav.map((item, i) => {
+              const active = isNavActive(item.path, location.pathname)
+              const sub = contextSection === item.path && contextItems.length > 0
+              return (
+                <div className="mg-toc__group" key={item.path} data-active={active || undefined}>
+                  <Link
+                    to={item.path}
+                    className="mg-toc__item"
+                    data-active={active || undefined}
+                    aria-current={active && !sub ? 'page' : undefined}
+                  >
+                    <span className="mg-toc__no">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="mg-toc__label">{item.label}</span>
+                  </Link>
+                  {sub && (
+                    <div className="mg-toc__sub" aria-label="当前内容导航">
+                      {contextItems}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </nav>
+
+          <div className="mg-rail__foot">
+            <div className="mg-rail__tools">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="mg-tool"
+                title={isDark ? '切换至宣纸（明亮）' : '切换至墨（深色）'}
+                aria-label="切换主题颜色"
+              >
+                <span className="mg-tool__glyph" aria-hidden="true">{isDark ? '纸' : '墨'}</span>
+                <span className="mg-tool__label">{isDark ? '宣纸' : '墨色'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={toggleShortcuts}
+                className="mg-tool"
+                title="键盘快捷键 (?)"
+                aria-label="快捷键帮助"
+              >
+                <span className="mg-tool__glyph" aria-hidden="true">?</span>
+                <span className="mg-tool__label">快捷键</span>
+              </button>
+            </div>
+            <div className="mg-folio">
+              <span>{folioDate()}</span>
               <button
                 type="button"
                 onClick={() => setShowVersion(true)}
-                className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-[var(--border)] cursor-pointer"
+                className="mg-folio__version"
                 title="查看版本与更新日志"
                 aria-label="查看论文精读辅助分析软件版本信息"
               >
                 v{APP_VERSION}
               </button>
             </div>
-
-            {/* 主要导航 */}
-            <nav className="er-app-header__nav flex items-center gap-1" aria-label="主要导航">
-              {primaryNav.map(item => {
-                const active = isNavActive(item.path, location.pathname)
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
-                      active
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 font-semibold shadow-2xs'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-                    }`}
-                    data-active={active || undefined}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    {item.label}
-                  </Link>
-                )
-              })}
-            </nav>
           </div>
-
-          {/* 右侧：上下文导航与操作按钮 */}
-          <div className="er-app-header__actions flex items-center gap-3">
-            {contextItems.length > 0 && (
-              <nav className="er-app-header__context flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]" aria-label="当前内容导航">
-                {contextItems}
-              </nav>
-            )}
-
-            <div className="er-app-header__tools flex items-center gap-1 border-l border-[var(--border)] pl-2 sm:pl-3">
-              {/* 主题切换 */}
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer"
-                title={isDark ? '切换至明亮模式' : '切换至深色模式'}
-                aria-label="切换主题颜色"
-              >
-                {isDark ? (
-                  <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                  </svg>
-                )}
-              </button>
-
-              {/* 快捷键帮助 */}
-              <button
-                type="button"
-                onClick={toggleShortcuts}
-                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer"
-                title="键盘快捷键 (?)"
-                aria-label="快捷键帮助"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </header>
+        </aside>
 
         {/* 主内容区域 */}
-        <div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative">
-          <main id="er-main-content" className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative" tabIndex={-1}>
-            <div className="h-full w-full overflow-auto flex flex-col" key={location.pathname}>
+        <div className="mg-stage">
+          <main id="er-main-content" className="mg-main" tabIndex={-1}>
+            <div className="mg-scroll" key={location.pathname}>
               {children}
             </div>
           </main>

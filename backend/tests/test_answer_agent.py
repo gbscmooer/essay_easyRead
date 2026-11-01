@@ -107,6 +107,50 @@ class _FakeMirror:
         return search_one
 
 
+class _FakeWeb:
+    """在线通道：as_search_one 返回一篇期刊论文；lookup_titles 只认镜像里找不到的点名论文。"""
+
+    def __init__(self):
+        self.looked_up = []
+
+    def as_search_one(self):
+        from backend.models.recall import RecallSource, build_recall_candidate
+
+        async def search_one(source, keyword, limit, order):
+            return [build_recall_candidate(
+                title="Nosocomial infections during extracorporeal membrane oxygenation", doi="10.1016/x.9", year=2022,
+                abstract="Nosocomial infection occurs in a large share of adults supported by extracorporeal membrane "
+                         "oxygenation.", source=RecallSource.SEARCH, provenance=["channel:scopus"])]
+        return search_one
+
+    async def lookup_titles(self, titles):
+        self.looked_up += titles
+        return [{"key": "doi:10.1097/x", "title": t, "year": 2006, "doi": "10.1097/x", "requested_title": t,
+                 "source_query": "method:title_lookup",
+                 "abstract": "This meta-analysis of 32 studies reports elevated prostate cancer risk among firefighters."}
+                for t in titles if "firefighters" in t]
+
+
+def test_web_search_channel_nominates_alongside_mirror_and_finds_named_journal_papers(monkeypatch):
+    _no_rerank(monkeypatch)
+
+    async def llm_json(system, user):
+        if "## 任务" in user and "draft" in user:
+            return {"draft": "**Evidence.** Firefighters show an elevated prostate cancer risk in meta-analyses. "
+                             "Type inference tools such as PyType are evaluated on real projects.",
+                    "works": [{"title": "Type4Py: Practical Deep Similarity Learning-Based Type Inference"},
+                              {"title": "Cancer risk among firefighters: a review and meta-analysis of 32 studies"}],
+                    "queries": ["firefighter prostate cancer meta-analysis"]}
+        return {"answer": "**Evidence.** Firefighters show an elevated prostate cancer risk [S1]."}
+
+    web = _FakeWeb()
+    out = asyncio.run(ag.write_with_pointers("Which occupations raise prostate cancer risk?", [], llm_json=llm_json,
+                                             mirror=_FakeMirror(), web_search=web, claim_search=1))
+    assert web.looked_up == ["Cancer risk among firefighters: a review and meta-analysis of 32 studies"]   # 镜像找到的不再查
+    assert out["agent"]["works_found"] == 2 and out["agent"]["works_web_found"] == 1
+    assert out["agent"]["search_added"] == 2      # 镜像与在线通道各提名一篇
+
+
 def test_write_with_pointers_end_to_end(monkeypatch):
     _no_rerank(monkeypatch)
     calls = []
@@ -156,6 +200,87 @@ def test_low_citation_share_triggers_one_rewrite_with_pointer_feedback(monkeypat
     assert "没有指针" in prompts[2] and "上一稿（供修改）" in prompts[2]
 
 
+def test_full_text_sources_default_arxiv_only_and_multi_source_uses_doi(monkeypatch):
+    """默认只给带 arXiv 编号的论文补全文；开启 pmc/elsevier 后只有 DOI 的期刊论文也按顺序试各来源。"""
+    body = "Firefighting is associated with prostate cancer risk in several cohorts.\n\n" * 40
+    calls = []
+
+    async def fake_pmc(doi):
+        calls.append(("pmc", doi))
+        return ""
+
+    async def fake_els(doi):
+        calls.append(("elsevier", doi))
+        return body
+
+    monkeypatch.setattr(es, "fetch_pmc_full_text", fake_pmc)
+    monkeypatch.setattr(es, "fetch_elsevier_full_text", fake_els)
+
+    def index():
+        idx = es.EvidenceIndex()
+        idx.add_paper({"key": "j1", "title": "Cancer risk among firefighters", "year": 2006, "doi": "10.1016/x.1",
+                       "abstract": "This meta-analysis of 32 studies reports elevated prostate cancer risk among firefighters."}, origin="recall")
+        return idx
+
+    async def no_arxiv(arxiv_id):
+        raise AssertionError("不应请求 arXiv")
+
+    out = asyncio.run(ag._fetch_full_texts(index(), 3, no_arxiv))
+    assert out["tried"] == 0 and calls == []
+    idx = index()
+    out = asyncio.run(ag._fetch_full_texts(idx, 3, no_arxiv, ("arxiv", "pmc", "elsevier")))
+    assert calls == [("pmc", "10.1016/x.1"), ("elsevier", "10.1016/x.1")]
+    assert out["ok"] == 1 and out["by_source"] == {"elsevier": 1} and idx.papers["j1"]["source"] == "full_text"
+
+
+def test_full_text_rerank_order_lets_relevant_recall_papers_in(monkeypatch):
+    """order="rerank"：名额按与问题的相关度分配，不再先给镜像检索到的论文；重排不可用时退回来源先后。"""
+    def index():
+        idx = es.EvidenceIndex()
+        idx.add_paper({"key": "cs1", "title": "Imitation learning for clinical decision support", "arxiv_id": "2601.0001",
+                       "abstract": "We train a reinforcement learning agent to imitate clinicians in the intensive care unit."},
+                      origin="question_search")
+        idx.add_paper({"key": "med", "title": "Nosocomial infections during extracorporeal membrane oxygenation",
+                       "doi": "10.1016/x.2",
+                       "abstract": "Nosocomial infection affects many adults supported by extracorporeal membrane oxygenation."},
+                      origin="recall")
+        return idx
+
+    fetched = []
+
+    async def fake_any(meta, sources, arxiv_fetch=None):
+        fetched.append(meta["key"])
+        return "", ""
+
+    async def fake_rerank(query, docs):
+        return [0.9 if "Nosocomial" in d else 0.1 for d in docs]
+
+    monkeypatch.setattr(ag, "fetch_full_text_any", fake_any)
+    monkeypatch.setattr(ag, "rerank_scores", fake_rerank)
+    srcs = ("arxiv", "pmc", "elsevier")
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="origin"))
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="rerank"))
+
+    async def no_rerank(query, docs):
+        return None
+
+    monkeypatch.setattr(ag, "rerank_scores", no_rerank)
+    asyncio.run(ag._fetch_full_texts(index(), 1, None, srcs, question="ECMO infection risk", order="rerank"))
+    assert fetched == ["cs1", "med", "cs1"]
+
+
+def test_publisher_xml_parsers_keep_body_only():
+    jats = ("<article><front><abstract><p>Abstract text.</p></abstract></front><body><sec><title>Introduction</title>"
+            "<p>ECMO raises <italic>infection</italic> risk.</p></sec></body><back><ref-list><p>Ref</p></ref-list></back></article>")
+    assert es.jats_body_text(jats) == "Introduction\n\nECMO raises infection risk."
+    ns = 'xmlns:ce="http://www.elsevier.com/xml/common/dtd"'
+    els = (f'<full-text-retrieval-response {ns}><ce:abstract><ce:para>Abstract.</ce:para></ce:abstract>'
+           "<body><ce:sections><ce:section><ce:section-title>Methods</ce:section-title>"
+           "<ce:para>We enrolled 40 patients.</ce:para></ce:section></ce:sections></body></full-text-retrieval-response>")
+    assert es.elsevier_body_text(els) == "Methods\n\nWe enrolled 40 patients."
+    assert es.elsevier_body_text(f"<r {ns}><ce:abstract><ce:para>Only abstract.</ce:para></ce:abstract></r>") == ""
+
+
 def test_full_text_upgrade_keeps_pointers_and_prefers_named_works():
     idx = es.EvidenceIndex()
     idx.add_paper({**_PAPERS[0], "arxiv_id": "2312.0001"}, origin="recall")
@@ -171,7 +296,8 @@ def test_full_text_upgrade_keeps_pointers_and_prefers_named_works():
                 "On the ManyTypes4Py dataset, Type4Py achieves an MRR of 77.1% for all types.\n") * 1
 
     out = asyncio.run(ag._fetch_full_texts(idx, 1, fake_fetch))
-    assert fetched == ["2101.0001"] and out == {"tried": 1, "ok": 1, "sentences": 1}   # 点名代表作优先；重复句不再收
+    assert fetched == ["2101.0001"] and out == {"tried": 1, "ok": 1, "sentences": 1,   # 点名代表作优先；重复句不再收
+                                                 "by_source": {"arxiv": 1}}
     assert idx.get("S1").text == before                                                  # 已有指针不变
     new = idx.passages[-1]
     assert new.source == "full_text" and "77.1%" in new.text and idx.papers["t4"]["source"] == "full_text"
@@ -621,3 +747,217 @@ def test_opening_draft_prompt_asks_for_background_first():
     with_opening = ag._draft_prompt("What is RMQ?", [], "en", 0, opening=True)
     assert "先交代背景" in with_opening and "先用 1~2 句直接回答" not in with_opening
     assert "先用 1~2 句直接回答" in ag._draft_prompt("What is RMQ?", [], "en", 0)
+
+
+def test_draft_context_shows_most_relevant_recall_abstracts(monkeypatch):
+    async def fake_rerank(query, docs):
+        return [0.9 if "Nosocomial" in d else 0.1 for d in docs]
+
+    monkeypatch.setattr(ag, "rerank_scores", fake_rerank)
+    papers = [{"key": "x", "title": "Imitation learning in the ICU", "abstract": "We train an agent to imitate clinicians."},
+              {"key": "m", "title": "Nosocomial infections during ECMO", "year": 2022,
+               "abstract": "Infection occurred in 20% of adult ECMO runs; duration was the main risk factor."},
+              {"key": "n", "title": "No abstract paper"}]
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        return {"draft": "", "works": [], "queries": []}
+
+    out = asyncio.run(ag.write_with_pointers("How does ECMO affect infection risk?", papers, llm_json=llm_json,
+                                             mirror=None, draft_context=1))
+    assert out["agent"]["draft_context"] == 1
+    assert "duration was the main risk factor" in prompts[0] and "imitate clinicians" not in prompts[0]
+
+
+def test_mark_mode_keeps_draft_verbatim_and_attaches_pointers(monkeypatch):
+    _no_rerank(monkeypatch)
+    draft = ("**Datasets.** ManyTypes4Py is a large dataset with 869K annotations. "
+             "TypeEvalPy is a micro-benchmark with 999 snippets.\n\n"
+             "**Limitations.** Type inference for Python remains hard because of dynamic features.")
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        if "## 任务" in user and "draft" in user:
+            return {"draft": draft, "works": [], "queries": []}
+        assert "已按句编号" in user and "[2] TypeEvalPy is a micro-benchmark with 999 snippets." in user
+        return {"marks": [{"i": 1, "pointers": ["S5"], "fix": ""},
+                          {"i": 2, "pointers": ["S2", "S99"], "fix": "TypeEvalPy is a micro-benchmark with 154 snippets."}]}
+
+    out = asyncio.run(ag.write_with_pointers("What datasets evaluate Python type inference?", _PAPERS,
+                                             llm_json=llm_json, mirror=None, final_mode="mark"))
+    assert out["status"] == "ok" and len(prompts) == 2              # 起草 + 一次挑指针，不进入重写
+    assert "**Datasets.** ManyTypes4Py is a large dataset with 869K annotations [1]." in out["text"]
+    assert "154 snippets [2]." in out["text"] and "999" not in out["text"]   # 矛盾句按证据改正
+    assert "Type inference for Python remains hard because of dynamic features." in out["text"]   # 无证据句原样保留
+    assert out["agent"]["mark"] == {"sentences": 3, "marked": 2, "fixed": 1}
+
+
+def test_mark_mode_falls_back_to_attach_when_no_marks(monkeypatch):
+    _no_rerank(monkeypatch)
+
+    async def llm_json(system, user):
+        if "## 任务" in user and "draft" in user:
+            return {"draft": "ManyTypes4Py is a large dataset with 869K annotations for type inference.",
+                    "works": [], "queries": []}
+        if "已按句编号" in user:
+            return {"marks": "oops"}
+        return {"answer": "ManyTypes4Py is a large dataset with 869K annotations for type inference [S5]."}
+
+    out = asyncio.run(ag.write_with_pointers("Which datasets?", _PAPERS, llm_json=llm_json, mirror=None,
+                                             final_mode="mark"))
+    assert out["status"] == "ok" and out["agent"]["mark_fallback"] and "[1]" in out["text"]
+
+
+def test_multiple_drafts_are_merged_and_their_works_and_queries_united(monkeypatch):
+    _no_rerank(monkeypatch)
+    drafts = iter([
+        {"draft": "**Chemical routes.** Co-precipitation and thermal decomposition dominate.",
+         "works": [{"title": "Monodisperse magnetite nanoparticles", "year": 2002}], "queries": ["co-precipitation size"]},
+        {"draft": "**Top-down vs bottom-up.** Ball milling breaks bulk material; chemistry builds atom by atom.",
+         "works": [{"title": "Ball milling of iron oxide powders", "year": 2010}],
+         "queries": ["ball milling nanoparticles", "Co-precipitation size"]},
+    ])
+    prompts = []
+
+    async def llm_json(system, user):
+        prompts.append(user)
+        if "## 草稿 1" in user:
+            return {"draft": "**Top-down vs bottom-up.** Ball milling breaks bulk material; bottom-up chemistry "
+                             "(co-precipitation, thermal decomposition) builds particles atom by atom."}
+        if '"works"' in user:
+            return next(drafts)
+        return {"answer": "Top-down ball milling breaks bulk material; bottom-up chemistry builds particles."}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods for making magnetic nanoparticles?",
+                                             _PAPERS, llm_json=llm_json, mirror=None, final_mode="attach",
+                                             drafts=2))
+    merge = [p for p in prompts if "## 草稿 1" in p][0]
+    assert "Co-precipitation and thermal decomposition" in merge and "Ball milling breaks bulk" in merge
+    assert "分类方式不同时，都写进来" in merge
+    assert out["draft"].startswith("**Top-down vs bottom-up.**") and out["agent"]["merge"]["status"] == "ok"
+    assert out["agent"]["works"] == ["Monodisperse magnetite nanoparticles", "Ball milling of iron oxide powders"]
+    assert out["agent"]["queries"] == ["co-precipitation size", "ball milling nanoparticles"]   # 交替合并、不分大小写去重
+
+
+def test_short_merge_falls_back_to_first_draft(monkeypatch):
+    _no_rerank(monkeypatch)
+    first = "**Chemical routes.** Co-precipitation and thermal decomposition dominate the synthesis literature."
+
+    async def llm_json(system, user):
+        if "## 草稿 1" in user:
+            return {"draft": "Two methods."}                          # 合并稿丢了大半内容
+        if '"works"' in user:
+            return {"draft": first, "works": [], "queries": []}
+        return {"answer": first}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
+                                             mirror=None, final_mode="attach", drafts=2))
+    assert out["draft"] == first and out["agent"]["merge"]["status"] == "short"
+
+
+def test_failed_second_draft_falls_back_to_the_one_that_succeeded(monkeypatch):
+    _no_rerank(monkeypatch)
+    calls = []
+    text = "**Chemical routes.** Co-precipitation and thermal decomposition dominate the synthesis literature."
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("content filter")
+            return {"draft": text, "works": [], "queries": []}
+        assert "## 草稿 1" not in user                                 # 只有一份时不合并
+        return {"answer": text}
+
+    out = asyncio.run(ag.write_with_pointers("What are the two main methods?", _PAPERS, llm_json=llm_json,
+                                             mirror=None, final_mode="attach", drafts=2))
+    assert out["draft"] == text and out["agent"]["merge"] == {"drafts": 1, "status": "single"}
+
+
+def test_base_merge_keeps_the_first_draft_as_the_body():
+    first = " ".join(["Co-precipitation gives broad size distributions."] * 20)
+    p = ag._merge_prompt("Two main methods?", [first, "Ball milling is top-down."], "en", "base")
+    assert "以草稿 1 为主体" in p and "不删减" in p and f"不超过 {int(ag.aw._count_words(first, 'en') * ag.MERGE_BASE_RATIO)} 个英文单词" in p
+    assert "各份草稿里不重复的内容都要保留" in ag._merge_prompt("Q?", [first, "x"], "en")
+
+
+def test_title_lookup_finds_named_works_without_the_web_search_channel(monkeypatch):
+    _no_rerank(monkeypatch)
+    asked = []
+
+    class Lookup:
+        async def lookup_titles(self, titles):
+            asked.extend(titles)
+            return [{"key": "bz", "title": "Dimensions of riparian buffer strips required to maintain trout habitat",
+                     "year": 1985, "abstract": "Buffer strips of 30 m kept trout habitat stable in southern Ontario.",
+                     "requested_title": titles[0], "source_query": "method:title_lookup"}]
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            return {"draft": "Buffer strips of about 30 m protect trout habitat.",
+                    "works": [{"title": "Dimensions of riparian buffer strips required to maintain trout habitat"}],
+                    "queries": []}
+        return {"answer": "Buffer strips of about 30 m protect trout habitat [S1]."}
+
+    out = asyncio.run(ag.write_with_pointers("What riparian buffer widths protect trout?", [], llm_json=llm_json,
+                                             mirror=None, final_mode="attach", title_lookup=Lookup()))
+    assert asked == ["Dimensions of riparian buffer strips required to maintain trout habitat"]
+    assert out["agent"]["works_found"] == 1 and out["agent"]["works_web_found"] == 1
+    assert out["references"][0]["origin"] == "named_work"
+
+
+def test_reference_entries_split_numbered_lists_and_rank_by_word_stems():
+    body = "Introduction text. " * 200
+    refs = ("\nReferences\n1. Smith A. Deep learning for images. J Vis 2019. "
+            "2. Lindahl V, Pearson JL, Colpe L. Prevalence of suicidality during pregnancy and the postpartum. "
+            "Arch Womens Ment Health 2005;8:77-87. doi:10.1007/s00737-005-0080-1 "
+            "3. Doe B. Soil chemistry of wetlands. Soil Sci 2001. ")
+    entries = es.reference_entries(body + refs)
+    assert len(entries) == 3 and entries[1].startswith("2. Lindahl")
+    top = es.rank_reference_windows(entries, "suicide attempts during pregnancy and postpartum", 1)
+    assert top == [entries[1]]                                   # suicidality 与 suicide 按词干算重合
+
+
+def test_reference_chase_adds_resolved_papers_with_abstracts(monkeypatch):
+    _no_rerank(monkeypatch)
+    text = ("Body. " * 400 + "\nReferences\n1. Lindahl V. Prevalence of suicidality during pregnancy and the "
+            "postpartum. 2005. doi:10.1007/s00737-005-0080-1 2. Other A. Unrelated topic on soils. 2001. "
+            "3. Third B. Another unrelated paper on rocks. 1999.")
+
+    async def resolve(entry):
+        if "Lindahl" in entry:
+            return {"key": "doi:10.1007/s00737-005-0080-1", "doi": "10.1007/s00737-005-0080-1", "year": 2005,
+                    "title": "Prevalence of suicidality during pregnancy and the postpartum", "abstract": ""}
+        return None
+
+    async def abstract(doi):
+        return "Suicide attempts occurred in 0.1% of pregnancies. " * 3
+
+    monkeypatch.setattr(ag, "resolve_reference", resolve)
+    monkeypatch.setattr(ag, "fetch_abstract", abstract)
+    papers = [{"key": "r1", "title": "A 2016 review of perinatal suicide", "year": 2016, "source_text": text},
+              {"key": "r2", "title": "A 2026 review written after the survey", "year": 2026,
+               "source_text": text.replace("Lindahl", "Later")}]
+
+    async def llm_json(system, user):
+        if '"works"' in user:
+            return {"draft": "**Prevalence.** Suicide attempts during pregnancy are rare.", "works": [], "queries": []}
+        return {"answer": "Suicide attempts during pregnancy are rare [S1]."}
+
+    out = asyncio.run(ag.write_with_pointers("How common are suicide attempts during pregnancy?", papers,
+                                             llm_json=llm_json, mirror=None, final_mode="attach", ref_chase=5,
+                                             chase_before_year=2024))
+    chase = out["agent"]["ref_chase"]
+    assert chase["added"] == 1 and chase["entries"] == 3          # 2026 的论文不回溯（晚于题目日期）
+
+
+def test_backfill_abstracts_only_fills_papers_without_abstract_or_full_text(monkeypatch):
+    async def abstract(doi):
+        return "A long enough abstract sentence about perinatal suicide risk factors. " * 3 if doi == "10.1/a" else ""
+
+    monkeypatch.setattr(es, "fetch_abstract", abstract)
+    papers = [{"doi": "10.1/a", "abstract": ""}, {"doi": "10.1/b", "abstract": ""},
+              {"doi": "10.1/c", "abstract": "Already has one."}, {"doi": "10.1/d", "source_text": "full"}]
+    assert asyncio.run(es.backfill_abstracts(papers)) == 1 and papers[0]["abstract"].startswith("A long")

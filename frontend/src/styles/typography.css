@@ -1,41 +1,30 @@
 /*
- * 论文精读辅助分析软件 — 排版基座
+ * 论文精读辅助分析软件 — 排版基座（v10「朱批」）
  *
- * v4.1 之前，全站只有一个字族（Helvetica Neue / PingFang SC）承担全部角色：
- * 展示标题、界面控件、正文、以及那批寄存器标记（`01—ARCHIVE—PLANE`、
- * `31.2304°N`）。层级只能靠字号拉开，于是「大的」和「小的」是同一种东西的
- * 两个尺寸，读起来始终是一张纸上的一段话，而不是一套仪表。
+ * 版面按学术刊物排：标题、页名与大数字用衬线（展示），界面与正文用无衬线（界面），
+ * 编号、日期、坐标这类注记用等宽（寄存）。三种角色三种字族，层级靠字族与字重拉开，
+ * 不靠一路放大字号。
  *
- * 更糟的是展示层写的是 `font-family: Arial; font-weight: 900;
- * font-stretch: condensed` —— Arial 没有 900 字重也没有宽度轴，浏览器只能
- * 合成假粗，`font-stretch` 直接被忽略。整套构成主义语言的地基（重量级窄体
- * 无衬线）从来没有真正落地过。
+ *   展示 = Newsreader Variable（opsz 光学尺寸轴，大字号自动收紧字怀）
+ *          + Noto Serif SC Variable（思源宋体，中文标题）
+ *   界面 = Instrument Sans Variable（人文无衬线，比 Inter 更有书写感）+ 系统中文黑体
+ *   寄存 = JetBrains Mono Variable
  *
- * 这一层给三个角色各一个真字族：
- *
- *   展示 = Archivo Variable   真 900 字重 + 真宽度轴（62–125），
- *                             海报体该有的重量与收窄都是字体自己给的
- *   界面 = Inter Variable     带光学尺寸轴，小字号自动加大 x-height
- *   寄存 = JetBrains Mono     所有坐标、编号、场景码、状态读数
- *
- * 第三条是这套语言真正的缺口：寄存器文字本质是技术制图上的标注，它必须
- * 看起来像仪器打上去的，而不是像一句被缩小的标题。换成等宽之后，它们
- * 自动退到「注记」的层级，不再和标题抢注意力。
- *
- * 中文继续使用系统字族。由系统字体匹配原生字重，避免把单个本地字面
- * 伪装成 100–900 全字重后，粗体中文标题落到普通字面。
+ * 中文正文继续用系统黑体（苹方）：宋体只用在展示层，正文小字号下宋体发虚。
  */
 
-@import '@fontsource-variable/archivo/standard.css';
-@import '@fontsource-variable/inter/standard.css';
+@import '@fontsource-variable/newsreader/opsz.css';
+@import '@fontsource-variable/newsreader/opsz-italic.css';
+@import '@fontsource-variable/noto-serif-sc/index.css';
+@import '@fontsource-variable/instrument-sans/index.css';
 @import '@fontsource-variable/jetbrains-mono/index.css';
 
 :root {
   --font-cjk: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-cjk-serif: 'Noto Serif SC Variable', 'Songti SC', 'STSong', serif;
 
-  --font-display: 'Archivo Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    var(--font-cjk);
-  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+  --font-display: 'Newsreader Variable', var(--font-cjk-serif), Georgia, serif;
+  --font-ui: 'Instrument Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial,
     var(--font-cjk);
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
   --font-register: var(--font-mono);
@@ -54,8 +43,8 @@
   --fs-title: 17px;
   --fs-h3: clamp(16px, 1.3vw, 18px);
   --fs-h2: clamp(19px, 1.8vw, 22px);
-  --fs-h1: clamp(24px, 2.4vw, 30px);
-  --fs-hero: clamp(28px, 3.2vw, 40px);
+  --fs-h1: clamp(28px, 2.8vw, 38px);
+  --fs-hero: clamp(34px, 4.2vw, 56px);
 
   /* ── 行高 ────────────────────────────────────────────────────────── */
   --lh-flat: 1;
@@ -66,8 +55,8 @@
   --lh-relaxed: 1.68;
 
   /* ── 字距 ────────────────────────────────────────────────────────── */
-  --tr-hero: -0.015em;
-  --tr-display: -0.01em;
+  --tr-hero: -0.022em;
+  --tr-display: -0.016em;
   --tr-heading: -0.005em;
   --tr-title: 0;
   --tr-body: 0;
@@ -97,7 +86,7 @@
 
 .t-hero {
   font-size: var(--fs-hero);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: var(--tr-hero);
   line-height: var(--lh-display);
 }
@@ -105,7 +94,7 @@
 .t-display {
   font-size: var(--fs-h1);
   font-stretch: var(--wdth-display);
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: var(--tr-display);
   line-height: var(--lh-display);
 }
@@ -113,7 +102,7 @@
 .t-heading {
   font-size: var(--fs-h2);
   font-stretch: var(--wdth-heading);
-  font-weight: 800;
+  font-weight: 560;
   letter-spacing: var(--tr-heading);
   line-height: var(--lh-tight);
 }
@@ -121,7 +110,7 @@
 .t-subheading {
   font-size: var(--fs-h3);
   font-stretch: var(--wdth-heading);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--tr-heading);
   line-height: var(--lh-tight);
 }
@@ -192,7 +181,7 @@
   font-family: var(--font-display);
   font-size: var(--fs-h2);
   font-stretch: var(--wdth-heading);
-  font-weight: 800;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--tr-heading);
   line-height: var(--lh-flat);
@@ -208,14 +197,14 @@
 
 .text-display {
   font-stretch: var(--wdth-display);
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: var(--tr-display);
   line-height: var(--lh-display);
 }
 
 .text-heading {
   font-stretch: var(--wdth-heading);
-  font-weight: 700;
+  font-weight: 560;
   letter-spacing: var(--tr-heading);
   line-height: var(--lh-tight);
 }

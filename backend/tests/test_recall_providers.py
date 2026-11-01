@@ -357,6 +357,134 @@ async def test_scopus_search_works_passes_quality_params(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scopus_search_uses_complete_view_for_abstracts_when_entitled(monkeypatch):
+    """机构订阅可达（COMPLETE 视图探测 200）时检索带摘要；不可达时照旧只取基础字段，且不计入鉴权熔断。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    for entitled in (True, False):
+        p = ScopusProvider(api_key="k")
+        captured: dict = {}
+
+        async def probe(entitled=entitled):
+            return entitled
+
+        async def fake_get(path, params=None):
+            captured["params"] = dict(params or {})
+            entry = {"dc:title": "Biochar pyrolysis", "dc:identifier": "SCOPUS_ID:1", "openaccessFlag": True}
+            if params.get("view") == "COMPLETE":
+                entry["dc:description"] = "We study pyrolysis temperature."
+            return {"search-results": {"entry": [entry]}}
+
+        monkeypatch.setattr(p, "_complete_view_ok", probe)
+        monkeypatch.setattr(p, "_get", fake_get)
+        out = await p.search_works("biochar pyrolysis", limit=5)
+        assert (captured["params"].get("view") == "COMPLETE") is entitled
+        assert ("dc:description" in captured["params"]["field"]) is entitled
+        assert out[0].abstract == ("We study pyrolysis temperature." if entitled else None)
+        assert p._auth_fails == 0
+
+
+def test_scopus_query_strips_syntax_characters_from_natural_language():
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    q = ScopusProvider.build_search_query("How does extracorporeal membrane oxygenation (ECMO) influence risk?")
+    assert q == "TITLE-ABS-KEY(How does extracorporeal membrane oxygenation ECMO influence risk)"
+
+
+@pytest.mark.asyncio
+async def test_scopus_cited_order_on_relaxed_query_ranks_relevant_page_locally(monkeypatch):
+    """原式 0 命中后的放宽式（OR）按相关度取一页、本地按被引重排；不让 Scopus 对 OR 式按被引排（会排出全库高被引论文）。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    p = ScopusProvider(api_key="")
+    sorts = []
+
+    async def no_complete():
+        return False
+
+    async def fake_get(path, params=None):
+        sorts.append((params["query"], params["sort"]))
+        if " OR " not in params["query"]:
+            return {"search-results": {"entry": []}}
+        return {"search-results": {"entry": [
+            {"dc:title": "Recent harvesting study", "citedby-count": "3", "dc:identifier": "SCOPUS_ID:1"},
+            {"dc:title": "Classic harvesting regrowth study", "citedby-count": "48", "dc:identifier": "SCOPUS_ID:2"},
+        ]}}
+
+    monkeypatch.setattr(p, "_complete_view_ok", no_complete)
+    monkeypatch.setattr(p, "_get", fake_get)
+    out = await p.search_works("harvesting intensity recovery seaweed biomass", limit=5, order="cited")
+    assert sorts[0][1] == "-citedby-count" and sorts[1][1] == "-relevancy"
+    assert [c.title for c in out] == ["Classic harvesting regrowth study", "Recent harvesting study"]
+
+
+@pytest.mark.asyncio
+async def test_scopus_strict_query_short_of_limit_tops_up_from_relaxed(monkeypatch):
+    """原式命中不足名额时用放宽式补满：原式结果在前，重复的不再收。"""
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+    p = ScopusProvider(api_key="")
+
+    async def no_complete():
+        return False
+
+    async def fake_get(path, params=None):
+        if " OR " in params["query"]:
+            ids = [2, 3, 4, 5]
+        else:
+            ids = [1, 2]
+        return {"search-results": {"entry": [{"dc:title": f"Paper {i}", "dc:identifier": f"SCOPUS_ID:{i}"} for i in ids]}}
+
+    monkeypatch.setattr(p, "_complete_view_ok", no_complete)
+    monkeypatch.setattr(p, "_get", fake_get)
+    out = await p.search_works("extracorporeal membrane oxygenation infection risk factors", limit=4)
+    assert [c.title for c in out] == ["Paper 1", "Paper 2", "Paper 3", "Paper 4"]
+
+
+@pytest.mark.asyncio
+async def test_scopus_complete_view_probe_401_does_not_trip_breaker(monkeypatch):
+    import httpx
+
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.params.get("view"))
+        return httpx.Response(401, json={"service-error": {}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await p._complete_view_ok() is False
+    assert await p._complete_view_ok() is False   # 只探测一次
+    assert calls == ["COMPLETE"] and p._auth_fails == 0 and not p._disabled
+    await p.aclose()
+
+
+@pytest.mark.asyncio
+async def test_scopus_complete_view_probe_rate_limit_is_not_cached(monkeypatch):
+    """探测碰上限流（429）不算结论：重试，仍失败时这次不带摘要、下次检索再探测（原来一次 429 整个实例都不带摘要）。"""
+    import httpx
+
+    from backend.services.deep_research.providers import scopus as sc
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(sc.asyncio, "sleep", no_sleep)
+    replies = iter([429, 429, 429, 200])
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(next(replies), json={})
+
+    p = sc.ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await p._complete_view_ok() is False and p._complete_view is None   # 三次 429：不缓存
+    assert await p._complete_view_ok() is True and len(calls) == 4            # 下次再探测成功
+    assert await p._complete_view_ok() is True and len(calls) == 4            # 成功后缓存
+    await p.aclose()
+
+
+@pytest.mark.asyncio
 async def test_scopus_zero_hit_long_query_relaxes_to_or_first_page(monkeypatch):
     from backend.services.deep_research.providers.scopus import ScopusProvider, relaxed_queries
     p = ScopusProvider(api_key="")
@@ -595,3 +723,106 @@ async def test_openalex_citation_history_by_doi(monkeypatch):
     assert await p.get_citation_history("") is None
     monkeypatch.setattr(p, "_safe_get", lambda path, params=None: _async_value(None))
     assert await p.get_citation_history("10.2/y") is None
+
+
+@pytest.mark.asyncio
+async def test_scopus_references_use_scopus_id_path_and_new_structure():
+    """参考文献接口路径是 scopus_id（下划线），条目在 abstracts-retrieval-response.references.reference。"""
+    import httpx
+
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"abstracts-retrieval-response": {"references": {
+            "@total-references": "2", "reference": [
+                {"title": "Prevalence of suicidality during pregnancy and the postpartum", "ce:doi": "10.1007/x",
+                 "prism:coverDate": "2005-01-01", "citedby-count": "704", "scopus-id": "21144446011"},
+                {"title": None, "sourcetitle": "A book"}]}}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    refs = await p.get_paper_references("SCOPUS_ID:84988851383")
+    assert seen == ["/content/abstract/scopus_id/84988851383"]
+    assert refs == [{"ext_id": "21144446011", "title": "Prevalence of suicidality during pregnancy and the postpartum",
+                     "year": 2005, "citation_count": 704, "doi": "10.1007/x", "arxiv_id": None, "pdf_url": None}]
+    await p.aclose()
+
+
+@pytest.mark.asyncio
+async def test_recall_ref_chase_picks_relevant_references_of_early_review_seeds():
+    from backend.services.deep_research import recall_engine as eng
+
+    class Fake:
+        def __init__(self):
+            self.asked = []
+
+        async def get_paper_references(self, sid, limit=40):
+            self.asked.append(sid)
+            return [{"title": "Prevalence of suicidality during pregnancy and the postpartum", "doi": "10.1/lin",
+                     "citation_count": 700},
+                    {"title": "Soil carbon in boreal forests", "doi": "10.1/soil", "citation_count": 900},
+                    {"title": "Already recalled suicide attempt pregnancy cohort", "doi": "10.1/have"}]
+
+        async def works_by_dois(self, dois):
+            return [{"doi": d, "title": d} for d in dois]
+
+    corpus = [{"scopus_id": "1", "title": "Suicide during perinatal period: a review", "year": 2016, "doi": "10.1/have"},
+              {"scopus_id": "2", "title": "Suicide attempts during pregnancy: meta-analysis", "year": 2024},
+              {"scopus_id": "3", "title": "A cohort study", "year": 2010, "citation_count": 5}]
+    fake = Fake()
+    out = await eng._ref_chase(corpus, "suicide attempts during pregnancy and postpartum", [], 5, 2024, fake)
+    assert fake.asked == ["1", "3"]                         # 2024 年的综述不作种子（评测防出题来源）
+    assert [c["doi"] for c in out["candidates"]] == ["10.1/lin"] and out["added"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scopus_local_cache_records_then_serves_without_network(monkeypatch, tmp_path):
+    """record：响应写入本地库、同一请求不再调 Scopus；local：不调 Scopus，未缓存的检索在本地论文库里按 Scopus 格式答。"""
+    import httpx
+
+    from backend.services.deep_research.providers import scopus_local
+    from backend.services.deep_research.providers.scopus import ScopusProvider
+
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE_DB", str(tmp_path / "s.sqlite"))
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE", "record")
+    calls = []
+    entries = [
+        {"eid": "2-s2.0-1", "dc:identifier": "SCOPUS_ID:1", "dc:title": "Prevalence of suicidality during pregnancy",
+         "prism:doi": "10.1/lin", "prism:coverDate": "2005-01-01", "citedby-count": "700",
+         "dc:description": "Suicide attempts during pregnancy and the postpartum period are rare."},
+        {"eid": "2-s2.0-2", "dc:identifier": "SCOPUS_ID:2", "dc:title": "Soil carbon in boreal forests",
+         "prism:doi": "10.1/soil", "prism:coverDate": "2010-01-01", "citedby-count": "900",
+         "dc:description": "Boreal soils store carbon."}]
+
+    def handler(request):
+        calls.append(str(request.url))
+        if request.url.params.get("view") == "COMPLETE" and request.url.params.get("count") == "1":
+            return httpx.Response(200, json={"search-results": {"entry": []}})
+        return httpx.Response(200, json={"search-results": {"opensearch:totalResults": "2", "entry": entries}})
+
+    p = ScopusProvider(api_key="k")
+    p._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    params = {"query": "TITLE-ABS-KEY(anything)", "count": 25}
+    first = await p._get("/content/search/scopus", params)
+    again = await p._get("/content/search/scopus", params)
+    assert first == again and len([c for c in calls if "anything" in c]) == 1
+    await p.aclose()
+
+    monkeypatch.setenv("ESSAY_SCOPUS_CACHE", "local")
+    q = ScopusProvider(api_key="k")
+    q._client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: pytest.fail("local 模式不应调 Scopus")))
+    local = scopus_local.active()
+    hits = local.serve("/content/search/scopus", {"query": "TITLE-ABS-KEY(suicide attempts pregnancy)", "count": 5})
+    assert [e["eid"] for e in hits["search-results"]["entry"]] == ["2-s2.0-1"]          # 宽松 AND + 词干（attempts）
+    both = local.serve("/content/search/scopus", {"query": "TITLE-ABS-KEY(pregnancy OR carbon)", "count": 5,
+                                                  "sort": "-citedby-count"})
+    assert [e["eid"] for e in both["search-results"]["entry"]] == ["2-s2.0-2", "2-s2.0-1"]   # OR + 按被引排序
+    by_doi = await q._get("/content/search/scopus", {"query": 'DOI("10.1/soil") OR DOI("10.1/lin")', "count": 2})
+    assert {e["eid"] for e in by_doi["search-results"]["entry"]} == {"2-s2.0-1", "2-s2.0-2"}
+    titled = await q.search_titles("Prevalence of suicidality during pregnancy")
+    assert await q._complete_view_ok() is True and titled and titled[0].title.startswith("Prevalence")
+    assert await q._get("/content/abstract/scopus_id/9", {"view": "REF"}) is None       # 参考文献列表只用缓存
+    await q.aclose()

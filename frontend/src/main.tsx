@@ -27,6 +27,8 @@ import './styles/experience.css'
 import './styles/surfaces.css'
 import './styles/pages.css'
 import './styles/controls.css'
+// v10「朱批」版面层：外壳目录栏、共用版面构件、首页（必须最后，压过旧层外壳兜底）
+import './styles/marginalia.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
